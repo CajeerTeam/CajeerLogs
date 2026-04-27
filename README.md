@@ -1,49 +1,50 @@
 # Cajeer Logs
 
-Cajeer Logs is a lightweight self-hosted log center for bots, aaPanel/Nginx sites and infrastructure events. It is designed for small teams that need centralized ingestion, search, incident triage, bot diagnostics and retention without a heavy external observability stack.
+Cajeer Logs — открытый PHP-сервис для централизованного приёма, хранения и анализа журналов приложений, ботов, сайтов и инфраструктурных компонентов.
 
-![PHP](https://img.shields.io/badge/PHP-8.2%2B-blue)
-![License](https://img.shields.io/badge/license-Apache--2.0-green)
-![Runtime](https://img.shields.io/badge/runtime-no%20Composer%20required-lightgrey)
+Проект рассчитан на самостоятельное развёртывание: без обязательного Composer, без Laravel, без Node.js и без внешнего сервиса наблюдаемости в runtime.
 
-## Features
 
-- HTTP ingest endpoint for bots and services.
-- Python client handler in `clients/bot.py`.
-- PostgreSQL production storage with SQLite fallback for local/demo runs.
-- Web UI for logs, bot tokens, saved views, incidents, alerts, jobs and system checks.
-- aaPanel log import for Nginx access/error logs.
-- Retention jobs with optional NDJSON.gz archives.
-- Git-based update center with preflight checks, backup and rollback support.
-- No Laravel, Node.js, Go or Composer dependency required at runtime.
+## Возможности
 
-## Requirements
+- HTTP API для приёма событий от приложений и ботов.
+- Python-клиент `clients/bot.py` с пачками, повторной отправкой, локальной очередью и HMAC-подписью.
+- PostgreSQL для production-эксплуатации.
+- SQLite fallback для локальной проверки и demo-окружений.
+- Web-интерфейс для журналов, токенов, представлений, инцидентов, оповещений, аудита и системных проверок.
+- Импорт access/error журналов Nginx из локального каталога сервера.
+- Retention-политики с опциональной архивацией в NDJSON.gz перед удалением.
+- Центр обновлений через git с предварительными проверками, резервной копией и откатом.
+- RBAC, аудит действий, CSRF-защита, rate limit ingest API и редактирование секретов в событиях.
 
-- PHP 8.2 or newer.
-- PDO extension.
-- PostgreSQL with `pdo_pgsql` for production.
-- SQLite with `pdo_sqlite` for local/demo fallback.
-- Nginx or Apache with the document root pointed to `public/`.
-- `git` and `tar` only if the built-in update center is used.
+## Требования
 
-## Repository structure
+- PHP 8.2 или новее.
+- Расширение `pdo`.
+- `pdo_pgsql` для PostgreSQL.
+- `pdo_sqlite` только для локального fallback-режима.
+- Nginx или Apache с document root на каталог `public/`.
+- `git` и `tar`, если используется встроенный центр обновлений.
+
+## Структура репозитория
 
 ```text
-logs-main/
-├─ app/             # PHP application classes
-├─ app/Internal/    # SQL schema snapshots
-├─ bin/             # CLI maintenance commands
-├─ clients/         # Remote logging clients
-├─ docs/            # Project and deployment documentation
+CajeerLogs/
+├─ app/             # PHP-классы приложения
+├─ app/Internal/    # SQL snapshot схемы PostgreSQL
+├─ bin/             # CLI-команды обслуживания
+├─ clients/         # Клиенты удалённой отправки журналов
 ├─ public/          # Web root
-├─ storage/         # Runtime cache/log/archive directories; contents are ignored
-├─ .env.example     # Safe configuration template
-├─ LICENSE
+├─ storage/         # Runtime-каталоги; содержимое игнорируется Git
+├─ wiki/            # Исходники страниц GitHub Wiki
+├─ openapi.yaml     # Машиночитаемый контракт ingest API
+├─ .env.example     # Безопасный шаблон конфигурации
 ├─ README.md
+├─ LICENSE
 └─ VERSION
 ```
 
-## Quick start
+## Быстрый старт
 
 ```bash
 git clone https://github.com/CajeerTeam/CajeerLogs.git
@@ -51,7 +52,7 @@ cd CajeerLogs
 cp .env.example .env
 ```
 
-Edit `.env` and set at minimum:
+Минимально настройте `.env`:
 
 ```env
 APP_URL=https://logs.example.com
@@ -61,108 +62,91 @@ DB_USERNAME=cajeer_logs
 DB_PASSWORD=change_me
 LOGS_TOKEN_PEPPER=<64 hex chars>
 PRIVACY_HASH_PEPPER=<64 hex chars>
+DOCS_URL=https://github.com/CajeerTeam/CajeerLogs/wiki
 ```
 
-Generate pepper values:
+Сгенерировать pepper-значения можно так:
 
 ```bash
 openssl rand -hex 32
 ```
 
-Prepare runtime directories, run migrations and check the installation:
+Подготовьте каталоги, примените миграции и проверьте окружение:
 
 ```bash
 php bin/bootstrap.php
 php bin/migrate.php
 php bin/doctor.php
+php bin/self-test.php
 ```
 
-Create the first administrator:
+Создайте первого администратора:
 
 ```bash
 php bin/make-user.php admin 'CHANGE_ME_STRONG_PASSWORD' admin
 ```
 
-Point your web server document root to:
+Document root web-сервера должен указывать на:
 
 ```text
 /path/to/CajeerLogs/public
 ```
 
-## aaPanel/Nginx deployment
+## Плановые задачи
 
-A typical aaPanel deployment uses this project path:
-
-```text
-/www/wwwroot/logs.example.com
-```
-
-and this web root:
-
-```text
-/www/wwwroot/logs.example.com/public
-```
-
-After upload or `git clone`, run:
+Рекомендуемый набор cron/systemd timer задач:
 
 ```bash
-cd /www/wwwroot/logs.example.com
-/www/server/php/83/bin/php bin/bootstrap.php
-/www/server/php/83/bin/php bin/migrate.php
-/www/server/php/83/bin/php bin/doctor.php
+cd /path/to/CajeerLogs && php bin/process-jobs.php >/dev/null 2>&1
+cd /path/to/CajeerLogs && php bin/alert-dispatch.php >/dev/null 2>&1
+cd /path/to/CajeerLogs && php bin/import-aapanel-logs.php --max-lines=1000 >/dev/null 2>&1
+cd /path/to/CajeerLogs && php bin/retention.php >/dev/null 2>&1
 ```
 
-If the server uses PHP 8.2 or 8.4, replace the PHP binary path accordingly.
+Рекомендуемые интервалы:
 
-See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the full production checklist.
+- `process-jobs.php` — каждую минуту.
+- `alert-dispatch.php` — каждую минуту.
+- `import-aapanel-logs.php` — каждые 1–5 минут, если нужен импорт локальных Nginx-журналов.
+- `retention.php` — один раз в день.
 
-## Cron jobs
+## Ingest API
 
-Recommended cron commands:
-
-```bash
-cd /www/wwwroot/logs.example.com && /www/server/php/83/bin/php bin/process-jobs.php >/dev/null 2>&1
-cd /www/wwwroot/logs.example.com && /www/server/php/83/bin/php bin/alert-dispatch.php >/dev/null 2>&1
-cd /www/wwwroot/logs.example.com && /www/server/php/83/bin/php bin/import-aapanel-logs.php --max-lines=1000 >/dev/null 2>&1
-cd /www/wwwroot/logs.example.com && /www/server/php/83/bin/php bin/retention.php >/dev/null 2>&1
-```
-
-Recommended intervals:
-
-- `process-jobs.php`: every minute.
-- `alert-dispatch.php`: every minute.
-- `import-aapanel-logs.php`: every 1–5 minutes.
-- `retention.php`: daily.
-
-## API ingest
-
-Endpoint:
+Основная точка приёма событий:
 
 ```http
 POST /api/v1/ingest
 ```
 
-Headers:
+Минимальные заголовки:
 
 ```http
 Content-Type: application/json
 X-Log-Token: RAW_BOT_TOKEN
 ```
 
-See [`docs/API.md`](docs/API.md) for payload format and Python client usage.
+При включённой HMAC-подписи дополнительно используются:
 
-## Connecting a Python bot
+```http
+X-Log-Timestamp: <unix timestamp>
+X-Log-Nonce: <unique nonce>
+X-Log-Signature: <hex hmac sha256>
+```
 
-1. Open `/bots/new` or `/bots` in the web UI.
-2. Create a token for the project/bot/environment.
-3. Copy the generated environment block into the bot host.
-4. Copy `clients/bot.py` into the bot project, for example as `remote_log_handler.py`.
-5. Connect `RemoteLogHandler` in the bot entrypoint.
-6. Send a test log and verify it in `/logs` or `/bots/{id}`.
+Машиночитаемая спецификация находится в [`openapi.yaml`](openapi.yaml).
 
-## Updating from GitHub
+## Подключение Python-приложения или бота
 
-The update center is available at `/system/update`. For public deployments, keep web-triggered updates disabled until the repository, backups and permissions are verified:
+1. Откройте `/bots` в web-интерфейсе.
+2. Создайте токен для конкретного проекта, приложения и окружения.
+3. Скопируйте сгенерированный блок переменных окружения в окружение запуска процесса.
+4. Скопируйте `clients/bot.py` в проект или подключите его как внутренний модуль.
+5. Добавьте `RemoteLogHandler` в точке входа приложения.
+6. Отправьте тестовое событие и проверьте `/logs` или `/bots/health`.
+
+## Обновление
+
+Центр обновлений доступен в `/system/update`. Для публичного развёртывания web-запуск обновлений должен быть выключен до проверки репозитория, резервных копий и прав на файловую систему:
 
 ```env
 UPDATE_REPO_URL=https://github.com/CajeerTeam/CajeerLogs
@@ -173,7 +157,7 @@ UPDATE_BACKUP_DIR=storage/backups/updates
 UPDATE_ROLLBACK_ON_FAILURE=true
 ```
 
-CLI commands:
+CLI-команды:
 
 ```bash
 php bin/update.php status
@@ -182,21 +166,29 @@ php bin/update.php update
 php bin/update.php rollback
 ```
 
-## Security notes
+## Документация
 
-- Never commit `.env`, database dumps, runtime logs, bot tokens or update tokens.
-- Rotate the PostgreSQL password and pepper values if they were ever committed or shared.
-- Keep `APP_DEBUG=false` in production.
-- Disable `LOGS_ENV_FALLBACK_LOGIN` after creating the first admin user.
-- Prefer `INGEST_REQUIRE_SIGNATURE=true` for untrusted networks.
-- Restrict access to system/recovery pages with `UI_IP_ALLOWLIST` where possible.
+Основная документация проекта находится в GitHub Wiki:
 
-Report vulnerabilities using the process in [`SECURITY.md`](SECURITY.md).
+https://github.com/CajeerTeam/CajeerLogs/wiki
 
-## Contributing
+Исходники wiki-страниц хранятся в каталоге [`wiki/`](wiki/), чтобы документацию можно было проверять через pull request и синхронизировать с GitHub Wiki отдельным шагом публикации.
 
-Contributions are welcome. Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before opening a pull request.
+## Безопасность
 
-## License
+- Не коммитьте `.env`, дампы БД, runtime-журналы, токены и резервные копии.
+- Держите `APP_DEBUG=false` в production.
+- После создания администратора выключите `LOGS_ENV_FALLBACK_LOGIN`.
+- Для недоверенных сетей включите `INGEST_REQUIRE_SIGNATURE=true`.
+- Ограничьте доступ к web-интерфейсу через `UI_IP_ALLOWLIST`, reverse proxy или сетевые политики.
+- При компрометации секретов ротируйте пароль БД, ingest-токены и pepper-значения.
 
-Licensed under the Apache License, Version 2.0. See [`LICENSE`](LICENSE).
+Процесс сообщения об уязвимостях описан в [`SECURITY.md`](SECURITY.md).
+
+## Вклад в проект
+
+Перед pull request прочитайте [`CONTRIBUTING.md`](CONTRIBUTING.md). В изменениях не должно быть секретов, runtime-файлов, дампов БД и упоминаний коммерческих площадок в качестве обязательных инструкций.
+
+## Лицензия
+
+Apache License 2.0. См. [`LICENSE`](LICENSE).
