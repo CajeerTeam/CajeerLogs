@@ -18,7 +18,7 @@ final class Database
 
         $connection = Env::get('DB_CONNECTION', 'sqlite');
         if (!extension_loaded('pdo')) {
-            throw new RuntimeException('PHP extension pdo is not loaded. Enable PDO in aaPanel PHP settings.');
+            throw new RuntimeException('PHP-расширение pdo не загружено. Включите PDO в настройках PHP aaPanel.');
         }
 
         if ($connection === 'pgsql') {
@@ -39,10 +39,10 @@ final class Database
         }
         $dir = dirname($path);
         if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
-            throw new RuntimeException('Cannot create SQLite directory: ' . $dir);
+            throw new RuntimeException('Не удалось создать каталог SQLite: ' . $dir);
         }
         if (!is_writable($dir)) {
-            throw new RuntimeException('SQLite directory is not writable: ' . $dir);
+            throw new RuntimeException('Каталог SQLite недоступен на запись: ' . $dir);
         }
         self::$pdo = new PDO('sqlite:' . $path, null, null, self::options());
         self::$pdo->exec('PRAGMA foreign_keys = ON');
@@ -74,8 +74,8 @@ final class Database
         $drivers = PDO::getAvailableDrivers();
         if (!in_array($driver, $drivers, true)) {
             throw new RuntimeException(
-                "PDO driver '{$driver}' is not available. Enable PHP extension {$extension} for the PHP version used by aaPanel/Nginx. Available drivers: " .
-                ($drivers ? implode(', ', $drivers) : 'none')
+                "PDO-драйвер '{$driver}' недоступен. Включите PHP-расширение {$extension} для версии PHP, которую использует aaPanel/Nginx. Доступные драйверы: " .
+                ($drivers ? implode(', ', $drivers) : 'нет')
             );
         }
     }

@@ -27,9 +27,9 @@ set_error_handler(function (int $severity, string $message, string $file, int $l
 });
 
 set_exception_handler(function (Throwable $e): void {
-    Logger::error('Unhandled exception', ['exception' => $e]);
+    Logger::error('Необработанное исключение', ['exception' => $e]);
     if (PHP_SAPI === 'cli') {
-        fwrite(STDERR, "Unhandled exception: {$e->getMessage()}\n");
+        fwrite(STDERR, "Необработанное исключение: {$e->getMessage()}\n");
         exit(1);
     }
 
@@ -55,7 +55,7 @@ register_shutdown_function(function (): void {
         return;
     }
 
-    Logger::error('Fatal shutdown error', [
+    Logger::error('Критическая ошибка при завершении', [
         'type' => $error['type'] ?? null,
         'message' => $error['message'] ?? null,
         'file' => $error['file'] ?? null,

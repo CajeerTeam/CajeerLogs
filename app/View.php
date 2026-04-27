@@ -8,6 +8,8 @@ final class View
     public static function layout(string $title, string $body): string
     {
         $titleEsc = Security::e($title);
+        $docsUrl = Env::get('DOCS_URL', 'https://docs.cajeer.ru/logs') ?: 'https://docs.cajeer.ru/logs';
+        $docsUrlEsc = Security::e($docsUrl);
         $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
         $nav = [
             '/' => ['Панель', 'logs.view'],
@@ -135,11 +137,13 @@ final class View
                 <li><a href="/logs">Журналы</a></li>
                 <li><a href="/bots">Боты</a></li>
                 <li><a href="/sites">Сайты aaPanel</a></li>
+                <li><a href="{$docsUrlEsc}" target="_blank" rel="noopener noreferrer">Документация</a></li>
             </ul>
         </div>
         <div>
             <div class="footer-title">Контур</div>
             <p class="footer-text">Внутренний сервис Cajeer для ботов, сайтов и инфраструктуры.</p>
+            <p class="footer-text"><a href="{$docsUrlEsc}" target="_blank" rel="noopener noreferrer">Открыть документацию</a></p>
         </div>
     </div>
 </footer>
@@ -156,6 +160,7 @@ final class View
             <a href="/sites">Сайты aaPanel</a>
             <a href="/system">Система</a>
             <a href="/system/pwa">PWA / домашний экран</a>
+            <a href="{$docsUrlEsc}" target="_blank" rel="noopener noreferrer">Документация</a>
         </div>
     </div>
 </div>
