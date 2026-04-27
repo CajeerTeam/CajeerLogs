@@ -170,6 +170,27 @@ final class Security
         return (($ipLong & $mask) === ($subnetLong & $mask));
     }
 
+
+    public static function isSafeInternalPath(string $path): bool
+    {
+        $path = trim($path);
+        if ($path === '' || !str_starts_with($path, '/')) {
+            return false;
+        }
+        if (str_starts_with($path, '//') || str_starts_with($path, '/\\')) {
+            return false;
+        }
+        if (preg_match('/[\x00-\x1F\x7F]/', $path)) {
+            return false;
+        }
+        return !preg_match('#^[a-z][a-z0-9+.-]*:#i', $path);
+    }
+
+    public static function safeInternalPath(string $path, string $fallback = '/'): string
+    {
+        return self::isSafeInternalPath($path) ? trim($path) : $fallback;
+    }
+
     public static function e(?string $value): string
     {
         return htmlspecialchars((string)$value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');

@@ -18,10 +18,10 @@ final class View
             '/bots/health' => ['Здоровье ботов', 'bots.view'],
             '/sites' => ['Сайты', 'sites.view'],
             '/incidents' => ['Инциденты', 'incidents.view'],
-            '/alerts' => ['Алерты', 'alerts.view'],
+            '/alerts' => ['Оповещения', 'alerts.view'],
             '/audit' => ['Аудит', 'audit.view'],
             '/users' => ['Пользователи', 'users.manage'],
-            '/cron' => ['Cron', 'cron.view'],
+            '/cron' => ['Планировщик', 'cron.view'],
             '/system' => ['Система', 'system.view'],
             '/system/update' => ['Обновление', 'update.manage'],
         ];

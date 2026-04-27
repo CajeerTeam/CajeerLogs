@@ -22,7 +22,7 @@ final class UpdateManager
             'repo_url' => $repo,
             'branch' => Env::get('UPDATE_BRANCH', 'main'),
             'mode' => Env::get('UPDATE_MODE', 'git'),
-            'allow_web' => Env::bool('UPDATE_ALLOW_WEB', true),
+            'allow_web' => Env::bool('UPDATE_ALLOW_WEB', false),
             'backup_dir' => Env::get('UPDATE_BACKUP_DIR', $this->root() . '/storage/backups/updates'),
             'rollback_on_failure' => Env::bool('UPDATE_ROLLBACK_ON_FAILURE', true),
             'git_bin' => Env::get('UPDATE_GIT_BIN', 'git'),

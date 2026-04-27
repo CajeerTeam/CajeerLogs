@@ -222,14 +222,14 @@ final class Repository
         $project = (string)$botToken['project'];
         $bot = (string)$botToken['bot'];
         $environment = (string)$botToken['environment'];
-        $logger = isset($event['logger']) ? (string)$event['logger'] : null;
-        $message = (string)($event['message'] ?? '');
-        $exception = isset($event['exception']) ? (string)$event['exception'] : null;
-        $traceId = isset($event['trace_id']) ? (string)$event['trace_id'] : null;
-        $version = isset($event['version']) ? (string)$event['version'] : null;
-        $host = isset($event['host']) ? (string)$event['host'] : null;
+        $logger = isset($event['logger']) ? Redactor::redactString((string)$event['logger']) : null;
+        $message = Redactor::redactString((string)($event['message'] ?? ''));
+        $exception = isset($event['exception']) ? Redactor::redactString((string)$event['exception']) : null;
+        $traceId = isset($event['trace_id']) ? Redactor::redactString((string)$event['trace_id']) : null;
+        $version = isset($event['version']) ? Redactor::redactString((string)$event['version']) : null;
+        $host = isset($event['host']) ? Redactor::redactString((string)$event['host']) : null;
         $ts = $this->normalizeTimestamp($event['ts'] ?? null);
-        $context = isset($event['context']) && is_array($event['context']) ? $event['context'] : [];
+        $context = isset($event['context']) && is_array($event['context']) ? Redactor::redactMixed($event['context']) : [];
         $hashes = $this->privacyHashes($event, $context);
         if (Env::bool('PRIVACY_HASH_IDENTIFIERS', true)) {
             foreach (['user_id', 'chat_id', 'guild_id'] as $key) {
@@ -530,6 +530,32 @@ final class Repository
         return $stmt->rowCount() > 0;
     }
 
+    public function testAlertRule(int $id): array
+    {
+        $rule = $this->findAlertRule($id);
+        if (!$rule) {
+            return ['ok' => false, 'status' => 'failed', 'message' => 'Правило не найдено.'];
+        }
+
+        $message = 'Cajeer Logs: проверка оповещения «' . (string)$rule['name'] . '». Канал доставки настроен.';
+        [$ok, $response] = $this->sendAlert((string)$rule['channel'], (string)$rule['webhook_url'], $message);
+        $this->recordAlertDelivery($id, $ok ? 'test_sent' : 'test_failed', $response, ['test' => true]);
+
+        return [
+            'ok' => $ok,
+            'status' => $ok ? 'test_sent' : 'test_failed',
+            'message' => $response,
+            'rule' => (string)$rule['name'],
+        ];
+    }
+
+    public function alertDeliveries(int $limit = 50): array
+    {
+        $limit = max(1, min(200, $limit));
+        $sql = 'SELECT ad.*, ar.name AS rule_name, ar.channel AS channel FROM alert_deliveries ad LEFT JOIN alert_rules ar ON ar.id = ad.alert_rule_id ORDER BY ad.delivered_at DESC, ad.id DESC LIMIT ' . $limit;
+        return $this->pdo->query($sql)->fetchAll();
+    }
+
     public function evaluateAlertRules(): array
     {
         $deliveries = [];
@@ -598,8 +624,14 @@ final class Repository
         $body = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $ctx = stream_context_create(['http' => ['method' => 'POST', 'header' => "Content-Type: application/json\r\n", 'content' => $body, 'timeout' => 5, 'ignore_errors' => true]]);
         $resp = @file_get_contents($url, false, $ctx);
-        $ok = is_string($resp) || isset($http_response_header);
-        return [$ok, is_string($resp) ? $this->cut($resp, 1000) : 'no response'];
+        $statusLine = $http_response_header[0] ?? '';
+        $code = 0;
+        if (is_string($statusLine) && preg_match('/\s(\d{3})\s/', $statusLine, $m)) {
+            $code = (int)$m[1];
+        }
+        $ok = $code >= 200 && $code < 300;
+        $prefix = $code > 0 ? 'HTTP ' . $code . ': ' : '';
+        return [$ok, $prefix . (is_string($resp) && $resp !== '' ? $this->cut($resp, 1000) : 'нет ответа')];
     }
 
     public function recordAlertDelivery(int $ruleId, string $status, string $message, array $meta = []): void

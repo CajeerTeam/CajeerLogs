@@ -144,7 +144,7 @@ final class Auth
 
     private static function attemptEmergencyFallback(string $username, string $password): bool
     {
-        if (!Env::bool('LOGS_ENV_FALLBACK_LOGIN', true)) {
+        if (!Env::bool('LOGS_ENV_FALLBACK_LOGIN', false)) {
             return false;
         }
         $expectedUser = (string)Env::get('LOGS_WEB_BASIC_USER', 'admin');
