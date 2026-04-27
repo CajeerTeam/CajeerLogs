@@ -14,21 +14,21 @@ $check = static function (string $name, bool $ok, string $message = '') use (&$f
 
 $requiredPages = [
     'Home.md',
-    'Установка.md',
-    'Настройка-env.md',
-    'Развёртывание-Nginx.md',
+    'Installation.md',
+    'Env-configuration.md',
+    'Nginx-deployment.md',
     'PostgreSQL.md',
-    'Cron-задачи.md',
+    'Cron-jobs.md',
     'API.md',
-    'Подпись-HMAC.md',
-    'Интеграция-Python.md',
-    'Боты.md',
-    'Журналы.md',
-    'Инциденты.md',
-    'Оповещения.md',
+    'HMAC-signature.md',
+    'Python-integration.md',
+    'Bots.md',
+    'Logs.md',
+    'Incidents.md',
+    'Alerts.md',
     'Retention.md',
-    'Центр-обновлений.md',
-    'Безопасность.md',
+    'Update-center.md',
+    'Security.md',
     'RBAC.md',
     'Production-checklist.md',
     'Release-checklist.md',
@@ -50,16 +50,16 @@ $readme = is_file($root . '/README.md') ? (string)file_get_contents($root . '/RE
 $envExample = is_file($root . '/.env.example') ? (string)file_get_contents($root . '/.env.example') : '';
 $ci = is_file($root . '/.github/workflows/ci.yml') ? (string)file_get_contents($root . '/.github/workflows/ci.yml') : '';
 $pr = is_file($root . '/.github/PULL_REQUEST_TEMPLATE.md') ? (string)file_get_contents($root . '/.github/PULL_REQUEST_TEMPLATE.md') : '';
+$openapi = is_file($root . '/openapi.yaml') ? (string)file_get_contents($root . '/openapi.yaml') : '';
 
 $wikiUrl = 'https://github.com/CajeerTeam/CajeerLogs/wiki';
 $check('README ссылается на GitHub Wiki', str_contains($readme, $wikiUrl));
 $check('.env.example содержит DOCS_URL на GitHub Wiki', str_contains($envExample, 'DOCS_URL=' . $wikiUrl));
 $check('CI запускает wiki-check', str_contains($ci, 'php bin/wiki-check.php'));
-$check('PR-шаблон упоминает Wiki, а не внешнюю документационную платформу', str_contains($pr, 'Wiki-документация') && !str_contains($pr, 'устаревшая платформа документации') && !str_contains($pr, 'устаревшая платформа документации'));
+$check('PR-шаблон упоминает Wiki-документацию', str_contains($pr, 'Wiki-документация'));
 $check('OpenAPI-спецификация существует', is_file($root . '/openapi.yaml'));
-
-$openapi = is_file($root . '/openapi.yaml') ? (string)file_get_contents($root . '/openapi.yaml') : '';
 $check('OpenAPI описывает POST /api/v1/ingest', str_contains($openapi, '/api/v1/ingest:') && str_contains($openapi, 'post:'));
+$check('OpenAPI описывает фактический код ответа 200', str_contains($openapi, "'200':") && str_contains($openapi, 'inserted:'));
 
 $forbidden = [
     'Mint' . 'lify',
@@ -68,17 +68,39 @@ $forbidden = [
     'Bot' . 'Host',
     'bot' . 'host',
 ];
-$scanFiles = array_merge(
-    glob($root . '/wiki/*.md') ?: [],
-    [$root . '/README.md', $root . '/.github/PULL_REQUEST_TEMPLATE.md', $root . '/.github/workflows/ci.yml', $root . '/.env.example']
-);
+
+$scanRoots = [
+    'wiki',
+    'app',
+    'bin',
+    'clients',
+    '.github',
+];
+$scanFiles = [$root . '/README.md', $root . '/.env.example', $root . '/.nginx.conf', $root . '/SECURITY.md', $root . '/CONTRIBUTING.md', $root . '/openapi.yaml'];
+foreach ($scanRoots as $dir) {
+    $base = $root . '/' . $dir;
+    if (!is_dir($base)) {
+        continue;
+    }
+    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($base, FilesystemIterator::SKIP_DOTS));
+    foreach ($iterator as $file) {
+        if (!$file->isFile()) {
+            continue;
+        }
+        $path = $file->getPathname();
+        if (preg_match('/\.(md|php|py|yml|yaml|sh)$/i', $path)) {
+            $scanFiles[] = $path;
+        }
+    }
+}
+$scanFiles = array_values(array_unique($scanFiles));
 foreach ($scanFiles as $file) {
     if (!is_file($file)) {
         continue;
     }
     $content = (string)file_get_contents($file);
     foreach ($forbidden as $needle) {
-        $check('Нет запрещённого упоминания ' . $needle . ' в ' . basename($file), !str_contains($content, $needle), $file);
+        $check('Нет запрещённого упоминания ' . $needle . ' в ' . str_replace($root . '/', '', $file), !str_contains($content, $needle), $file);
     }
 }
 

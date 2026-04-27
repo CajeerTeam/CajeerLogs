@@ -13,7 +13,7 @@ $args = $_SERVER['argv'];
 array_shift($args);
 $bot = $args[0] ?? null;
 if (!$bot || str_starts_with($bot, '--')) {
-    fwrite(STDERR, "Использование: php bin/make-bot-token.php <BOT_NAME> --project=NeverMine --environment=production [--description=...] [--rate-limit=120] [--max-batch=100] [--levels=INFO,WARNING,ERROR] [--require-signature]\n");
+    fwrite(STDERR, "Использование: php bin/make-bot-token.php <BOT_NAME> --project=ExampleProject --environment=production [--description=...] [--rate-limit=120] [--max-batch=100] [--events-limit=3000] [--bytes-limit=10485760] [--levels=INFO,WARNING,ERROR] [--require-signature]\n");
     exit(1);
 }
 $options = [
@@ -22,6 +22,8 @@ $options = [
     'description' => null,
     'rate_limit_per_minute' => 120,
     'max_batch_size' => 100,
+    'events_limit_per_minute' => 3000,
+    'bytes_limit_per_minute' => 10485760,
     'allowed_levels' => null,
     'require_signature' => false,
 ];
@@ -36,6 +38,10 @@ foreach (array_slice($args, 1) as $arg) {
         $options['rate_limit_per_minute'] = (int)substr($arg, 13);
     } elseif (str_starts_with($arg, '--max-batch=')) {
         $options['max_batch_size'] = (int)substr($arg, 12);
+    } elseif (str_starts_with($arg, '--events-limit=')) {
+        $options['events_limit_per_minute'] = (int)substr($arg, 15);
+    } elseif (str_starts_with($arg, '--bytes-limit=')) {
+        $options['bytes_limit_per_minute'] = (int)substr($arg, 14);
     } elseif (str_starts_with($arg, '--levels=')) {
         $options['allowed_levels'] = substr($arg, 9);
     } elseif ($arg === '--require-signature') {
