@@ -359,11 +359,6 @@ HTML;
             $signatureOk = true;
         }
 
-        if ($repo->isRateLimited($botToken)) {
-            Response::json(['ok' => false, 'error' => 'rate_limited', 'message' => 'Превышен лимит запросов для токена.'], 429);
-            return;
-        }
-
         $payload = json_decode($raw, true);
         if (!is_array($payload)) {
             Response::json(['ok' => false, 'error' => 'invalid_json', 'message' => 'Некорректный JSON.'], 400);
@@ -385,6 +380,11 @@ HTML;
             Response::json(['ok' => false, 'error' => 'invalid_batch_size', 'message' => 'Некорректный размер пачки логов.', 'max' => $maxBatch], 400);
             return;
         }
+        $rateViolation = $repo->ingestRateLimitViolation($botToken, count($events), strlen($raw));
+        if ($rateViolation !== null) {
+            Response::json(['ok' => false, 'error' => $rateViolation['error'], 'message' => $rateViolation['message']], 429);
+            return;
+        }
         foreach ($events as $event) {
             if (!is_array($event)) {
                 Response::json(['ok' => false, 'error' => 'invalid_event', 'message' => 'Каждое событие должно быть объектом.'], 400);
@@ -401,6 +401,7 @@ HTML;
             'ip' => $_SERVER['REMOTE_ADDR'] ?? null,
             'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? null,
             'signed' => $signatureOk,
+            'body_bytes' => strlen($raw),
         ];
         $inserted = $repo->insertBatch($botToken, $events, $meta);
         Response::json(['ok' => true, 'inserted' => $inserted, 'message' => 'Журналы приняты.']);
@@ -487,15 +488,17 @@ HTML;
             $activeText = $active ? 'Активен' : 'Отключён';
             $activeClass = $active ? 'status-ok' : 'status-muted';
             $actions = $this->renderBotActions($id, $active, $actionCsrf);
-            $rows .= '<tr><td>' . Security::e((string)$id) . '</td><td>' . Security::e($b['project']) . '</td><td>' . Security::e($b['bot']) . '</td><td>' . Security::e($b['environment']) . '</td><td><span class="status ' . $activeClass . '">' . Security::e($activeText) . '</span></td><td>' . Security::e((string)($b['last_used_at'] ?? '—')) . '</td><td>' . Security::e((string)($b['total_logs'] ?? 0)) . ' / ' . Security::e((string)($b['logs_24h'] ?? 0)) . '</td><td>' . Security::e((string)($b['errors_24h'] ?? 0)) . '</td><td>' . Security::e((string)($b['rate_limit_per_minute'] ?? 0)) . '</td><td>' . Security::e((string)($b['max_batch_size'] ?? 0)) . '</td><td>' . Security::e(((int)($b['require_signature'] ?? 0) === 1) ? 'Да' : 'Нет') . '</td><td>' . Security::e((string)($b['allowed_levels'] ?? 'Все')) . '</td><td>' . Security::e((string)($b['description'] ?? '')) . '</td><td>' . $actions . '</td></tr>';
+            $rows .= '<tr><td>' . Security::e((string)$id) . '</td><td>' . Security::e($b['project']) . '</td><td>' . Security::e($b['bot']) . '</td><td>' . Security::e($b['environment']) . '</td><td><span class="status ' . $activeClass . '">' . Security::e($activeText) . '</span></td><td>' . Security::e((string)($b['last_used_at'] ?? '—')) . '</td><td>' . Security::e((string)($b['total_logs'] ?? 0)) . ' / ' . Security::e((string)($b['logs_24h'] ?? 0)) . '</td><td>' . Security::e((string)($b['errors_24h'] ?? 0)) . '</td><td>' . Security::e((string)($b['rate_limit_per_minute'] ?? 0)) . '</td><td>' . Security::e((string)($b['events_limit_per_minute'] ?? 0)) . '</td><td>' . Security::e((string)($b['bytes_limit_per_minute'] ?? 0)) . '</td><td>' . Security::e((string)($b['max_batch_size'] ?? 0)) . '</td><td>' . Security::e(((int)($b['require_signature'] ?? 0) === 1) ? 'Да' : 'Нет') . '</td><td>' . Security::e((string)($b['allowed_levels'] ?? 'Все')) . '</td><td>' . Security::e((string)($b['description'] ?? '')) . '</td><td>' . $actions . '</td></tr>';
         }
 
-        $project = Security::e((string)($form['project'] ?? 'NeverMine'));
-        $bot = Security::e((string)($form['bot'] ?? 'NMVKBot'));
+        $project = Security::e((string)($form['project'] ?? 'ExampleProject'));
+        $bot = Security::e((string)($form['bot'] ?? 'ExampleBot'));
         $environment = Security::e((string)($form['environment'] ?? 'production'));
         $description = Security::e((string)($form['description'] ?? ''));
         $rateLimit = Security::e((string)($form['rate_limit_per_minute'] ?? '120'));
         $maxBatch = Security::e((string)($form['max_batch_size'] ?? '100'));
+        $eventsLimit = Security::e((string)($form['events_limit_per_minute'] ?? Env::int('INGEST_MAX_EVENTS_PER_MINUTE', 3000)));
+        $bytesLimit = Security::e((string)($form['bytes_limit_per_minute'] ?? Env::int('INGEST_MAX_BYTES_PER_MINUTE', 10485760)));
         $allowedLevels = Security::e((string)($form['allowed_levels'] ?? ''));
         $requireSignature = !empty($form['require_signature']) ? ' checked' : '';
         $csrf = Security::csrfToken('create_bot_token');
@@ -555,13 +558,15 @@ HTML;
         <label>Окружение<input name="environment" value="{$environment}" required maxlength="60"></label>
         <label>Лимит запросов/мин<input name="rate_limit_per_minute" type="number" min="0" max="10000" value="{$rateLimit}"></label>
         <label>Макс. размер пачки<input name="max_batch_size" type="number" min="1" max="500" value="{$maxBatch}"></label>
+        <label>Лимит событий/мин<input name="events_limit_per_minute" type="number" min="0" max="1000000" value="{$eventsLimit}"></label>
+        <label>Лимит байт/мин<input name="bytes_limit_per_minute" type="number" min="0" max="104857600" value="{$bytesLimit}"></label>
         <label>Разрешённые уровни<input name="allowed_levels" value="{$allowedLevels}" placeholder="INFO,WARNING,ERROR"></label>
         <label class="check-row"><input type="checkbox" name="require_signature" value="1"{$requireSignature}> Требовать HMAC-подпись</label>
         <label class="full">Описание<textarea name="description" rows="3" maxlength="500">{$description}</textarea></label>
         <div class="form-actions full"><button type="submit">Создать токен</button></div>
     </form>
 </section>
-<section class="panel wide"><h2>Существующие токены</h2><table><thead><tr><th>ID</th><th>Проект</th><th>Бот</th><th>Окружение</th><th>Статус</th><th>Последнее использование</th><th>Всего / 24ч</th><th>Ошибки 24ч</th><th>Лимит/мин</th><th>Пачка</th><th>HMAC</th><th>Уровни</th><th>Описание</th><th>Действия</th></tr></thead><tbody>{$rows}</tbody></table></section>
+<section class="panel wide"><h2>Существующие токены</h2><table><thead><tr><th>ID</th><th>Проект</th><th>Бот</th><th>Окружение</th><th>Статус</th><th>Последнее использование</th><th>Всего / 24ч</th><th>Ошибки 24ч</th><th>Запросы/мин</th><th>События/мин</th><th>Байты/мин</th><th>Пачка</th><th>HMAC</th><th>Уровни</th><th>Описание</th><th>Действия</th></tr></thead><tbody>{$rows}</tbody></table></section>
 HTML;
         Response::html(View::layout('Боты', $body));
     }
@@ -575,6 +580,8 @@ HTML;
             'description' => trim((string)($_POST['description'] ?? '')),
             'rate_limit_per_minute' => trim((string)($_POST['rate_limit_per_minute'] ?? '120')),
             'max_batch_size' => trim((string)($_POST['max_batch_size'] ?? '100')),
+            'events_limit_per_minute' => trim((string)($_POST['events_limit_per_minute'] ?? (string)Env::int('INGEST_MAX_EVENTS_PER_MINUTE', 3000))),
+            'bytes_limit_per_minute' => trim((string)($_POST['bytes_limit_per_minute'] ?? (string)Env::int('INGEST_MAX_BYTES_PER_MINUTE', 10485760))),
             'allowed_levels' => trim((string)($_POST['allowed_levels'] ?? '')),
             'require_signature' => isset($_POST['require_signature']) ? '1' : '',
         ];
@@ -596,6 +603,8 @@ HTML;
             [
                 'rate_limit_per_minute' => (int)$form['rate_limit_per_minute'],
                 'max_batch_size' => (int)$form['max_batch_size'],
+                'events_limit_per_minute' => (int)$form['events_limit_per_minute'],
+                'bytes_limit_per_minute' => (int)$form['bytes_limit_per_minute'],
                 'allowed_levels' => $form['allowed_levels'] !== '' ? $form['allowed_levels'] : null,
                 'require_signature' => $form['require_signature'] === '1',
             ]
@@ -892,7 +901,7 @@ HTML;
         }
         $logs = $this->repo()->recentLogs(['fingerprint' => (string)$incident['fingerprint']], 50);
         $body = '<h1>Инцидент #' . $id . '</h1><div class="quick-actions"><a class="button ghost" href="/incidents">← К списку</a><a class="button ghost" href="/logs?fingerprint=' . Security::e((string)$incident['fingerprint']) . '">Логи по fingerprint</a></div>'
-            . '<section class="panel"><h2>' . Security::e($incident['title']) . '</h2><p class="muted">Fingerprint: <code>' . Security::e((string)$incident['fingerprint']) . '</code></p><p>Событий: ' . Security::e((string)$incident['event_count']) . ', статус: ' . Security::e((string)$incident['status']) . '</p></section>'
+            . '<section class="panel"><h2>' . Security::e($incident['title']) . '</h2><p class="muted">Отпечаток группы: <code>' . Security::e((string)$incident['fingerprint']) . '</code></p><p>Событий: ' . Security::e((string)$incident['event_count']) . ', статус: ' . Security::e((string)$incident['status']) . '</p></section>'
             . '<section class="panel"><h2>Пример сообщения</h2><pre>' . Security::e((string)($incident['sample_message'] ?? '—')) . '</pre></section>'
             . '<section class="panel"><h2>Последние связанные логи</h2><table><thead><tr><th>Время</th><th>Уровень</th><th>Проект</th><th>Бот</th><th>Сообщение</th><th></th></tr></thead><tbody>' . $this->renderLogRows($logs) . '</tbody></table></section>';
         Response::html(View::layout('Инцидент #' . $id, $body));
@@ -988,11 +997,11 @@ HTML;
     <p class="muted">Правило группирует повторяющиеся ошибки по проекту, боту, окружению и уровню. Поле «Пауза» ограничивает частоту отправки и защищает от спама.</p>
     <form class="form-grid" method="post" action="/alerts">
         <input type="hidden" name="_csrf" value="{$createCsrf}">
-        <label>Название<input name="name" required maxlength="160" placeholder="Ошибки NeverMine"></label>
+        <label>Название<input name="name" required maxlength="160" placeholder="Ошибки ExampleBot"></label>
         <label>Канал доставки<select name="channel"><option value="telegram">Telegram</option><option value="discord">Discord</option></select></label>
         <label class="full">URL вебхука<input name="webhook_url" required placeholder="https://..."></label>
-        <label>Проект<input name="project" placeholder="NeverMine"></label>
-        <label>Бот<input name="bot" placeholder="NMVKBot"></label>
+        <label>Проект<input name="project" placeholder="ExampleProject"></label>
+        <label>Бот<input name="bot" placeholder="ExampleBot"></label>
         <label>Окружение<input name="environment" placeholder="production"></label>
         <label>Уровни<input name="levels" value="ERROR,CRITICAL,SECURITY"></label>
         <label>Порог событий<input name="threshold_count" type="number" min="1" value="1"></label>
@@ -1031,6 +1040,13 @@ HTML;
         $errors = [];
         if ($data['name'] === '' || $data['webhook_url'] === '' || !in_array($data['channel'], ['telegram', 'discord'], true)) {
             $errors[] = 'Заполни название, канал и URL вебхука.';
+        }
+        if ($data['webhook_url'] !== '') {
+            [$webhookOk, $webhookReason] = Security::validateExternalWebhookUrl($data['webhook_url']);
+            if (!$webhookOk) {
+                $errors[] = $webhookReason;
+                $this->repo()->audit('alert_rule.webhook_blocked', 'alert_rule', null, 'Заблокирован небезопасный URL вебхука', ['reason' => $webhookReason]);
+            }
         }
         if ($errors) {
             $this->alerts($errors);
@@ -1220,7 +1236,7 @@ HTML;
     <table class="detail-table"><tbody>
         <tr><th>Репозиторий</th><td><code>{$repo}</code></td></tr>
         <tr><th>Ветка</th><td><code>{$branch}</code></td></tr>
-        <tr><th>Backup</th><td><code>{$backupDir}</code></td></tr>
+        <tr><th>Резервная копия</th><td><code>{$backupDir}</code></td></tr>
         <tr><th>Токен GitHub</th><td>{$this->yesNo((bool)($status['config']['uses_token'] ?? false))}</td></tr>
         <tr><th>Режим</th><td><code>git fetch + git reset --hard origin/{$branch}</code></td></tr>
     </tbody></table>
@@ -1232,11 +1248,11 @@ HTML;
 <section class="panel">
     <h2>Действия</h2>
     <div class="quick-actions update-actions">
-        <form method="post" action="/system/update/action"><input type="hidden" name="_csrf" value="{$csrf}"><button name="action" value="backup" type="submit">Сделать backup</button></form>
+        <form method="post" action="/system/update/action"><input type="hidden" name="_csrf" value="{$csrf}"><button name="action" value="backup" type="submit">Создать резервную копию</button></form>
         <form method="post" action="/system/update/action"><input type="hidden" name="_csrf" value="{$csrf}"><input name="confirm" placeholder="Введите UPDATE" autocomplete="off"><button name="action" value="update" type="submit">Обновить из GitHub</button></form>
         <form method="post" action="/system/update/action"><input type="hidden" name="_csrf" value="{$csrf}"><input name="confirm" placeholder="Введите ROLLBACK" autocomplete="off"><button class="danger" name="action" value="rollback" type="submit">Откатить последнее</button></form>
     </div>
-    <p class="muted">Перед обновлением создаётся backup файлов и сохраняется предыдущий commit. После обновления запускаются <code>bin/migrate.php</code> и read-only проверка <code>bin/doctor.php</code>.</p>
+    <p class="muted">Перед обновлением создаётся резервная копия файлов и сохраняется предыдущий commit. После обновления запускаются <code>bin/migrate.php</code> и read-only проверка <code>bin/doctor.php</code>.</p>
 </section>
 {$outputHtml}
 <section class="panel wide">
@@ -1266,8 +1282,8 @@ HTML;
         try {
             if ($action === 'backup') {
                 $result = $manager->backupOnly();
-                $this->repo()->audit('update.backup', 'update', 'manual', 'Создан backup перед обновлением', ['dir' => $result['dir']]);
-                $this->updateCenter([], 'Backup создан: ' . $result['dir'], json_encode($result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT));
+                $this->repo()->audit('update.backup', 'update', 'manual', 'Создана резервная копия перед обновлением', ['dir' => $result['dir']]);
+                $this->updateCenter([], 'Резервная копия создана: ' . $result['dir'], json_encode($result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT));
                 return;
             }
             if ($action === 'update') {
@@ -1419,7 +1435,7 @@ HTML;
             'HTTPS' => $https ? 'да' : 'нет',
             'manifest.json' => is_file($public . '/manifest.json') ? 'да' : 'нет',
             'manifest.webmanifest' => is_file($public . '/manifest.webmanifest') ? 'да' : 'нет',
-            'Service Worker /sw.js' => is_file($public . '/sw.js') ? 'да' : 'нет',
+            'Сервис-воркер /sw.js' => is_file($public . '/sw.js') ? 'да' : 'нет',
             'icon-192.png' => is_file($public . '/assets/img/icon-192.png') ? 'да' : 'нет',
             'icon-512.png' => is_file($public . '/assets/img/icon-512.png') ? 'да' : 'нет',
             'robots.txt noindex' => is_file($public . '/robots.txt') && str_contains((string)file_get_contents($public . '/robots.txt'), 'Disallow: /') ? 'да' : 'нет',
@@ -1452,8 +1468,8 @@ NGINX;
             . '<div class="card"><div class="label">Режим отображения</div><div class="value" data-pwa-display-mode>проверяется</div></div>'
             . '<div class="card"><div class="label">Сервис-воркер</div><div class="value" data-pwa-sw-state>проверяется</div></div>'
             . '<div class="card"><div class="label">Предложение установки</div><div class="value" data-pwa-install-state>проверяется</div></div>'
-            . '</div><p class="muted">Если Chrome пишет «Это приложение нельзя установить», проверь manifest, иконки, HTTPS, MIME-типы и service worker. Firefox Android может создавать обычный ярлык даже при корректном manifest.</p></section>'
-            . '<section class="panel"><h2>MIME Nginx</h2><p class="muted">Добавь эти location-блоки в server-блок logs.example.com, если Chrome не видит manifest или service worker.</p><pre>' . Security::e($nginx) . '</pre></section>'
+            . '</div><p class="muted">Если Chrome пишет «Это приложение нельзя установить», проверьте manifest, иконки, HTTPS, MIME-типы и сервис-воркер. Firefox Android может создавать обычный ярлык даже при корректном manifest.</p></section>'
+            . '<section class="panel"><h2>MIME Nginx</h2><p class="muted">Добавь эти location-блоки в server-блок logs.example.com, если Chrome не видит manifest или сервис-воркер.</p><pre>' . Security::e($nginx) . '</pre></section>'
             . '<section class="panel"><h2>Команды проверки</h2><pre>curl -k -I https://logs.example.com/manifest.json\ncurl -k -I https://logs.example.com/manifest.webmanifest\ncurl -k -I https://logs.example.com/sw.js\ncurl -k -I https://logs.example.com/assets/img/icon-192.png\ncurl -k -I https://logs.example.com/assets/img/icon-512.png</pre></section>';
         Response::html(View::layout('PWA / домашний экран', $body));
     }
@@ -1511,9 +1527,9 @@ NGINX;
     <h2>Добавить представление</h2>
     <form class="form-grid" method="post" action="/saved-views">
         <input type="hidden" name="_csrf" value="{$createCsrf}">
-        <label>Название<input name="name" required maxlength="160" placeholder="Ошибки NMVKBot"></label>
+        <label>Название<input name="name" required maxlength="160" placeholder="Ошибки ExampleBot"></label>
         <label>Маршрут<input name="route" value="/logs" required></label>
-        <label class="full">Query string<input name="query" value="{$currentQuery}" placeholder="level=ERROR&bot=NMVKBot&range=24h"></label>
+        <label class="full">Строка запроса<input name="query" value="{$currentQuery}" placeholder="level=ERROR&bot=ExampleBot&range=24h"></label>
         <div class="form-actions full"><button type="submit">Сохранить</button></div>
     </form>
 </section>
@@ -1629,6 +1645,14 @@ HTML;
         if ($batch < 1 || $batch > 500) {
             $errors[] = 'Максимальный размер пачки должен быть от 1 до 500.';
         }
+        $eventsLimit = (int)$form['events_limit_per_minute'];
+        if ($eventsLimit < 0 || $eventsLimit > 1000000) {
+            $errors[] = 'Лимит событий должен быть от 0 до 1000000.';
+        }
+        $bytesLimit = (int)$form['bytes_limit_per_minute'];
+        if ($bytesLimit < 0 || $bytesLimit > 104857600) {
+            $errors[] = 'Лимит байт должен быть от 0 до 104857600.';
+        }
         return $errors;
     }
 
@@ -1639,7 +1663,7 @@ HTML;
         $toggle = $active ? ['disable', 'Отключить'] : ['enable', 'Включить'];
         return '<div class="action-stack">'
             . '<form method="post" action="/bots/action"><input type="hidden" name="_csrf" value="' . $csrfEsc . '"><input type="hidden" name="id" value="' . $idEsc . '"><input type="hidden" name="action" value="' . $toggle[0] . '"><button class="button small ghost" type="submit">' . Security::e($toggle[1]) . '</button></form>'
-            . '<form method="post" action="/bots/action" data-confirm="Перевыпустить токен? Старый token перестанет работать."><input type="hidden" name="_csrf" value="' . $csrfEsc . '"><input type="hidden" name="id" value="' . $idEsc . '"><input type="hidden" name="action" value="rotate"><button class="button small" type="submit">Перевыпустить</button></form>'
+            . '<form method="post" action="/bots/action" data-confirm="Перевыпустить токен? Старый токен перестанет работать."><input type="hidden" name="_csrf" value="' . $csrfEsc . '"><input type="hidden" name="id" value="' . $idEsc . '"><input type="hidden" name="action" value="rotate"><button class="button small" type="submit">Перевыпустить</button></form>'
             . '<form method="post" action="/bots/action" data-confirm="Удалить токен? Действие отключит приём логов по этому токену."><input type="hidden" name="_csrf" value="' . $csrfEsc . '"><input type="hidden" name="id" value="' . $idEsc . '"><input type="hidden" name="action" value="delete"><button class="button small danger" type="submit">Удалить</button></form>'
             . '</div>';
     }
@@ -1759,7 +1783,7 @@ PY;
         $html .= '<label>Окружение' . $this->select('environment', $options['environments'] ?? [], (string)$filters['environment']) . '</label>';
         $html .= '<label>Уровень' . $this->select('level', array_merge(['TRACE','DEBUG','INFO','WARNING','ERROR','CRITICAL','AUDIT','SECURITY'], $options['levels'] ?? []), (string)$filters['level']) . '</label>';
         $html .= '<label>ID трассировки<input name="trace_id" value="' . Security::e((string)$filters['trace_id']) . '"></label>';
-        $html .= '<label>Fingerprint<input name="fingerprint" value="' . Security::e((string)$filters['fingerprint']) . '"></label>';
+        $html .= '<label>Отпечаток группы<input name="fingerprint" value="' . Security::e((string)$filters['fingerprint']) . '"></label>';
         $html .= '<label>Поиск<input name="q" value="' . Security::e((string)$filters['q']) . '"></label>';
         $html .= '<label>С даты<input name="from" value="' . Security::e((string)$filters['from']) . '" placeholder="YYYY-MM-DD HH:MM:SS"></label>';
         $html .= '<label>По дату<input name="to" value="' . Security::e((string)$filters['to']) . '" placeholder="YYYY-MM-DD HH:MM:SS"></label>';
