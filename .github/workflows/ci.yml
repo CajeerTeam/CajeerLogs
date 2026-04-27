@@ -30,31 +30,13 @@ jobs:
       - name: Проверка синтаксиса Python
         run: python3 -m py_compile clients/bot.py
 
-      - name: Самопроверка
+      - name: Самопроверка приложения
         run: php bin/self-test.php
 
-      - name: Проверка запрещённых файлов
+      - name: Проверка Wiki-документации
+        run: php bin/wiki-check.php
+
+      - name: Проверка запрещённых runtime-файлов
         run: |
           test ! -f .env
           ! find storage -type f ! -name '.gitkeep' | grep .
-
-  docs:
-    name: Проверка Mintlify-документации
-    runs-on: ubuntu-latest
-    steps:
-      - name: Получение кода
-        uses: actions/checkout@v4
-
-      - name: Настройка Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Установка Mintlify CLI
-        run: npm i -g mint
-
-      - name: Проверка Mintlify
-        run: mint validate
-
-      - name: Проверка битых ссылок
-        run: mint broken-links --check-redirects
