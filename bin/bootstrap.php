@@ -31,7 +31,7 @@ foreach (['storage/logs', 'storage/cache', 'storage/archives'] as $dir) {
 
 out('[подготовка] подключение БД: ' . Env::get('DB_CONNECTION', 'sqlite'));
 out('[подготовка] PDO-драйверы: ' . implode(', ', PDO::getAvailableDrivers()));
-out('[подготовка] документация: ' . Env::get('DOCS_URL', 'https://docs.cajeer.ru/logs'));
+out('[подготовка] документация: ' . Env::get('DOCS_URL', 'https://github.com/CajeerTeam/CajeerLogs/wiki'));
 
 $pdo = Database::pdo();
 (new Migrator($pdo))->run();

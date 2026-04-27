@@ -43,13 +43,18 @@ $viewerPerms = $roles['viewer'] ?? [];
 $check('RBAC viewer не может управлять токенами', !in_array('bots.manage', $viewerPerms, true));
 $check('RBAC operator может управлять оповещениями', in_array('alerts.manage', $roles['operator'] ?? [], true));
 
-$docsJsonPath = $root . '/docs.json';
-$docs = is_file($docsJsonPath) ? json_decode((string)file_get_contents($docsJsonPath), true) : null;
-$check('Mintlify docs.json существует и валиден', is_array($docs), $docsJsonPath);
-$check('Mintlify docs.json содержит navigation', is_array($docs['navigation'] ?? null));
+$wikiUrl = 'https://github.com/CajeerTeam/CajeerLogs/wiki';
+$envExample = is_file($root . '/.env.example') ? (string)file_get_contents($root . '/.env.example') : '';
+$readme = is_file($root . '/README.md') ? (string)file_get_contents($root . '/README.md') : '';
+$ci = is_file($root . '/.github/workflows/ci.yml') ? (string)file_get_contents($root . '/.github/workflows/ci.yml') : '';
+$check('DOCS_URL указывает на GitHub Wiki', str_contains($envExample, 'DOCS_URL=' . $wikiUrl));
+$check('README ссылается на GitHub Wiki', str_contains($readme, $wikiUrl));
+$check('CI запускает wiki-check', str_contains($ci, 'php bin/wiki-check.php'));
+$check('CI не содержит устаревшие команды проверки документации', !str_contains($ci, 'mint' . ' validate') && !str_contains($ci, 'mint' . ' broken-links'));
 $check('OpenAPI-спецификация существует', is_file($root . '/openapi.yaml'));
 $openapi = is_file($root . '/openapi.yaml') ? (string)file_get_contents($root . '/openapi.yaml') : '';
 $check('OpenAPI описывает POST /api/v1/ingest', str_contains($openapi, '/api/v1/ingest:') && str_contains($openapi, 'post:'));
+$check('Wiki-исходники существуют', is_file($root . '/wiki/Home.md') && is_file($root . '/wiki/API.md') && is_file($root . '/wiki/Release-checklist.md'));
 
 $schema = (string)file_get_contents($root . '/app/Internal/schema.pgsql.sql');
 foreach ([
@@ -64,9 +69,5 @@ foreach ([
 ] as $indexName) {
     $check('schema содержит ' . $indexName, str_contains($schema, $indexName));
 }
-
-$ci = is_file($root . '/.github/workflows/ci.yml') ? (string)file_get_contents($root . '/.github/workflows/ci.yml') : '';
-$check('CI запускает self-test', str_contains($ci, 'php bin/self-test.php'));
-$check('CI проверяет Mintlify', str_contains($ci, 'mint validate') && str_contains($ci, 'mint broken-links'));
 
 exit($failed > 0 ? 1 : 0);

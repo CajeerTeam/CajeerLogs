@@ -28,7 +28,7 @@ try {
                     max(1, min(10000, (int)($payload['max_lines'] ?? 1000)))
                 );
                 $repo->finishJob((int)$job['id'], 'done', $summary);
-                echo '[готово] задача #' . $job['id'] . ' aapanel_import добавлено=' . ($summary['inserted'] ?? 0) . PHP_EOL;
+                echo '[готово] задача #' . $job['id'] . ' импорт логов сайтов добавлено=' . ($summary['inserted'] ?? 0) . PHP_EOL;
             } else {
                 $repo->finishJob((int)$job['id'], 'failed', [], 'unknown job type');
                 echo '[сбой] задача #' . $job['id'] . ' неизвестный тип' . PHP_EOL;

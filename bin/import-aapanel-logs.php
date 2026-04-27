@@ -19,7 +19,7 @@ $repo = null;
 try {
     $repo = new Repository(Database::pdo());
     $summary = (new AaPanelLogImporter($repo))->importAll($dir, $site !== '' ? $site : null, $maxLines);
-    $repo->audit('aapanel_logs.imported_cli', 'aapanel_site', $site ?: 'all', 'Импортированы логи сайтов aaPanel через CLI', $summary);
+    $repo->audit('aapanel_logs.imported_cli', 'aapanel_site', $site ?: 'all', 'Импортированы логи сайтов через CLI', $summary);
     $repo->recordCronRun('import-aapanel-logs', 'ok', 'inserted=' . ($summary['inserted'] ?? 0), $summary, $started);
     echo json_encode($summary, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) . PHP_EOL;
 } catch (Throwable $e) {
