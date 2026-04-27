@@ -1,1 +1,36 @@
+name: CI
 
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint source
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo, pdo_pgsql, pdo_sqlite
+          coverage: none
+
+      - name: PHP syntax check
+        run: find app bin public -name '*.php' -print0 | xargs -0 -n1 php -l
+
+      - name: Python syntax check
+        run: python3 -m py_compile clients/bot.py
+
+      - name: Check forbidden files
+        run: |
+          test ! -f .env
+          ! find storage -type f ! -name '.gitkeep' | grep .
