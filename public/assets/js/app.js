@@ -129,7 +129,7 @@ function initPwaRuntime() {
     document.referrer.indexOf('android-app://') === 0;
 
   document.documentElement.classList.toggle('is-standalone', isStandalone);
-  setText('[data-pwa-display-mode]', isStandalone ? 'standalone' : 'browser');
+  setText('[data-pwa-display-mode]', isStandalone ? 'отдельное окно' : 'браузер');
 
   var deferredPrompt = null;
   var installButtons = document.querySelectorAll('[data-pwa-install]');
@@ -169,7 +169,7 @@ function initPwaRuntime() {
 
   window.setTimeout(function () {
     if (!deferredPrompt && !isStandalone) {
-      setInstallState('prompt недоступен');
+      setInstallState('предложение недоступно');
     }
   }, 1800);
 
