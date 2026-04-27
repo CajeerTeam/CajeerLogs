@@ -58,8 +58,8 @@ paths:
                       context:
                         job_id: '123'
       responses:
-        '202':
-          description: Пачка принята.
+        '200':
+          description: Пачка принята и сохранена.
           content:
             application/json:
               schema:
@@ -71,13 +71,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '401':
-          description: Отсутствует или неверен токен.
+          description: Отсутствует токен или неверна HMAC-подпись.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
-          description: Токен отключён, не подходит к событию или требуется подпись.
+          description: Токен отключён или событие не соответствует политике токена.
           content:
             application/json:
               schema:
@@ -89,7 +89,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '429':
-          description: Превышен лимит запросов.
+          description: Превышен лимит запросов, событий или объёма данных.
           content:
             application/json:
               schema:
@@ -152,17 +152,18 @@ components:
           type: string
     IngestAcceptedResponse:
       type: object
-      required: [ok, accepted]
+      required: [ok, inserted, message]
       properties:
         ok:
           type: boolean
           example: true
-        accepted:
+        inserted:
           type: integer
+          description: Количество сохранённых событий.
           example: 1
-        batch_id:
-          type: integer
-          example: 42
+        message:
+          type: string
+          example: Журналы приняты.
     ErrorResponse:
       type: object
       required: [ok, error]
