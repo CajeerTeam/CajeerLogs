@@ -232,10 +232,22 @@ CREATE INDEX IF NOT EXISTS idx_log_events_fingerprint ON log_events (fingerprint
 CREATE INDEX IF NOT EXISTS idx_log_events_user_id_hash ON log_events (user_id_hash);
 CREATE INDEX IF NOT EXISTS idx_ingest_batches_token_received ON ingest_batches (bot_token_id, received_at DESC);
 CREATE INDEX IF NOT EXISTS idx_bot_tokens_lookup ON bot_tokens (token_hash, is_active);
+CREATE INDEX IF NOT EXISTS idx_bot_tokens_deleted ON bot_tokens (deleted_at);
 CREATE INDEX IF NOT EXISTS idx_audit_events_created ON audit_events (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ingest_nonces_cleanup ON ingest_nonces (created_at);
 CREATE INDEX IF NOT EXISTS idx_incidents_last_seen ON incidents (last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_incidents_status ON incidents (status);
 CREATE INDEX IF NOT EXISTS idx_alert_rules_active ON alert_rules (is_active);
+CREATE INDEX IF NOT EXISTS idx_aapanel_log_offsets_site ON aapanel_log_offsets (site, log_type);
 CREATE INDEX IF NOT EXISTS idx_login_attempts_user_ip ON login_attempts (username, ip, attempted_at DESC);
 CREATE INDEX IF NOT EXISTS idx_cron_runs_task_started ON cron_runs (task, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_saved_views_route ON saved_views (route, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_jobs_status_type ON jobs (status, type, created_at ASC);
+CREATE INDEX IF NOT EXISTS idx_aapanel_offsets_rotation ON aapanel_log_offsets (rotation_detected, last_import_at DESC);
+CREATE INDEX IF NOT EXISTS idx_incidents_muted_until ON incidents (muted_until_at);
+
+-- Опциональная поддержка ускоренного поиска по message/exception.
+-- Требует права CREATE EXTENSION для pg_trgm.
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE INDEX IF NOT EXISTS idx_log_events_message_trgm ON log_events USING gin (message gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_log_events_exception_trgm ON log_events USING gin (exception gin_trgm_ops);
