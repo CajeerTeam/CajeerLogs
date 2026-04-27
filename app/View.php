@@ -8,7 +8,7 @@ final class View
     public static function layout(string $title, string $body): string
     {
         $titleEsc = Security::e($title);
-        $docsUrl = Env::get('DOCS_URL', 'https://docs.cajeer.ru/logs') ?: 'https://docs.cajeer.ru/logs';
+        $docsUrl = Env::get('DOCS_URL', 'https://github.com/CajeerTeam/CajeerLogs/wiki') ?: 'https://github.com/CajeerTeam/CajeerLogs/wiki';
         $docsUrlEsc = Security::e($docsUrl);
         $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
         $nav = [
@@ -136,7 +136,7 @@ final class View
                 <li><a href="/">Панель</a></li>
                 <li><a href="/logs">Журналы</a></li>
                 <li><a href="/bots">Боты</a></li>
-                <li><a href="/sites">Сайты aaPanel</a></li>
+                <li><a href="/sites">Сайты</a></li>
                 <li><a href="{$docsUrlEsc}" target="_blank" rel="noopener noreferrer">Документация</a></li>
             </ul>
         </div>
@@ -157,7 +157,7 @@ final class View
             <a href="/logs">Журналы</a>
             <a href="/logs">Поиск по журналам</a>
             <a href="/bots/health">Здоровье ботов</a>
-            <a href="/sites">Сайты aaPanel</a>
+            <a href="/sites">Сайты</a>
             <a href="/system">Система</a>
             <a href="/system/pwa">PWA / домашний экран</a>
             <a href="{$docsUrlEsc}" target="_blank" rel="noopener noreferrer">Документация</a>

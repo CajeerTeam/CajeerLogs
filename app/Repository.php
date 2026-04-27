@@ -716,7 +716,7 @@ final class Repository
 
     public function insertAaPanelSiteLog(string $site, string $logType, string $rawLine, array $event): int
     {
-        $project = Env::get('AAPANEL_LOG_PROJECT', 'aaPanel Sites');
+        $project = Env::get('AAPANEL_LOG_PROJECT', 'Web Sites');
         $bot = $site;
         $environment = Env::get('AAPANEL_LOG_ENVIRONMENT', 'production');
         $level = $this->normalizeLevel((string)($event['level'] ?? 'INFO'));
@@ -781,7 +781,7 @@ final class Repository
                     ORDER BY last_at DESC, bot ASC";
         }
         $stmt = $this->pdo->prepare($sql);
-        $stmt->execute(['project' => Env::get('AAPANEL_LOG_PROJECT', 'aaPanel Sites')]);
+        $stmt->execute(['project' => Env::get('AAPANEL_LOG_PROJECT', 'Web Sites')]);
         return $stmt->fetchAll();
     }
 
@@ -949,7 +949,7 @@ final class Repository
 
     public function siteDetailStats(string $site): array
     {
-        $project = Env::get('AAPANEL_LOG_PROJECT', 'aaPanel Sites');
+        $project = Env::get('AAPANEL_LOG_PROJECT', 'Web Sites');
         $stmt = $this->pdo->prepare('SELECT * FROM log_events WHERE project = :project AND bot = :site ORDER BY created_at DESC LIMIT 500');
         $stmt->execute(['project' => $project, 'site' => $site]);
         $rows = $stmt->fetchAll();
@@ -1043,8 +1043,8 @@ final class Repository
     public function retentionBySource(): array
     {
         $rules = [
-            ['name' => 'aaPanel access', 'where' => "project = :project AND logger = 'nginx.access'", 'days' => Env::int('RETENTION_AAPANEL_ACCESS_DAYS', 14), 'params' => ['project' => Env::get('AAPANEL_LOG_PROJECT', 'aaPanel Sites')]],
-            ['name' => 'aaPanel error', 'where' => "project = :project AND logger = 'nginx.error'", 'days' => Env::int('RETENTION_AAPANEL_ERROR_DAYS', 90), 'params' => ['project' => Env::get('AAPANEL_LOG_PROJECT', 'aaPanel Sites')]],
+            ['name' => 'nginx access', 'where' => "project = :project AND logger = 'nginx.access'", 'days' => Env::int('RETENTION_AAPANEL_ACCESS_DAYS', 14), 'params' => ['project' => Env::get('AAPANEL_LOG_PROJECT', 'Web Sites')]],
+            ['name' => 'nginx error', 'where' => "project = :project AND logger = 'nginx.error'", 'days' => Env::int('RETENTION_AAPANEL_ERROR_DAYS', 90), 'params' => ['project' => Env::get('AAPANEL_LOG_PROJECT', 'Web Sites')]],
         ];
         $result = [];
         foreach ($rules as $rule) {
@@ -1189,10 +1189,10 @@ final class Repository
         }
         if ($source === 'aapanel_access') {
             $where[] = "project = :project AND logger = 'nginx.access'";
-            $params['project'] = Env::get('AAPANEL_LOG_PROJECT', 'aaPanel Sites');
+            $params['project'] = Env::get('AAPANEL_LOG_PROJECT', 'Web Sites');
         } elseif ($source === 'aapanel_error') {
             $where[] = "project = :project AND logger = 'nginx.error'";
-            $params['project'] = Env::get('AAPANEL_LOG_PROJECT', 'aaPanel Sites');
+            $params['project'] = Env::get('AAPANEL_LOG_PROJECT', 'Web Sites');
         } elseif ($source === 'bot_errors') {
             $where[] = "level IN ('ERROR','CRITICAL','SECURITY')";
         }
