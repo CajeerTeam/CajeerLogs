@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ошибка сервера</title>
+    <link rel="stylesheet" href="/assets/app.css?v=20260426-cajeer">
+</head>
+<body>
+<main class="container app-container">
+    <section class="hero-panel">
+        <p class="eyebrow">Журналы Cajeer</p>
+        <h1>Ошибка сервера</h1>
+        <p class="lead">Nginx показал статическую страницу ошибки. Для этого проекта лучше отключить подмену PHP-ошибок:</p>
+        <pre>fastcgi_intercept_errors off;</pre>
+    </section>
+    <section class="panel">
+        <h2>Проверка</h2>
+        <pre>tail -n 100 /www/wwwroot/logs.example.com/storage/logs/app.log
+tail -n 100 /www/wwwlogs/logs.example.com.error.log
+curl -k -i https://logs.example.com/health</pre>
+    </section>
+</main>
+</body>
+</html>

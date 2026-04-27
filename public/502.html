@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>502 — шлюз недоступен</title>
+    <link rel="stylesheet" href="/assets/app.css?v=20260426-cajeer">
+</head>
+<body>
+<main class="container app-container">
+    <section class="hero-panel">
+        <p class="eyebrow">Журналы Cajeer</p>
+        <h1>Шлюз недоступен</h1>
+        <p class="lead">PHP-FPM недоступен или aaPanel подключает include не той версии PHP.</p>
+    </section>
+    <section class="panel">
+        <h2>Что проверить</h2>
+        <pre>grep -n "enable-php" /www/server/panel/vhost/nginx/logs.example.com.conf
+ls -la /tmp/php-cgi-*.sock
+nginx -t
+systemctl reload nginx</pre>
+    </section>
+</main>
+</body>
+</html>
