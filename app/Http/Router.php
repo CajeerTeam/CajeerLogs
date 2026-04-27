@@ -499,6 +499,7 @@ HTML;
         $allowedLevels = Security::e((string)($form['allowed_levels'] ?? ''));
         $requireSignature = !empty($form['require_signature']) ? ' checked' : '';
         $csrf = Security::csrfToken('create_bot_token');
+        $docsUrl = Security::e(Env::get('DOCS_URL', 'https://docs.cajeer.ru/logs') ?: 'https://docs.cajeer.ru/logs');
 
         $notice = '';
         if ($errors) {
@@ -518,7 +519,7 @@ HTML;
             $notice = <<<HTML
 <div class="notice success">
     <h2>Токен создан</h2>
-    <p><strong>Скопируй raw token сейчас.</strong> Повторно он не отображается и в базе хранится только hash.</p>
+    <p><strong>Скопируй исходный токен сейчас.</strong> Повторно он не отображается и в базе хранится только хэш.</p>
     <h3>Переменные окружения для BotHost</h3>
     <pre>{$envBlock}</pre>
     <h3>Фрагмент для Python main.py</h3>
@@ -542,7 +543,7 @@ HTML;
         <li>Добавь фрагмент инициализации логирования в <code>main.py</code>.</li>
         <li>Отправь проверочное событие через curl и проверь страницу «Здоровье ботов».</li>
     </ol>
-    <p class="muted">Для BotHost точка входа остаётся <code>main.py</code>; сервису нужны только переменные <code>REMOTE_LOGS_*</code>.</p>
+    <p class="muted">Для BotHost точка входа остаётся <code>main.py</code>; сервису нужны только переменные <code>REMOTE_LOGS_*</code>. Подробная инструкция: <a href="{$docsUrl}" target="_blank" rel="noopener noreferrer">документация Cajeer Logs</a>.</p>
 </section>
 <section class="panel">
     <h2>Добавить бота</h2>
@@ -670,8 +671,8 @@ HTML;
         $levelClass = 'level level-' . strtolower((string)$log['level']);
         $fields = [
             'ID' => $log['id'],
-            'Batch ID' => $log['batch_id'] ?? '—',
-            'Bot token ID' => $log['bot_token_id'] ?? '—',
+            'ID пачки' => $log['batch_id'] ?? '—',
+            'ID токена бота' => $log['bot_token_id'] ?? '—',
             'Создано' => $log['created_at'],
             'Получено' => $log['received_at'],
             'Уровень' => $this->levelLabel((string)$log['level']),
@@ -679,13 +680,13 @@ HTML;
             'Бот' => $log['bot'],
             'Окружение' => $log['environment'],
             'Версия' => $log['version'] ?? '—',
-            'Host' => $log['host'] ?? '—',
-            'Logger' => $log['logger'] ?? '—',
-            'Trace ID' => $log['trace_id'] ?? '—',
-            'Fingerprint' => $log['fingerprint'] ?? '—',
-            'User hash' => $log['user_id_hash'] ?? '—',
-            'Chat hash' => $log['chat_id_hash'] ?? '—',
-            'Guild hash' => $log['guild_id_hash'] ?? '—',
+            'Хост' => $log['host'] ?? '—',
+            'Логгер' => $log['logger'] ?? '—',
+            'ID трассировки' => $log['trace_id'] ?? '—',
+            'Отпечаток' => $log['fingerprint'] ?? '—',
+            'Хэш пользователя' => $log['user_id_хэш'] ?? '—',
+            'Хэш чата' => $log['chat_id_хэш'] ?? '—',
+            'Хэш сервера' => $log['guild_id_хэш'] ?? '—',
         ];
         $fieldRows = '';
         foreach ($fields as $k => $v) {
@@ -699,8 +700,8 @@ HTML;
             . '<section class="panel"><h2><span class="' . $levelClass . '">' . Security::e($this->levelLabel((string)$log['level'])) . '</span></h2><pre>' . Security::e((string)$log['message']) . '</pre></section>'
             . '<section class="panel"><h2>Поля</h2><table class="detail-table"><tbody>' . $fieldRows . '</tbody></table></section>'
             . '<section class="panel"><h2>Исключение</h2><pre>' . Security::e((string)($log['exception'] ?? '—')) . '</pre></section>'
-            . '<section class="panel"><h2>Context JSON</h2><pre>' . Security::e($context) . '</pre></section>'
-            . '<section class="panel"><h2>Batch meta</h2><pre>' . Security::e($batchMeta) . '</pre></section>';
+            . '<section class="panel"><h2>Контекст JSON</h2><pre>' . Security::e($context) . '</pre></section>'
+            . '<section class="panel"><h2>Метаданные пачки</h2><pre>' . Security::e($batchMeta) . '</pre></section>';
         Response::html(View::layout('Запись #' . $id, $body));
     }
 
@@ -1303,13 +1304,19 @@ HTML;
     {
         $this->repo()->audit('system.viewed', 'system', 'overview', 'Открыта страница состояния системы');
         $diag = Database::diagnostics();
+        $root = dirname(__DIR__, 2);
+        $docsUrl = Env::get('DOCS_URL', 'https://docs.cajeer.ru/logs') ?: 'https://docs.cajeer.ru/logs';
+        $docsStatus = $this->docsAvailability($docsUrl);
+
         $checks = [];
         $checks['PHP'] = PHP_VERSION;
         $checks['DB connection'] = Env::get('DB_CONNECTION', 'sqlite');
         $checks['PDO drivers'] = implode(', ', $diag['pdo_drivers'] ?? []);
         $checks['APP_DEBUG'] = Env::get('APP_DEBUG', 'false');
-        $checks['storage/logs writable'] = is_writable(dirname(__DIR__, 2) . '/storage/logs') ? 'да' : 'нет';
+        $checks['storage/logs writable'] = is_writable($root . '/storage/logs') ? 'да' : 'нет';
         $checks['UI_IP_ALLOWLIST'] = Env::get('UI_IP_ALLOWLIST', '') ?: 'не задан';
+        $checks['Документация'] = $docsUrl;
+        $checks['Статус документации'] = $docsStatus['label'];
         try {
             $stats = $this->repo()->stats();
             $checks['Логов всего'] = (string)$stats['total'];
@@ -1319,8 +1326,19 @@ HTML;
         }
         $rows = '';
         foreach ($checks as $k => $v) {
+            if ($k === 'Документация') {
+                $rows .= '<tr><th>Документация</th><td><a href="' . Security::e((string)$v) . '" target="_blank" rel="noopener noreferrer">' . Security::e((string)$v) . '</a></td></tr>';
+                continue;
+            }
             $rows .= '<tr><th>' . Security::e((string)$k) . '</th><td>' . Security::e((string)$v) . '</td></tr>';
         }
+
+        $readinessRows = '';
+        foreach ($this->productionReadinessChecks() as $check) {
+            $class = $check['ok'] ? 'status-ok' : 'status-warn';
+            $readinessRows .= '<tr><td>' . Security::e($check['name']) . '</td><td><span class="status ' . $class . '">' . Security::e($check['ok'] ? 'готово' : 'проверить') . '</span></td><td>' . Security::e($check['message']) . '</td></tr>';
+        }
+
         $ownershipRows = '';
         try {
             foreach ($this->repo()->dbOwnershipReport() as $row) {
@@ -1331,8 +1349,58 @@ HTML;
             $ownershipRows = '<tr><td colspan="5">' . Security::e($e->getMessage()) . '</td></tr>';
         }
         $body = '<h1>Состояние системы</h1><section class="panel"><h2>Проверки</h2><table class="detail-table"><tbody>' . $rows . '</tbody></table></section>'
+            . '<section class="panel wide"><h2>Готовность к production</h2><table><thead><tr><th>Проверка</th><th>Статус</th><th>Комментарий</th></tr></thead><tbody>' . $readinessRows . '</tbody></table><p class="muted">Этот блок не заменяет аудит безопасности, но быстро показывает опасные defaults.</p></section>'
             . '<section class="panel wide"><h2>Владельцы таблиц PostgreSQL</h2><table><thead><tr><th>Тип</th><th>Имя</th><th>Владелец</th><th>Ожидается</th><th>OK</th></tr></thead><tbody>' . $ownershipRows . '</tbody></table><p class="muted">Если OK=нет, запусти <code>php bin/db-doctor.php --sql</code> и выполни SQL от суперпользователя PostgreSQL.</p></section>';
         Response::html(View::layout('Система', $body));
+    }
+
+    /** @return array{ok:bool,label:string,code:int|null,error:string|null} */
+    private function docsAvailability(string $url): array
+    {
+        if ($url === '') {
+            return ['ok' => false, 'label' => 'DOCS_URL не задан', 'code' => null, 'error' => null];
+        }
+        if (!filter_var($url, FILTER_VALIDATE_URL)) {
+            return ['ok' => false, 'label' => 'некорректный URL', 'code' => null, 'error' => null];
+        }
+
+        $context = stream_context_create([
+            'http' => [
+                'method' => 'HEAD',
+                'timeout' => 2,
+                'ignore_errors' => true,
+                'user_agent' => 'CajeerLogsSystemCheck/1.0',
+            ],
+        ]);
+        $headers = @get_headers($url, true, $context);
+        if ($headers === false || !isset($headers[0])) {
+            return ['ok' => false, 'label' => 'недоступна', 'code' => null, 'error' => 'HEAD failed'];
+        }
+        $statusLine = is_array($headers[0]) ? (string)end($headers[0]) : (string)$headers[0];
+        preg_match('/\s(\d{3})\s/', $statusLine, $m);
+        $code = isset($m[1]) ? (int)$m[1] : null;
+        $ok = $code !== null && $code >= 200 && $code < 400;
+        return ['ok' => $ok, 'label' => ($ok ? 'доступна' : 'недоступна') . ($code ? ' HTTP ' . $code : ''), 'code' => $code, 'error' => null];
+    }
+
+    /** @return list<array{name:string,ok:bool,message:string}> */
+    private function productionReadinessChecks(): array
+    {
+        $root = dirname(__DIR__, 2);
+        $db = Env::get('DB_CONNECTION', 'sqlite');
+        $docsUrl = Env::get('DOCS_URL', 'https://docs.cajeer.ru/logs') ?: '';
+        $checks = [];
+        $checks[] = ['name' => 'APP_DEBUG=false', 'ok' => !Env::bool('APP_DEBUG', false), 'message' => 'APP_DEBUG=' . Env::get('APP_DEBUG', '')];
+        $checks[] = ['name' => 'DB_CONNECTION=pgsql', 'ok' => $db === 'pgsql', 'message' => 'Текущее значение: ' . (string)$db];
+        $checks[] = ['name' => 'LOGS_ENV_FALLBACK_LOGIN=false', 'ok' => !Env::bool('LOGS_ENV_FALLBACK_LOGIN', false), 'message' => 'Аварийный вход должен быть выключен после создания администратора.'];
+        $checks[] = ['name' => 'UPDATE_ALLOW_WEB=false', 'ok' => !Env::bool('UPDATE_ALLOW_WEB', false), 'message' => 'Web-обновление лучше держать выключенным в production.'];
+        $checks[] = ['name' => 'INGEST_REQUIRE_SIGNATURE=true', 'ok' => Env::bool('INGEST_REQUIRE_SIGNATURE', false), 'message' => 'Для публичных сетей HMAC-подпись должна быть обязательной.'];
+        $checks[] = ['name' => 'UI_IP_ALLOWLIST задан', 'ok' => trim((string)Env::get('UI_IP_ALLOWLIST', '')) !== '', 'message' => 'Ограничивает доступ к web-интерфейсу по IP/CIDR.'];
+        $checks[] = ['name' => 'DOCS_URL задан', 'ok' => filter_var($docsUrl, FILTER_VALIDATE_URL) !== false, 'message' => $docsUrl ?: 'не задан'];
+        $checks[] = ['name' => 'storage/logs writable', 'ok' => is_writable($root . '/storage/logs'), 'message' => $root . '/storage/logs'];
+        $checks[] = ['name' => 'storage/cache writable', 'ok' => is_writable($root . '/storage/cache'), 'message' => $root . '/storage/cache'];
+        $checks[] = ['name' => 'storage/archives writable', 'ok' => is_writable($root . '/storage/archives'), 'message' => $root . '/storage/archives'];
+        return $checks;
     }
 
     private function pwaDiagnostics(): void
@@ -1376,10 +1444,10 @@ NGINX;
             . '<section class="panel"><h2>Диагностика установки</h2><table class="detail-table"><tbody>' . $rows . '</tbody></table></section>'
             . '<section class="panel"><h2>Проверка в браузере</h2><div class="grid cards pwa-runtime-grid">'
             . '<div class="card"><div class="label">Режим отображения</div><div class="value" data-pwa-display-mode>проверяется</div></div>'
-            . '<div class="card"><div class="label">Service worker</div><div class="value" data-pwa-sw-state>проверяется</div></div>'
+            . '<div class="card"><div class="label">Сервис-воркер</div><div class="value" data-pwa-sw-state>проверяется</div></div>'
             . '<div class="card"><div class="label">Предложение установки</div><div class="value" data-pwa-install-state>проверяется</div></div>'
             . '</div><p class="muted">Если Chrome пишет «Это приложение нельзя установить», проверь manifest, иконки, HTTPS, MIME-типы и service worker. Firefox Android может создавать обычный ярлык даже при корректном manifest.</p></section>'
-            . '<section class="panel"><h2>Nginx MIME для aaPanel</h2><p class="muted">Добавь эти location-блоки в server-блок logs.example.com, если Chrome не видит manifest или service worker.</p><pre>' . Security::e($nginx) . '</pre></section>'
+            . '<section class="panel"><h2>MIME Nginx для aaPanel</h2><p class="muted">Добавь эти location-блоки в server-блок logs.example.com, если Chrome не видит manifest или service worker.</p><pre>' . Security::e($nginx) . '</pre></section>'
             . '<section class="panel"><h2>Команды проверки</h2><pre>curl -k -I https://logs.example.com/manifest.json\ncurl -k -I https://logs.example.com/manifest.webmanifest\ncurl -k -I https://logs.example.com/sw.js\ncurl -k -I https://logs.example.com/assets/img/icon-192.png\ncurl -k -I https://logs.example.com/assets/img/icon-512.png</pre></section>';
         Response::html(View::layout('PWA / домашний экран', $body));
     }
@@ -1398,9 +1466,9 @@ NGINX;
             $jobRows .= '<tr><td>' . Security::e((string)$job['id']) . '</td><td>' . Security::e((string)$job['type']) . '</td><td>' . Security::e((string)$job['status']) . '</td><td>' . Security::e((string)$job['created_at']) . '</td><td>' . Security::e((string)($job['error'] ?? '')) . '</td></tr>';
         }
         if ($jobRows === '') { $jobRows = '<tr><td colspan="5" class="muted">Задач в очереди нет.</td></tr>'; }
-        $body = '<h1>Cron</h1><section class="panel wide"><h2>Последние запуски</h2><table><thead><tr><th>Старт</th><th>Задача</th><th>Статус</th><th>мс</th><th>Сообщение</th></tr></thead><tbody>' . $rows . '</tbody></table></section>'
+        $body = '<h1>Планировщик</h1><section class="panel wide"><h2>Последние запуски</h2><table><thead><tr><th>Старт</th><th>Задача</th><th>Статус</th><th>мс</th><th>Сообщение</th></tr></thead><tbody>' . $rows . '</tbody></table></section>'
             . '<section class="panel"><h2>Рекомендуемые задачи aaPanel</h2><pre>cd /www/wwwroot/logs.example.com && /www/server/php/83/bin/php bin/alert-dispatch.php\ncd /www/wwwroot/logs.example.com && /www/server/php/83/bin/php bin/import-aapanel-logs.php --max-lines=1000\ncd /www/wwwroot/logs.example.com && /www/server/php/83/bin/php bin/retention.php</pre></section>';
-        Response::html(View::layout('Cron', $body));
+        Response::html(View::layout('Планировщик', $body));
     }
 
     private function errors(): void
@@ -1765,6 +1833,7 @@ PY;
         $debug = Env::bool('APP_DEBUG', false);
         $message = $debug ? $e->getMessage() : 'Приложение не смогло подключиться к базе данных или прочитать схему.';
         $diag = Database::diagnostics();
+        $docsUrlEsc = Security::e(Env::get('DOCS_URL', 'https://docs.cajeer.ru/logs') ?: 'https://docs.cajeer.ru/logs');
         $diagRows = '';
         foreach ($diag as $key => $value) {
             if (is_array($value)) {
@@ -1783,6 +1852,7 @@ PY;
     <p>Приложение запустилось, но не смогло открыть рабочую страницу.</p>
     <p><strong>Причина:</strong> {$safeMessage}</p>
     <p>Проверь <code>/www/wwwroot/logs.example.com/.env</code>, наличие PHP-расширения <code>pdo_pgsql</code>, доступность PostgreSQL и выполнены ли миграции.</p>
+    <p>Документация: <a href="{$docsUrlEsc}" target="_blank" rel="noopener noreferrer">{$docsUrlEsc}</a></p>
     <pre>cd /www/wwwroot/logs.example.com
 php bin/health.php
 php bin/migrate.php</pre>
