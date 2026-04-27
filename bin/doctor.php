@@ -6,7 +6,6 @@ require_once dirname(__DIR__) . '/app/bootstrap.php';
 
 use CajeerLogs\Database;
 use CajeerLogs\Env;
-use CajeerLogs\Migrator;
 
 $root = dirname(__DIR__);
 $appUrl = Env::get('APP_URL', 'https://logs.example.com');
@@ -17,34 +16,32 @@ $add = static function (string $name, bool $ok, string $message = '') use (&$che
 };
 
 $add('PHP >= 8.2', version_compare(PHP_VERSION, '8.2.0', '>='), PHP_VERSION);
-$add('PDO loaded', extension_loaded('pdo'), '');
+$add('PDO загружен', extension_loaded('pdo'), '');
 $drivers = class_exists(PDO::class) ? PDO::getAvailableDrivers() : [];
-$add('PDO driver configured', in_array(Env::get('DB_CONNECTION', 'sqlite') === 'pgsql' ? 'pgsql' : 'sqlite', $drivers, true), implode(',', $drivers));
-$add('storage/logs writable', is_writable($root . '/storage/logs'), $root . '/storage/logs');
-$add('storage/cache writable', is_writable($root . '/storage/cache'), $root . '/storage/cache');
-$add('storage/archives writable', is_writable($root . '/storage/archives'), $root . '/storage/archives');
-$add('APP_DEBUG disabled', !Env::bool('APP_DEBUG', false), 'APP_DEBUG=' . Env::get('APP_DEBUG', ''));
-$add('LOGS_TOKEN_PEPPER changed', !str_contains((string)Env::get('LOGS_TOKEN_PEPPER', ''), 'change_me'), '');
-$add('PRIVACY_HASH_PEPPER changed', !str_contains((string)Env::get('PRIVACY_HASH_PEPPER', ''), 'change_me'), '');
-$add('Fallback login disabled', !Env::bool('LOGS_ENV_FALLBACK_LOGIN', false), 'LOGS_ENV_FALLBACK_LOGIN=' . Env::get('LOGS_ENV_FALLBACK_LOGIN', ''));
-$add('.env not public', !is_file($root . '/public/.env'), '');
+$add('PDO-драйвер настроен', in_array(Env::get('DB_CONNECTION', 'sqlite') === 'pgsql' ? 'pgsql' : 'sqlite', $drivers, true), implode(',', $drivers));
+$add('storage/logs доступен на запись', is_writable($root . '/storage/logs'), $root . '/storage/logs');
+$add('storage/cache доступен на запись', is_writable($root . '/storage/cache'), $root . '/storage/cache');
+$add('storage/archives доступен на запись', is_writable($root . '/storage/archives'), $root . '/storage/archives');
+$add('APP_DEBUG отключён', !Env::bool('APP_DEBUG', false), 'APP_DEBUG=' . Env::get('APP_DEBUG', ''));
+$add('LOGS_TOKEN_PEPPER изменён', !str_contains((string)Env::get('LOGS_TOKEN_PEPPER', ''), 'change_me'), '');
+$add('PRIVACY_HASH_PEPPER изменён', !str_contains((string)Env::get('PRIVACY_HASH_PEPPER', ''), 'change_me'), '');
+$add('Аварийный вход отключён', !Env::bool('LOGS_ENV_FALLBACK_LOGIN', false), 'LOGS_ENV_FALLBACK_LOGIN=' . Env::get('LOGS_ENV_FALLBACK_LOGIN', ''));
+$add('.env не опубликован', !is_file($root . '/public/.env'), '');
 
 $aaPanelLogDir = Env::get('AAPANEL_LOG_DIR', '/www/wwwlogs');
-$add('aaPanel logs directory readable', is_dir($aaPanelLogDir) && is_readable($aaPanelLogDir), $aaPanelLogDir);
+$add('Каталог логов aaPanel читается', is_dir($aaPanelLogDir) && is_readable($aaPanelLogDir), $aaPanelLogDir);
 $grep = trim((string)shell_exec('grep -R "putenv[[:space:]]*(" -n ' . escapeshellarg($root . '/app') . ' 2>/dev/null'));
-$add('No putenv usage', $grep === '', $grep);
+$add('putenv не используется', $grep === '', $grep);
 
 try {
-    $migrator = new Migrator(Database::pdo());
-    $migrator->run();
     Database::pdo()->query('SELECT 1');
-    $add('Database connection', true, Database::driver());
-    foreach (['bot_tokens','log_events','incidents','alert_rules','users','aapanel_log_offsets','login_attempts','cron_runs','saved_views','jobs','schema_migrations'] as $table) {
+    $add('Подключение к базе данных', true, Database::driver());
+    foreach (['bot_tokens','log_events','incidents','alert_rules','alert_deliveries','users','aapanel_log_offsets','login_attempts','cron_runs','saved_views','jobs','update_runs','schema_migrations'] as $table) {
         Database::pdo()->query('SELECT COUNT(*) FROM ' . $table);
-        $add('Table ' . $table, true, '');
+        $add('Таблица ' . $table, true, '');
     }
 } catch (Throwable $e) {
-    $add('Database/schema', false, $e->getMessage());
+    $add('База данных/схема', false, $e->getMessage());
 }
 
 $nginxCandidates = [
@@ -61,14 +58,14 @@ foreach ($nginxCandidates as $candidate) {
 }
 if ($nginxConfig !== null) {
     $content = file_get_contents($nginxConfig) ?: '';
-    $add('Nginx root points to public', str_contains($content, 'root ' . $root . '/public'), $nginxConfig);
+    $add('Nginx root указывает на public', str_contains($content, 'root ' . $root . '/public'), $nginxConfig);
 } else {
-    $add('Nginx config found', false, implode(', ', $nginxCandidates));
+    $add('Конфиг Nginx найден', false, implode(', ', $nginxCandidates));
 }
 
 $failed = 0;
 foreach ($checks as [$name, $ok, $message]) {
-    echo ($ok ? '[OK]   ' : '[FAIL] ') . $name . ($message !== '' ? ' — ' . $message : '') . PHP_EOL;
+    echo ($ok ? '[ОК]   ' : '[СБОЙ] ') . $name . ($message !== '' ? ' — ' . $message : '') . PHP_EOL;
     if (!$ok) { $failed++; }
 }
 exit($failed > 0 ? 1 : 0);
