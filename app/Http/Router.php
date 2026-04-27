@@ -50,82 +50,82 @@ final class Router
                 return;
             }
             if ($path === '/' && $method === 'GET') {
-                Auth::requireLogin();
+                Auth::requirePermission('logs.view');
                 $this->dashboard();
                 return;
             }
             if ($path === '/logs/export' && $method === 'GET') {
-                Auth::requireLogin();
+                Auth::requirePermission('logs.export');
                 $this->exportLogs();
                 return;
             }
             if (preg_match('#^/logs/(\d+)$#', $path, $m) && $method === 'GET') {
-                Auth::requireLogin();
+                Auth::requirePermission('logs.view');
                 $this->logDetail((int)$m[1]);
                 return;
             }
             if ($path === '/logs' && $method === 'GET') {
-                Auth::requireLogin();
+                Auth::requirePermission('logs.view');
                 $this->logs();
                 return;
             }
             if ($path === '/bots' && $method === 'GET') {
-                Auth::requireLogin();
+                Auth::requirePermission('bots.view');
                 $this->bots();
                 return;
             }
             if ($path === '/bots' && $method === 'POST') {
-                Auth::requireLogin();
+                Auth::requirePermission('bots.manage');
                 $this->createBotTokenFromForm();
                 return;
             }
             if ($path === '/bots/action' && $method === 'POST') {
-                Auth::requireLogin();
+                Auth::requirePermission('bots.manage');
                 $this->botTokenAction();
                 return;
             }
             if ($path === '/bots/health' && $method === 'GET') {
-                Auth::requireLogin();
+                Auth::requirePermission('bots.view');
                 $this->botsHealth();
                 return;
             }
             if ($path === '/sites' && $method === 'GET') {
-                Auth::requireLogin();
+                Auth::requirePermission('sites.view');
                 $this->sites();
                 return;
             }
             if ($path === '/sites/import' && $method === 'POST') {
-                Auth::requireLogin();
+                Auth::requirePermission('sites.manage');
                 $this->importAaPanelSiteLogs();
                 return;
             }
             if ($path === '/incidents' && $method === 'GET') {
-                Auth::requireLogin();
+                Auth::requirePermission('incidents.view');
                 $this->incidents();
                 return;
             }
             if (preg_match('#^/incidents/(\d+)$#', $path, $m) && $method === 'GET') {
-                Auth::requireLogin();
+                Auth::requirePermission('incidents.view');
                 $this->incidentDetail((int)$m[1]);
                 return;
             }
             if ($path === '/incidents/action' && $method === 'POST') {
-                Auth::requireLogin();
+                Auth::requirePermission('incidents.manage');
                 $this->incidentAction();
                 return;
             }
             if ($path === '/alerts' && $method === 'GET') {
-                Auth::requireLogin();
+                Auth::requirePermission('alerts.view');
                 $this->alerts();
                 return;
             }
             if ($path === '/alerts' && $method === 'POST') {
-                Auth::requireLogin();
+                Auth::requirePermission('alerts.manage');
                 $this->createAlertRule();
                 return;
             }
             if ($path === '/alerts/action' && $method === 'POST') {
-                Auth::requireLogin();
+                Auth::requirePermission('alerts.manage');
                 $this->alertAction();
                 return;
             }
@@ -237,7 +237,7 @@ final class Router
             return;
         }
         $csrf = Security::csrfToken('login');
-        $next = Security::e((string)($_GET['next'] ?? '/'));
+        $next = Security::e(Security::safeInternalPath((string)($_GET['next'] ?? '/'), '/'));
         $errorHtml = '';
         if ($errors) {
             $items = '';
@@ -271,14 +271,12 @@ HTML;
         $username = trim((string)($_POST['username'] ?? ''));
         $password = (string)($_POST['password'] ?? '');
         if (!Auth::attempt(Database::pdo(), $username, $password)) {
+            $this->repo()->audit('auth.login_failed', 'user', $username !== '' ? $username : null, 'Неудачная попытка входа');
             $this->login(['Неверный пользователь или пароль.']);
             return;
         }
         $this->repo()->audit('auth.login', 'user', $username, 'Вход в интерфейс');
-        $next = (string)($_POST['next'] ?? '/');
-        if ($next === '' || !str_starts_with($next, '/')) {
-            $next = '/';
-        }
+        $next = Security::safeInternalPath((string)($_POST['next'] ?? '/'), '/');
         Response::redirect($next);
     }
 
@@ -465,9 +463,9 @@ HTML;
     <a class="button ghost" href="/logs?range=24h">24 часа</a>
     <a class="button ghost" href="/logs?range=7d">7 дней</a>
     <a class="button ghost" href="/logs?level=ERROR&range=24h">Ошибки за 24 часа</a>
-    <a class="button ghost" href="/logs?level=SECURITY&range=24h">Security</a>
+    <a class="button ghost" href="/logs?level=SECURITY&range=24h">Безопасность</a>
     <a class="button ghost" href="/logs?project=aaPanel+Sites&range=24h">Сайты aaPanel</a>
-    <a class="button ghost" href="/logs?auto_refresh=5">Live 5 сек.</a>
+    <a class="button ghost" href="/logs?auto_refresh=5">Автообновление 5 сек.</a>
 </div>
 <form class="filters" method="get">{$inputs}<button type="submit">Фильтровать</button><a class="button ghost" href="/logs">Сбросить</a></form>
 <div class="toolbar"><span class="muted">Найдено записей: {$total}. Страница: {$page}.</span><span class="toolbar-actions"><a class="button ghost" href="{$exportPrefix}format=csv">CSV</a><a class="button ghost" href="{$exportPrefix}format=json">JSON</a><a class="button ghost" href="{$exportPrefix}format=ndjson">NDJSON</a></span></div>
@@ -527,6 +525,7 @@ HTML;
     <pre>{$python}</pre>
     <h3>Проверочная команда</h3>
     <pre>{$curl}</pre>
+    <p>После успешной отправки открой <a href="/bots/health">здоровье ботов</a> и <a href="/logs">журналы</a>, чтобы убедиться, что событие принято.</p>
 </div>
 HTML;
         }
@@ -535,6 +534,17 @@ HTML;
 <h1>Боты</h1>
 {$notice}
 <section class="panel">
+    <h2>Мастер подключения</h2>
+    <ol>
+        <li>Создай токен под конкретный проект, бота и окружение.</li>
+        <li>Скопируй блок переменных окружения в BotHost или в systemd/docker окружение сервиса.</li>
+        <li>Положи <code>clients/bot.py</code> рядом с <code>main.py</code> как <code>remote_log_handler.py</code> или подключи его как пакет.</li>
+        <li>Добавь фрагмент инициализации логирования в <code>main.py</code>.</li>
+        <li>Отправь проверочное событие через curl и проверь страницу «Здоровье ботов».</li>
+    </ol>
+    <p class="muted">Для BotHost точка входа остаётся <code>main.py</code>; сервису нужны только переменные <code>REMOTE_LOGS_*</code>.</p>
+</section>
+<section class="panel">
     <h2>Добавить бота</h2>
     <p class="muted">Форма создаёт отдельный токен приёма журналов для конкретного бота. Исходный токен показывается только один раз.</p>
     <form class="form-grid" method="post" action="/bots">
@@ -542,7 +552,7 @@ HTML;
         <label>Проект<input name="project" value="{$project}" required maxlength="120"></label>
         <label>Бот<input name="bot" value="{$bot}" required maxlength="120"></label>
         <label>Окружение<input name="environment" value="{$environment}" required maxlength="60"></label>
-        <label>Rate limit, запросов/мин<input name="rate_limit_per_minute" type="number" min="0" max="10000" value="{$rateLimit}"></label>
+        <label>Лимит запросов/мин<input name="rate_limit_per_minute" type="number" min="0" max="10000" value="{$rateLimit}"></label>
         <label>Макс. размер пачки<input name="max_batch_size" type="number" min="1" max="500" value="{$maxBatch}"></label>
         <label>Разрешённые уровни<input name="allowed_levels" value="{$allowedLevels}" placeholder="INFO,WARNING,ERROR"></label>
         <label class="check-row"><input type="checkbox" name="require_signature" value="1"{$requireSignature}> Требовать HMAC-подпись</label>
@@ -820,20 +830,41 @@ HTML;
         foreach ($this->repo()->botHealth() as $bot) {
             $status = (string)$bot['health_status'];
             $label = match ($status) {
-                'online' => 'online',
-                'stale' => 'stale',
-                'offline' => 'offline',
+                'online' => 'на связи',
+                'stale' => 'давно не писал',
+                'offline' => 'нет данных',
+                'never' => 'не подключался',
                 default => 'нет данных',
             };
             $class = $status === 'online' ? 'status-ok' : ($status === 'stale' ? 'status-warn' : 'status-danger');
-            $rows .= '<tr><td>' . Security::e($bot['project']) . '</td><td>' . Security::e($bot['bot']) . '</td><td>' . Security::e($bot['environment']) . '</td><td><span class="status ' . $class . '">' . Security::e($label) . '</span></td><td>' . Security::e((string)($bot['last_used_at'] ?? '—')) . '</td><td>' . Security::e((string)($bot['last_error_at'] ?? '—')) . '</td><td>' . Security::e((string)($bot['logs_24h'] ?? 0)) . '</td><td>' . Security::e((string)($bot['errors_24h'] ?? 0)) . '</td></tr>';
+            $age = isset($bot['age_seconds']) && $bot['age_seconds'] !== null ? $this->formatDuration((int)$bot['age_seconds']) : '—';
+            $logs24h = (int)($bot['logs_24h'] ?? 0);
+            $avgHour = number_format($logs24h / 24, 1, '.', '');
+            $logsUrl = '/logs?project=' . rawurlencode((string)$bot['project']) . '&bot=' . rawurlencode((string)$bot['bot']) . '&environment=' . rawurlencode((string)$bot['environment']) . '&range=24h';
+            $errorsUrl = $logsUrl . '&level=ERROR';
+            $rows .= '<tr>'
+                . '<td>' . Security::e($bot['project']) . '</td>'
+                . '<td>' . Security::e($bot['bot']) . '</td>'
+                . '<td>' . Security::e($bot['environment']) . '</td>'
+                . '<td><span class="status ' . $class . '">' . Security::e($label) . '</span></td>'
+                . '<td>' . Security::e((string)($bot['last_used_at'] ?? '—')) . '</td>'
+                . '<td>' . Security::e($age) . '</td>'
+                . '<td>' . Security::e((string)($bot['last_error_at'] ?? '—')) . '</td>'
+                . '<td>' . Security::e((string)$logs24h) . '</td>'
+                . '<td>' . Security::e((string)$avgHour) . '</td>'
+                . '<td>' . Security::e((string)($bot['errors_24h'] ?? 0)) . '</td>'
+                . '<td><a class="button small ghost" href="' . Security::e($logsUrl) . '">Журналы</a> <a class="button small ghost" href="' . Security::e($errorsUrl) . '">Ошибки</a></td>'
+                . '</tr>';
         }
         if ($rows === '') {
-            $rows = '<tr><td colspan="8" class="muted">Боты ещё не подключены</td></tr>';
+            $rows = '<tr><td colspan="11" class="muted">Боты ещё не подключены</td></tr>';
         }
-        $body = '<h1>Здоровье ботов</h1><section class="panel wide"><table><thead><tr><th>Проект</th><th>Бот</th><th>Окружение</th><th>Статус</th><th>Последний лог</th><th>Последняя ошибка</th><th>Логи 24ч</th><th>Ошибки 24ч</th></tr></thead><tbody>' . $rows . '</tbody></table></section>';
+        $body = '<h1>Здоровье ботов</h1>'
+            . '<section class="panel"><p class="muted">Статус считается по последнему успешному приёму журналов: до 10 минут — «на связи», до часа — «давно не писал», больше часа — «нет данных».</p></section>'
+            . '<section class="panel wide"><table><thead><tr><th>Проект</th><th>Бот</th><th>Окружение</th><th>Статус</th><th>Последний лог</th><th>Возраст</th><th>Последняя ошибка</th><th>Журналы 24ч</th><th>Средн./час</th><th>Ошибки 24ч</th><th>Действия</th></tr></thead><tbody>' . $rows . '</tbody></table></section>';
         Response::html(View::layout('Здоровье ботов', $body));
     }
+
 
     private function incidents(): void
     {
@@ -902,42 +933,81 @@ HTML;
         foreach ($repo->alertRules() as $rule) {
             $active = (int)$rule['is_active'] === 1;
             $toggle = $active ? 'disable' : 'enable';
-            $rows .= '<tr><td>' . Security::e((string)$rule['id']) . '</td><td>' . Security::e($rule['name']) . '</td><td>' . Security::e($rule['channel']) . '</td><td>' . Security::e($rule['project'] ?: 'Все') . '</td><td>' . Security::e($rule['bot'] ?: 'Все') . '</td><td><code>' . Security::e(Security::maskSecret((string)$rule['webhook_url'])) . '</code></td><td>' . Security::e($rule['levels']) . '</td><td>' . Security::e((string)$rule['threshold_count']) . ' / ' . Security::e((string)$rule['window_seconds']) . ' сек.</td><td>' . Security::e((string)($rule['last_fired_at'] ?? '—')) . '</td><td>' . Security::e($active ? 'Активно' : 'Отключено') . '</td><td><form method="post" action="/alerts/action"><input type="hidden" name="_csrf" value="' . Security::e($csrf) . '"><input type="hidden" name="id" value="' . Security::e((string)$rule['id']) . '"><button class="button small ghost" name="action" value="' . $toggle . '">' . Security::e($active ? 'Отключить' : 'Включить') . '</button><button class="button small danger" name="action" value="delete">Удалить</button></form></td></tr>';
+            $channel = (string)$rule['channel'];
+            $channelLabel = $channel === 'discord' ? 'Discord' : 'Telegram';
+            $rows .= '<tr>'
+                . '<td>' . Security::e((string)$rule['id']) . '</td>'
+                . '<td>' . Security::e($rule['name']) . '</td>'
+                . '<td>' . Security::e($channelLabel) . '</td>'
+                . '<td>' . Security::e($rule['project'] ?: 'Все') . '</td>'
+                . '<td>' . Security::e($rule['bot'] ?: 'Все') . '</td>'
+                . '<td><code>' . Security::e(Security::maskSecret((string)$rule['webhook_url'])) . '</code></td>'
+                . '<td>' . Security::e($rule['levels']) . '</td>'
+                . '<td>' . Security::e((string)$rule['threshold_count']) . ' за ' . Security::e((string)$rule['window_seconds']) . ' сек.</td>'
+                . '<td>' . Security::e((string)$rule['cooldown_seconds']) . ' сек.</td>'
+                . '<td>' . Security::e((string)($rule['last_fired_at'] ?? '—')) . '</td>'
+                . '<td>' . Security::e($active ? 'Активно' : 'Отключено') . '</td>'
+                . '<td><form method="post" action="/alerts/action">'
+                . '<input type="hidden" name="_csrf" value="' . Security::e($csrf) . '">'
+                . '<input type="hidden" name="id" value="' . Security::e((string)$rule['id']) . '">'
+                . '<button class="button small ghost" name="action" value="' . $toggle . '">' . Security::e($active ? 'Отключить' : 'Включить') . '</button>'
+                . '<button class="button small ghost" name="action" value="test">Проверить</button>'
+                . '<button class="button small danger" name="action" value="delete">Удалить</button>'
+                . '</form></td>'
+                . '</tr>';
         }
         if ($rows === '') {
-            $rows = '<tr><td colspan="11" class="muted">Правила пока не созданы</td></tr>';
+            $rows = '<tr><td colspan="12" class="muted">Правила пока не созданы</td></tr>';
         }
+
+        $deliveryRows = '';
+        foreach ($repo->alertDeliveries(30) as $delivery) {
+            $deliveryRows .= '<tr>'
+                . '<td>' . Security::e((string)$delivery['delivered_at']) . '</td>'
+                . '<td>' . Security::e((string)($delivery['rule_name'] ?? '—')) . '</td>'
+                . '<td>' . Security::e((string)($delivery['channel'] ?? '—')) . '</td>'
+                . '<td>' . Security::e((string)$delivery['status']) . '</td>'
+                . '<td>' . Security::e((string)$delivery['message']) . '</td>'
+                . '</tr>';
+        }
+        if ($deliveryRows === '') {
+            $deliveryRows = '<tr><td colspan="5" class="muted">Доставок пока нет.</td></tr>';
+        }
+
         $notice = $message ? '<div class="notice success">' . Security::e($message) . '</div>' : '';
         if ($errors) {
             $notice = '<div class="notice danger">' . Security::e(implode(' ', $errors)) . '</div>';
         }
         $createCsrf = Security::csrfToken('create_alert');
         $body = <<<HTML
-<h1>Алерты</h1>
+<h1>Оповещения</h1>
 {$notice}
 <section class="panel">
-    <h2>Добавить правило</h2>
+    <h2>Добавить правило уведомлений</h2>
+    <p class="muted">Правило группирует повторяющиеся ошибки по проекту, боту, окружению и уровню. Поле «Пауза» ограничивает частоту отправки и защищает от спама.</p>
     <form class="form-grid" method="post" action="/alerts">
         <input type="hidden" name="_csrf" value="{$createCsrf}">
         <label>Название<input name="name" required maxlength="160" placeholder="Ошибки NeverMine"></label>
-        <label>Канал<select name="channel"><option value="telegram">Telegram</option><option value="discord">Discord</option></select></label>
-        <label class="full">Webhook URL<input name="webhook_url" required placeholder="https://..."></label>
+        <label>Канал доставки<select name="channel"><option value="telegram">Telegram</option><option value="discord">Discord</option></select></label>
+        <label class="full">URL вебхука<input name="webhook_url" required placeholder="https://..."></label>
         <label>Проект<input name="project" placeholder="NeverMine"></label>
         <label>Бот<input name="bot" placeholder="NMVKBot"></label>
         <label>Окружение<input name="environment" placeholder="production"></label>
         <label>Уровни<input name="levels" value="ERROR,CRITICAL,SECURITY"></label>
-        <label>Порог<input name="threshold_count" type="number" min="1" value="1"></label>
+        <label>Порог событий<input name="threshold_count" type="number" min="1" value="1"></label>
         <label>Окно, секунд<input name="window_seconds" type="number" min="60" value="300"></label>
-        <label>Cooldown, секунд<input name="cooldown_seconds" type="number" min="60" value="900"></label>
+        <label>Пауза между отправками, секунд<input name="cooldown_seconds" type="number" min="60" value="900"></label>
         <div class="form-actions full"><button type="submit">Создать правило</button></div>
     </form>
 </section>
-<section class="panel wide"><h2>Правила</h2><table><thead><tr><th>ID</th><th>Название</th><th>Канал</th><th>Проект</th><th>Бот</th><th>Webhook</th><th>Уровни</th><th>Порог</th><th>Последняя отправка</th><th>Статус</th><th>Действия</th></tr></thead><tbody>{$rows}</tbody></table></section>
+<section class="panel wide"><h2>Правила</h2><table><thead><tr><th>ID</th><th>Название</th><th>Канал</th><th>Проект</th><th>Бот</th><th>Вебхук</th><th>Уровни</th><th>Порог</th><th>Пауза</th><th>Последняя отправка</th><th>Статус</th><th>Действия</th></tr></thead><tbody>{$rows}</tbody></table></section>
+<section class="panel wide"><h2>Журнал доставок</h2><table><thead><tr><th>Время</th><th>Правило</th><th>Канал</th><th>Статус</th><th>Ответ</th></tr></thead><tbody>{$deliveryRows}</tbody></table></section>
 <section class="panel"><h2>Запуск</h2><pre>cd /www/wwwroot/logs.example.com
 /www/server/php/83/bin/php bin/alert-dispatch.php</pre></section>
 HTML;
-        Response::html(View::layout('Алерты', $body));
+        Response::html(View::layout('Оповещения', $body));
     }
+
 
     private function createAlertRule(): void
     {
@@ -959,14 +1029,14 @@ HTML;
         ];
         $errors = [];
         if ($data['name'] === '' || $data['webhook_url'] === '' || !in_array($data['channel'], ['telegram', 'discord'], true)) {
-            $errors[] = 'Заполни название, канал и webhook URL.';
+            $errors[] = 'Заполни название, канал и URL вебхука.';
         }
         if ($errors) {
             $this->alerts($errors);
             return;
         }
         $id = $this->repo()->createAlertRule($data);
-        $this->repo()->audit('alert_rule.created', 'alert_rule', (string)$id, 'Создано правило алертов', ['name' => $data['name']]);
+        $this->repo()->audit('alert_rule.created', 'alert_rule', (string)$id, 'Создано правило оповещений', ['name' => $data['name']]);
         $this->alerts([], 'Правило создано.');
     }
 
@@ -981,8 +1051,14 @@ HTML;
         if ($id > 0) {
             if ($action === 'enable') { $this->repo()->setAlertRuleActive($id, true); }
             if ($action === 'disable') { $this->repo()->setAlertRuleActive($id, false); }
+            if ($action === 'test') {
+                $result = $this->repo()->testAlertRule($id);
+                $this->repo()->audit('alert_rule.tested', 'alert_rule', (string)$id, 'Проверена доставка оповещения', $result);
+                $this->alerts($result['ok'] ? [] : [(string)$result['message']], $result['ok'] ? 'Проверочное оповещение отправлено.' : null);
+                return;
+            }
             if ($action === 'delete') { $this->repo()->deleteAlertRule($id); }
-            $this->repo()->audit('alert_rule.' . $action, 'alert_rule', (string)$id, 'Действие с правилом алертов');
+            $this->repo()->audit('alert_rule.' . $action, 'alert_rule', (string)$id, 'Действие с правилом оповещений');
         }
         Response::redirect('/alerts');
     }
@@ -1022,7 +1098,7 @@ HTML;
             $notice = '<div class="notice success">' . Security::e($message) . '</div>';
         }
         $createCsrf = Security::csrfToken('save_user');
-        $fallback = Env::bool('LOGS_ENV_FALLBACK_LOGIN', true) ? '<div class="notice warn">Аварийный вход через <code>.env</code> включён. После создания пользователя с ролью admin лучше задать <code>LOGS_ENV_FALLBACK_LOGIN=false</code>.</div>' : '';
+        $fallback = Env::bool('LOGS_ENV_FALLBACK_LOGIN', false) ? '<div class="notice warn">Аварийный вход через <code>.env</code> включён. После создания пользователя с ролью admin лучше задать <code>LOGS_ENV_FALLBACK_LOGIN=false</code>.</div>' : '';
         $body = <<<HTML
 <h1>Пользователи</h1>
 {$notice}
@@ -1159,7 +1235,7 @@ HTML;
         <form method="post" action="/system/update/action"><input type="hidden" name="_csrf" value="{$csrf}"><input name="confirm" placeholder="Введите UPDATE" autocomplete="off"><button name="action" value="update" type="submit">Обновить из GitHub</button></form>
         <form method="post" action="/system/update/action"><input type="hidden" name="_csrf" value="{$csrf}"><input name="confirm" placeholder="Введите ROLLBACK" autocomplete="off"><button class="danger" name="action" value="rollback" type="submit">Откатить последнее</button></form>
     </div>
-    <p class="muted">Перед обновлением создаётся backup файлов и сохраняется предыдущий commit. После обновления запускаются <code>bin/migrate.php</code> и <code>bin/doctor.php</code>.</p>
+    <p class="muted">Перед обновлением создаётся backup файлов и сохраняется предыдущий commit. После обновления запускаются <code>bin/migrate.php</code> и read-only проверка <code>bin/doctor.php</code>.</p>
 </section>
 {$outputHtml}
 <section class="panel wide">
@@ -1225,6 +1301,7 @@ HTML;
 
     private function system(): void
     {
+        $this->repo()->audit('system.viewed', 'system', 'overview', 'Открыта страница состояния системы');
         $diag = Database::diagnostics();
         $checks = [];
         $checks['PHP'] = PHP_VERSION;
@@ -1260,6 +1337,7 @@ HTML;
 
     private function pwaDiagnostics(): void
     {
+        $this->repo()->audit('system.pwa_viewed', 'system', 'pwa', 'Открыта диагностика PWA');
         $root = dirname(__DIR__, 2);
         $public = $root . '/public';
         $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
@@ -1297,9 +1375,9 @@ NGINX;
         $body = '<h1>PWA / домашний экран</h1>'
             . '<section class="panel"><h2>Диагностика установки</h2><table class="detail-table"><tbody>' . $rows . '</tbody></table></section>'
             . '<section class="panel"><h2>Проверка в браузере</h2><div class="grid cards pwa-runtime-grid">'
-            . '<div class="card"><div class="label">Display mode</div><div class="value" data-pwa-display-mode>проверяется</div></div>'
+            . '<div class="card"><div class="label">Режим отображения</div><div class="value" data-pwa-display-mode>проверяется</div></div>'
             . '<div class="card"><div class="label">Service worker</div><div class="value" data-pwa-sw-state>проверяется</div></div>'
-            . '<div class="card"><div class="label">Install prompt</div><div class="value" data-pwa-install-state>проверяется</div></div>'
+            . '<div class="card"><div class="label">Предложение установки</div><div class="value" data-pwa-install-state>проверяется</div></div>'
             . '</div><p class="muted">Если Chrome пишет «Это приложение нельзя установить», проверь manifest, иконки, HTTPS, MIME-типы и service worker. Firefox Android может создавать обычный ярлык даже при корректном manifest.</p></section>'
             . '<section class="panel"><h2>Nginx MIME для aaPanel</h2><p class="muted">Добавь эти location-блоки в server-блок logs.example.com, если Chrome не видит manifest или service worker.</p><pre>' . Security::e($nginx) . '</pre></section>'
             . '<section class="panel"><h2>Команды проверки</h2><pre>curl -k -I https://logs.example.com/manifest.json\ncurl -k -I https://logs.example.com/manifest.webmanifest\ncurl -k -I https://logs.example.com/sw.js\ncurl -k -I https://logs.example.com/assets/img/icon-192.png\ncurl -k -I https://logs.example.com/assets/img/icon-512.png</pre></section>';
@@ -1343,7 +1421,7 @@ NGINX;
         $rows = '';
         $csrf = Security::csrfToken('saved_view_action');
         foreach ($this->repo()->savedViews() as $v) {
-            $url = (string)$v['route'] . ((string)$v['query'] !== '' ? '?' . (string)$v['query'] : '');
+            $url = Security::safeInternalPath((string)$v['route'], '/logs') . ((string)$v['query'] !== '' ? '?' . (string)$v['query'] : '');
             $rows .= '<tr><td><a href="' . Security::e($url) . '">' . Security::e((string)$v['name']) . '</a></td><td><code>' . Security::e($url) . '</code></td><td>' . Security::e((string)$v['created_by']) . '</td><td><form method="post" action="/saved-views/action"><input type="hidden" name="_csrf" value="' . Security::e($csrf) . '"><input type="hidden" name="id" value="' . Security::e((string)$v['id']) . '"><button class="button small danger" name="action" value="delete">Удалить</button></form></td></tr>';
         }
         if ($rows === '') {
@@ -1379,10 +1457,11 @@ HTML;
         $name = trim((string)($_POST['name'] ?? ''));
         $route = trim((string)($_POST['route'] ?? '/logs'));
         $query = ltrim(trim((string)($_POST['query'] ?? '')), '?');
-        if ($name === '' || !str_starts_with($route, '/')) {
-            $this->savedViews(['Заполни название и корректный маршрут.']);
+        if ($name === '' || !Security::isSafeInternalPath($route)) {
+            $this->savedViews(['Заполни название и безопасный внутренний маршрут.']);
             return;
         }
+        $route = Security::safeInternalPath($route, '/logs');
         $id = $this->repo()->createSavedView($name, $route, $query);
         $this->repo()->audit('saved_view.created', 'saved_view', (string)$id, 'Создано сохранённое представление', ['name' => $name]);
         $this->savedViews([], 'Представление сохранено.');
@@ -1425,6 +1504,7 @@ HTML;
         $filters = $this->logFiltersFromQuery();
         $format = strtolower((string)($_GET['format'] ?? 'csv'));
         $logs = $this->repo()->recentLogs($filters, Env::int('LOGS_EXPORT_MAX_ROWS', 5000), 0);
+        $this->repo()->audit('logs.exported', 'log_export', $format, 'Экспортированы журналы', ['format' => $format, 'filters' => $filters, 'rows' => count($logs)]);
         $filename = 'cajeer-logs-' . gmdate('Ymd-His') . '.' . ($format === 'ndjson' ? 'ndjson' : $format);
         if ($format === 'json') {
             header('Content-Type: application/json; charset=utf-8');
@@ -1469,7 +1549,7 @@ HTML;
         }
         $rate = (int)$form['rate_limit_per_minute'];
         if ($rate < 0 || $rate > 10000) {
-            $errors[] = 'Rate limit должен быть от 0 до 10000.';
+            $errors[] = 'Лимит запросов должен быть от 0 до 10000.';
         }
         $batch = (int)$form['max_batch_size'];
         if ($batch < 1 || $batch > 500) {
@@ -1627,6 +1707,20 @@ PY;
             $html .= '<option value="' . Security::e($value) . '"' . $sel . '>' . Security::e($label) . '</option>';
         }
         return $html . '</select>';
+    }
+
+    private function formatDuration(int $seconds): string
+    {
+        if ($seconds < 60) {
+            return $seconds . ' сек.';
+        }
+        if ($seconds < 3600) {
+            return intdiv($seconds, 60) . ' мин.';
+        }
+        if ($seconds < 86400) {
+            return intdiv($seconds, 3600) . ' ч. ' . intdiv($seconds % 3600, 60) . ' мин.';
+        }
+        return intdiv($seconds, 86400) . ' д. ' . intdiv($seconds % 86400, 3600) . ' ч.';
     }
 
     private function prettyJson(string $json): string
