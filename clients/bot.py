@@ -1,13 +1,13 @@
 """
-RemoteLogHandler for Cajeer Logs.
+RemoteLogHandler для Cajeer Logs.
 
-Features:
-- async batching
-- optional HMAC request signing
-- bounded in-memory queue
-- local spool file for failed batches
-- retry with backoff
-- diagnostic counters: sent, dropped, spooled, failed_batches
+Возможности:
+- асинхронная отправка пачками;
+- опциональная HMAC-подпись запросов;
+- ограниченная очередь в памяти;
+- локальный spool-файл для неотправленных пачек;
+- повторная отправка с backoff;
+- диагностические счётчики: sent, dropped, spooled, failed_batches.
 """
 from __future__ import annotations
 
