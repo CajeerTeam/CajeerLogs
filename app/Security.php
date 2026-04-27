@@ -129,6 +129,95 @@ final class Security
     }
 
 
+
+    /**
+     * Проверяет URL исходящего вебхука, чтобы не допустить SSRF в локальную сеть.
+     * Возвращает [ok, message].
+     */
+    public static function validateExternalWebhookUrl(string $url): array
+    {
+        $url = trim($url);
+        if ($url === '') {
+            return [false, 'URL вебхука не задан.'];
+        }
+        $parts = parse_url($url);
+        if (!is_array($parts) || strtolower((string)($parts['scheme'] ?? '')) !== 'https') {
+            return [false, 'Вебхук должен использовать HTTPS.'];
+        }
+        $host = strtolower(trim((string)($parts['host'] ?? '')));
+        if ($host === '') {
+            return [false, 'В URL вебхука не указан хост.'];
+        }
+        if (in_array($host, ['localhost', 'localhost.localdomain'], true) || str_ends_with($host, '.localhost')) {
+            return [false, 'Локальные адреса запрещены для вебхуков.'];
+        }
+
+        $allowedHosts = self::allowedWebhookHosts();
+        if ($allowedHosts && !self::hostAllowedByList($host, $allowedHosts)) {
+            return [false, 'Хост вебхука не входит в ALERT_WEBHOOK_ALLOWED_HOSTS.'];
+        }
+
+        if (filter_var($host, FILTER_VALIDATE_IP)) {
+            return self::isPublicIp($host) ? [true, 'ok'] : [false, 'Приватные, loopback и служебные IP запрещены для вебхуков.'];
+        }
+
+        if (preg_match('/(^|\.)internal$/i', $host) || str_ends_with($host, '.local')) {
+            return [false, 'Локальные DNS-имена запрещены для вебхуков.'];
+        }
+
+        $ips = gethostbynamel($host) ?: [];
+        foreach ($ips as $ip) {
+            if (!self::isPublicIp($ip)) {
+                return [false, 'DNS-имя вебхука указывает на приватный или служебный IP.'];
+            }
+        }
+
+        return [true, 'ok'];
+    }
+
+    /** @return list<string> */
+    private static function allowedWebhookHosts(): array
+    {
+        $raw = trim((string)Env::get('ALERT_WEBHOOK_ALLOWED_HOSTS', ''));
+        if ($raw === '') {
+            return [];
+        }
+        $hosts = [];
+        foreach (preg_split('/[\s,;]+/', $raw) ?: [] as $host) {
+            $host = strtolower(trim($host));
+            if ($host !== '') {
+                $hosts[] = $host;
+            }
+        }
+        return $hosts;
+    }
+
+    /** @param list<string> $allowedHosts */
+    private static function hostAllowedByList(string $host, array $allowedHosts): bool
+    {
+        foreach ($allowedHosts as $allowed) {
+            if ($allowed === $host) {
+                return true;
+            }
+            if (str_starts_with($allowed, '*.')) {
+                $suffix = substr($allowed, 1);
+                if (str_ends_with($host, $suffix)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static function isPublicIp(string $ip): bool
+    {
+        if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+            return false;
+        }
+        $flags = FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE;
+        return filter_var($ip, FILTER_VALIDATE_IP, $flags) !== false;
+    }
+
     public static function uiIpAllowed(): bool
     {
         $allow = trim((string)Env::get('UI_IP_ALLOWLIST', ''));

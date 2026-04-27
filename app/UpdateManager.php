@@ -269,7 +269,7 @@ final class UpdateManager
             '.',
         ], $root);
         if ($tar->code !== 0) {
-            throw new RuntimeException('Backup tar failed: ' . $this->sanitizeOutput($tar->output));
+            throw new RuntimeException('Создание tar-архива резервной копии завершилось ошибкой: ' . $this->sanitizeOutput($tar->output));
         }
         return ['dir' => $dir, 'archive' => $archive, 'manifest' => $manifest];
     }

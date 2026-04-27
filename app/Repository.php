@@ -31,12 +31,14 @@ final class Repository
         $hash = Security::tokenHash($raw);
         $rateLimit = max(0, (int)($options['rate_limit_per_minute'] ?? 120));
         $maxBatch = max(1, min(500, (int)($options['max_batch_size'] ?? 100)));
+        $eventsLimit = max(0, (int)($options['events_limit_per_minute'] ?? Env::int('INGEST_MAX_EVENTS_PER_MINUTE', 3000)));
+        $bytesLimit = max(0, (int)($options['bytes_limit_per_minute'] ?? Env::int('INGEST_MAX_BYTES_PER_MINUTE', 10485760)));
         $allowedLevels = $this->normalizeAllowedLevels($options['allowed_levels'] ?? null);
         $requireSignature = !empty($options['require_signature']) ? 1 : 0;
         $driver = Database::driver();
         $now = $driver === 'pgsql' ? 'NOW()' : 'CURRENT_TIMESTAMP';
         $returning = $driver === 'pgsql' ? ' RETURNING id' : '';
-        $sql = "INSERT INTO bot_tokens (project, bot, environment, description, token_hash, is_active, rate_limit_per_minute, max_batch_size, allowed_levels, require_signature, created_at, updated_at) VALUES (:project, :bot, :environment, :description, :token_hash, 1, :rate_limit_per_minute, :max_batch_size, :allowed_levels, :require_signature, {$now}, {$now}){$returning}";
+        $sql = "INSERT INTO bot_tokens (project, bot, environment, description, token_hash, is_active, rate_limit_per_minute, max_batch_size, events_limit_per_minute, bytes_limit_per_minute, allowed_levels, require_signature, created_at, updated_at) VALUES (:project, :bot, :environment, :description, :token_hash, 1, :rate_limit_per_minute, :max_batch_size, :events_limit_per_minute, :bytes_limit_per_minute, :allowed_levels, :require_signature, {$now}, {$now}){$returning}";
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute([
             'project' => $project,
@@ -46,6 +48,8 @@ final class Repository
             'token_hash' => $hash,
             'rate_limit_per_minute' => $rateLimit,
             'max_batch_size' => $maxBatch,
+            'events_limit_per_minute' => $eventsLimit,
+            'bytes_limit_per_minute' => $bytesLimit,
             'allowed_levels' => $allowedLevels,
             'require_signature' => $requireSignature,
         ]);
@@ -106,17 +110,53 @@ final class Repository
 
     public function isRateLimited(array $botToken): bool
     {
-        $limit = (int)($botToken['rate_limit_per_minute'] ?? 0);
-        if ($limit <= 0) {
-            return false;
+        return $this->ingestRateLimitViolation($botToken, 0, 0) !== null;
+    }
+
+    /** @return array{error:string,message:string}|null */
+    public function ingestRateLimitViolation(array $botToken, int $eventCount, int $bodyBytes): ?array
+    {
+        $tokenId = (int)$botToken['id'];
+        $requestLimit = (int)($botToken['rate_limit_per_minute'] ?? 0);
+        if ($requestLimit > 0) {
+            if (Database::driver() === 'pgsql') {
+                $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM ingest_batches WHERE bot_token_id = :id AND received_at >= NOW() - INTERVAL '60 seconds'");
+            } else {
+                $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM ingest_batches WHERE bot_token_id = :id AND datetime(received_at) >= datetime('now', '-60 seconds')");
+            }
+            $stmt->execute(['id' => $tokenId]);
+            if ((int)$stmt->fetchColumn() >= $requestLimit) {
+                return ['error' => 'rate_limited', 'message' => 'Превышен лимит запросов для токена.'];
+            }
         }
-        if (Database::driver() === 'pgsql') {
-            $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM ingest_batches WHERE bot_token_id = :id AND received_at >= NOW() - INTERVAL '60 seconds'");
-        } else {
-            $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM ingest_batches WHERE bot_token_id = :id AND datetime(received_at) >= datetime('now', '-60 seconds')");
+
+        $eventsLimit = (int)($botToken['events_limit_per_minute'] ?? Env::int('INGEST_MAX_EVENTS_PER_MINUTE', 3000));
+        if ($eventsLimit > 0) {
+            if (Database::driver() === 'pgsql') {
+                $stmt = $this->pdo->prepare("SELECT COALESCE(SUM(event_count), 0) FROM ingest_batches WHERE bot_token_id = :id AND received_at >= NOW() - INTERVAL '60 seconds'");
+            } else {
+                $stmt = $this->pdo->prepare("SELECT COALESCE(SUM(event_count), 0) FROM ingest_batches WHERE bot_token_id = :id AND datetime(received_at) >= datetime('now', '-60 seconds')");
+            }
+            $stmt->execute(['id' => $tokenId]);
+            if (((int)$stmt->fetchColumn() + max(0, $eventCount)) > $eventsLimit) {
+                return ['error' => 'events_rate_limited', 'message' => 'Превышен лимит событий в минуту для токена.'];
+            }
         }
-        $stmt->execute(['id' => (int)$botToken['id']]);
-        return (int)$stmt->fetchColumn() >= $limit;
+
+        $bytesLimit = (int)($botToken['bytes_limit_per_minute'] ?? Env::int('INGEST_MAX_BYTES_PER_MINUTE', 10485760));
+        if ($bytesLimit > 0) {
+            $used = 0;
+            if (Database::driver() === 'pgsql') {
+                $stmt = $this->pdo->prepare("SELECT COALESCE(SUM(COALESCE((meta->>'body_bytes')::integer, 0)), 0) FROM ingest_batches WHERE bot_token_id = :id AND received_at >= NOW() - INTERVAL '60 seconds'");
+                $stmt->execute(['id' => $tokenId]);
+                $used = (int)$stmt->fetchColumn();
+            }
+            if (($used + max(0, $bodyBytes)) > $bytesLimit) {
+                return ['error' => 'bytes_rate_limited', 'message' => 'Превышен лимит объёма ingest-данных в минуту для токена.'];
+            }
+        }
+
+        return null;
     }
 
     public function rememberNonce(array $botToken, string $nonce, string $timestamp): bool
@@ -620,6 +660,10 @@ final class Repository
 
     private function sendAlert(string $channel, string $url, string $message): array
     {
+        [$allowed, $reason] = Security::validateExternalWebhookUrl($url);
+        if (!$allowed) {
+            return [false, 'Вебхук заблокирован: ' . $reason];
+        }
         $payload = $channel === 'discord' ? ['content' => $message] : ['text' => $message];
         $body = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $ctx = stream_context_create(['http' => ['method' => 'POST', 'header' => "Content-Type: application/json\r\n", 'content' => $body, 'timeout' => 5, 'ignore_errors' => true]]);

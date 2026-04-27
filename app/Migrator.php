@@ -26,6 +26,7 @@ final class Migrator
         $this->recordVersion('006_automation_ux_pack');
         $this->recordVersion('007_production_polish_pack');
         $this->recordVersion('008_github_update_center');
+        $this->recordVersion('009_wiki_hardening_limits');
     }
 
     private function runPgsql(): void
@@ -46,6 +47,8 @@ CREATE TABLE IF NOT EXISTS bot_tokens (
 
 ALTER TABLE bot_tokens ADD COLUMN IF NOT EXISTS rate_limit_per_minute INTEGER NOT NULL DEFAULT 120;
 ALTER TABLE bot_tokens ADD COLUMN IF NOT EXISTS max_batch_size INTEGER NOT NULL DEFAULT 100;
+ALTER TABLE bot_tokens ADD COLUMN IF NOT EXISTS events_limit_per_minute INTEGER NOT NULL DEFAULT 3000;
+ALTER TABLE bot_tokens ADD COLUMN IF NOT EXISTS bytes_limit_per_minute INTEGER NOT NULL DEFAULT 10485760;
 ALTER TABLE bot_tokens ADD COLUMN IF NOT EXISTS allowed_levels TEXT NULL;
 ALTER TABLE bot_tokens ADD COLUMN IF NOT EXISTS require_signature SMALLINT NOT NULL DEFAULT 0;
 ALTER TABLE bot_tokens ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ NULL;
@@ -320,6 +323,8 @@ SQL;
         foreach ([
             'ALTER TABLE bot_tokens ADD COLUMN rate_limit_per_minute INTEGER NOT NULL DEFAULT 120',
             'ALTER TABLE bot_tokens ADD COLUMN max_batch_size INTEGER NOT NULL DEFAULT 100',
+            'ALTER TABLE bot_tokens ADD COLUMN events_limit_per_minute INTEGER NOT NULL DEFAULT 3000',
+            'ALTER TABLE bot_tokens ADD COLUMN bytes_limit_per_minute INTEGER NOT NULL DEFAULT 10485760',
             'ALTER TABLE bot_tokens ADD COLUMN allowed_levels TEXT NULL',
             'ALTER TABLE bot_tokens ADD COLUMN require_signature INTEGER NOT NULL DEFAULT 0',
             'ALTER TABLE bot_tokens ADD COLUMN deleted_at TEXT NULL',
