@@ -1,7 +1,7 @@
-const CACHE_NAME = 'cajeer-logs-static-v20260427-installability';
+const CACHE_NAME = 'cajeer-logs-static-v20260427-mobile-ui';
 const STATIC_ASSETS = [
-  '/assets/css/app.css?v=20260427-pwa-install',
-  '/assets/js/app.js?v=20260427-pwa-install',
+  '/assets/css/app.css?v=20260427-mobile-ui',
+  '/assets/js/app.js?v=20260427-mobile-ui',
   '/assets/img/logo.png',
   '/assets/img/icon-192.png',
   '/assets/img/icon-512.png',
