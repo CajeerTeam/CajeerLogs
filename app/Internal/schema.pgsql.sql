@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS bot_tokens (
     last_used_at TIMESTAMPTZ NULL,
     rate_limit_per_minute INTEGER NOT NULL DEFAULT 120,
     max_batch_size INTEGER NOT NULL DEFAULT 100,
+    events_limit_per_minute INTEGER NOT NULL DEFAULT 3000,
+    bytes_limit_per_minute INTEGER NOT NULL DEFAULT 10485760,
     allowed_levels TEXT NULL,
     require_signature SMALLINT NOT NULL DEFAULT 0,
     deleted_at TIMESTAMPTZ NULL,
