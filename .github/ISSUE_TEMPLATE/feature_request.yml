@@ -1,27 +1,27 @@
-name: Feature request
-description: Suggest a new capability or improvement
-title: "[Feature]: "
+name: Запрос улучшения
+description: Предложить новую возможность или изменение
+title: "[Улучшение]: "
 labels: [enhancement]
 body:
   - type: textarea
     id: problem
     attributes:
-      label: Problem
-      description: What operational problem should this solve?
+      label: Проблема
+      description: Какую эксплуатационную или продуктовую проблему нужно решить?
     validations:
       required: true
   - type: textarea
     id: proposal
     attributes:
-      label: Proposal
-      description: Describe the desired behavior.
+      label: Предложение
+      description: Опишите желаемое поведение.
     validations:
       required: true
   - type: textarea
     id: alternatives
     attributes:
-      label: Alternatives considered
+      label: Рассмотренные альтернативы
   - type: textarea
     id: notes
     attributes:
-      label: Additional context
+      label: Дополнительный контекст

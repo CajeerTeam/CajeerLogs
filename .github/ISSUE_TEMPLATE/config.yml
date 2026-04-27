@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Security vulnerability
+  - name: Уязвимость безопасности
     url: https://github.com/CajeerTeam/CajeerLogs/security/advisories/new
-    about: Please report vulnerabilities privately.
+    about: Сообщайте об уязвимостях приватно.

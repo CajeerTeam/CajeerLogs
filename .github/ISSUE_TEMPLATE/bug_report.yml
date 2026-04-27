@@ -1,20 +1,20 @@
-name: Bug report
-description: Report reproducible incorrect behavior
-title: "[Bug]: "
+name: Сообщение об ошибке
+description: Сообщить о воспроизводимом некорректном поведении
+title: "[Ошибка]: "
 labels: [bug]
 body:
   - type: textarea
     id: summary
     attributes:
-      label: Summary
-      description: Describe the issue clearly.
+      label: Краткое описание
+      description: Опишите проблему без лишнего контекста.
     validations:
       required: true
   - type: textarea
     id: steps
     attributes:
-      label: Reproduction steps
-      description: List exact steps to reproduce the problem.
+      label: Шаги воспроизведения
+      description: Укажите точные действия, которые приводят к проблеме.
       placeholder: |
         1. ...
         2. ...
@@ -24,29 +24,29 @@ body:
   - type: textarea
     id: expected
     attributes:
-      label: Expected behavior
+      label: Ожидаемое поведение
     validations:
       required: true
   - type: textarea
     id: actual
     attributes:
-      label: Actual behavior
+      label: Фактическое поведение
     validations:
       required: true
   - type: input
     id: version
     attributes:
-      label: Version or commit
+      label: Версия или commit
     validations:
       required: true
   - type: textarea
     id: environment
     attributes:
-      label: Environment
-      description: PHP version, database, web server and OS.
+      label: Окружение
+      description: Версия PHP, база данных, web-сервер и ОС.
   - type: textarea
     id: logs
     attributes:
-      label: Relevant logs
-      description: Redact secrets before posting.
+      label: Связанные журналы
+      description: Перед публикацией удалите секреты, токены и персональные данные.
       render: text
