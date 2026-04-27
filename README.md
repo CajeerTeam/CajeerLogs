@@ -1,122 +1,145 @@
-# logs.cajeer.ru — production PHP edition
+# Cajeer Logs
 
-Внутренний self-hosted сервис Cajeer для централизованного хранения, анализа и эксплуатации логов ботов, сайтов aaPanel и инфраструктурных событий.
+Cajeer Logs is a lightweight self-hosted log center for bots, aaPanel/Nginx sites and infrastructure events. It is designed for small teams that need centralized ingestion, search, incident triage, bot diagnostics and retention without a heavy external observability stack.
 
-Стек:
+![PHP](https://img.shields.io/badge/PHP-8.2%2B-blue)
+![License](https://img.shields.io/badge/license-Apache--2.0-green)
+![Runtime](https://img.shields.io/badge/runtime-no%20Composer%20required-lightgrey)
 
-- PHP 8.2+
-- PDO PostgreSQL для production
-- SQLite fallback для локального/аварийного запуска
-- Nginx + PHP-FPM в aaPanel
-- без Laravel, Node, Go и Composer-зависимостей
-- без каталогов `sql/`, `docs/`, `scripts/`, `deploy/` в боевом архиве
+## Features
 
-## Основные разделы
+- HTTP ingest endpoint for bots and services.
+- Python client handler in `clients/bot.py`.
+- PostgreSQL production storage with SQLite fallback for local/demo runs.
+- Web UI for logs, bot tokens, saved views, incidents, alerts, jobs and system checks.
+- aaPanel log import for Nginx access/error logs.
+- Retention jobs with optional NDJSON.gz archives.
+- Git-based update center with preflight checks, backup and rollback support.
+- No Laravel, Node.js, Go or Composer dependency required at runtime.
 
-- `/` — операционный командный центр.
-- `/logs` — журналы, фильтры, экспорт, live-refresh, saved views.
-- `/logs/{id}` — детальная карточка события, JSON/context/trace/fingerprint.
-- `/search` — глобальный поиск.
-- `/bots` — токены ботов, rate limit, HMAC, тестовый лог.
-- `/bots/{id}` — диагностика конкретного бота и env для BotHost.
-- `/bots/new` — мастер подключения бота.
-- `/bots/health` — здоровье ботов.
-- `/sites` — логи сайтов aaPanel.
-- `/sites/{domain}` — топ 404/5xx/IP/User-Agent и импорт конкретного сайта.
-- `/incidents` — инциденты, mute и массовые действия.
-- `/alerts` — Telegram/Discord alerts.
-- `/jobs` — очередь фоновых задач.
-- `/cron` и `/system/cron-setup` — cron status и команды для aaPanel.
-- `/system` — состояние системы и production-checks.
-- `/system/database` — PostgreSQL ownership diagnostics и SQL-fix.
-- `/system/migrations` — миграции из UI.
-- `/system/update` — проверка после обновления.
-- `/system/backups` — backup/restore и NDJSON.gz архивирование старых логов.
-- `/recovery` — аварийная диагностика без сессии, но с учётом UI_IP_ALLOWLIST.
+## Requirements
 
-## Структура боевого архива
+- PHP 8.2 or newer.
+- PDO extension.
+- PostgreSQL with `pdo_pgsql` for production.
+- SQLite with `pdo_sqlite` for local/demo fallback.
+- Nginx or Apache with the document root pointed to `public/`.
+- `git` and `tar` only if the built-in update center is used.
+
+## Repository structure
 
 ```text
 logs-main/
-├─ app/             # PHP classes
-├─ bin/             # CLI команды
-├─ bot_clients/     # RemoteLogHandler для Python-ботов
-├─ public/          # web root для aaPanel/Nginx
-├─ storage/         # runtime logs/cache/archives/sqlite
-├─ .env             # production-конфигурация конкретного сервера
-├─ .gitignore
+├─ app/             # PHP application classes
+├─ app/Internal/    # SQL schema snapshots
+├─ bin/             # CLI maintenance commands
+├─ clients/         # Remote logging clients
+├─ docs/            # Project and deployment documentation
+├─ public/          # Web root
+├─ storage/         # Runtime cache/log/archive directories; contents are ignored
+├─ .env.example     # Safe configuration template
+├─ LICENSE
 ├─ README.md
 └─ VERSION
 ```
 
-## Первичная подготовка
+## Quick start
 
 ```bash
-cd /www/wwwroot/logs.cajeer.ru
+git clone https://github.com/CajeerTeam/CajeerLogs.git
+cd CajeerLogs
+cp .env.example .env
+```
+
+Edit `.env` and set at minimum:
+
+```env
+APP_URL=https://logs.example.com
+DB_CONNECTION=pgsql
+DB_DATABASE=cajeer_logs
+DB_USERNAME=cajeer_logs
+DB_PASSWORD=change_me
+LOGS_TOKEN_PEPPER=<64 hex chars>
+PRIVACY_HASH_PEPPER=<64 hex chars>
+```
+
+Generate pepper values:
+
+```bash
+openssl rand -hex 32
+```
+
+Prepare runtime directories, run migrations and check the installation:
+
+```bash
+php bin/bootstrap.php
+php bin/migrate.php
+php bin/doctor.php
+```
+
+Create the first administrator:
+
+```bash
+php bin/make-user.php admin 'CHANGE_ME_STRONG_PASSWORD' admin
+```
+
+Point your web server document root to:
+
+```text
+/path/to/CajeerLogs/public
+```
+
+## aaPanel/Nginx deployment
+
+A typical aaPanel deployment uses this project path:
+
+```text
+/www/wwwroot/logs.example.com
+```
+
+and this web root:
+
+```text
+/www/wwwroot/logs.example.com/public
+```
+
+After upload or `git clone`, run:
+
+```bash
+cd /www/wwwroot/logs.example.com
 /www/server/php/83/bin/php bin/bootstrap.php
 /www/server/php/83/bin/php bin/migrate.php
 /www/server/php/83/bin/php bin/doctor.php
 ```
 
-Если сайт использует PHP 8.2 или 8.4, замени путь:
+If the server uses PHP 8.2 or 8.4, replace the PHP binary path accordingly.
+
+See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the full production checklist.
+
+## Cron jobs
+
+Recommended cron commands:
 
 ```bash
-/www/server/php/82/bin/php
-/www/server/php/84/bin/php
+cd /www/wwwroot/logs.example.com && /www/server/php/83/bin/php bin/process-jobs.php >/dev/null 2>&1
+cd /www/wwwroot/logs.example.com && /www/server/php/83/bin/php bin/alert-dispatch.php >/dev/null 2>&1
+cd /www/wwwroot/logs.example.com && /www/server/php/83/bin/php bin/import-aapanel-logs.php --max-lines=1000 >/dev/null 2>&1
+cd /www/wwwroot/logs.example.com && /www/server/php/83/bin/php bin/retention.php >/dev/null 2>&1
 ```
 
-## Создание администратора
+Recommended intervals:
 
-```bash
-cd /www/wwwroot/logs.cajeer.ru
-/www/server/php/83/bin/php bin/make-user.php admin 'СЛОЖНЫЙ_ПАРОЛЬ' admin
-```
+- `process-jobs.php`: every minute.
+- `alert-dispatch.php`: every minute.
+- `import-aapanel-logs.php`: every 1–5 minutes.
+- `retention.php`: daily.
 
-Если PostgreSQL ругается на `must be owner of table ...`, открой:
+## API ingest
 
-```text
-https://logs.cajeer.ru/system/database
-```
+Endpoint:
 
-или:
-
-```bash
-/www/server/php/83/bin/php bin/db-doctor.php --sql
-```
-
-## Cron для aaPanel
-
-В aaPanel → Cron → Add Task → Shell Script добавь:
-
-```bash
-cd /www/wwwroot/logs.cajeer.ru && /www/server/php/83/bin/php bin/process-jobs.php >/dev/null 2>&1
-cd /www/wwwroot/logs.cajeer.ru && /www/server/php/83/bin/php bin/alert-dispatch.php >/dev/null 2>&1
-cd /www/wwwroot/logs.cajeer.ru && /www/server/php/83/bin/php bin/import-aapanel-logs.php --max-lines=1000 >/dev/null 2>&1
-cd /www/wwwroot/logs.cajeer.ru && /www/server/php/83/bin/php bin/retention.php >/dev/null 2>&1
-```
-
-Рекомендуемые интервалы:
-
-- `process-jobs.php` — каждую минуту.
-- `alert-dispatch.php` — каждую минуту.
-- `import-aapanel-logs.php` — каждые 1–5 минут.
-- `retention.php` — раз в сутки.
-
-Также можно открыть `/system/cron-setup`, скопировать команды и запустить каждую задачу вручную из UI для проверки.
-
-## Подключение бота
-
-1. Открой `/bots/new` или `/bots`.
-2. Создай токен для проекта/бота/окружения.
-3. Скопируй env-блок в BotHost.
-4. Добавь `bot_clients/remote_log_handler.py` в проект бота.
-5. Подключи handler в `main.py`.
-6. Нажми «Тестовый лог» и проверь `/bots/{id}` или `/logs`.
-
-Endpoint ingest:
-
-```text
-POST https://logs.cajeer.ru/api/v1/ingest
+```http
+POST /api/v1/ingest
 ```
 
 Headers:
@@ -126,114 +149,54 @@ Content-Type: application/json
 X-Log-Token: RAW_BOT_TOKEN
 ```
 
-## Production-настройки безопасности
+See [`docs/API.md`](docs/API.md) for payload format and Python client usage.
 
-Проверь в `.env`:
+## Connecting a Python bot
 
-```env
-APP_ENV=production
-APP_DEBUG=false
-LOGS_ENV_FALLBACK_LOGIN=false
-LOGS_TOKEN_PEPPER=<случайные 64 hex символа>
-PRIVACY_HASH_PEPPER=<случайные 64 hex символа>
-```
+1. Open `/bots/new` or `/bots` in the web UI.
+2. Create a token for the project/bot/environment.
+3. Copy the generated environment block into the bot host.
+4. Copy `clients/bot.py` into the bot project, for example as `remote_log_handler.py`.
+5. Connect `RemoteLogHandler` in the bot entrypoint.
+6. Send a test log and verify it in `/logs` or `/bots/{id}`.
 
-Если аварийный вход временно нужен:
+## Updating from GitHub
 
-```env
-LOGS_ENV_FALLBACK_LOGIN=true
-LOGS_WEB_BASIC_USER=admin
-LOGS_WEB_BASIC_PASSWORD=сложный_пароль
-```
-
-После создания нормального admin-пользователя отключи fallback.
-
-## Архивирование старых логов
-
-Через UI:
-
-```text
-/system/backups
-```
-
-Через CLI:
-
-```bash
-/www/server/php/83/bin/php bin/archive-retention.php --days=30 --source=all
-/www/server/php/83/bin/php bin/archive-retention.php --days=14 --source=aapanel_access
-/www/server/php/83/bin/php bin/archive-retention.php --days=90 --source=aapanel_error
-```
-
-Архивы пишутся в:
-
-```text
-storage/archives/*.ndjson.gz
-```
-
-## После обновления
-
-Открой:
-
-```text
-/system/update
-```
-
-и нажми:
-
-```text
-Проверить и подготовить после обновления
-```
-
-Или через CLI:
-
-```bash
-/www/server/php/83/bin/php bin/migrate.php
-/www/server/php/83/bin/php bin/doctor.php
-/www/server/php/83/bin/php bin/db-doctor.php
-```
-
-## Обновление из GitHub
-
-В проект добавлен центр обновлений: `Система → Обновление` или `/system/update`.
-
-Репозиторий по умолчанию:
+The update center is available at `/system/update`. For public deployments, keep web-triggered updates disabled until the repository, backups and permissions are verified:
 
 ```env
 UPDATE_REPO_URL=https://github.com/CajeerTeam/CajeerLogs
 UPDATE_BRANCH=main
 UPDATE_MODE=git
-UPDATE_ALLOW_WEB=true
-UPDATE_BACKUP_DIR=/www/wwwroot/logs.cajeer.ru/storage/backups/updates
+UPDATE_ALLOW_WEB=false
+UPDATE_BACKUP_DIR=storage/backups/updates
 UPDATE_ROLLBACK_ON_FAILURE=true
 ```
 
-Для приватного репозитория можно добавить токен:
-
-```env
-UPDATE_GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxx
-```
-
-Токен не выводится в интерфейсе и маскируется в логах команд.
-
-Перед обновлением система проверяет git, текущий commit, удалённый commit, локальные изменения, доступность backup-каталога, PHP CLI, БД и `.env`. Перед `git reset --hard origin/main` создаётся backup файлов в `storage/backups/updates`, сохраняется `.env`, затем запускаются:
+CLI commands:
 
 ```bash
-php bin/migrate.php
-php bin/doctor.php
+php bin/update.php status
+php bin/update.php backup
+php bin/update.php update
+php bin/update.php rollback
 ```
 
-CLI-эквивалент:
+## Security notes
 
-```bash
-cd /www/wwwroot/logs.cajeer.ru
-/www/server/php/83/bin/php bin/update.php status
-/www/server/php/83/bin/php bin/update.php backup
-/www/server/php/83/bin/php bin/update.php update
-/www/server/php/83/bin/php bin/update.php rollback
-```
+- Never commit `.env`, database dumps, runtime logs, bot tokens or update tokens.
+- Rotate the PostgreSQL password and pepper values if they were ever committed or shared.
+- Keep `APP_DEBUG=false` in production.
+- Disable `LOGS_ENV_FALLBACK_LOGIN` after creating the first admin user.
+- Prefer `INGEST_REQUIRE_SIGNATURE=true` for untrusted networks.
+- Restrict access to system/recovery pages with `UI_IP_ALLOWLIST` where possible.
 
-Если PHP сайта не 8.3, укажи правильный путь:
+Report vulnerabilities using the process in [`SECURITY.md`](SECURITY.md).
 
-```env
-UPDATE_PHP_BIN=/www/server/php/84/bin/php
-```
+## Contributing
+
+Contributions are welcome. Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before opening a pull request.
+
+## License
+
+Licensed under the Apache License, Version 2.0. See [`LICENSE`](LICENSE).
