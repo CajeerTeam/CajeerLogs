@@ -2,7 +2,7 @@
   "id": "/",
   "name": "Cajeer Logs",
   "short_name": "Logs",
-  "description": "Self-hosted центр логов Cajeer",
+  "description": "Центр журналов Cajeer",
   "lang": "ru",
   "dir": "ltr",
   "start_url": "/login?source=pwa",
