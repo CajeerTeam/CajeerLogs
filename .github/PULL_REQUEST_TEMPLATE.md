@@ -1,12 +1,13 @@
-## Summary
+## Краткое описание
 
 
-## Changes
+## Изменения
 
 
-## Checks
+## Проверки
 
-- [ ] PHP syntax check passed.
-- [ ] Python client compiles.
-- [ ] Documentation updated where needed.
-- [ ] No secrets, runtime logs or database dumps are included.
+- [ ] PHP syntax check пройден.
+- [ ] Python-клиент компилируется.
+- [ ] `php bin/self-test.php` пройден.
+- [ ] Документация Mintlify обновлена при необходимости.
+- [ ] В PR нет `.env`, секретов, runtime-логов и дампов БД.
