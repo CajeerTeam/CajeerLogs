@@ -29,10 +29,10 @@ try {
             echo json_encode($manager->rollbackLast(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) . PHP_EOL;
             break;
         default:
-            fwrite(STDERR, "Usage: php bin/update.php status|backup|update|rollback\n");
+            fwrite(STDERR, "Использование: php bin/update.php status|backup|update|rollback\n");
             exit(2);
     }
 } catch (Throwable $e) {
-    fwrite(STDERR, "Update error: {$e->getMessage()}\n");
+    fwrite(STDERR, "Ошибка обновления: {$e->getMessage()}\n");
     exit(1);
 }

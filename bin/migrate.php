@@ -9,4 +9,4 @@ use CajeerLogs\Migrator;
 
 $migrator = new Migrator(Database::pdo());
 $migrator->run();
-echo "Migrations completed. Driver: " . Database::driver() . PHP_EOL;
+echo "Миграции выполнены. Драйвер: " . Database::driver() . PHP_EOL;

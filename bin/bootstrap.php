@@ -1,3 +1,4 @@
+#!/usr/bin/env php
 <?php
 declare(strict_types=1);
 
@@ -12,11 +13,11 @@ use CajeerLogs\Repository;
 function out(string $message): void { fwrite(STDOUT, $message . PHP_EOL); }
 
 $root = dirname(__DIR__);
-out('[bootstrap] Cajeer Logs production bootstrap');
-out('[bootstrap] root: ' . $root);
+out('[подготовка] Cajeer Logs: production bootstrap');
+out('[подготовка] корень проекта: ' . $root);
 
 if (!is_file($root . '/.env')) {
-    out('[bootstrap] .env not found. Create it before running bootstrap. This production archive does not generate secrets automatically.');
+    out('[подготовка] .env не найден. Создайте файл перед запуском: архив не генерирует секреты автоматически.');
     exit(2);
 }
 
@@ -25,28 +26,29 @@ foreach (['storage/logs', 'storage/cache', 'storage/archives'] as $dir) {
     if (!is_dir($path)) {
         mkdir($path, 0775, true);
     }
-    out('[bootstrap] ' . $dir . ': ' . (is_writable($path) ? 'writable' : 'not writable'));
+    out('[подготовка] ' . $dir . ': ' . (is_writable($path) ? 'доступен на запись' : 'нет записи'));
 }
 
-out('[bootstrap] DB connection: ' . Env::get('DB_CONNECTION', 'sqlite'));
-out('[bootstrap] PDO drivers: ' . implode(', ', PDO::getAvailableDrivers()));
+out('[подготовка] подключение БД: ' . Env::get('DB_CONNECTION', 'sqlite'));
+out('[подготовка] PDO-драйверы: ' . implode(', ', PDO::getAvailableDrivers()));
+out('[подготовка] документация: ' . Env::get('DOCS_URL', 'https://docs.cajeer.ru/logs'));
 
 $pdo = Database::pdo();
 (new Migrator($pdo))->run();
-out('[bootstrap] migrations: ok');
+out('[подготовка] миграции: выполнены');
 
 Auth::seedAdminIfEmpty($pdo);
-out('[bootstrap] admin seed: checked');
+out('[подготовка] администратор: проверен');
 
 $repo = new Repository($pdo);
 $report = $repo->dbOwnershipReport();
 $bad = array_filter($report, static fn(array $row): bool => isset($row['ok']) && !$row['ok']);
-out('[bootstrap] DB ownership: ' . ($bad ? 'needs fix, open /system/database' : 'ok'));
+out('[подготовка] владельцы объектов БД: ' . ($bad ? 'требуется исправление: php bin/db-doctor.php --sql' : 'норма'));
 
-out('[bootstrap] cron commands:');
+out('[подготовка] cron-команды:');
 out('cd ' . $root . ' && ' . PHP_BINARY . ' bin/process-jobs.php >/dev/null 2>&1');
 out('cd ' . $root . ' && ' . PHP_BINARY . ' bin/alert-dispatch.php >/dev/null 2>&1');
 out('cd ' . $root . ' && ' . PHP_BINARY . ' bin/import-aapanel-logs.php --max-lines=1000 >/dev/null 2>&1');
 out('cd ' . $root . ' && ' . PHP_BINARY . ' bin/retention.php >/dev/null 2>&1');
 
-out('[bootstrap] done');
+out('[подготовка] готово');

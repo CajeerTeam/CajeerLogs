@@ -26,6 +26,8 @@ $add('APP_DEBUG отключён', !Env::bool('APP_DEBUG', false), 'APP_DEBUG=' 
 $add('LOGS_TOKEN_PEPPER изменён', !str_contains((string)Env::get('LOGS_TOKEN_PEPPER', ''), 'change_me'), '');
 $add('PRIVACY_HASH_PEPPER изменён', !str_contains((string)Env::get('PRIVACY_HASH_PEPPER', ''), 'change_me'), '');
 $add('Аварийный вход отключён', !Env::bool('LOGS_ENV_FALLBACK_LOGIN', false), 'LOGS_ENV_FALLBACK_LOGIN=' . Env::get('LOGS_ENV_FALLBACK_LOGIN', ''));
+$add('Web-обновление отключено', !Env::bool('UPDATE_ALLOW_WEB', false), 'UPDATE_ALLOW_WEB=' . Env::get('UPDATE_ALLOW_WEB', ''));
+$add('DOCS_URL задан', filter_var((string)Env::get('DOCS_URL', ''), FILTER_VALIDATE_URL) !== false, (string)Env::get('DOCS_URL', ''));
 $add('.env не опубликован', !is_file($root . '/public/.env'), '');
 
 $aaPanelLogDir = Env::get('AAPANEL_LOG_DIR', '/www/wwwlogs');

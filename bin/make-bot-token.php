@@ -13,7 +13,7 @@ $args = $_SERVER['argv'];
 array_shift($args);
 $bot = $args[0] ?? null;
 if (!$bot || str_starts_with($bot, '--')) {
-    fwrite(STDERR, "Usage: php bin/make-bot-token.php <BOT_NAME> --project=NeverMine --environment=production [--description=...] [--rate-limit=120] [--max-batch=100] [--levels=INFO,WARNING,ERROR] [--require-signature]\n");
+    fwrite(STDERR, "Использование: php bin/make-bot-token.php <BOT_NAME> --project=NeverMine --environment=production [--description=...] [--rate-limit=120] [--max-batch=100] [--levels=INFO,WARNING,ERROR] [--require-signature]\n");
     exit(1);
 }
 $options = [
@@ -50,7 +50,7 @@ $result = $repo->createBotToken($bot, $options['project'], $options['environment
 $repo->audit('bot_token.created.cli', 'bot_token', (string)$result['id'], 'Создан токен бота через CLI', ['project' => $options['project'], 'bot' => $bot, 'environment' => $options['environment']]);
 
 $url = rtrim(Env::get('APP_URL', 'https://logs.example.com'), '/') . '/api/v1/ingest';
-echo "Bot token created. Raw token is shown once. Store it in the bot env.\n\n";
+echo "Токен бота создан. Исходный токен показывается один раз. Сохраните его в окружении бота.\n\n";
 echo "BOT_TOKEN_ID={$result['id']}\n";
 echo "REMOTE_LOGS_URL={$url}\n";
 echo "REMOTE_LOGS_TOKEN={$result['raw_token']}\n";

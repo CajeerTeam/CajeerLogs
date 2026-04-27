@@ -8,7 +8,7 @@ use CajeerLogs\Database;
 
 $pdo = Database::pdo();
 if (Database::driver() !== 'pgsql') {
-    fwrite(STDERR, "postgres-optimize.php works only with PostgreSQL. Current driver: " . Database::driver() . PHP_EOL);
+    fwrite(STDERR, "postgres-optimize.php работает только с PostgreSQL. Текущий драйвер: " . Database::driver() . PHP_EOL);
     exit(1);
 }
 
@@ -26,4 +26,4 @@ foreach ($commands as $sql) {
     $pdo->exec($sql);
 }
 
-echo "PostgreSQL optimization completed. Partitioning template: sql/postgres_partitioning_optional.sql\n";
+echo "Оптимизация PostgreSQL завершена. Шаблон партиционирования: sql/postgres_partitioning_optional.sql\n";
