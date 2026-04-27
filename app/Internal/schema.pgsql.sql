@@ -197,11 +197,32 @@ CREATE TABLE IF NOT EXISTS app_settings (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS update_runs (
+    id BIGSERIAL PRIMARY KEY,
+    actor VARCHAR(190) NULL,
+    action VARCHAR(40) NOT NULL DEFAULT 'update',
+    status VARCHAR(30) NOT NULL,
+    repo_url TEXT NULL,
+    branch VARCHAR(120) NULL,
+    from_version VARCHAR(80) NULL,
+    to_version VARCHAR(80) NULL,
+    from_commit VARCHAR(80) NULL,
+    to_commit VARCHAR(80) NULL,
+    backup_path TEXT NULL,
+    output_log TEXT NULL,
+    error_message TEXT NULL,
+    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    finished_at TIMESTAMPTZ NULL,
+    duration_ms INTEGER NULL
+);
+
 CREATE TABLE IF NOT EXISTS schema_migrations (
     version VARCHAR(80) PRIMARY KEY,
     applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE INDEX IF NOT EXISTS idx_update_runs_started ON update_runs (started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_update_runs_status ON update_runs (status, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_log_events_created_at ON log_events (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_log_events_project_bot_created ON log_events (project, bot, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_log_events_level_created ON log_events (level, created_at DESC);
