@@ -35,6 +35,23 @@ INGEST_REQUIRE_SIGNATURE=true
 
 ```env
 ALERT_WEBHOOK_ALLOWED_HOSTS=
+ALERT_WEBHOOK_BLOCK_PRIVATE_DNS=true
+ALERT_WEBHOOK_REQUIRE_ALLOWLIST=false
+ALERT_WEBHOOK_TIMEOUT_SECONDS=5
 ```
 
-Если список задан, исходящие вебхуки разрешены только на перечисленные хосты. Поддерживается формат `example.com` и `*.example.com`.
+Если список `ALERT_WEBHOOK_ALLOWED_HOSTS` задан, исходящие вебхуки разрешены только на перечисленные хосты. Поддерживается формат `example.com` и `*.example.com`. В строгом production-режиме можно включить `ALERT_WEBHOOK_REQUIRE_ALLOWLIST=true`.
+
+## Импорт Nginx/aaPanel
+
+```env
+NGINX_LOG_DIR=/www/wwwlogs
+NGINX_LOG_PROJECT=Web Sites
+NGINX_LOG_ENVIRONMENT=production
+AAPANEL_LOG_DIR=/www/wwwlogs
+AAPANEL_LOG_PROJECT=Web Sites
+AAPANEL_LOG_ENVIRONMENT=production
+AAPANEL_LOG_IMPORT_MAX_LINES=1000
+```
+
+Используйте `NGINX_*` для новых установок. Переменные `AAPANEL_*` сохранены для совместимости с типовым расположением журналов aaPanel.

@@ -14,3 +14,7 @@
 - [ ] Cron-задачи настроены.
 - [ ] `php bin/self-test.php` проходит.
 - [ ] `php bin/wiki-check.php` проходит.
+- [ ] `php bin/schema-check.php` проходит.
+- [ ] Первый администратор создан через `php bin/make-user.php`, а шаблонный пароль из `.env` не используется.
+- [ ] Для webhook-оповещений задан `ALERT_WEBHOOK_ALLOWED_HOSTS` или осознанно выключен `ALERT_WEBHOOK_REQUIRE_ALLOWLIST`.
+- [ ] Проверочный ingest проходит через `php bin/ingest-smoke.php --signed`.

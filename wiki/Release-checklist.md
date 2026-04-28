@@ -13,3 +13,11 @@
 - [ ] Проверить центр обновлений на staging-контуре.
 - [ ] Проверить откат из резервной копии.
 - [ ] Убедиться, что в релиз не попали `.env`, дампы БД, runtime-журналы и секреты.
+
+## Проверки перед release
+
+- [ ] `php bin/self-test.php`
+- [ ] `php bin/wiki-check.php`
+- [ ] `php bin/schema-check.php`
+- [ ] `python3 -m py_compile clients/bot.py`
+- [ ] Проверить ingest smoke test на staging.

@@ -47,3 +47,11 @@ X-Log-Token: RAW_TOKEN
   "message": "Журналы приняты."
 }
 ```
+
+## Smoke test
+
+Для проверки работающего endpoint используйте:
+
+```bash
+php bin/ingest-smoke.php --url=https://logs.example.com/api/v1/ingest --token=RAW_TOKEN --signed
+```

@@ -16,3 +16,14 @@
 - Добавлена проверка wiki-исходников.
 - Добавлена OpenAPI-спецификация ingest API.
 - Убраны устаревшие интеграции документационных платформ.
+## 0.8.1 — repository ops hardening
+
+- Добавлен ручной workflow публикации GitHub Wiki.
+- Добавлены `bin/schema-check.php` и `bin/ingest-smoke.php`.
+- HMAC-подпись включена по умолчанию в `.env.example` и форме токена.
+- Список ботов показывает лимиты событий и байт из БД.
+- SQLite fallback получил подсчёт лимита байт ingest через `json_extract` с PHP-fallback.
+- Усилена защита исходящих webhook-оповещений: запрет редиректов, опциональный allowlist и блокировка приватного DNS.
+- Добавлены `.github/CODEOWNERS`, `.github/labels.yml` и Wiki-страница `Repository-settings.md`.
+- Bootstrap больше не создаёт первого администратора со слабым шаблонным паролем.
+
