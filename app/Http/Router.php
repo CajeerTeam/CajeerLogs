@@ -1231,7 +1231,30 @@ HTML;
         $repo = Security::e((string)($status['config']['repo_url'] ?? 'https://github.com/CajeerTeam/CajeerLogs'));
         $branch = Security::e((string)($status['config']['branch'] ?? 'main'));
         $backupDir = Security::e((string)($status['config']['backup_dir'] ?? 'storage/backups/updates'));
-        $localChanges = $status['has_local_changes'] === true ? '<div class="notice warn">В рабочем дереве есть локальные изменения. Обновление через <code>git reset --hard</code> их сотрёт.</div>' : '';
+        $localChangesList = trim((string)($status['local_changes_list'] ?? ''));
+        $localChanges = $status['has_local_changes'] === true
+            ? '<div class="notice warn"><strong>В рабочем дереве есть локальные изменения.</strong><p>Обновление через <code>git reset --hard</code> их сотрёт. Проверь изменения и создай backup diff.</p><pre>' . Security::e($localChangesList !== '' ? $localChangesList : 'git status --short') . '</pre></div>'
+            : '';
+        $repairRows = '';
+        foreach ($manager->repairHints() as $label => $command) {
+            $repairRows .= '<tr><th>' . Security::e((string)$label) . '</th><td><code>' . Security::e((string)$command) . '</code></td></tr>';
+        }
+        $runtimeRows = '';
+        foreach (($status['php_runtime'] ?? []) as $label => $value) {
+            $runtimeRows .= '<tr><th>' . Security::e((string)$label) . '</th><td><code>' . Security::e((string)$value) . '</code></td></tr>';
+        }
+        $phases = [
+            '1. Проверить окружение',
+            '2. Создать резервную копию',
+            '3. Проверить удалённый tag/branch',
+            '4. Скачать код через git fetch',
+            '5. Переключить код через git reset --hard',
+            '6. Восстановить .env из backup',
+            '7. Применить миграции',
+            '8. Выполнить health/release checks',
+            '9. Перезапустить PHP-FPM вручную при необходимости',
+        ];
+        $phaseItems = '<ol class="timeline-list"><li>' . implode('</li><li>', array_map([Security::class, 'e'], $phases)) . '</li></ol>';
         $body = <<<HTML
 <h1>Обновление приложения</h1>
 {$notice}
@@ -1244,12 +1267,27 @@ HTML;
         <tr><th>Ветка</th><td><code>{$branch}</code></td></tr>
         <tr><th>Резервная копия</th><td><code>{$backupDir}</code></td></tr>
         <tr><th>Токен GitHub</th><td>{$this->yesNo((bool)($status['config']['uses_token'] ?? false))}</td></tr>
-        <tr><th>Режим</th><td><code>git fetch + git reset --hard origin/{$branch}</code></td></tr>
+        <tr><th>Git</th><td><code>{$status['config']['git_bin']}</code></td></tr>
+        <tr><th>tar</th><td><code>{$status['config']['tar_bin']}</code></td></tr>
+        <tr><th>PHP CLI</th><td><code>{$status['config']['php_bin']}</code></td></tr>
+        <tr><th>Режим</th><td><code>git fetch + git reset --hard {$branch}</code></td></tr>
     </tbody></table>
 </section>
 <section class="panel wide">
     <h2>Готовность к обновлению</h2>
     <table><thead><tr><th>Проверка</th><th>Статус</th><th>Комментарий</th></tr></thead><tbody>{$checkRows}</tbody></table>
+</section>
+<section class="panel wide">
+    <h2>Среда PHP-FPM/CLI</h2>
+    <table class="detail-table"><tbody>{$runtimeRows}</tbody></table>
+</section>
+<section class="panel wide">
+    <h2>Команды исправления</h2>
+    <table class="detail-table"><tbody>{$repairRows}</tbody></table>
+</section>
+<section class="panel">
+    <h2>Фазы обновления</h2>
+    {$phaseItems}
 </section>
 <section class="panel">
     <h2>Действия</h2>
@@ -1335,6 +1373,14 @@ HTML;
         $checks['Подключение БД'] = Env::get('DB_CONNECTION', 'sqlite');
         $checks['PDO-драйверы'] = implode(', ', $diag['pdo_drivers'] ?? []);
         $checks['APP_DEBUG'] = Env::get('APP_DEBUG', 'false');
+        $checks['PHP SAPI'] = PHP_SAPI;
+        $checks['PHP binary'] = PHP_BINARY;
+        $checks['PATH'] = (string)getenv('PATH');
+        $checks['open_basedir'] = (string)ini_get('open_basedir') ?: '—';
+        $checks['disabled_functions'] = (string)ini_get('disable_functions') ?: '—';
+        $checks['proc_open'] = function_exists('proc_open') ? 'доступен' : 'отключён';
+        $checks['exec'] = function_exists('exec') ? 'доступен' : 'отключён';
+        $checks['shell_exec'] = function_exists('shell_exec') ? 'доступен' : 'отключён';
         $checks['storage/logs доступен на запись'] = is_writable($root . '/storage/logs') ? 'да' : 'нет';
         $checks['UI_IP_ALLOWLIST'] = Env::get('UI_IP_ALLOWLIST', '') ?: 'не задан';
         $checks['Документация'] = $docsUrl;
