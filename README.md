@@ -78,6 +78,8 @@ php bin/bootstrap.php
 php bin/migrate.php
 php bin/doctor.php
 php bin/self-test.php
+php bin/wiki-check.php
+php bin/schema-check.php
 ```
 
 Создайте первого администратора:
@@ -125,7 +127,7 @@ Content-Type: application/json
 X-Log-Token: RAW_BOT_TOKEN
 ```
 
-При включённой HMAC-подписи дополнительно используются:
+В production HMAC-подпись включена по умолчанию. Дополнительно используются:
 
 ```http
 X-Log-Timestamp: <unix timestamp>
@@ -192,3 +194,15 @@ https://github.com/CajeerTeam/CajeerLogs/wiki
 ## Лицензия
 
 Apache License 2.0. См. [`LICENSE`](LICENSE).
+
+## Smoke test ingest API
+
+После создания токена можно проверить работающий endpoint:
+
+```bash
+php bin/ingest-smoke.php --url=https://logs.example.com/api/v1/ingest --token=RAW_BOT_TOKEN --signed
+```
+
+## Публикация Wiki
+
+Исходники Wiki лежат в `wiki/`. Публикуйте их вручную workflow `Publish Wiki` или локально через `bash bin/wiki-publish.sh`.
