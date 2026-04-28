@@ -30,3 +30,19 @@
 - [ ] выдержка из `wiki/Changelog.md`.
 - [ ] актуальный `openapi.yaml`.
 - [ ] результат `php bin/release-check.php`.
+
+
+## Release artifacts
+
+Минимальный набор артефактов релиза:
+
+- `cajeerlogs-$VERSION.zip` — исходный архив без `.git`, `.env` и runtime-каталогов `storage/*`;
+- `SHA256SUMS` — контрольные суммы;
+- выдержка из `wiki/Changelog.md`;
+- актуальный `openapi.yaml`.
+
+Перед публикацией выполните:
+
+```bash
+php bin/release-check.php
+```

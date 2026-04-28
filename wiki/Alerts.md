@@ -27,3 +27,15 @@ php bin/process-jobs.php
 ```
 
 Ошибочные доставки фиксируются в журнале доставок и могут быть повторно поставлены в очередь через задачи обслуживания.
+
+
+## Очередь, retry и dead-letter
+
+Webhook-доставки выполняются через таблицу `jobs`. `alert-dispatch.php` ставит задачу, а `process-jobs.php` атомарно забирает её в работу. При временной ошибке задача получает статус `retry` и повторяется с backoff. После исчерпания `max_attempts` задача переводится в `dead`, а результат доставки фиксируется в журнале.
+
+Для строгого production-режима включите allowlist:
+
+```env
+ALERT_WEBHOOK_REQUIRE_ALLOWLIST=true
+ALERT_WEBHOOK_ALLOWED_HOSTS=example.com,*.example.com
+```

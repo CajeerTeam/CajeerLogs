@@ -2,6 +2,16 @@
 
 ## 0.8.2-ops-hardening
 
+### queue-update-release-hardening
+
+- API application errors теперь возвращают HTTP 500.
+- Очередь jobs получила атомарный claim, retry/backoff и dead-letter.
+- OpenAPI синхронизирован с HMAC-default, Bearer auth и `409 replayed_nonce`.
+- UI управления пользователями блокирует слабые пароли и защиту последнего admin.
+- Production-шаблон update center обновляется по release tag.
+- Добавлены release workflow, labels sync workflow, alert pipeline smoke и update-check.
+
+
 - Добавлены integration-проверки PostgreSQL и SQLite в CI.
 - Усилена публикация GitHub Wiki и добавлена проверка релизной готовности.
 - Добавлен атомарный PostgreSQL rate limit ingest API.

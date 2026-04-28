@@ -27,3 +27,6 @@ Nonce сохраняется сервером и не может быть исп
 ## Поведение по умолчанию
 
 В `.env.example` параметр `INGEST_REQUIRE_SIGNATURE=true`, поэтому production-конфигурация требует HMAC-подпись для всех ingest-запросов. Для локальной отладки параметр можно временно выключить, но не используйте это в публичной сети.
+
+
+Токен можно передавать как `X-Log-Token` или как `Authorization: Bearer <token>`. В production обязательны `X-Log-Timestamp`, `X-Log-Nonce` и `X-Log-Signature`; повторный nonce возвращает `409 replayed_nonce`.

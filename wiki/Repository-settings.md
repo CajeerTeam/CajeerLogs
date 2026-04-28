@@ -79,3 +79,10 @@ bash bin/wiki-publish.sh
 - `Packages` и `Deployments` — выключить, если они не используются.
 - `Discussions` — выключить, пока обсуждения ведутся через Issues.
 - `Automatically delete head branches` — включить.
+
+
+## Автоматизация репозитория
+
+- `.github/workflows/labels-sync.yml` синхронизирует labels из `.github/labels.yml`.
+- `.github/workflows/release.yml` вручную собирает ZIP, SHA256SUMS и создаёт GitHub Release.
+- `.github/workflows/wiki-publish.yml` публикует каталог `wiki/` в GitHub Wiki.
