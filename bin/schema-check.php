@@ -54,6 +54,10 @@ $check('OpenAPI отвечает фактическому ingest-коду 200/in
 $check('Версия задана', $version !== '');
 $check('Миграционная версия 010 зарегистрирована', str_contains($migrator, "010_github_repository_ops"));
 $check('Миграционная версия 011 зарегистрирована', str_contains($migrator, "011_ops_hardening"));
+$check('Миграционная версия 012 зарегистрирована', str_contains($migrator, "012_queue_update_release_hardening"));
+$check('schema содержит поля retry jobs', str_contains($schema, 'max_attempts') && str_contains($schema, 'run_after_at') && str_contains($schema, 'locked_by'));
+$check('Migrator содержит idx_jobs_claim', str_contains($migrator, 'idx_jobs_claim'));
+$check('Repository содержит атомарный claim jobs', str_contains($repo, 'FOR UPDATE SKIP LOCKED') && str_contains($repo, 'claimNextQueuedJob')); 
 $check('schema содержит ingest_rate_counters', str_contains($schema, 'ingest_rate_counters'));
 $check('Migrator содержит ingest_rate_counters', str_contains($migrator, 'ingest_rate_counters'));
 $check('Repository использует атомарный PostgreSQL rate limit', str_contains($repo, 'atomicPgsqlIngestRateLimitViolation') && str_contains($repo, 'ON CONFLICT (bot_token_id, bucket_at)'));

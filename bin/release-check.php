@@ -27,6 +27,12 @@ $check('.nginx.conf использует примерный домен', str_con
 $check('Social preview SVG существует', is_file($root . '/assets/social-preview.svg'));
 $check('Wiki aaPanel-интеграции существует', is_file($root . '/wiki/AaPanel-integration.md'));
 $check('Workflow Wiki publish существует', is_file($root . '/.github/workflows/wiki-publish.yml'));
+$check('Workflow release существует', is_file($root . '/.github/workflows/release.yml'));
+$check('Workflow labels sync существует', is_file($root . '/.github/workflows/labels-sync.yml'));
+$check('Update-check существует', is_file($root . '/bin/update-check.php'));
+$check('Alert pipeline smoke существует', is_file($root . '/bin/alert-pipeline-smoke.php'));
+$check('OpenAPI описывает HMAC required', str_contains($openapi, 'X-Log-Signature') && str_contains($openapi, 'replayed_nonce') && str_contains($openapi, 'BearerToken'));
+$check('.env.example требует update по tag', str_contains($env, 'UPDATE_REQUIRE_TAG=true') && str_contains($env, 'UPDATE_BRANCH=v' . $version));
 $check('PostgreSQL integration CI есть', str_contains((string)@file_get_contents($root . '/.github/workflows/ci.yml'), 'integration-postgres'));
 $check('SQLite smoke CI есть', str_contains((string)@file_get_contents($root . '/.github/workflows/ci.yml'), 'integration-sqlite'));
 
