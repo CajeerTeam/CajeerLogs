@@ -36,6 +36,24 @@ $check('.env.example требует update по tag', str_contains($env, 'UPDATE
 $check('PostgreSQL integration CI есть', str_contains((string)@file_get_contents($root . '/.github/workflows/ci.yml'), 'integration-postgres'));
 $check('SQLite smoke CI есть', str_contains((string)@file_get_contents($root . '/.github/workflows/ci.yml'), 'integration-sqlite'));
 
+$updateManager = (string)@file_get_contents($root . '/app/UpdateManager.php');
+$migrator = (string)@file_get_contents($root . '/app/Migrator.php');
+$view = (string)@file_get_contents($root . '/app/View.php');
+$bootstrap = (string)@file_get_contents($root . '/app/bootstrap.php');
+
+$check('UpdateManager не содержит by-reference вызов ensureSafeDirectory($tmp = [])', !str_contains($updateManager, '$this->ensureSafeDirectory($tmp = [])'));
+$check('UpdateManager использует UPDATE_TAR_BIN', str_contains($updateManager, "'tar_bin' => Env::get('UPDATE_TAR_BIN'") && str_contains($updateManager, "config()['tar_bin']"));
+$check('.env.example содержит UPDATE_TAR_BIN', str_contains($env, 'UPDATE_TAR_BIN='));
+$sqliteStart = strpos($migrator, 'private function runSqlite');
+$sqliteEnd = strpos($migrator, 'private function recordVersion', $sqliteStart === false ? 0 : $sqliteStart);
+$sqliteBlock = $sqliteStart === false ? '' : substr($migrator, $sqliteStart, $sqliteEnd === false ? null : $sqliteEnd - $sqliteStart);
+$check('SQLite-блок Migrator не содержит ADD COLUMN IF NOT EXISTS', !str_contains($sqliteBlock, 'ADD COLUMN IF NOT EXISTS'));
+$check('SQLite-блок Migrator не содержит TIMESTAMPTZ', !str_contains($sqliteBlock, 'TIMESTAMPTZ'));
+$check('SQLite-блок Migrator не содержит NOW()', !str_contains($sqliteBlock, 'NOW()'));
+$check('Command palette содержит /system/update', str_contains($view, '/system/update') && str_contains($view, 'Обновление'));
+$check('Production без .env блокируется для web', str_contains($bootstrap, 'Файл .env обязателен для production'));
+$check('Update-env-check существует', is_file($root . '/bin/update-env-check.php'));
+
 $forbidden = ['Mint' . 'lify', 'Git' . 'Book', 'Bot' . 'Host', 'docs.cajeer.ru' . '/logs'];
 $scanFiles = [
     'README.md', '.env.example', '.nginx.conf', 'SECURITY.md', 'CONTRIBUTING.md', 'openapi.yaml',
