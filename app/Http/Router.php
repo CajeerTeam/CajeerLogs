@@ -341,7 +341,7 @@ HTML;
             return;
         }
 
-        $signatureRequired = Env::bool('INGEST_REQUIRE_SIGNATURE', false) || ((int)($botToken['require_signature'] ?? 0) === 1);
+        $signatureRequired = Env::bool('INGEST_REQUIRE_SIGNATURE', true) || ((int)($botToken['require_signature'] ?? 0) === 1);
         $signatureOk = false;
         if ($signatureRequired || isset($_SERVER['HTTP_X_LOG_SIGNATURE'])) {
             $timestamp = (string)($_SERVER['HTTP_X_LOG_TIMESTAMP'] ?? '');
@@ -500,7 +500,7 @@ HTML;
         $eventsLimit = Security::e((string)($form['events_limit_per_minute'] ?? Env::int('INGEST_MAX_EVENTS_PER_MINUTE', 3000)));
         $bytesLimit = Security::e((string)($form['bytes_limit_per_minute'] ?? Env::int('INGEST_MAX_BYTES_PER_MINUTE', 10485760)));
         $allowedLevels = Security::e((string)($form['allowed_levels'] ?? ''));
-        $requireSignature = !empty($form['require_signature']) ? ' checked' : '';
+        $requireSignature = ((array_key_exists('require_signature', $form) && $form['require_signature'] === '1') || (!array_key_exists('require_signature', $form) && Env::bool('INGEST_REQUIRE_SIGNATURE', true))) ? ' checked' : '';
         $csrf = Security::csrfToken('create_bot_token');
         $docsUrl = Security::e(Env::get('DOCS_URL', 'https://github.com/CajeerTeam/CajeerLogs/wiki') ?: 'https://github.com/CajeerTeam/CajeerLogs/wiki');
 
@@ -824,12 +824,12 @@ HTML;
         $maxLines = max(1, min(10000, (int)($_POST['max_lines'] ?? 1000)));
         $repo = $this->repo();
         if ((string)($_POST['mode'] ?? 'sync') === 'queue') {
-            $jobId = $repo->createJob('aapanel_import', ['site' => $site !== '' ? $site : null, 'max_lines' => $maxLines, 'dir' => Env::get('AAPANEL_LOG_DIR', '/www/wwwlogs')]);
+            $jobId = $repo->createJob('aapanel_import', ['site' => $site !== '' ? $site : null, 'max_lines' => $maxLines, 'dir' => Env::get('NGINX_LOG_DIR', Env::get('AAPANEL_LOG_DIR', '/www/wwwlogs'))]);
             $repo->audit('job.created', 'job', (string)$jobId, 'Создана задача импорта логов сайтов', ['site' => $site, 'max_lines' => $maxLines]);
             $this->sites(['sources' => 0, 'inserted' => 0, 'skipped' => 0, 'errors' => ['Задача #' . $jobId . ' поставлена в очередь. Запусти bin/process-jobs.php через cron.']]);
             return;
         }
-        $summary = (new AaPanelLogImporter($repo))->importAll(Env::get('AAPANEL_LOG_DIR', '/www/wwwlogs'), $site !== '' ? $site : null, $maxLines);
+        $summary = (new AaPanelLogImporter($repo))->importAll(Env::get('NGINX_LOG_DIR', Env::get('AAPANEL_LOG_DIR', '/www/wwwlogs')), $site !== '' ? $site : null, $maxLines);
         $repo->audit('aapanel_logs.imported', 'aapanel_site', $site !== '' ? $site : 'all', 'Импортированы логи сайтов', $summary);
         $this->sites($summary);
     }
@@ -883,12 +883,12 @@ HTML;
         foreach ($this->repo()->incidents(200) as $incident) {
             $id = (int)$incident['id'];
             $muted = !empty($incident['muted_until_at']) ? (string)$incident['muted_until_at'] : '—';
-            $rows .= '<tr><td><a href="/incidents/' . $id . '">#' . $id . '</a></td><td><span class="level level-' . strtolower((string)$incident['level']) . '">' . Security::e($this->levelLabel((string)$incident['level'])) . '</span></td><td>' . Security::e($incident['project']) . '</td><td>' . Security::e($incident['bot']) . '</td><td>' . Security::e($incident['environment']) . '</td><td>' . Security::e($incident['title']) . '</td><td>' . Security::e((string)$incident['event_count']) . '</td><td>' . Security::e((string)$incident['last_seen_at']) . '</td><td>' . Security::e($incident['status']) . '</td><td>' . Security::e($muted) . '</td><td><form method="post" action="/incidents/action"><input type="hidden" name="_csrf" value="' . Security::e($csrf) . '"><input type="hidden" name="id" value="' . $id . '"><select name="status"><option value="open">open</option><option value="acknowledged">acknowledged</option><option value="resolved">resolved</option></select><button class="button small" name="action" value="status" type="submit">OK</button><button class="button small ghost" name="action" value="mute_1h" type="submit">Mute 1ч</button><button class="button small ghost" name="action" value="mute_24h" type="submit">Mute 24ч</button><button class="button small ghost" name="action" value="unmute" type="submit">Unmute</button></form></td></tr>';
+            $rows .= '<tr><td><a href="/incidents/' . $id . '">#' . $id . '</a></td><td><span class="level level-' . strtolower((string)$incident['level']) . '">' . Security::e($this->levelLabel((string)$incident['level'])) . '</span></td><td>' . Security::e($incident['project']) . '</td><td>' . Security::e($incident['bot']) . '</td><td>' . Security::e($incident['environment']) . '</td><td>' . Security::e($incident['title']) . '</td><td>' . Security::e((string)$incident['event_count']) . '</td><td>' . Security::e((string)$incident['last_seen_at']) . '</td><td>' . Security::e($this->incidentStatusLabel((string)$incident['status'])) . '</td><td>' . Security::e($muted) . '</td><td><form method="post" action="/incidents/action"><input type="hidden" name="_csrf" value="' . Security::e($csrf) . '"><input type="hidden" name="id" value="' . $id . '"><select name="status"><option value="open">открыт</option><option value="acknowledged">принят в работу</option><option value="resolved">решён</option></select><button class="button small" name="action" value="status" type="submit">OK</button><button class="button small ghost" name="action" value="mute_1h" type="submit">Заглушить 1ч</button><button class="button small ghost" name="action" value="mute_24h" type="submit">Заглушить 24ч</button><button class="button small ghost" name="action" value="unmute" type="submit">Снять заглушение</button></form></td></tr>';
         }
         if ($rows === '') {
             $rows = '<tr><td colspan="11" class="muted">Инцидентов нет</td></tr>';
         }
-        $body = '<h1>Инциденты</h1><section class="panel wide"><table><thead><tr><th>ID</th><th>Уровень</th><th>Проект</th><th>Бот</th><th>Окружение</th><th>Заголовок</th><th>Событий</th><th>Последний раз</th><th>Статус</th><th>Mute до</th><th>Действие</th></tr></thead><tbody>' . $rows . '</tbody></table></section>';
+        $body = '<h1>Инциденты</h1><section class="panel wide"><table><thead><tr><th>ID</th><th>Уровень</th><th>Проект</th><th>Бот</th><th>Окружение</th><th>Заголовок</th><th>Событий</th><th>Последний раз</th><th>Статус</th><th>Заглушен до</th><th>Действие</th></tr></thead><tbody>' . $rows . '</tbody></table></section>';
         Response::html(View::layout('Инциденты', $body));
     }
 
@@ -900,8 +900,8 @@ HTML;
             return;
         }
         $logs = $this->repo()->recentLogs(['fingerprint' => (string)$incident['fingerprint']], 50);
-        $body = '<h1>Инцидент #' . $id . '</h1><div class="quick-actions"><a class="button ghost" href="/incidents">← К списку</a><a class="button ghost" href="/logs?fingerprint=' . Security::e((string)$incident['fingerprint']) . '">Логи по fingerprint</a></div>'
-            . '<section class="panel"><h2>' . Security::e($incident['title']) . '</h2><p class="muted">Отпечаток группы: <code>' . Security::e((string)$incident['fingerprint']) . '</code></p><p>Событий: ' . Security::e((string)$incident['event_count']) . ', статус: ' . Security::e((string)$incident['status']) . '</p></section>'
+        $body = '<h1>Инцидент #' . $id . '</h1><div class="quick-actions"><a class="button ghost" href="/incidents">← К списку</a><a class="button ghost" href="/logs?fingerprint=' . Security::e((string)$incident['fingerprint']) . '">Логи по отпечатку</a></div>'
+            . '<section class="panel"><h2>' . Security::e($incident['title']) . '</h2><p class="muted">Отпечаток группы: <code>' . Security::e((string)$incident['fingerprint']) . '</code></p><p>Событий: ' . Security::e((string)$incident['event_count']) . ', статус: ' . Security::e($this->incidentStatusLabel((string)$incident['status'])) . '</p></section>'
             . '<section class="panel"><h2>Пример сообщения</h2><pre>' . Security::e((string)($incident['sample_message'] ?? '—')) . '</pre></section>'
             . '<section class="panel"><h2>Последние связанные логи</h2><table><thead><tr><th>Время</th><th>Уровень</th><th>Проект</th><th>Бот</th><th>Сообщение</th><th></th></tr></thead><tbody>' . $this->renderLogRows($logs) . '</tbody></table></section>';
         Response::html(View::layout('Инцидент #' . $id, $body));
@@ -917,14 +917,14 @@ HTML;
         $action = (string)($_POST['action'] ?? 'status');
         if ($id > 0) {
             if ($action === 'mute_1h') {
-                $this->repo()->setIncidentMute($id, 1, 'mute через UI');
+                $this->repo()->setIncidentMute($id, 1, 'заглушено через UI');
                 $this->repo()->audit('incident.muted', 'incident', (string)$id, 'Инцидент заглушён на 1 час');
             } elseif ($action === 'mute_24h') {
-                $this->repo()->setIncidentMute($id, 24, 'mute через UI');
+                $this->repo()->setIncidentMute($id, 24, 'заглушено через UI');
                 $this->repo()->audit('incident.muted', 'incident', (string)$id, 'Инцидент заглушён на 24 часа');
             } elseif ($action === 'unmute') {
                 $this->repo()->setIncidentMute($id, null, null);
-                $this->repo()->audit('incident.unmuted', 'incident', (string)$id, 'Mute инцидента снят');
+                $this->repo()->audit('incident.unmuted', 'incident', (string)$id, 'Заглушение инцидента снято');
             } else {
                 $status = (string)($_POST['status'] ?? 'open');
                 if ($this->repo()->setIncidentStatus($id, $status)) {
@@ -976,7 +976,7 @@ HTML;
                 . '<td>' . Security::e((string)$delivery['delivered_at']) . '</td>'
                 . '<td>' . Security::e((string)($delivery['rule_name'] ?? '—')) . '</td>'
                 . '<td>' . Security::e((string)($delivery['channel'] ?? '—')) . '</td>'
-                . '<td>' . Security::e((string)$delivery['status']) . '</td>'
+                . '<td>' . Security::e($this->deliveryStatusLabel((string)$delivery['status'])) . '</td>'
                 . '<td>' . Security::e((string)$delivery['message']) . '</td>'
                 . '</tr>';
         }
@@ -1416,7 +1416,7 @@ HTML;
         $checks[] = ['name' => 'DB_CONNECTION=pgsql', 'ok' => $db === 'pgsql', 'message' => 'Текущее значение: ' . (string)$db];
         $checks[] = ['name' => 'LOGS_ENV_FALLBACK_LOGIN=false', 'ok' => !Env::bool('LOGS_ENV_FALLBACK_LOGIN', false), 'message' => 'Аварийный вход должен быть выключен после создания администратора.'];
         $checks[] = ['name' => 'UPDATE_ALLOW_WEB=false', 'ok' => !Env::bool('UPDATE_ALLOW_WEB', false), 'message' => 'Web-обновление лучше держать выключенным в production.'];
-        $checks[] = ['name' => 'INGEST_REQUIRE_SIGNATURE=true', 'ok' => Env::bool('INGEST_REQUIRE_SIGNATURE', false), 'message' => 'Для публичных сетей HMAC-подпись должна быть обязательной.'];
+        $checks[] = ['name' => 'INGEST_REQUIRE_SIGNATURE=true', 'ok' => Env::bool('INGEST_REQUIRE_SIGNATURE', true), 'message' => 'Для публичных сетей HMAC-подпись должна быть обязательной.'];
         $checks[] = ['name' => 'UI_IP_ALLOWLIST задан', 'ok' => trim((string)Env::get('UI_IP_ALLOWLIST', '')) !== '', 'message' => 'Ограничивает доступ к web-интерфейсу по IP/CIDR.'];
         $checks[] = ['name' => 'DOCS_URL задан', 'ok' => filter_var($docsUrl, FILTER_VALIDATE_URL) !== false, 'message' => $docsUrl ?: 'не задан'];
         $checks[] = ['name' => 'storage/logs доступен на запись', 'ok' => is_writable($root . '/storage/logs'), 'message' => $root . '/storage/logs'];
@@ -1831,6 +1831,31 @@ PY;
             return $json;
         }
         return json_encode($decoded, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) ?: $json;
+    }
+
+
+    private function incidentStatusLabel(string $status): string
+    {
+        return match ($status) {
+            'open' => 'открыт',
+            'acknowledged' => 'принят в работу',
+            'resolved' => 'решён',
+            default => $status,
+        };
+    }
+
+    private function deliveryStatusLabel(string $status): string
+    {
+        return match ($status) {
+            'sent' => 'отправлено',
+            'failed' => 'ошибка',
+            'test_sent' => 'тест отправлен',
+            'test_failed' => 'ошибка теста',
+            'muted' => 'заглушено',
+            'deduplicated' => 'дедупликация',
+            'queued' => 'в очереди',
+            default => $status,
+        };
     }
 
     private function levelLabel(string $level): string
