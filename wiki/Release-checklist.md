@@ -8,6 +8,7 @@
 - [ ] Обновить Wiki-страницы при изменении поведения.
 - [ ] Запустить `php bin/self-test.php`.
 - [ ] Запустить `php bin/wiki-check.php`.
+- [ ] Запустить `php bin/update-env-check.php` на staging/production-сервере.
 - [ ] Проверить PHP syntax check.
 - [ ] Проверить `python3 -m py_compile clients/bot.py`.
 - [ ] Проверить центр обновлений на staging-контуре.
