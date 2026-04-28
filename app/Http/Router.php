@@ -216,7 +216,7 @@ final class Router
                     'error' => 'application_error',
                     'message' => $debug ? $e->getMessage() : 'Ошибка приложения. Проверьте storage/logs/app.log.',
                     'diagnostics' => $debug ? Database::diagnostics() : null,
-                ], 200);
+                ], 500);
                 return;
             }
 
@@ -380,11 +380,6 @@ HTML;
             Response::json(['ok' => false, 'error' => 'invalid_batch_size', 'message' => 'Некорректный размер пачки логов.', 'max' => $maxBatch], 400);
             return;
         }
-        $rateViolation = $repo->ingestRateLimitViolation($botToken, count($events), strlen($raw));
-        if ($rateViolation !== null) {
-            Response::json(['ok' => false, 'error' => $rateViolation['error'], 'message' => $rateViolation['message']], 429);
-            return;
-        }
         foreach ($events as $event) {
             if (!is_array($event)) {
                 Response::json(['ok' => false, 'error' => 'invalid_event', 'message' => 'Каждое событие должно быть объектом.'], 400);
@@ -394,6 +389,11 @@ HTML;
         [$policyOk, $policyReason] = $repo->validateEventsForBot($botToken, $events);
         if (!$policyOk) {
             Response::json(['ok' => false, 'error' => 'policy_violation', 'message' => $policyReason], 403);
+            return;
+        }
+        $rateViolation = $repo->ingestRateLimitViolation($botToken, count($events), strlen($raw));
+        if ($rateViolation !== null) {
+            Response::json(['ok' => false, 'error' => $rateViolation['error'], 'message' => $rateViolation['message']], 429);
             return;
         }
 
@@ -1169,10 +1169,16 @@ HTML;
         $id = (int)($_POST['id'] ?? 0);
         $action = (string)($_POST['action'] ?? '');
         if ($id > 0) {
-            if ($action === 'enable') { $this->repo()->setUserActive($id, true); }
-            if ($action === 'disable') { $this->repo()->setUserActive($id, false); }
-            if ($action === 'delete') { $this->repo()->deleteUser($id); }
-            $this->repo()->audit('user.' . $action, 'user', (string)$id, 'Действие с пользователем');
+            try {
+                if ($action === 'enable') { $this->repo()->setUserActive($id, true); }
+                if ($action === 'disable') { $this->repo()->setUserActive($id, false); }
+                if ($action === 'delete') { $this->repo()->deleteUser($id); }
+                $this->repo()->audit('user.' . $action, 'user', (string)$id, 'Действие с пользователем');
+            } catch (Throwable $e) {
+                $this->repo()->audit('user.' . $action . '.denied', 'user', (string)$id, 'Действие с пользователем отклонено', ['reason' => $e->getMessage()]);
+                $this->users([$e->getMessage()]);
+                return;
+            }
         }
         Response::redirect('/users');
     }
@@ -1422,7 +1428,28 @@ HTML;
         $checks[] = ['name' => 'storage/logs доступен на запись', 'ok' => is_writable($root . '/storage/logs'), 'message' => $root . '/storage/logs'];
         $checks[] = ['name' => 'storage/cache доступен на запись', 'ok' => is_writable($root . '/storage/cache'), 'message' => $root . '/storage/cache'];
         $checks[] = ['name' => 'storage/archives доступен на запись', 'ok' => is_writable($root . '/storage/archives'), 'message' => $root . '/storage/archives'];
+        $checks[] = ['name' => 'Webhook allowlist включён', 'ok' => Env::bool('ALERT_WEBHOOK_REQUIRE_ALLOWLIST', false) && trim((string)Env::get('ALERT_WEBHOOK_ALLOWED_HOSTS', '')) !== '', 'message' => 'Для production рекомендуется ALERT_WEBHOOK_REQUIRE_ALLOWLIST=true и явный ALERT_WEBHOOK_ALLOWED_HOSTS.'];
+        $checks[] = ['name' => 'Update только по тегам', 'ok' => Env::bool('UPDATE_REQUIRE_TAG', true), 'message' => 'Production-обновления должны идти по release tag, а не по main.'];
+        $checks[] = ['name' => 'Очередь задач обрабатывается', 'ok' => $this->cronTaskFresh('process-jobs', 900), 'message' => 'process-jobs.php должен запускаться cron-ом минимум раз в несколько минут.'];
+        $checks[] = ['name' => 'Проверка релизной готовности доступна', 'ok' => is_file($root . '/bin/release-check.php'), 'message' => 'php bin/release-check.php'];
         return $checks;
+    }
+
+    private function cronTaskFresh(string $task, int $maxAgeSeconds): bool
+    {
+        try {
+            $runs = $this->repo()->cronRuns(100);
+            foreach ($runs as $run) {
+                if ((string)($run['task'] ?? '') !== $task || (string)($run['status'] ?? '') !== 'ok') {
+                    continue;
+                }
+                $finished = strtotime((string)($run['finished_at'] ?? $run['started_at'] ?? ''));
+                return $finished !== false && (time() - $finished) <= $maxAgeSeconds;
+            }
+        } catch (Throwable) {
+            return false;
+        }
+        return false;
     }
 
     private function pwaDiagnostics(): void
@@ -1489,7 +1516,7 @@ NGINX;
         }
         if ($jobRows === '') { $jobRows = '<tr><td colspan="5" class="muted">Задач в очереди нет.</td></tr>'; }
         $body = '<h1>Планировщик</h1><section class="panel wide"><h2>Последние запуски</h2><table><thead><tr><th>Старт</th><th>Задача</th><th>Статус</th><th>мс</th><th>Сообщение</th></tr></thead><tbody>' . $rows . '</tbody></table></section>'
-            . '<section class="panel"><h2>Рекомендуемые задачи</h2><pre>cd /www/wwwroot/logs.example.com && /www/server/php/83/bin/php bin/alert-dispatch.php\ncd /www/wwwroot/logs.example.com && /www/server/php/83/bin/php bin/import-aapanel-logs.php --max-lines=1000\ncd /www/wwwroot/logs.example.com && /www/server/php/83/bin/php bin/retention.php</pre></section>';
+            . '<section class="panel"><h2>Рекомендуемые задачи</h2><pre>cd /www/wwwroot/logs.example.com && /www/server/php/83/bin/php bin/alert-dispatch.php\ncd /www/wwwroot/logs.example.com && /www/server/php/83/bin/php bin/process-jobs.php\ncd /www/wwwroot/logs.example.com && /www/server/php/83/bin/php bin/import-aapanel-logs.php --max-lines=1000\ncd /www/wwwroot/logs.example.com && /www/server/php/83/bin/php bin/retention.php</pre></section>';
         Response::html(View::layout('Планировщик', $body));
     }
 
