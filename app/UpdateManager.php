@@ -52,6 +52,7 @@ final class UpdateManager
             'remote_commit' => null,
             'has_local_changes' => null,
             'git_status' => null,
+            'git_diff_stat' => null,
             'git_available' => $this->commandAvailable((string)$config['git_bin']),
             'tar_available' => $this->commandAvailable((string)$config['tar_bin']),
             'php_available' => is_file((string)$config['php_bin']) || $this->commandAvailable((string)$config['php_bin']),
@@ -70,6 +71,13 @@ final class UpdateManager
             $porcelain = trim($this->git(['status', '--porcelain'])->output);
             $status['has_local_changes'] = $porcelain !== '';
             $status['local_changes_list'] = $porcelain;
+            if ($porcelain !== '') {
+                try {
+                    $status['git_diff_stat'] = trim($this->git(['diff', '--stat'])->output);
+                } catch (Throwable) {
+                    $status['git_diff_stat'] = '';
+                }
+            }
             $status['git_status'] = $porcelain === '' ? 'Рабочее дерево чистое.' : $porcelain;
         } catch (Throwable $e) {
             $status['git_status'] = $e->getMessage();
@@ -451,19 +459,7 @@ final class UpdateManager
 
     private function phpRuntimeDiagnostics(): array
     {
-        $disabled = (string)ini_get('disable_functions');
-        return [
-            'sapi' => PHP_SAPI,
-            'php_binary' => PHP_BINARY,
-            'configured_php_bin' => (string)$this->config()['php_bin'],
-            'path' => (string)getenv('PATH'),
-            'open_basedir' => (string)ini_get('open_basedir'),
-            'disable_functions' => $disabled === '' ? '—' : $disabled,
-            'proc_open' => function_exists('proc_open') ? 'доступен' : 'отключён',
-            'exec' => function_exists('exec') ? 'доступен' : 'отключён',
-            'shell_exec' => function_exists('shell_exec') ? 'доступен' : 'отключён',
-            'user' => function_exists('posix_getpwuid') ? ((posix_getpwuid(posix_geteuid())['name'] ?? (string)posix_geteuid())) : '—',
-        ];
+        return RuntimeDiagnostics::phpRuntime((string)$this->config()['php_bin']);
     }
 
     public function repairHints(): array

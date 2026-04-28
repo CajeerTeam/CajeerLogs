@@ -650,6 +650,54 @@ final class Repository
         return $this->pdo->query($sql)->fetchAll();
     }
 
+    public function alertDeliveryById(int $id): ?array
+    {
+        $stmt = $this->pdo->prepare('SELECT ad.*, ar.name AS rule_name, ar.channel AS channel, ar.webhook_url AS webhook_url FROM alert_deliveries ad LEFT JOIN alert_rules ar ON ar.id = ad.alert_rule_id WHERE ad.id = :id LIMIT 1');
+        $stmt->execute(['id' => $id]);
+        $row = $stmt->fetch();
+        return $row ?: null;
+    }
+
+    public function replayAlertDelivery(int $id): ?int
+    {
+        $delivery = $this->alertDeliveryById($id);
+        if (!$delivery || empty($delivery['alert_rule_id']) || empty($delivery['webhook_url'])) {
+            return null;
+        }
+        $message = 'Cajeer Logs: повторная доставка по журналу #' . $id . '. ' . (string)($delivery['message'] ?? '');
+        $jobId = $this->createJob('alert_webhook', [
+            'alert_rule_id' => (int)$delivery['alert_rule_id'],
+            'channel' => (string)($delivery['channel'] ?? 'telegram'),
+            'webhook_url' => (string)$delivery['webhook_url'],
+            'message' => $message,
+            'status_ok' => 'replay_sent',
+            'status_failed' => 'replay_failed',
+            'meta' => ['replay_of_delivery_id' => $id],
+        ]);
+        $this->recordAlertDelivery((int)$delivery['alert_rule_id'], 'queued', 'Повторная доставка поставлена в очередь job #' . $jobId, ['replay_of_delivery_id' => $id, 'job_id' => $jobId]);
+        return $jobId;
+    }
+
+    public function replayFailedAlertDeliveries(int $hours = 24): int
+    {
+        $hours = max(1, min(168, $hours));
+        if (Database::driver() === 'pgsql') {
+            $stmt = $this->pdo->prepare("SELECT id FROM alert_deliveries WHERE status IN ('failed','test_failed','replay_failed') AND delivered_at >= NOW() - (:hours || ' hours')::interval ORDER BY delivered_at DESC LIMIT 200");
+            $stmt->execute(['hours' => (string)$hours]);
+        } else {
+            $stmt = $this->pdo->prepare("SELECT id FROM alert_deliveries WHERE status IN ('failed','test_failed','replay_failed') AND datetime(delivered_at) >= datetime('now', '-' || :hours || ' hours') ORDER BY delivered_at DESC LIMIT 200");
+            $stmt->execute(['hours' => (string)$hours]);
+        }
+        $count = 0;
+        foreach ($stmt->fetchAll(\PDO::FETCH_COLUMN) as $deliveryId) {
+            if ($this->replayAlertDelivery((int)$deliveryId) !== null) {
+                $count++;
+            }
+        }
+        return $count;
+    }
+
+
     public function evaluateAlertRules(): array
     {
         $deliveries = [];
@@ -1311,8 +1359,8 @@ final class Repository
     public function resetJob(int $id): bool
     {
         $sql = Database::driver() === 'pgsql'
-            ? "UPDATE jobs SET status = 'queued', started_at = NULL, finished_at = NULL, error = NULL, result = NULL WHERE id = :id"
-            : "UPDATE jobs SET status = 'queued', started_at = NULL, finished_at = NULL, error = NULL, result = NULL WHERE id = :id";
+            ? "UPDATE jobs SET status = 'queued', attempts = 0, run_after_at = NOW(), locked_at = NULL, locked_by = NULL, started_at = NULL, finished_at = NULL, error = NULL, result = NULL, updated_at = NOW() WHERE id = :id"
+            : "UPDATE jobs SET status = 'queued', attempts = 0, run_after_at = CURRENT_TIMESTAMP, locked_at = NULL, locked_by = NULL, started_at = NULL, finished_at = NULL, error = NULL, result = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = :id";
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute(['id' => $id]);
         return $stmt->rowCount() > 0;
@@ -1321,8 +1369,8 @@ final class Repository
     public function cancelJob(int $id): bool
     {
         $sql = Database::driver() === 'pgsql'
-            ? "UPDATE jobs SET status = 'cancelled', finished_at = NOW() WHERE id = :id AND status IN ('queued','running','failed')"
-            : "UPDATE jobs SET status = 'cancelled', finished_at = CURRENT_TIMESTAMP WHERE id = :id AND status IN ('queued','running','failed')";
+            ? "UPDATE jobs SET status = 'cancelled', finished_at = NOW() WHERE id = :id AND status IN ('queued','running','retry','failed','dead')"
+            : "UPDATE jobs SET status = 'cancelled', finished_at = CURRENT_TIMESTAMP WHERE id = :id AND status IN ('queued','running','retry','failed','dead')";
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute(['id' => $id]);
         return $stmt->rowCount() > 0;
@@ -1366,7 +1414,7 @@ final class Repository
     public function jobStats(): array
     {
         $rows = $this->pdo->query('SELECT status, COUNT(*) AS cnt FROM jobs GROUP BY status')->fetchAll();
-        $result = ['queued' => 0, 'running' => 0, 'done' => 0, 'failed' => 0, 'cancelled' => 0];
+        $result = ['queued' => 0, 'retry' => 0, 'running' => 0, 'done' => 0, 'failed' => 0, 'dead' => 0, 'cancelled' => 0];
         foreach ($rows as $row) {
             $result[(string)$row['status']] = (int)$row['cnt'];
         }
@@ -1388,7 +1436,10 @@ final class Repository
 
     public function retryFailedJobs(): int
     {
-        $stmt = $this->pdo->prepare("UPDATE jobs SET status = 'queued', started_at = NULL, finished_at = NULL, error = NULL WHERE status = 'failed'");
+        $sql = Database::driver() === 'pgsql'
+            ? "UPDATE jobs SET status = 'queued', attempts = 0, run_after_at = NOW(), locked_at = NULL, locked_by = NULL, started_at = NULL, finished_at = NULL, error = NULL, updated_at = NOW() WHERE status IN ('failed','dead')"
+            : "UPDATE jobs SET status = 'queued', attempts = 0, run_after_at = CURRENT_TIMESTAMP, locked_at = NULL, locked_by = NULL, started_at = NULL, finished_at = NULL, error = NULL, updated_at = CURRENT_TIMESTAMP WHERE status IN ('failed','dead')";
+        $stmt = $this->pdo->prepare($sql);
         $stmt->execute();
         return $stmt->rowCount();
     }

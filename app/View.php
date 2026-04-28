@@ -10,6 +10,8 @@ final class View
         $titleEsc = Security::e($title);
         $docsUrl = Env::get('DOCS_URL', 'https://github.com/CajeerTeam/CajeerLogs/wiki') ?: 'https://github.com/CajeerTeam/CajeerLogs/wiki';
         $docsUrlEsc = Security::e($docsUrl);
+        $version = trim((string)@file_get_contents(dirname(__DIR__) . '/VERSION')) ?: 'dev';
+        $assetVersion = rawurlencode($version);
         $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
         $nav = [
             '/' => ['Панель', 'logs.view'],
@@ -25,6 +27,8 @@ final class View
             '/users' => ['Пользователи', 'users.manage'],
             '/cron' => ['Планировщик', 'cron.view'],
             '/system' => ['Система', 'system.view'],
+            '/system/runtime' => ['Runtime', 'system.view'],
+            '/system/jobs' => ['Очередь задач', 'system.view'],
             '/system/update' => ['Обновление', 'update.manage'],
         ];
         $navHtml = '';
@@ -71,6 +75,8 @@ final class View
             ['/bots/health', 'Здоровье ботов', 'bots.view'],
             ['/sites', 'Сайты', 'sites.view'],
             ['/system', 'Система', 'system.view'],
+            ['/system/runtime', 'Runtime-диагностика', 'system.view'],
+            ['/system/jobs', 'Очередь задач', 'system.view'],
             ['/system/update', 'Обновление', 'update.manage'],
             ['/system/pwa', 'PWA / домашний экран', 'system.view'],
         ];
@@ -102,8 +108,8 @@ final class View
     <link rel="icon" type="image/png" sizes="32x32" href="/assets/img/favicon-32.png">
     <link rel="apple-touch-icon" href="/assets/img/apple-touch-icon.png">
     <link rel="apple-touch-icon" sizes="192x192" href="/assets/img/icon-192.png">
-    <link rel="stylesheet" href="/assets/css/app.css?v=20260427-mobile-ui">
-    <script defer src="/assets/js/app.js?v=20260427-mobile-ui"></script>
+    <link rel="stylesheet" href="/assets/css/app.css?v={$assetVersion}">
+    <script defer src="/assets/js/app.js?v={$assetVersion}"></script>
 </head>
 <body>
 <a class="skip-link" href="#main-content">Перейти к содержимому</a>
