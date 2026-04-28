@@ -1,0 +1,36 @@
+name: Publish Wiki
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Публикация GitHub Wiki
+    runs-on: ubuntu-latest
+    steps:
+      - name: Получение кода
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Настройка PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo, pdo_sqlite
+          coverage: none
+
+      - name: Проверка Wiki-исходников
+        run: php bin/wiki-check.php
+
+      - name: Публикация Wiki
+        env:
+          WIKI_REMOTE: https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.wiki.git
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        run: bash bin/wiki-publish.sh

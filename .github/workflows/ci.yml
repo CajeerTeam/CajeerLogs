@@ -36,6 +36,9 @@ jobs:
       - name: Проверка Wiki-документации
         run: php bin/wiki-check.php
 
+      - name: Проверка согласованности схемы
+        run: php bin/schema-check.php
+
       - name: Проверка запрещённых runtime-файлов
         run: |
           test ! -f .env
