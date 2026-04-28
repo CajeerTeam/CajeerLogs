@@ -34,7 +34,7 @@ final class Repository
         $eventsLimit = max(0, (int)($options['events_limit_per_minute'] ?? Env::int('INGEST_MAX_EVENTS_PER_MINUTE', 3000)));
         $bytesLimit = max(0, (int)($options['bytes_limit_per_minute'] ?? Env::int('INGEST_MAX_BYTES_PER_MINUTE', 10485760)));
         $allowedLevels = $this->normalizeAllowedLevels($options['allowed_levels'] ?? null);
-        $requireSignature = !empty($options['require_signature']) ? 1 : 0;
+        $requireSignature = array_key_exists('require_signature', $options) ? (!empty($options['require_signature']) ? 1 : 0) : (Env::bool('INGEST_REQUIRE_SIGNATURE', true) ? 1 : 0);
         $driver = Database::driver();
         $now = $driver === 'pgsql' ? 'NOW()' : 'CURRENT_TIMESTAMP';
         $returning = $driver === 'pgsql' ? ' RETURNING id' : '';
@@ -150,6 +150,21 @@ final class Repository
                 $stmt = $this->pdo->prepare("SELECT COALESCE(SUM(COALESCE((meta->>'body_bytes')::integer, 0)), 0) FROM ingest_batches WHERE bot_token_id = :id AND received_at >= NOW() - INTERVAL '60 seconds'");
                 $stmt->execute(['id' => $tokenId]);
                 $used = (int)$stmt->fetchColumn();
+            } else {
+                try {
+                    $stmt = $this->pdo->prepare("SELECT COALESCE(SUM(COALESCE(CAST(json_extract(meta, '$.body_bytes') AS INTEGER), 0)), 0) FROM ingest_batches WHERE bot_token_id = :id AND datetime(received_at) >= datetime('now', '-60 seconds')");
+                    $stmt->execute(['id' => $tokenId]);
+                    $used = (int)$stmt->fetchColumn();
+                } catch (Throwable) {
+                    $stmt = $this->pdo->prepare("SELECT meta FROM ingest_batches WHERE bot_token_id = :id AND datetime(received_at) >= datetime('now', '-60 seconds')");
+                    $stmt->execute(['id' => $tokenId]);
+                    foreach ($stmt->fetchAll(\PDO::FETCH_COLUMN) as $metaRaw) {
+                        $meta = json_decode((string)$metaRaw, true);
+                        if (is_array($meta)) {
+                            $used += max(0, (int)($meta['body_bytes'] ?? 0));
+                        }
+                    }
+                }
             }
             if (($used + max(0, $bodyBytes)) > $bytesLimit) {
                 return ['error' => 'bytes_rate_limited', 'message' => 'Превышен лимит объёма ingest-данных в минуту для токена.'];
@@ -453,9 +468,9 @@ final class Repository
     public function botTokens(): array
     {
         if (Database::driver() === 'pgsql') {
-            $sql = "SELECT bt.id, bt.project, bt.bot, bt.environment, bt.description, bt.is_active, bt.rate_limit_per_minute, bt.max_batch_size, bt.allowed_levels, bt.require_signature, bt.created_at, bt.updated_at, bt.last_used_at, COUNT(le.id) AS total_logs, COUNT(le.id) FILTER (WHERE le.received_at >= NOW() - INTERVAL '24 hours') AS logs_24h, COUNT(le.id) FILTER (WHERE le.level IN ('ERROR','CRITICAL') AND le.received_at >= NOW() - INTERVAL '24 hours') AS errors_24h, MAX(le.received_at) FILTER (WHERE le.level IN ('ERROR','CRITICAL')) AS last_error_at FROM bot_tokens bt LEFT JOIN ingest_batches ib ON ib.bot_token_id = bt.id LEFT JOIN log_events le ON le.batch_id = ib.id WHERE bt.deleted_at IS NULL GROUP BY bt.id ORDER BY bt.project, bt.bot, bt.environment";
+            $sql = "SELECT bt.id, bt.project, bt.bot, bt.environment, bt.description, bt.is_active, bt.rate_limit_per_minute, bt.max_batch_size, bt.events_limit_per_minute, bt.bytes_limit_per_minute, bt.allowed_levels, bt.require_signature, bt.created_at, bt.updated_at, bt.last_used_at, COUNT(le.id) AS total_logs, COUNT(le.id) FILTER (WHERE le.received_at >= NOW() - INTERVAL '24 hours') AS logs_24h, COUNT(le.id) FILTER (WHERE le.level IN ('ERROR','CRITICAL') AND le.received_at >= NOW() - INTERVAL '24 hours') AS errors_24h, MAX(le.received_at) FILTER (WHERE le.level IN ('ERROR','CRITICAL')) AS last_error_at FROM bot_tokens bt LEFT JOIN ingest_batches ib ON ib.bot_token_id = bt.id LEFT JOIN log_events le ON le.batch_id = ib.id WHERE bt.deleted_at IS NULL GROUP BY bt.id ORDER BY bt.project, bt.bot, bt.environment";
         } else {
-            $sql = "SELECT bt.id, bt.project, bt.bot, bt.environment, bt.description, bt.is_active, bt.rate_limit_per_minute, bt.max_batch_size, bt.allowed_levels, bt.require_signature, bt.created_at, bt.updated_at, bt.last_used_at, COUNT(le.id) AS total_logs, SUM(CASE WHEN datetime(le.received_at) >= datetime('now','-24 hours') THEN 1 ELSE 0 END) AS logs_24h, SUM(CASE WHEN le.level IN ('ERROR','CRITICAL') AND datetime(le.received_at) >= datetime('now','-24 hours') THEN 1 ELSE 0 END) AS errors_24h, MAX(CASE WHEN le.level IN ('ERROR','CRITICAL') THEN le.received_at ELSE NULL END) AS last_error_at FROM bot_tokens bt LEFT JOIN ingest_batches ib ON ib.bot_token_id = bt.id LEFT JOIN log_events le ON le.batch_id = ib.id WHERE bt.deleted_at IS NULL GROUP BY bt.id ORDER BY bt.project, bt.bot, bt.environment";
+            $sql = "SELECT bt.id, bt.project, bt.bot, bt.environment, bt.description, bt.is_active, bt.rate_limit_per_minute, bt.max_batch_size, bt.events_limit_per_minute, bt.bytes_limit_per_minute, bt.allowed_levels, bt.require_signature, bt.created_at, bt.updated_at, bt.last_used_at, COUNT(le.id) AS total_logs, SUM(CASE WHEN datetime(le.received_at) >= datetime('now','-24 hours') THEN 1 ELSE 0 END) AS logs_24h, SUM(CASE WHEN le.level IN ('ERROR','CRITICAL') AND datetime(le.received_at) >= datetime('now','-24 hours') THEN 1 ELSE 0 END) AS errors_24h, MAX(CASE WHEN le.level IN ('ERROR','CRITICAL') THEN le.received_at ELSE NULL END) AS last_error_at FROM bot_tokens bt LEFT JOIN ingest_batches ib ON ib.bot_token_id = bt.id LEFT JOIN log_events le ON le.batch_id = ib.id WHERE bt.deleted_at IS NULL GROUP BY bt.id ORDER BY bt.project, bt.bot, bt.environment";
         }
         return $this->pdo->query($sql)->fetchAll();
     }
@@ -666,7 +681,7 @@ final class Repository
         }
         $payload = $channel === 'discord' ? ['content' => $message] : ['text' => $message];
         $body = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        $ctx = stream_context_create(['http' => ['method' => 'POST', 'header' => "Content-Type: application/json\r\n", 'content' => $body, 'timeout' => 5, 'ignore_errors' => true]]);
+        $ctx = stream_context_create(['http' => ['method' => 'POST', 'header' => "Content-Type: application/json\r\nConnection: close\r\n", 'content' => $body, 'timeout' => Env::int('ALERT_WEBHOOK_TIMEOUT_SECONDS', 5), 'ignore_errors' => true, 'follow_location' => 0, 'max_redirects' => 0]]);
         $resp = @file_get_contents($url, false, $ctx);
         $statusLine = $http_response_header[0] ?? '';
         $code = 0;
@@ -760,9 +775,9 @@ final class Repository
 
     public function insertAaPanelSiteLog(string $site, string $logType, string $rawLine, array $event): int
     {
-        $project = Env::get('AAPANEL_LOG_PROJECT', 'Web Sites');
+        $project = Env::get('NGINX_LOG_PROJECT', Env::get('AAPANEL_LOG_PROJECT', 'Web Sites'));
         $bot = $site;
-        $environment = Env::get('AAPANEL_LOG_ENVIRONMENT', 'production');
+        $environment = Env::get('NGINX_LOG_ENVIRONMENT', Env::get('AAPANEL_LOG_ENVIRONMENT', 'production'));
         $level = $this->normalizeLevel((string)($event['level'] ?? 'INFO'));
         $logger = $this->cut((string)($event['logger'] ?? ('nginx.' . $logType)), 190);
         $message = Redactor::redactString((string)($event['message'] ?? $rawLine));
@@ -825,7 +840,7 @@ final class Repository
                     ORDER BY last_at DESC, bot ASC";
         }
         $stmt = $this->pdo->prepare($sql);
-        $stmt->execute(['project' => Env::get('AAPANEL_LOG_PROJECT', 'Web Sites')]);
+        $stmt->execute(['project' => Env::get('NGINX_LOG_PROJECT', Env::get('AAPANEL_LOG_PROJECT', 'Web Sites'))]);
         return $stmt->fetchAll();
     }
 
@@ -993,7 +1008,7 @@ final class Repository
 
     public function siteDetailStats(string $site): array
     {
-        $project = Env::get('AAPANEL_LOG_PROJECT', 'Web Sites');
+        $project = Env::get('NGINX_LOG_PROJECT', Env::get('AAPANEL_LOG_PROJECT', 'Web Sites'));
         $stmt = $this->pdo->prepare('SELECT * FROM log_events WHERE project = :project AND bot = :site ORDER BY created_at DESC LIMIT 500');
         $stmt->execute(['project' => $project, 'site' => $site]);
         $rows = $stmt->fetchAll();
@@ -1087,8 +1102,8 @@ final class Repository
     public function retentionBySource(): array
     {
         $rules = [
-            ['name' => 'nginx access', 'where' => "project = :project AND logger = 'nginx.access'", 'days' => Env::int('RETENTION_AAPANEL_ACCESS_DAYS', 14), 'params' => ['project' => Env::get('AAPANEL_LOG_PROJECT', 'Web Sites')]],
-            ['name' => 'nginx error', 'where' => "project = :project AND logger = 'nginx.error'", 'days' => Env::int('RETENTION_AAPANEL_ERROR_DAYS', 90), 'params' => ['project' => Env::get('AAPANEL_LOG_PROJECT', 'Web Sites')]],
+            ['name' => 'nginx access', 'where' => "project = :project AND logger = 'nginx.access'", 'days' => Env::int('RETENTION_AAPANEL_ACCESS_DAYS', 14), 'params' => ['project' => Env::get('NGINX_LOG_PROJECT', Env::get('AAPANEL_LOG_PROJECT', 'Web Sites'))]],
+            ['name' => 'nginx error', 'where' => "project = :project AND logger = 'nginx.error'", 'days' => Env::int('RETENTION_AAPANEL_ERROR_DAYS', 90), 'params' => ['project' => Env::get('NGINX_LOG_PROJECT', Env::get('AAPANEL_LOG_PROJECT', 'Web Sites'))]],
         ];
         $result = [];
         foreach ($rules as $rule) {
@@ -1233,10 +1248,10 @@ final class Repository
         }
         if ($source === 'aapanel_access') {
             $where[] = "project = :project AND logger = 'nginx.access'";
-            $params['project'] = Env::get('AAPANEL_LOG_PROJECT', 'Web Sites');
+            $params['project'] = Env::get('NGINX_LOG_PROJECT', Env::get('AAPANEL_LOG_PROJECT', 'Web Sites'));
         } elseif ($source === 'aapanel_error') {
             $where[] = "project = :project AND logger = 'nginx.error'";
-            $params['project'] = Env::get('AAPANEL_LOG_PROJECT', 'Web Sites');
+            $params['project'] = Env::get('NGINX_LOG_PROJECT', Env::get('AAPANEL_LOG_PROJECT', 'Web Sites'));
         } elseif ($source === 'bot_errors') {
             $where[] = "level IN ('ERROR','CRITICAL','SECURITY')";
         }
@@ -1281,7 +1296,7 @@ final class Repository
 
     public function siteLogPermissionReport(): array
     {
-        $dir = Env::get('AAPANEL_LOG_DIR', '/www/wwwlogs');
+        $dir = Env::get('NGINX_LOG_DIR', Env::get('AAPANEL_LOG_DIR', '/www/wwwlogs'));
         $result = ['dir' => $dir, 'exists' => is_dir($dir), 'readable' => is_readable($dir), 'files' => []];
         if (!$result['exists'] || !$result['readable']) {
             return $result;

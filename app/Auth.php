@@ -181,8 +181,12 @@ final class Auth
             if ($count > 0) {
                 return;
             }
-            $username = (string)Env::get('LOGS_WEB_BASIC_USER', 'admin');
-            $password = (string)Env::get('LOGS_WEB_BASIC_PASSWORD', 'admin');
+            $username = trim((string)Env::get('LOGS_WEB_BASIC_USER', 'admin'));
+            $password = (string)Env::get('LOGS_WEB_BASIC_PASSWORD', '');
+            if ($username === '' || self::weakBootstrapPassword($password)) {
+                Logger::warning('Первый администратор не создан: LOGS_WEB_BASIC_PASSWORD пустой или похож на шаблон. Используйте php bin/make-user.php.');
+                return;
+            }
             $hash = password_hash($password, PASSWORD_DEFAULT);
             $now = Database::driver() === 'pgsql' ? 'NOW()' : 'CURRENT_TIMESTAMP';
             $stmt = $pdo->prepare("INSERT INTO users (username, password_hash, role, is_active, created_at, updated_at) VALUES (:username, :password_hash, 'admin', 1, {$now}, {$now})");
@@ -190,6 +194,22 @@ final class Auth
         } catch (Throwable $e) {
             Logger::error('Admin seed failed', ['exception' => $e]);
         }
+    }
+
+
+    public static function weakBootstrapPassword(string $password): bool
+    {
+        $password = trim($password);
+        if (strlen($password) < 16) {
+            return true;
+        }
+        $lower = strtolower($password);
+        foreach (['change_me', 'changeme', 'password', 'admin', 'default', 'secret', 'qwerty', '123456'] as $needle) {
+            if (str_contains($lower, $needle)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static function isLockedOut(PDO $pdo, string $username): bool

@@ -13,7 +13,7 @@ final class AaPanelLogImporter
 
     public function listSources(?string $baseDir = null): array
     {
-        $baseDir = $baseDir ?: Env::get('AAPANEL_LOG_DIR', '/www/wwwlogs');
+        $baseDir = $baseDir ?: Env::get('NGINX_LOG_DIR', Env::get('AAPANEL_LOG_DIR', '/www/wwwlogs'));
         if (!is_dir($baseDir) || !is_readable($baseDir)) {
             return [];
         }

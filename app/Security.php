@@ -153,22 +153,28 @@ final class Security
         }
 
         $allowedHosts = self::allowedWebhookHosts();
+        if (Env::bool('ALERT_WEBHOOK_REQUIRE_ALLOWLIST', false) && !$allowedHosts) {
+            return [false, 'В production требуется задать ALERT_WEBHOOK_ALLOWED_HOSTS или выключить ALERT_WEBHOOK_REQUIRE_ALLOWLIST.'];
+        }
         if ($allowedHosts && !self::hostAllowedByList($host, $allowedHosts)) {
             return [false, 'Хост вебхука не входит в ALERT_WEBHOOK_ALLOWED_HOSTS.'];
         }
 
+        $blockPrivateDns = Env::bool('ALERT_WEBHOOK_BLOCK_PRIVATE_DNS', true);
         if (filter_var($host, FILTER_VALIDATE_IP)) {
-            return self::isPublicIp($host) ? [true, 'ok'] : [false, 'Приватные, loopback и служебные IP запрещены для вебхуков.'];
+            return (!$blockPrivateDns || self::isPublicIp($host)) ? [true, 'ok'] : [false, 'Приватные, loopback и служебные IP запрещены для вебхуков.'];
         }
 
-        if (preg_match('/(^|\.)internal$/i', $host) || str_ends_with($host, '.local')) {
+        if ($blockPrivateDns && (preg_match('/(^|\.)internal$/i', $host) || str_ends_with($host, '.local'))) {
             return [false, 'Локальные DNS-имена запрещены для вебхуков.'];
         }
 
-        $ips = gethostbynamel($host) ?: [];
-        foreach ($ips as $ip) {
-            if (!self::isPublicIp($ip)) {
-                return [false, 'DNS-имя вебхука указывает на приватный или служебный IP.'];
+        if ($blockPrivateDns) {
+            $ips = gethostbynamel($host) ?: [];
+            foreach ($ips as $ip) {
+                if (!self::isPublicIp($ip)) {
+                    return [false, 'DNS-имя вебхука указывает на приватный или служебный IP.'];
+                }
             }
         }
 

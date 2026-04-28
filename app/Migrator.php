@@ -27,6 +27,7 @@ final class Migrator
         $this->recordVersion('007_production_polish_pack');
         $this->recordVersion('008_github_update_center');
         $this->recordVersion('009_wiki_hardening_limits');
+        $this->recordVersion('010_github_repository_ops');
     }
 
     private function runPgsql(): void
