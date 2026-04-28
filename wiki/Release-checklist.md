@@ -47,3 +47,13 @@
 ```bash
 php bin/release-check.php
 ```
+
+## Дополнительные проверки перед релизом
+
+```bash
+php bin/forbidden-scan.php
+php bin/full-check.php
+php bin/update-env-check.php --local
+```
+
+Проверьте, что PWA cache содержит текущую версию из `VERSION`, а `/system/runtime`, `/system/jobs` и `/health/cron` доступны после установки.

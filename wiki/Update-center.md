@@ -83,3 +83,54 @@ UPDATE_PHP_BIN=/www/server/php/83/bin/php
 ```bash
 php bin/update-env-check.php
 ```
+
+## Реальные аварийные сценарии
+
+### В SSH git/tar доступны, а web-интерфейс пишет «не найдено»
+
+У PHP-FPM может отличаться `PATH` или могут быть отключены функции запуска процессов. Укажите полные пути:
+
+```env
+UPDATE_GIT_BIN=/usr/bin/git
+UPDATE_TAR_BIN=/usr/bin/tar
+UPDATE_PHP_BIN=/www/server/php/83/bin/php
+```
+
+Проверка без подключения к БД:
+
+```bash
+php bin/update-env-check.php
+```
+
+### Потерян `.env`
+
+Восстановите snapshot из последнего backup:
+
+```bash
+BACKUP_DIR=/www/wwwroot/logs.example.com/storage/backups/updates/<backup>
+cp "$BACKUP_DIR/env.snapshot" /www/wwwroot/logs.example.com/.env
+chmod 600 /www/wwwroot/logs.example.com/.env
+```
+
+### Force-push и `Not possible to fast-forward`
+
+Перед `reset --hard` сохраните точку возврата:
+
+```bash
+git status --short
+git branch backup-before-force-update-$(date +%Y%m%d-%H%M%S)
+git fetch --tags origin
+git reset --hard origin/main
+```
+
+### Старый код после обновления
+
+Проверьте OPcache на `/system/runtime` и перезапустите PHP-FPM:
+
+```bash
+/etc/init.d/php-fpm-83 restart
+```
+
+### Production lock
+
+Файл `storage/production.lock` включает жёсткий режим. При нём запрещены небезопасные fallback-настройки: SQLite, `APP_DEBUG=true`, аварийный вход через `.env`, update без release tag.

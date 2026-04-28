@@ -39,3 +39,13 @@ Webhook-доставки выполняются через таблицу `jobs`
 ALERT_WEBHOOK_REQUIRE_ALLOWLIST=true
 ALERT_WEBHOOK_ALLOWED_HOSTS=example.com,*.example.com
 ```
+
+## Очередь и повтор доставок
+
+Webhook-доставки отправляются через очередь `jobs`. Обработчик:
+
+```bash
+php bin/process-jobs.php
+```
+
+В интерфейсе доступны `/system/jobs` и ручной replay доставок из журнала оповещений. Для массового восстановления можно повторить все failed-доставки за последние 24 часа.
