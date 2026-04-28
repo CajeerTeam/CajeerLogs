@@ -28,6 +28,10 @@ final class UpdateManager
             'git_bin' => Env::get('UPDATE_GIT_BIN', 'git'),
             'php_bin' => $this->phpBin(),
             'uses_token' => trim((string)Env::get('UPDATE_GITHUB_TOKEN', '')) !== '',
+            'allowed_repo_hosts' => Env::get('UPDATE_ALLOWED_REPO_HOSTS', 'github.com'),
+            'allowed_repo_full_name' => Env::get('UPDATE_ALLOWED_REPO_FULL_NAME', 'CajeerTeam/CajeerLogs'),
+            'require_tag' => Env::bool('UPDATE_REQUIRE_TAG', false),
+            'require_clean_worktree' => Env::bool('UPDATE_REQUIRE_CLEAN_WORKTREE', true),
         ];
     }
 
@@ -87,8 +91,12 @@ final class UpdateManager
         $checks[] = $this->check('tar доступен для backup', (bool)$status['tar_available'], 'Установи tar или настрой другой backup-процесс.');
         $checks[] = $this->check('PHP CLI доступен', (bool)$status['php_available'], 'Проверь UPDATE_PHP_BIN.');
         $checks[] = $this->check('.env существует', is_file($this->root() . '/.env'), 'Без .env обновление не запускается.');
-        $checks[] = $this->check('Удалённая ветка доступна', !empty($status['remote_commit']), $status['remote_error'] ?? 'Не удалось получить commit удалённой ветки.');
-        $checks[] = $this->check('Нет локальных изменений', $status['has_local_changes'] === false, 'Есть локальные изменения; git reset --hard их сотрёт.');
+        $checks[] = $this->check('Репозиторий обновления разрешён', $this->repoUrlAllowed((string)$status['config']['repo_url']), 'UPDATE_REPO_URL не входит в UPDATE_ALLOWED_REPO_HOSTS/UPDATE_ALLOWED_REPO_FULL_NAME.');
+        $checks[] = $this->check('Цель обновления допустима', !$status['config']['require_tag'] || $this->looksLikeTag((string)$status['config']['branch']), 'UPDATE_REQUIRE_TAG=true требует UPDATE_BRANCH вида v1.2.3.');
+        $checks[] = $this->check('Удалённая ветка/тег доступен', !empty($status['remote_commit']), $status['remote_error'] ?? 'Не удалось получить commit удалённой ветки или тега.');
+        if ($status['config']['require_clean_worktree']) {
+            $checks[] = $this->check('Нет локальных изменений', $status['has_local_changes'] === false, 'Есть локальные изменения; git reset --hard их сотрёт.');
+        }
 
         try {
             Database::pdo()->query('SELECT 1');
@@ -140,10 +148,12 @@ final class UpdateManager
         $log = [];
         try {
             $this->ensureSafeDirectory($log);
-            $fetch = $this->git(['fetch', 'origin', (string)$config['branch']]);
-            $log[] = '$ git fetch origin ' . $config['branch'] . "\n" . $fetch->output;
-            $reset = $this->git(['reset', '--hard', 'origin/' . $config['branch']]);
-            $log[] = '$ git reset --hard origin/' . $config['branch'] . "\n" . $reset->output;
+            $ref = (string)$config['branch'];
+            $fetch = $this->git(['fetch', '--tags', 'origin', $ref]);
+            $log[] = '$ git fetch --tags origin ' . $ref . "\n" . $fetch->output;
+            $targetRef = $this->looksLikeTag($ref) ? $ref : 'origin/' . $ref;
+            $reset = $this->git(['reset', '--hard', $targetRef]);
+            $log[] = '$ git reset --hard ' . $targetRef . "\n" . $reset->output;
             $this->restoreEnvFromBackup($backup['dir']);
 
             $migrate = $this->run([$config['php_bin'], 'bin/migrate.php'], $this->root());
@@ -223,7 +233,9 @@ final class UpdateManager
         if (is_dir($this->root() . '/.git')) {
             $this->ensureSafeDirectory($tmp = []);
         }
-        $result = $this->run([$config['git_bin'], 'ls-remote', '--heads', $this->repoUrlForCommand(), (string)$config['branch']], $this->root());
+        $ref = (string)$config['branch'];
+        $flag = $this->looksLikeTag($ref) ? '--tags' : '--heads';
+        $result = $this->run([$config['git_bin'], 'ls-remote', $flag, $this->repoUrlForCommand(), $ref], $this->root());
         if ($result->code !== 0) {
             throw new RuntimeException(trim($this->sanitizeOutput($result->output)) ?: 'git ls-remote failed');
         }
@@ -298,6 +310,34 @@ final class UpdateManager
             throw new RuntimeException(trim($result->output) ?: 'git command failed');
         }
         return $result;
+    }
+
+
+    private function repoUrlAllowed(string $url): bool
+    {
+        $parts = parse_url($url);
+        if (!is_array($parts) || strtolower((string)($parts['scheme'] ?? '')) !== 'https') {
+            return false;
+        }
+        $host = strtolower((string)($parts['host'] ?? ''));
+        $allowedHosts = array_filter(array_map('trim', preg_split('/[\s,;]+/', strtolower((string)Env::get('UPDATE_ALLOWED_REPO_HOSTS', 'github.com'))) ?: []));
+        if ($allowedHosts && !in_array($host, $allowedHosts, true)) {
+            return false;
+        }
+        $requiredFullName = trim((string)Env::get('UPDATE_ALLOWED_REPO_FULL_NAME', 'CajeerTeam/CajeerLogs'), '/');
+        if ($requiredFullName !== '') {
+            $path = trim((string)($parts['path'] ?? ''), '/');
+            $path = preg_replace('/\.git$/', '', $path) ?? $path;
+            if (strcasecmp($path, $requiredFullName) !== 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private function looksLikeTag(string $ref): bool
+    {
+        return (bool)preg_match('/^v?\d+\.\d+\.\d+(?:[-+][A-Za-z0-9._-]+)?$/', $ref);
     }
 
     private function repoUrlForCommand(): string

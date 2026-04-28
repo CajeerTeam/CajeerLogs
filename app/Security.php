@@ -170,7 +170,10 @@ final class Security
         }
 
         if ($blockPrivateDns) {
-            $ips = gethostbynamel($host) ?: [];
+            $ips = self::resolveHostIps($host);
+            if (!$ips) {
+                return [false, 'DNS-имя вебхука не удалось разрешить.'];
+            }
             foreach ($ips as $ip) {
                 if (!self::isPublicIp($ip)) {
                     return [false, 'DNS-имя вебхука указывает на приватный или служебный IP.'];
@@ -179,6 +182,28 @@ final class Security
         }
 
         return [true, 'ok'];
+    }
+
+
+    /** @return list<string> */
+    private static function resolveHostIps(string $host): array
+    {
+        $ips = [];
+        if (function_exists('dns_get_record')) {
+            $records = @dns_get_record($host, DNS_A + DNS_AAAA) ?: [];
+            foreach ($records as $record) {
+                if (!empty($record['ip'])) {
+                    $ips[] = (string)$record['ip'];
+                }
+                if (!empty($record['ipv6'])) {
+                    $ips[] = (string)$record['ipv6'];
+                }
+            }
+        }
+        foreach (gethostbynamel($host) ?: [] as $ip) {
+            $ips[] = (string)$ip;
+        }
+        return array_values(array_unique(array_filter($ips)));
     }
 
     /** @return list<string> */

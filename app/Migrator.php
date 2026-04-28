@@ -28,6 +28,7 @@ final class Migrator
         $this->recordVersion('008_github_update_center');
         $this->recordVersion('009_wiki_hardening_limits');
         $this->recordVersion('010_github_repository_ops');
+        $this->recordVersion('011_ops_hardening');
     }
 
     private function runPgsql(): void
@@ -53,6 +54,17 @@ ALTER TABLE bot_tokens ADD COLUMN IF NOT EXISTS bytes_limit_per_minute INTEGER N
 ALTER TABLE bot_tokens ADD COLUMN IF NOT EXISTS allowed_levels TEXT NULL;
 ALTER TABLE bot_tokens ADD COLUMN IF NOT EXISTS require_signature SMALLINT NOT NULL DEFAULT 0;
 ALTER TABLE bot_tokens ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ NULL;
+
+
+CREATE TABLE IF NOT EXISTS ingest_rate_counters (
+    bot_token_id BIGINT NOT NULL REFERENCES bot_tokens(id) ON DELETE CASCADE,
+    bucket_at TIMESTAMPTZ NOT NULL,
+    request_count INTEGER NOT NULL DEFAULT 0,
+    event_count INTEGER NOT NULL DEFAULT 0,
+    byte_count BIGINT NOT NULL DEFAULT 0,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (bot_token_id, bucket_at)
+);
 
 CREATE TABLE IF NOT EXISTS ingest_batches (
     id BIGSERIAL PRIMARY KEY,
@@ -272,6 +284,7 @@ CREATE INDEX IF NOT EXISTS idx_log_events_received_at ON log_events (received_at
 CREATE INDEX IF NOT EXISTS idx_log_events_fingerprint ON log_events (fingerprint);
 CREATE INDEX IF NOT EXISTS idx_log_events_user_id_hash ON log_events (user_id_hash);
 CREATE INDEX IF NOT EXISTS idx_ingest_batches_token_received ON ingest_batches (bot_token_id, received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ingest_rate_counters_updated ON ingest_rate_counters (updated_at);
 CREATE INDEX IF NOT EXISTS idx_bot_tokens_lookup ON bot_tokens (token_hash, is_active);
 CREATE INDEX IF NOT EXISTS idx_bot_tokens_deleted ON bot_tokens (deleted_at);
 CREATE INDEX IF NOT EXISTS idx_audit_events_created ON audit_events (created_at DESC);
@@ -334,6 +347,16 @@ SQL;
         }
 
         $sql2 = <<<'SQL'
+CREATE TABLE IF NOT EXISTS ingest_rate_counters (
+    bot_token_id INTEGER NOT NULL,
+    bucket_at TEXT NOT NULL,
+    request_count INTEGER NOT NULL DEFAULT 0,
+    event_count INTEGER NOT NULL DEFAULT 0,
+    byte_count INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (bot_token_id, bucket_at)
+);
+
 CREATE TABLE IF NOT EXISTS ingest_batches (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     bot_token_id INTEGER NOT NULL,
@@ -552,6 +575,7 @@ CREATE INDEX IF NOT EXISTS idx_log_events_received_at ON log_events (received_at
 CREATE INDEX IF NOT EXISTS idx_log_events_fingerprint ON log_events (fingerprint);
 CREATE INDEX IF NOT EXISTS idx_log_events_user_id_hash ON log_events (user_id_hash);
 CREATE INDEX IF NOT EXISTS idx_ingest_batches_token_received ON ingest_batches (bot_token_id, received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ingest_rate_counters_updated ON ingest_rate_counters (updated_at);
 CREATE INDEX IF NOT EXISTS idx_bot_tokens_lookup ON bot_tokens (token_hash, is_active);
 CREATE INDEX IF NOT EXISTS idx_bot_tokens_deleted ON bot_tokens (deleted_at);
 CREATE INDEX IF NOT EXISTS idx_audit_events_created ON audit_events (created_at DESC);

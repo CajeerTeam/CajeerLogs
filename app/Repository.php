@@ -116,6 +116,10 @@ final class Repository
     /** @return array{error:string,message:string}|null */
     public function ingestRateLimitViolation(array $botToken, int $eventCount, int $bodyBytes): ?array
     {
+        if (Database::driver() === 'pgsql') {
+            return $this->atomicPgsqlIngestRateLimitViolation($botToken, $eventCount, $bodyBytes);
+        }
+
         $tokenId = (int)$botToken['id'];
         $requestLimit = (int)($botToken['rate_limit_per_minute'] ?? 0);
         if ($requestLimit > 0) {
@@ -171,6 +175,33 @@ final class Repository
             }
         }
 
+        return null;
+    }
+
+
+    /** @return array{error:string,message:string}|null */
+    private function atomicPgsqlIngestRateLimitViolation(array $botToken, int $eventCount, int $bodyBytes): ?array
+    {
+        $tokenId = (int)$botToken['id'];
+        $requestLimit = (int)($botToken['rate_limit_per_minute'] ?? 0);
+        $eventsLimit = (int)($botToken['events_limit_per_minute'] ?? Env::int('INGEST_MAX_EVENTS_PER_MINUTE', 3000));
+        $bytesLimit = (int)($botToken['bytes_limit_per_minute'] ?? Env::int('INGEST_MAX_BYTES_PER_MINUTE', 10485760));
+
+        $stmt = $this->pdo->prepare("INSERT INTO ingest_rate_counters (bot_token_id, bucket_at, request_count, event_count, byte_count, updated_at) VALUES (:id, date_trunc('minute', NOW()), 1, :events, :bytes, NOW()) ON CONFLICT (bot_token_id, bucket_at) DO UPDATE SET request_count = ingest_rate_counters.request_count + 1, event_count = ingest_rate_counters.event_count + EXCLUDED.event_count, byte_count = ingest_rate_counters.byte_count + EXCLUDED.byte_count, updated_at = NOW() RETURNING request_count, event_count, byte_count");
+        $stmt->execute(['id' => $tokenId, 'events' => max(0, $eventCount), 'bytes' => max(0, $bodyBytes)]);
+        $row = $stmt->fetch() ?: ['request_count' => 0, 'event_count' => 0, 'byte_count' => 0];
+
+        $this->pdo->prepare("DELETE FROM ingest_rate_counters WHERE bucket_at < date_trunc('minute', NOW()) - INTERVAL '10 minutes'")->execute();
+
+        if ($requestLimit > 0 && (int)$row['request_count'] > $requestLimit) {
+            return ['error' => 'rate_limited', 'message' => 'Превышен лимит запросов для токена.'];
+        }
+        if ($eventsLimit > 0 && (int)$row['event_count'] > $eventsLimit) {
+            return ['error' => 'events_rate_limited', 'message' => 'Превышен лимит событий в минуту для токена.'];
+        }
+        if ($bytesLimit > 0 && (int)$row['byte_count'] > $bytesLimit) {
+            return ['error' => 'bytes_rate_limited', 'message' => 'Превышен лимит объёма ingest-данных в минуту для токена.'];
+        }
         return null;
     }
 
@@ -593,13 +624,21 @@ final class Repository
         }
 
         $message = 'Cajeer Logs: проверка оповещения «' . (string)$rule['name'] . '». Канал доставки настроен.';
-        [$ok, $response] = $this->sendAlert((string)$rule['channel'], (string)$rule['webhook_url'], $message);
-        $this->recordAlertDelivery($id, $ok ? 'test_sent' : 'test_failed', $response, ['test' => true]);
+        $jobId = $this->createJob('alert_webhook', [
+            'alert_rule_id' => $id,
+            'channel' => (string)$rule['channel'],
+            'webhook_url' => (string)$rule['webhook_url'],
+            'message' => $message,
+            'status_ok' => 'test_sent',
+            'status_failed' => 'test_failed',
+            'meta' => ['test' => true],
+        ]);
+        $this->recordAlertDelivery($id, 'queued', 'Проверочная доставка поставлена в очередь job #' . $jobId, ['job_id' => $jobId, 'test' => true]);
 
         return [
-            'ok' => $ok,
-            'status' => $ok ? 'test_sent' : 'test_failed',
-            'message' => $response,
+            'ok' => true,
+            'status' => 'queued',
+            'message' => 'Проверочная доставка поставлена в очередь job #' . $jobId,
             'rule' => (string)$rule['name'],
         ];
     }
@@ -623,12 +662,18 @@ final class Repository
                 continue;
             }
             $message = 'Cajeer Logs: правило «' . $rule['name'] . '» сработало. Событий: ' . $count . ' за ' . $rule['window_seconds'] . ' сек.';
-            [$ok, $response] = $this->sendAlert((string)$rule['channel'], (string)$rule['webhook_url'], $message);
-            $this->recordAlertDelivery((int)$rule['id'], $ok ? 'sent' : 'failed', $response, ['count' => $count]);
-            if ($ok) {
-                $this->touchAlertRule((int)$rule['id']);
-            }
-            $deliveries[] = ['rule' => $rule['name'], 'status' => $ok ? 'sent' : 'failed', 'count' => $count, 'response' => $response];
+            $jobId = $this->createJob('alert_webhook', [
+                'alert_rule_id' => (int)$rule['id'],
+                'channel' => (string)$rule['channel'],
+                'webhook_url' => (string)$rule['webhook_url'],
+                'message' => $message,
+                'status_ok' => 'sent',
+                'status_failed' => 'failed',
+                'meta' => ['count' => $count],
+            ]);
+            $this->recordAlertDelivery((int)$rule['id'], 'queued', 'Доставка поставлена в очередь job #' . $jobId, ['count' => $count, 'job_id' => $jobId]);
+            $this->touchAlertRule((int)$rule['id']);
+            $deliveries[] = ['rule' => $rule['name'], 'status' => 'queued', 'count' => $count, 'response' => 'job #' . $jobId];
         }
         return $deliveries;
     }
@@ -671,6 +716,24 @@ final class Repository
         }
         $last = strtotime((string)$rule['last_fired_at']);
         return $last === false || (time() - $last) >= (int)$rule['cooldown_seconds'];
+    }
+
+    public function dispatchAlertWebhookJob(array $payload): array
+    {
+        $ruleId = (int)($payload['alert_rule_id'] ?? 0);
+        if ($ruleId <= 0) {
+            return ['ok' => false, 'message' => 'В payload задачи не указан alert_rule_id.'];
+        }
+        $channel = (string)($payload['channel'] ?? 'telegram');
+        $url = (string)($payload['webhook_url'] ?? '');
+        $message = (string)($payload['message'] ?? '');
+        $okStatus = (string)($payload['status_ok'] ?? 'sent');
+        $failedStatus = (string)($payload['status_failed'] ?? 'failed');
+        $meta = isset($payload['meta']) && is_array($payload['meta']) ? $payload['meta'] : [];
+
+        [$ok, $response] = $this->sendAlert($channel, $url, $message);
+        $this->recordAlertDelivery($ruleId, $ok ? $okStatus : $failedStatus, $response, $meta);
+        return ['ok' => $ok, 'message' => $response, 'status' => $ok ? $okStatus : $failedStatus];
     }
 
     private function sendAlert(string $channel, string $url, string $message): array
