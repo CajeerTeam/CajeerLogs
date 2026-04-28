@@ -4,46 +4,58 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/app/bootstrap.php';
 
-use CajeerLogs\Database;
 use CajeerLogs\Env;
-use CajeerLogs\Repository;
-use CajeerLogs\UpdateManager;
+use CajeerLogs\RuntimeDiagnostics;
 
 $root = dirname(__DIR__);
-$manager = new UpdateManager(new Repository(Database::pdo()));
-$status = $manager->status();
-$config = $status['config'];
 $failed = 0;
-
 $check = static function (string $name, bool $ok, string $message = '') use (&$failed): void {
     echo ($ok ? '[ОК]   ' : '[СБОЙ] ') . $name . ($message !== '' ? ' — ' . $message : '') . PHP_EOL;
     if (!$ok) { $failed++; }
 };
 
-$executable = static function (string $path): bool {
-    if ($path === '') { return false; }
-    if (str_contains($path, '/')) { return is_file($path) && is_executable($path); }
+$git = trim((string)Env::get('UPDATE_GIT_BIN', 'git'));
+$tar = trim((string)Env::get('UPDATE_TAR_BIN', 'tar'));
+$php = trim((string)Env::get('UPDATE_PHP_BIN', PHP_BINARY));
+$repo = trim((string)Env::get('UPDATE_REPO_URL', 'https://github.com/CajeerTeam/CajeerLogs'));
+$branch = trim((string)Env::get('UPDATE_BRANCH', 'v' . trim((string)@file_get_contents($root . '/VERSION'))));
+$requireTag = Env::bool('UPDATE_REQUIRE_TAG', true);
+
+$check('.env существует', RuntimeDiagnostics::envExists(), 'Восстанови из storage/backups/updates/*/env.snapshot или создай на основе .env.example.');
+$check('UPDATE_GIT_BIN исполняемый', RuntimeDiagnostics::commandAvailable($git), 'Текущее значение: ' . $git . '; пример: UPDATE_GIT_BIN=/usr/bin/git');
+$check('UPDATE_TAR_BIN исполняемый', RuntimeDiagnostics::commandAvailable($tar), 'Текущее значение: ' . $tar . '; пример: UPDATE_TAR_BIN=/usr/bin/tar');
+$check('UPDATE_PHP_BIN исполняемый', RuntimeDiagnostics::commandAvailable($php), 'Текущее значение: ' . $php . '; пример: UPDATE_PHP_BIN=/www/server/php/83/bin/php');
+$check('Каталог является git-репозиторием', is_dir($root . '/.git'), 'В каталоге проекта нет .git.');
+$check('Цель update похожа на tag', !$requireTag || (bool)preg_match('/^v?\d+\.\d+\.\d+(?:[-+][A-Za-z0-9._-]+)?$/', $branch), 'UPDATE_REQUIRE_TAG=true требует UPDATE_BRANCH вида v1.2.3.');
+
+$remoteOk = false;
+$remoteMessage = 'git ls-remote не запускался';
+if (RuntimeDiagnostics::commandAvailable($git)) {
     $out = [];
     $code = 1;
-    @exec('command -v ' . escapeshellarg($path) . ' 2>/dev/null', $out, $code);
-    return $code === 0 && !empty($out);
-};
+    @exec(escapeshellcmd($git) . ' ls-remote --heads --tags ' . escapeshellarg($repo) . ' ' . escapeshellarg($branch) . ' 2>&1', $out, $code);
+    $remoteOk = $code === 0 && trim(implode("\n", $out)) !== '';
+    $remoteMessage = trim(implode("\n", $out)) ?: 'нет ответа';
+}
+$check('Удалённая ветка/тег доступен', $remoteOk, $remoteMessage);
 
-$check('.env существует', is_file($root . '/.env'), 'Восстанови из storage/backups/updates/*/env.snapshot или создай на основе .env.example.');
-$check('UPDATE_GIT_BIN исполняемый', $executable((string)$config['git_bin']), 'Текущее значение: ' . (string)$config['git_bin'] . '; пример: UPDATE_GIT_BIN=/usr/bin/git');
-$check('UPDATE_TAR_BIN исполняемый', $executable((string)$config['tar_bin']), 'Текущее значение: ' . (string)$config['tar_bin'] . '; пример: UPDATE_TAR_BIN=/usr/bin/tar');
-$check('UPDATE_PHP_BIN исполняемый', $executable((string)$config['php_bin']), 'Текущее значение: ' . (string)$config['php_bin'] . '; пример: UPDATE_PHP_BIN=/www/server/php/83/bin/php');
-$check('Каталог является git-репозиторием', is_dir($root . '/.git'), 'В каталоге проекта нет .git.');
-$check('Репозиторий обновления разрешён', $status['config']['allowed_repo_full_name'] !== '' && (bool)$manager->readiness()[7]['ok'], 'Проверь UPDATE_REPO_URL/UPDATE_ALLOWED_REPO_HOSTS/UPDATE_ALLOWED_REPO_FULL_NAME.');
+$out = [];
+$code = 1;
+if (RuntimeDiagnostics::commandAvailable($git) && is_dir($root . '/.git')) {
+    @exec('cd ' . escapeshellarg($root) . ' && ' . escapeshellcmd($git) . ' status --short 2>&1', $out, $code);
+}
+$dirty = $code === 0 && trim(implode("\n", $out)) !== '';
+$check('Нет локальных изменений', !$dirty, $dirty ? implode("\n", $out) : 'OK');
+$check('safe.directory можно применить', true, $git . ' config --global --add safe.directory ' . $root);
 
-$remoteOk = !empty($status['remote_commit']);
-$check('Удалённая ветка/тег доступен', $remoteOk, (string)($status['remote_error'] ?? 'git ls-remote не вернул commit'));
-$check('Нет локальных изменений', $status['has_local_changes'] === false, (string)($status['local_changes_list'] ?? 'git status --short'));
-$check('safe.directory можно применить', true, (string)$config['git_bin'] . ' config --global --add safe.directory ' . $root);
+$violations = RuntimeDiagnostics::productionLockViolations();
+$check('Production lock безопасен', !$violations, implode(' ', $violations));
 
 echo PHP_EOL . 'Рекомендуемые команды:' . PHP_EOL;
-foreach ($manager->repairHints() as $label => $command) {
-    echo '- ' . $label . ': ' . $command . PHP_EOL;
-}
+echo '- Git: apt install -y git && echo UPDATE_GIT_BIN=/usr/bin/git >> .env' . PHP_EOL;
+echo '- tar: apt install -y tar && echo UPDATE_TAR_BIN=/usr/bin/tar >> .env' . PHP_EOL;
+echo '- PHP CLI: echo UPDATE_PHP_BIN=/www/server/php/83/bin/php >> .env' . PHP_EOL;
+echo '- safe.directory: ' . $git . ' config --global --add safe.directory ' . $root . PHP_EOL;
+echo '- Локальные изменения: git status --short && git diff --stat' . PHP_EOL;
 
 exit($failed > 0 ? 1 : 0);
