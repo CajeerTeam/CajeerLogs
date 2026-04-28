@@ -30,7 +30,7 @@ $add('Web-обновление отключено', !Env::bool('UPDATE_ALLOW_WEB
 $add('DOCS_URL задан', filter_var((string)Env::get('DOCS_URL', ''), FILTER_VALIDATE_URL) !== false, (string)Env::get('DOCS_URL', ''));
 $add('.env не опубликован', !is_file($root . '/public/.env'), '');
 
-$aaPanelLogDir = Env::get('AAPANEL_LOG_DIR', '/www/wwwlogs');
+$aaPanelLogDir = Env::get('NGINX_LOG_DIR', Env::get('AAPANEL_LOG_DIR', '/www/wwwlogs'));
 $add('Каталог локальных Nginx-журналов читается', is_dir($aaPanelLogDir) && is_readable($aaPanelLogDir), $aaPanelLogDir);
 $grep = trim((string)shell_exec('grep -R "putenv[[:space:]]*(" -n ' . escapeshellarg($root . '/app') . ' 2>/dev/null'));
 $add('putenv не используется', $grep === '', $grep);

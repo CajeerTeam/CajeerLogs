@@ -38,7 +38,11 @@ $pdo = Database::pdo();
 out('[подготовка] миграции: выполнены');
 
 Auth::seedAdminIfEmpty($pdo);
-out('[подготовка] администратор: проверен');
+if (Auth::weakBootstrapPassword((string)Env::get('LOGS_WEB_BASIC_PASSWORD', ''))) {
+    out('[подготовка] администратор: автоматическое создание пропущено, пароль в .env похож на шаблон. Создайте пользователя командой: php bin/make-user.php admin <strong-password> admin');
+} else {
+    out('[подготовка] администратор: проверен');
+}
 
 $repo = new Repository($pdo);
 $report = $repo->dbOwnershipReport();

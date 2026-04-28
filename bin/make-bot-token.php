@@ -17,7 +17,7 @@ if (!$bot || str_starts_with($bot, '--')) {
     exit(1);
 }
 $options = [
-    'project' => 'Cajeer',
+    'project' => 'ExampleProject',
     'environment' => 'production',
     'description' => null,
     'rate_limit_per_minute' => 120,
@@ -25,7 +25,7 @@ $options = [
     'events_limit_per_minute' => 3000,
     'bytes_limit_per_minute' => 10485760,
     'allowed_levels' => null,
-    'require_signature' => false,
+    'require_signature' => Env::bool('INGEST_REQUIRE_SIGNATURE', true),
 ];
 foreach (array_slice($args, 1) as $arg) {
     if (str_starts_with($arg, '--project=')) {

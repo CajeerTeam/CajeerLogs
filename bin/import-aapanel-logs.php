@@ -12,7 +12,7 @@ use CajeerLogs\Repository;
 $options = getopt('', ['site::', 'max-lines::', 'dir::']);
 $site = isset($options['site']) ? trim((string)$options['site']) : null;
 $maxLines = isset($options['max-lines']) ? max(1, min(10000, (int)$options['max-lines'])) : Env::int('AAPANEL_LOG_IMPORT_MAX_LINES', 1000);
-$dir = isset($options['dir']) ? (string)$options['dir'] : Env::get('AAPANEL_LOG_DIR', '/www/wwwlogs');
+$dir = isset($options['dir']) ? (string)$options['dir'] : Env::get('NGINX_LOG_DIR', Env::get('AAPANEL_LOG_DIR', '/www/wwwlogs'));
 
 $started = microtime(true);
 $repo = null;

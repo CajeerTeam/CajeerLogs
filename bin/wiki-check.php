@@ -32,6 +32,7 @@ $requiredPages = [
     'RBAC.md',
     'Production-checklist.md',
     'Release-checklist.md',
+    'Repository-settings.md',
     'FAQ.md',
     'Changelog.md',
 ];
@@ -56,6 +57,7 @@ $wikiUrl = 'https://github.com/CajeerTeam/CajeerLogs/wiki';
 $check('README ссылается на GitHub Wiki', str_contains($readme, $wikiUrl));
 $check('.env.example содержит DOCS_URL на GitHub Wiki', str_contains($envExample, 'DOCS_URL=' . $wikiUrl));
 $check('CI запускает wiki-check', str_contains($ci, 'php bin/wiki-check.php'));
+$check('Workflow публикации Wiki существует', is_file($root . '/.github/workflows/wiki-publish.yml'));
 $check('PR-шаблон упоминает Wiki-документацию', str_contains($pr, 'Wiki-документация'));
 $check('OpenAPI-спецификация существует', is_file($root . '/openapi.yaml'));
 $check('OpenAPI описывает POST /api/v1/ingest', str_contains($openapi, '/api/v1/ingest:') && str_contains($openapi, 'post:'));
@@ -76,7 +78,7 @@ $scanRoots = [
     'clients',
     '.github',
 ];
-$scanFiles = [$root . '/README.md', $root . '/.env.example', $root . '/.nginx.conf', $root . '/SECURITY.md', $root . '/CONTRIBUTING.md', $root . '/openapi.yaml'];
+$scanFiles = [$root . '/README.md', $root . '/.env.example', $root . '/.nginx.conf', $root . '/SECURITY.md', $root . '/CONTRIBUTING.md', $root . '/openapi.yaml', $root . '/.github/CODEOWNERS'];
 foreach ($scanRoots as $dir) {
     $base = $root . '/' . $dir;
     if (!is_dir($base)) {

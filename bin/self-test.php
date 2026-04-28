@@ -48,14 +48,17 @@ $envExample = is_file($root . '/.env.example') ? (string)file_get_contents($root
 $readme = is_file($root . '/README.md') ? (string)file_get_contents($root . '/README.md') : '';
 $ci = is_file($root . '/.github/workflows/ci.yml') ? (string)file_get_contents($root . '/.github/workflows/ci.yml') : '';
 $check('DOCS_URL указывает на GitHub Wiki', str_contains($envExample, 'DOCS_URL=' . $wikiUrl));
+$check('INGEST_REQUIRE_SIGNATURE включён в .env.example', str_contains($envExample, 'INGEST_REQUIRE_SIGNATURE=true'));
 $check('README ссылается на GitHub Wiki', str_contains($readme, $wikiUrl));
 $check('CI запускает wiki-check', str_contains($ci, 'php bin/wiki-check.php'));
+$check('CI запускает schema-check', str_contains($ci, 'php bin/schema-check.php'));
 $check('CI не содержит устаревшие команды проверки документации', !str_contains($ci, 'mint' . ' validate') && !str_contains($ci, 'mint' . ' broken-links'));
 $check('OpenAPI-спецификация существует', is_file($root . '/openapi.yaml'));
 $openapi = is_file($root . '/openapi.yaml') ? (string)file_get_contents($root . '/openapi.yaml') : '';
 $check('OpenAPI описывает POST /api/v1/ingest', str_contains($openapi, '/api/v1/ingest:') && str_contains($openapi, 'post:'));
 $check('OpenAPI описывает фактический ответ 200/inserted', str_contains($openapi, "'200':") && str_contains($openapi, 'inserted:'));
-$check('Wiki-исходники существуют', is_file($root . '/wiki/Home.md') && is_file($root . '/wiki/API.md') && is_file($root . '/wiki/Release-checklist.md') && is_file($root . '/wiki/Security.md'));
+$check('Wiki-исходники существуют', is_file($root . '/wiki/Home.md') && is_file($root . '/wiki/API.md') && is_file($root . '/wiki/Release-checklist.md') && is_file($root . '/wiki/Security.md') && is_file($root . '/wiki/Repository-settings.md'));
+$check('workflow публикации Wiki существует', is_file($root . '/.github/workflows/wiki-publish.yml'));
 $check('Wiki использует ASCII-имена файлов', count(glob($root . '/wiki/*.md') ?: []) >= 21 && !preg_grep('/[^A-Za-z0-9_\-.\/]/', glob($root . '/wiki/*.md') ?: []));
 [$webhookOk] = Security::validateExternalWebhookUrl('https://127.0.0.1/hook');
 $check('SSRF-защита блокирует loopback-webhook', !$webhookOk);
@@ -78,5 +81,7 @@ foreach ([
 
 $check('schema содержит лимит событий ingest', str_contains($schema, 'events_limit_per_minute'));
 $check('schema содержит лимит байт ingest', str_contains($schema, 'bytes_limit_per_minute'));
+$check('Schema-check существует', is_file($root . '/bin/schema-check.php'));
+$check('Ingest smoke test существует', is_file($root . '/bin/ingest-smoke.php'));
 
 exit($failed > 0 ? 1 : 0);

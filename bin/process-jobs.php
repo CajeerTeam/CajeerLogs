@@ -23,7 +23,7 @@ try {
         try {
             if ((string)$job['type'] === 'aapanel_import') {
                 $summary = (new AaPanelLogImporter($repo))->importAll(
-                    (string)($payload['dir'] ?? Env::get('AAPANEL_LOG_DIR', '/www/wwwlogs')),
+                    (string)($payload['dir'] ?? Env::get('NGINX_LOG_DIR', Env::get('AAPANEL_LOG_DIR', '/www/wwwlogs'))),
                     isset($payload['site']) && $payload['site'] !== '' ? (string)$payload['site'] : null,
                     max(1, min(10000, (int)($payload['max_lines'] ?? 1000)))
                 );

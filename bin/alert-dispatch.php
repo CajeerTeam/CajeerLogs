@@ -19,7 +19,7 @@ try {
         echo '[' . $delivery['status'] . '] ' . $delivery['rule'] . ' count=' . $delivery['count'] . PHP_EOL;
     }
     if (!$deliveries) {
-        echo "No alert rules fired.\n";
+        echo "Правила оповещений не сработали.\n";
     }
     $repo->recordCronRun('alert-dispatch', 'ok', 'processed=' . count($deliveries), ['deliveries' => $deliveries], $started);
 } catch (Throwable $e) {
