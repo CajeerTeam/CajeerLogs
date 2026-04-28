@@ -1025,3 +1025,42 @@ body.nav-open .site-nav {
 .timeline-list li {
   margin: 8px 0;
 }
+
+/* Runtime/update repair UX */
+.copy-command {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  min-height: 32px;
+  padding: 0 10px;
+  margin-left: 8px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+.timeline-list { padding-left: 1.3rem; }
+.timeline-list li { margin: 6px 0; }
+
+@media (max-width: 720px) {
+  .command-palette {
+    z-index: 120;
+    overflow: hidden;
+  }
+  .command-box {
+    margin: calc(64px + var(--safe-top)) auto 0;
+    max-height: calc(100dvh - 84px - 112px - var(--safe-top) - var(--safe-bottom));
+    overflow: auto;
+    padding-bottom: calc(18px + var(--safe-bottom));
+    overscroll-behavior: contain;
+  }
+  .command-list {
+    padding-bottom: calc(88px + var(--safe-bottom));
+  }
+  .command-head {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    padding-bottom: 8px;
+    background: rgba(17,24,39,.98);
+  }
+}
