@@ -155,11 +155,11 @@ X-Log-Signature: <hex hmac sha256>
 
 ```env
 UPDATE_REPO_URL=https://github.com/CajeerTeam/CajeerLogs
-UPDATE_BRANCH=main
+UPDATE_BRANCH=v0.8.2-ops-hardening
 UPDATE_MODE=git
 UPDATE_ALLOWED_REPO_HOSTS=github.com
 UPDATE_ALLOWED_REPO_FULL_NAME=CajeerTeam/CajeerLogs
-UPDATE_REQUIRE_TAG=false
+UPDATE_REQUIRE_TAG=true
 UPDATE_REQUIRE_CLEAN_WORKTREE=true
 UPDATE_ALLOW_WEB=false
 UPDATE_BACKUP_DIR=storage/backups/updates

@@ -2,37 +2,43 @@ openapi: 3.1.0
 info:
   title: Cajeer Logs Ingest API
   version: 1.0.0
-  description: Контракт приёма журналов Cajeer Logs.
+  description: Контракт приёма журналов Cajeer Logs. Production-конфигурация по умолчанию требует HMAC-подпись.
 servers:
   - url: https://logs.example.com
 paths:
   /api/v1/ingest:
     post:
       summary: Принять пачку журналов
-      description: Принимает одну пачку событий от приложения, бота или инфраструктурного компонента.
+      description: |
+        Принимает одну пачку событий от приложения, бота или инфраструктурного компонента.
+        По умолчанию ingest-запрос должен быть подписан HMAC-заголовками `X-Log-Timestamp`, `X-Log-Nonce` и `X-Log-Signature`.
+        В локальном dev-режиме подпись может быть выключена параметром `INGEST_REQUIRE_SIGNATURE=false`.
       operationId: ingestLogs
+      security:
+        - LogTokenHeader: []
+        - BearerToken: []
       parameters:
         - name: X-Log-Token
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Исходный ingest-токен. Можно заменить заголовком `Authorization: Bearer <token>`.
+        - name: X-Log-Timestamp
           in: header
           required: true
           schema:
             type: string
-          description: Исходный ingest-токен, выданный в разделе ботов.
-        - name: X-Log-Timestamp
-          in: header
-          required: false
-          schema:
-            type: string
-          description: Unix timestamp для HMAC-подписи.
+          description: Unix timestamp для HMAC-подписи. Обязателен в production-конфигурации.
         - name: X-Log-Nonce
           in: header
-          required: false
+          required: true
           schema:
             type: string
-          description: Уникальный nonce для защиты от повторной отправки.
+          description: Уникальный nonce для защиты от повторной отправки. Повторный nonce возвращает `409 replayed_nonce`.
         - name: X-Log-Signature
           in: header
-          required: false
+          required: true
           schema:
             type: string
           description: Hex HMAC-SHA256 от канонической строки запроса.
@@ -49,14 +55,20 @@ paths:
                   logs:
                     - ts: '2026-04-27T19:00:00Z'
                       level: ERROR
-                      project: Cajeer
-                      bot: Worker
+                      project: ExampleProject
+                      bot: ExampleBot
                       environment: production
                       version: 1.0.0
                       logger: app.worker
                       message: Ошибка обработки задачи
                       context:
                         job_id: '123'
+              events_alias:
+                summary: Alias events[]
+                value:
+                  events:
+                    - level: INFO
+                      message: Событие принято
       responses:
         '200':
           description: Пачка принята и сохранена.
@@ -82,6 +94,16 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Повторный nonce HMAC-подписи.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                ok: false
+                error: replayed_nonce
+                message: Nonce уже использован.
         '413':
           description: Тело запроса слишком большое.
           content:
@@ -94,11 +116,24 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Внутренняя ошибка приложения.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 components:
+  securitySchemes:
+    LogTokenHeader:
+      type: apiKey
+      in: header
+      name: X-Log-Token
+    BearerToken:
+      type: http
+      scheme: bearer
   schemas:
     IngestRequest:
       type: object
-      required: [logs]
       properties:
         logs:
           type: array
@@ -106,6 +141,15 @@ components:
           maxItems: 500
           items:
             $ref: '#/components/schemas/LogEvent'
+        events:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            $ref: '#/components/schemas/LogEvent'
+      oneOf:
+        - required: [logs]
+        - required: [events]
     LogEvent:
       type: object
       required: [message]
