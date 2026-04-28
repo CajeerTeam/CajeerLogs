@@ -21,6 +21,17 @@ CREATE TABLE IF NOT EXISTS bot_tokens (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+
+CREATE TABLE IF NOT EXISTS ingest_rate_counters (
+    bot_token_id BIGINT NOT NULL REFERENCES bot_tokens(id) ON DELETE CASCADE,
+    bucket_at TIMESTAMPTZ NOT NULL,
+    request_count INTEGER NOT NULL DEFAULT 0,
+    event_count INTEGER NOT NULL DEFAULT 0,
+    byte_count BIGINT NOT NULL DEFAULT 0,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (bot_token_id, bucket_at)
+);
+
 CREATE TABLE IF NOT EXISTS ingest_batches (
     id BIGSERIAL PRIMARY KEY,
     bot_token_id BIGINT NOT NULL REFERENCES bot_tokens(id) ON DELETE RESTRICT,
@@ -233,6 +244,7 @@ CREATE INDEX IF NOT EXISTS idx_log_events_received_at ON log_events (received_at
 CREATE INDEX IF NOT EXISTS idx_log_events_fingerprint ON log_events (fingerprint);
 CREATE INDEX IF NOT EXISTS idx_log_events_user_id_hash ON log_events (user_id_hash);
 CREATE INDEX IF NOT EXISTS idx_ingest_batches_token_received ON ingest_batches (bot_token_id, received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ingest_rate_counters_updated ON ingest_rate_counters (updated_at);
 CREATE INDEX IF NOT EXISTS idx_bot_tokens_lookup ON bot_tokens (token_hash, is_active);
 CREATE INDEX IF NOT EXISTS idx_bot_tokens_deleted ON bot_tokens (deleted_at);
 CREATE INDEX IF NOT EXISTS idx_audit_events_created ON audit_events (created_at DESC);
