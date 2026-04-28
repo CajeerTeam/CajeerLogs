@@ -17,6 +17,7 @@ $requiredPages = [
     'Installation.md',
     'Env-configuration.md',
     'Nginx-deployment.md',
+    'AaPanel-integration.md',
     'PostgreSQL.md',
     'Cron-jobs.md',
     'API.md',
@@ -58,6 +59,9 @@ $check('README ссылается на GitHub Wiki', str_contains($readme, $wiki
 $check('.env.example содержит DOCS_URL на GitHub Wiki', str_contains($envExample, 'DOCS_URL=' . $wikiUrl));
 $check('CI запускает wiki-check', str_contains($ci, 'php bin/wiki-check.php'));
 $check('Workflow публикации Wiki существует', is_file($root . '/.github/workflows/wiki-publish.yml'));
+$check('Release-check существует', is_file($root . '/bin/release-check.php'));
+$check('Social preview существует', is_file($root . '/assets/social-preview.svg'));
+
 $check('PR-шаблон упоминает Wiki-документацию', str_contains($pr, 'Wiki-документация'));
 $check('OpenAPI-спецификация существует', is_file($root . '/openapi.yaml'));
 $check('OpenAPI описывает POST /api/v1/ingest', str_contains($openapi, '/api/v1/ingest:') && str_contains($openapi, 'post:'));

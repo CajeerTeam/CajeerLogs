@@ -83,5 +83,10 @@ $check('schema содержит лимит событий ingest', str_contains(
 $check('schema содержит лимит байт ingest', str_contains($schema, 'bytes_limit_per_minute'));
 $check('Schema-check существует', is_file($root . '/bin/schema-check.php'));
 $check('Ingest smoke test существует', is_file($root . '/bin/ingest-smoke.php'));
+$check('Release-check существует', is_file($root . '/bin/release-check.php'));
+$check('Версия ops-hardening установлена', trim((string)file_get_contents($root . '/VERSION')) === '0.8.2-ops-hardening');
+[$ipv6WebhookOk] = Security::validateExternalWebhookUrl('https://[::1]/hook');
+$check('SSRF-защита блокирует IPv6 loopback-webhook', !$ipv6WebhookOk);
+
 
 exit($failed > 0 ? 1 : 0);

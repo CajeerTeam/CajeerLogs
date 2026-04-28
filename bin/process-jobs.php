@@ -21,7 +21,11 @@ try {
             $payload = [];
         }
         try {
-            if ((string)$job['type'] === 'aapanel_import') {
+            if ((string)$job['type'] === 'alert_webhook') {
+                $result = $repo->dispatchAlertWebhookJob($payload);
+                $repo->finishJob((int)$job['id'], !empty($result['ok']) ? 'done' : 'failed', $result, !empty($result['ok']) ? null : (string)($result['message'] ?? 'ошибка доставки'));
+                echo (!empty($result['ok']) ? '[готово] ' : '[сбой] ') . 'задача #' . $job['id'] . ' доставка оповещения ' . ((string)($result['status'] ?? '')) . PHP_EOL;
+            } elseif ((string)$job['type'] === 'aapanel_import') {
                 $summary = (new AaPanelLogImporter($repo))->importAll(
                     (string)($payload['dir'] ?? Env::get('NGINX_LOG_DIR', Env::get('AAPANEL_LOG_DIR', '/www/wwwlogs'))),
                     isset($payload['site']) && $payload['site'] !== '' ? (string)$payload['site'] : null,

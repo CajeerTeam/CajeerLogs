@@ -53,5 +53,10 @@ foreach (['events_limit_per_minute', 'bytes_limit_per_minute'] as $field) {
 $check('OpenAPI отвечает фактическому ingest-коду 200/inserted', str_contains((string)file_get_contents($root . '/openapi.yaml'), "'200':") && str_contains((string)file_get_contents($root . '/openapi.yaml'), 'inserted:'));
 $check('Версия задана', $version !== '');
 $check('Миграционная версия 010 зарегистрирована', str_contains($migrator, "010_github_repository_ops"));
+$check('Миграционная версия 011 зарегистрирована', str_contains($migrator, "011_ops_hardening"));
+$check('schema содержит ingest_rate_counters', str_contains($schema, 'ingest_rate_counters'));
+$check('Migrator содержит ingest_rate_counters', str_contains($migrator, 'ingest_rate_counters'));
+$check('Repository использует атомарный PostgreSQL rate limit', str_contains($repo, 'atomicPgsqlIngestRateLimitViolation') && str_contains($repo, 'ON CONFLICT (bot_token_id, bucket_at)'));
+
 
 exit($failed > 0 ? 1 : 0);
