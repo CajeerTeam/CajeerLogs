@@ -932,7 +932,20 @@ final class Repository
         $role = in_array($role, ['admin','operator','security','viewer'], true) ? $role : 'viewer';
         $username = $this->cut(trim($username), 120);
         if ($username === '') {
-            throw new \InvalidArgumentException('username is empty');
+            throw new \InvalidArgumentException('Логин не задан.');
+        }
+        if ($password !== null && $password !== '' && Auth::weakBootstrapPassword($password)) {
+            throw new \InvalidArgumentException('Пароль слишком слабый: минимум 16 символов и без шаблонных слов change_me/admin/password.');
+        }
+        if ($id !== null && $id > 0) {
+            $current = $this->findUserById($id);
+            if ($current && (string)$current['role'] === 'admin' && ($role !== 'admin' || !$active) && $this->activeAdminCount() <= 1) {
+                throw new \InvalidArgumentException('Нельзя отключить или понизить последнего активного администратора.');
+            }
+            $sessionUser = Auth::user();
+            if ($current && $sessionUser && (int)($sessionUser['id'] ?? -1) === $id && (string)$current['role'] === 'admin' && (!$active || $role !== 'admin') && $this->activeAdminCount() <= 1) {
+                throw new \InvalidArgumentException('Нельзя отключить самого себя без второго активного администратора.');
+            }
         }
         $now = Database::driver() === 'pgsql' ? 'NOW()' : 'CURRENT_TIMESTAMP';
         if ($id !== null && $id > 0) {
@@ -946,7 +959,7 @@ final class Repository
             return $id;
         }
         if ($password === null || $password === '') {
-            throw new \InvalidArgumentException('password is required for new user');
+            throw new \InvalidArgumentException('Для нового пользователя требуется пароль.');
         }
         $returning = Database::driver() === 'pgsql' ? ' RETURNING id' : '';
         $stmt = $this->pdo->prepare("INSERT INTO users (username, password_hash, role, is_active, created_at, updated_at) VALUES (:username, :password_hash, :role, :active, {$now}, {$now}){$returning}");
@@ -959,8 +972,26 @@ final class Repository
         return Database::driver() === 'pgsql' ? (int)$stmt->fetchColumn() : (int)$this->pdo->lastInsertId();
     }
 
+    public function findUserById(int $id): ?array
+    {
+        $stmt = $this->pdo->prepare('SELECT id, username, role, is_active FROM users WHERE id = :id LIMIT 1');
+        $stmt->execute(['id' => $id]);
+        $row = $stmt->fetch();
+        return $row ?: null;
+    }
+
+    public function activeAdminCount(): int
+    {
+        $stmt = $this->pdo->query("SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = 1");
+        return (int)$stmt->fetchColumn();
+    }
+
     public function setUserActive(int $id, bool $active): bool
     {
+        $current = $this->findUserById($id);
+        if (!$active && $current && (string)$current['role'] === 'admin' && (int)$current['is_active'] === 1 && $this->activeAdminCount() <= 1) {
+            throw new \InvalidArgumentException('Нельзя отключить последнего активного администратора.');
+        }
         $sql = Database::driver() === 'pgsql'
             ? 'UPDATE users SET is_active = :active, updated_at = NOW() WHERE id = :id'
             : 'UPDATE users SET is_active = :active, updated_at = CURRENT_TIMESTAMP WHERE id = :id';
@@ -971,6 +1002,14 @@ final class Repository
 
     public function deleteUser(int $id): bool
     {
+        $current = $this->findUserById($id);
+        if ($current && (string)$current['role'] === 'admin' && (int)$current['is_active'] === 1 && $this->activeAdminCount() <= 1) {
+            throw new \InvalidArgumentException('Нельзя удалить последнего активного администратора.');
+        }
+        $sessionUser = Auth::user();
+        if ($sessionUser && (int)($sessionUser['id'] ?? -1) === $id) {
+            throw new \InvalidArgumentException('Нельзя удалить текущего пользователя из собственной сессии.');
+        }
         $stmt = $this->pdo->prepare('DELETE FROM users WHERE id = :id');
         $stmt->execute(['id' => $id]);
         return $stmt->rowCount() > 0;
@@ -1097,14 +1136,20 @@ final class Repository
         return ['recent' => $rows, 'top404' => array_slice($top404, 0, 20, true), 'top500' => array_slice($top500, 0, 20, true), 'topIp' => array_slice($topIp, 0, 20, true), 'topUa' => array_slice($topUa, 0, 20, true)];
     }
 
-    public function createJob(string $type, array $payload = []): int
+    public function createJob(string $type, array $payload = [], int $maxAttempts = 5, ?int $runAfterSeconds = null): int
     {
         $payloadJson = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        $now = Database::driver() === 'pgsql' ? 'NOW()' : 'CURRENT_TIMESTAMP';
-        $returning = Database::driver() === 'pgsql' ? ' RETURNING id' : '';
-        $stmt = $this->pdo->prepare("INSERT INTO jobs (type, status, payload, created_by, created_at) VALUES (:type, 'queued', :payload, :created_by, {$now}){$returning}");
-        $stmt->execute(['type' => $this->cut($type, 120), 'payload' => $payloadJson, 'created_by' => Security::currentActor()]);
-        return Database::driver() === 'pgsql' ? (int)$stmt->fetchColumn() : (int)$this->pdo->lastInsertId();
+        $maxAttempts = max(1, min(20, $maxAttempts));
+        $runAfterSeconds = $runAfterSeconds !== null ? max(0, $runAfterSeconds) : 0;
+        if (Database::driver() === 'pgsql') {
+            $returning = ' RETURNING id';
+            $stmt = $this->pdo->prepare("INSERT INTO jobs (type, status, payload, created_by, attempts, max_attempts, created_at, run_after_at) VALUES (:type, 'queued', :payload, :created_by, 0, :max_attempts, NOW(), NOW() + (:run_after_seconds || ' seconds')::interval){$returning}");
+            $stmt->execute(['type' => $this->cut($type, 120), 'payload' => $payloadJson, 'created_by' => Security::currentActor(), 'max_attempts' => $maxAttempts, 'run_after_seconds' => (string)$runAfterSeconds]);
+            return (int)$stmt->fetchColumn();
+        }
+        $stmt = $this->pdo->prepare("INSERT INTO jobs (type, status, payload, created_by, attempts, max_attempts, created_at, run_after_at) VALUES (:type, 'queued', :payload, :created_by, 0, :max_attempts, CURRENT_TIMESTAMP, datetime('now', '+' || :run_after_seconds || ' seconds'))");
+        $stmt->execute(['type' => $this->cut($type, 120), 'payload' => $payloadJson, 'created_by' => Security::currentActor(), 'max_attempts' => $maxAttempts, 'run_after_seconds' => (string)$runAfterSeconds]);
+        return (int)$this->pdo->lastInsertId();
     }
 
     public function jobs(int $limit = 100): array
@@ -1116,34 +1161,90 @@ final class Repository
 
     public function nextQueuedJob(?string $type = null): ?array
     {
-        $where = "status = 'queued'";
+        return $this->claimNextQueuedJob($type);
+    }
+
+    public function claimNextQueuedJob(?string $type = null): ?array
+    {
+        $owner = gethostname() ?: ('worker-' . getmypid());
         $params = [];
+        $typeSql = '';
         if ($type !== null) {
-            $where .= ' AND type = :type';
+            $typeSql = ' AND type = :type';
             $params['type'] = $type;
         }
-        $stmt = $this->pdo->prepare('SELECT * FROM jobs WHERE ' . $where . ' ORDER BY created_at ASC, id ASC LIMIT 1');
+        if (Database::driver() === 'pgsql') {
+            $this->pdo->beginTransaction();
+            try {
+                $stmt = $this->pdo->prepare("SELECT * FROM jobs WHERE status IN ('queued','retry') AND run_after_at <= NOW(){$typeSql} ORDER BY run_after_at ASC, created_at ASC, id ASC FOR UPDATE SKIP LOCKED LIMIT 1");
+                $stmt->execute($params);
+                $job = $stmt->fetch();
+                if (!$job) {
+                    $this->pdo->commit();
+                    return null;
+                }
+                $upd = $this->pdo->prepare("UPDATE jobs SET status = 'running', attempts = attempts + 1, locked_at = NOW(), locked_by = :owner, started_at = COALESCE(started_at, NOW()), updated_at = NOW() WHERE id = :id");
+                $upd->execute(['id' => (int)$job['id'], 'owner' => $owner]);
+                $this->pdo->commit();
+                $job['attempts'] = ((int)($job['attempts'] ?? 0)) + 1;
+                $job['locked_by'] = $owner;
+                return $job;
+            } catch (\Throwable $e) {
+                if ($this->pdo->inTransaction()) { $this->pdo->rollBack(); }
+                throw $e;
+            }
+        }
+
+        $where = "status IN ('queued','retry') AND datetime(run_after_at) <= datetime('now')" . $typeSql;
+        $stmt = $this->pdo->prepare('SELECT * FROM jobs WHERE ' . $where . ' ORDER BY run_after_at ASC, created_at ASC, id ASC LIMIT 1');
         $stmt->execute($params);
-        $row = $stmt->fetch();
-        return $row ?: null;
+        $job = $stmt->fetch();
+        if (!$job) { return null; }
+        $upd = $this->pdo->prepare("UPDATE jobs SET status = 'running', attempts = attempts + 1, locked_at = CURRENT_TIMESTAMP, locked_by = :owner, started_at = COALESCE(started_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP WHERE id = :id AND status IN ('queued','retry')");
+        $upd->execute(['id' => (int)$job['id'], 'owner' => $owner]);
+        if ($upd->rowCount() < 1) { return null; }
+        $job['attempts'] = ((int)($job['attempts'] ?? 0)) + 1;
+        $job['locked_by'] = $owner;
+        return $job;
     }
 
     public function markJobStarted(int $id): void
     {
-        $sql = Database::driver() === 'pgsql'
-            ? "UPDATE jobs SET status = 'running', started_at = NOW() WHERE id = :id"
-            : "UPDATE jobs SET status = 'running', started_at = CURRENT_TIMESTAMP WHERE id = :id";
-        $this->pdo->prepare($sql)->execute(['id' => $id]);
+        // Совместимость: claimNextQueuedJob уже атомарно переводит задачу в running.
     }
 
     public function finishJob(int $id, string $status, array $result = [], ?string $error = null): void
     {
-        $status = in_array($status, ['done','failed'], true) ? $status : 'failed';
+        $status = in_array($status, ['done','failed','dead'], true) ? $status : 'failed';
         $json = json_encode($result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $sql = Database::driver() === 'pgsql'
-            ? "UPDATE jobs SET status = :status, result = :result, error = :error, finished_at = NOW() WHERE id = :id"
-            : "UPDATE jobs SET status = :status, result = :result, error = :error, finished_at = CURRENT_TIMESTAMP WHERE id = :id";
+            ? "UPDATE jobs SET status = :status, result = :result, error = :error, finished_at = NOW(), locked_at = NULL, locked_by = NULL, updated_at = NOW() WHERE id = :id"
+            : "UPDATE jobs SET status = :status, result = :result, error = :error, finished_at = CURRENT_TIMESTAMP, locked_at = NULL, locked_by = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = :id";
         $this->pdo->prepare($sql)->execute(['id' => $id, 'status' => $status, 'result' => $json, 'error' => $error]);
+    }
+
+    public function retryJob(int $id, string $error, int $delaySeconds, array $result = []): void
+    {
+        $delaySeconds = max(10, min(3600, $delaySeconds));
+        $json = json_encode($result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if (Database::driver() === 'pgsql') {
+            $sql = "UPDATE jobs SET status = 'retry', result = :result, error = :error, run_after_at = NOW() + (:delay || ' seconds')::interval, locked_at = NULL, locked_by = NULL, updated_at = NOW() WHERE id = :id";
+        } else {
+            $sql = "UPDATE jobs SET status = 'retry', result = :result, error = :error, run_after_at = datetime('now', '+' || :delay || ' seconds'), locked_at = NULL, locked_by = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = :id";
+        }
+        $this->pdo->prepare($sql)->execute(['id' => $id, 'result' => $json, 'error' => $error, 'delay' => (string)$delaySeconds]);
+    }
+
+    public function failOrRetryJob(int $id, array $job, array $result, string $error): void
+    {
+        $attempts = max(1, (int)($job['attempts'] ?? 1));
+        $maxAttempts = max(1, (int)($job['max_attempts'] ?? 5));
+        if ($attempts >= $maxAttempts) {
+            $this->finishJob($id, 'dead', $result, $error);
+            return;
+        }
+        $delay = min(3600, 30 * (2 ** max(0, $attempts - 1)));
+        $this->retryJob($id, $error, $delay, $result);
     }
 
     public function dbOwnershipReport(): array

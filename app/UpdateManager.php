@@ -20,7 +20,7 @@ final class UpdateManager
         $repo = Env::get('UPDATE_REPO_URL', 'https://github.com/CajeerTeam/CajeerLogs');
         return [
             'repo_url' => $repo,
-            'branch' => Env::get('UPDATE_BRANCH', 'main'),
+            'branch' => Env::get('UPDATE_BRANCH', 'v0.8.2-ops-hardening'),
             'mode' => Env::get('UPDATE_MODE', 'git'),
             'allow_web' => Env::bool('UPDATE_ALLOW_WEB', false),
             'backup_dir' => Env::get('UPDATE_BACKUP_DIR', $this->root() . '/storage/backups/updates'),
@@ -30,8 +30,9 @@ final class UpdateManager
             'uses_token' => trim((string)Env::get('UPDATE_GITHUB_TOKEN', '')) !== '',
             'allowed_repo_hosts' => Env::get('UPDATE_ALLOWED_REPO_HOSTS', 'github.com'),
             'allowed_repo_full_name' => Env::get('UPDATE_ALLOWED_REPO_FULL_NAME', 'CajeerTeam/CajeerLogs'),
-            'require_tag' => Env::bool('UPDATE_REQUIRE_TAG', false),
+            'require_tag' => Env::bool('UPDATE_REQUIRE_TAG', true),
             'require_clean_worktree' => Env::bool('UPDATE_REQUIRE_CLEAN_WORKTREE', true),
+            'command_timeout_seconds' => Env::int('UPDATE_COMMAND_TIMEOUT_SECONDS', 120),
         ];
     }
 

@@ -29,6 +29,7 @@ final class Migrator
         $this->recordVersion('009_wiki_hardening_limits');
         $this->recordVersion('010_github_repository_ops');
         $this->recordVersion('011_ops_hardening');
+        $this->recordVersion('012_queue_update_release_hardening');
     }
 
     private function runPgsql(): void
@@ -241,11 +242,25 @@ CREATE TABLE IF NOT EXISTS jobs (
     payload JSONB NULL,
     result JSONB NULL,
     error TEXT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    max_attempts INTEGER NOT NULL DEFAULT 5,
+    run_after_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    locked_at TIMESTAMPTZ NULL,
+    locked_by VARCHAR(190) NULL,
     created_by VARCHAR(190) NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     started_at TIMESTAMPTZ NULL,
-    finished_at TIMESTAMPTZ NULL
+    finished_at TIMESTAMPTZ NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS max_attempts INTEGER NOT NULL DEFAULT 5;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS run_after_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS locked_at TIMESTAMPTZ NULL;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS locked_by VARCHAR(190) NULL;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
 CREATE TABLE IF NOT EXISTS app_settings (
     key VARCHAR(160) PRIMARY KEY,
@@ -298,6 +313,7 @@ CREATE INDEX IF NOT EXISTS idx_login_attempts_user_ip ON login_attempts (usernam
 CREATE INDEX IF NOT EXISTS idx_cron_runs_task_started ON cron_runs (task, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_saved_views_route ON saved_views (route, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_jobs_status_type ON jobs (status, type, created_at ASC);
+CREATE INDEX IF NOT EXISTS idx_jobs_claim ON jobs (status, run_after_at ASC, created_at ASC);
 CREATE INDEX IF NOT EXISTS idx_aapanel_offsets_rotation ON aapanel_log_offsets (rotation_detected, last_import_at DESC);
 CREATE INDEX IF NOT EXISTS idx_incidents_muted_until ON incidents (muted_until_at);
 
@@ -527,11 +543,25 @@ CREATE TABLE IF NOT EXISTS jobs (
     payload TEXT NULL,
     result TEXT NULL,
     error TEXT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    max_attempts INTEGER NOT NULL DEFAULT 5,
+    run_after_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    locked_at TEXT NULL,
+    locked_by TEXT NULL,
     created_by TEXT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     started_at TEXT NULL,
-    finished_at TEXT NULL
+    finished_at TEXT NULL,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS max_attempts INTEGER NOT NULL DEFAULT 5;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS run_after_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS locked_at TIMESTAMPTZ NULL;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS locked_by VARCHAR(190) NULL;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
 CREATE TABLE IF NOT EXISTS app_settings (
     key TEXT PRIMARY KEY,
@@ -589,6 +619,7 @@ CREATE INDEX IF NOT EXISTS idx_login_attempts_user_ip ON login_attempts (usernam
 CREATE INDEX IF NOT EXISTS idx_cron_runs_task_started ON cron_runs (task, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_saved_views_route ON saved_views (route, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_jobs_status_type ON jobs (status, type, created_at ASC);
+CREATE INDEX IF NOT EXISTS idx_jobs_claim ON jobs (status, run_after_at ASC, created_at ASC);
 CREATE INDEX IF NOT EXISTS idx_aapanel_offsets_rotation ON aapanel_log_offsets (rotation_detected, last_import_at DESC);
 CREATE INDEX IF NOT EXISTS idx_incidents_muted_until ON incidents (muted_until_at);
 
@@ -611,6 +642,16 @@ SQL;
             'rotation_detected INTEGER NOT NULL DEFAULT 0',
         ] as $column) {
             $this->execSqliteIgnoringDuplicate('ALTER TABLE aapanel_log_offsets ADD COLUMN ' . $column);
+        }
+        foreach ([
+            'attempts INTEGER NOT NULL DEFAULT 0',
+            'max_attempts INTEGER NOT NULL DEFAULT 5',
+            'run_after_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP',
+            'locked_at TEXT NULL',
+            'locked_by TEXT NULL',
+            'updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP',
+        ] as $column) {
+            $this->execSqliteIgnoringDuplicate('ALTER TABLE jobs ADD COLUMN ' . $column);
         }
     }
 
