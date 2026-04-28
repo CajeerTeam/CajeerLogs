@@ -10,6 +10,7 @@ use CajeerLogs\Env;
 use CajeerLogs\Logger;
 use CajeerLogs\Repository;
 use CajeerLogs\Response;
+use CajeerLogs\RuntimeDiagnostics;
 use CajeerLogs\Security;
 use CajeerLogs\UpdateManager;
 use CajeerLogs\View;
@@ -22,7 +23,7 @@ final class Router
         $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
         $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 
-        if (!str_starts_with($path, '/api/') && $path !== '/health' && !Security::uiIpAllowed()) {
+        if (!str_starts_with($path, '/api/') && $path !== '/health' && $path !== '/health/cron' && !Security::uiIpAllowed()) {
             Response::html(View::layout('Доступ запрещён', '<h1>Доступ запрещён</h1><section class="panel"><p>IP-адрес не входит в UI_IP_ALLOWLIST.</p></section>'), 403);
             return;
         }
@@ -43,6 +44,10 @@ final class Router
             }
             if ($path === '/health' && $method === 'GET') {
                 $this->health();
+                return;
+            }
+            if ($path === '/health/cron' && $method === 'GET') {
+                $this->healthCron();
                 return;
             }
             if ($path === '/api/v1/ingest' && $method === 'POST') {
@@ -129,6 +134,11 @@ final class Router
                 $this->alertAction();
                 return;
             }
+            if ($path === '/alerts/deliveries/action' && $method === 'POST') {
+                Auth::requirePermission('alerts.manage');
+                $this->alertDeliveryAction();
+                return;
+            }
             if ($path === '/audit' && $method === 'GET') {
                 Auth::requireLogin();
                 Auth::requirePermission('audit.view');
@@ -158,6 +168,21 @@ final class Router
             if ($path === '/system/pwa' && $method === 'GET') {
                 Auth::requirePermission('system.view');
                 $this->pwaDiagnostics();
+                return;
+            }
+            if ($path === '/system/runtime' && $method === 'GET') {
+                Auth::requirePermission('system.view');
+                $this->runtimeDiagnostics();
+                return;
+            }
+            if ($path === '/system/jobs' && $method === 'GET') {
+                Auth::requirePermission('system.view');
+                $this->jobs();
+                return;
+            }
+            if ($path === '/system/jobs/action' && $method === 'POST') {
+                Auth::requirePermission('system.view');
+                $this->jobAction();
                 return;
             }
             if ($path === '/system/update' && $method === 'GET') {
@@ -971,6 +996,7 @@ HTML;
         }
 
         $deliveryRows = '';
+        $deliveryCsrf = Security::csrfToken('alert_delivery_action');
         foreach ($repo->alertDeliveries(30) as $delivery) {
             $deliveryRows .= '<tr>'
                 . '<td>' . Security::e((string)$delivery['delivered_at']) . '</td>'
@@ -978,10 +1004,11 @@ HTML;
                 . '<td>' . Security::e((string)($delivery['channel'] ?? '—')) . '</td>'
                 . '<td>' . Security::e($this->deliveryStatusLabel((string)$delivery['status'])) . '</td>'
                 . '<td>' . Security::e((string)$delivery['message']) . '</td>'
+                . '<td><form method="post" action="/alerts/deliveries/action"><input type="hidden" name="_csrf" value="' . Security::e($deliveryCsrf) . '"><input type="hidden" name="id" value="' . Security::e((string)$delivery['id']) . '"><button class="button small ghost" name="action" value="replay">Повторить</button></form></td>'
                 . '</tr>';
         }
         if ($deliveryRows === '') {
-            $deliveryRows = '<tr><td colspan="5" class="muted">Доставок пока нет.</td></tr>';
+            $deliveryRows = '<tr><td colspan="6" class="muted">Доставок пока нет.</td></tr>';
         }
 
         $notice = $message ? '<div class="notice success">' . Security::e($message) . '</div>' : '';
@@ -1011,9 +1038,11 @@ HTML;
     </form>
 </section>
 <section class="panel wide"><h2>Правила</h2><table><thead><tr><th>ID</th><th>Название</th><th>Канал</th><th>Проект</th><th>Бот</th><th>Вебхук</th><th>Уровни</th><th>Порог</th><th>Пауза</th><th>Последняя отправка</th><th>Статус</th><th>Действия</th></tr></thead><tbody>{$rows}</tbody></table></section>
-<section class="panel wide"><h2>Журнал доставок</h2><table><thead><tr><th>Время</th><th>Правило</th><th>Канал</th><th>Статус</th><th>Ответ</th></tr></thead><tbody>{$deliveryRows}</tbody></table></section>
+<section class="panel wide"><h2>Журнал доставок</h2><table><thead><tr><th>Время</th><th>Правило</th><th>Канал</th><th>Статус</th><th>Ответ</th><th>Действия</th></tr></thead><tbody>{$deliveryRows}</tbody></table></section>
+<section class="panel"><h2>Повтор failed-доставок</h2><form method="post" action="/alerts/deliveries/action"><input type="hidden" name="_csrf" value="{$deliveryCsrf}"><input type="hidden" name="action" value="replay_failed"><label>Период, часов<input name="hours" type="number" min="1" max="168" value="24"></label><div class="form-actions"><button type="submit">Повторить failed/dead</button></div></form></section>
 <section class="panel"><h2>Запуск</h2><pre>cd /www/wwwroot/logs.example.com
-/www/server/php/83/bin/php bin/alert-dispatch.php</pre></section>
+/www/server/php/83/bin/php bin/alert-dispatch.php
+/www/server/php/83/bin/php bin/process-jobs.php</pre></section>
 HTML;
         Response::html(View::layout('Оповещения', $body));
     }
@@ -1078,6 +1107,38 @@ HTML;
             $this->repo()->audit('alert_rule.' . $action, 'alert_rule', (string)$id, 'Действие с правилом оповещений');
         }
         Response::redirect('/alerts');
+    }
+
+
+    private function alertDeliveryAction(): void
+    {
+        if (!Security::verifyCsrfToken('alert_delivery_action', (string)($_POST['_csrf'] ?? ''))) {
+            Response::redirect('/alerts');
+            return;
+        }
+        $action = (string)($_POST['action'] ?? '');
+        try {
+            if ($action === 'replay') {
+                $id = (int)($_POST['id'] ?? 0);
+                $jobId = $this->repo()->replayAlertDelivery($id);
+                if ($jobId === null) {
+                    throw new \InvalidArgumentException('Доставка не найдена или правило недоступно.');
+                }
+                $this->repo()->audit('alert_delivery.replay', 'alert_delivery', (string)$id, 'Повтор доставки поставлен в очередь', ['job_id' => $jobId]);
+                $this->alerts([], 'Повторная доставка поставлена в очередь job #' . $jobId . '.');
+                return;
+            }
+            if ($action === 'replay_failed') {
+                $hours = (int)($_POST['hours'] ?? 24);
+                $count = $this->repo()->replayFailedAlertDeliveries($hours);
+                $this->repo()->audit('alert_delivery.replay_failed', 'alert_delivery', 'bulk', 'Повтор failed-доставок', ['hours' => $hours, 'count' => $count]);
+                $this->alerts([], 'В очередь поставлено повторных доставок: ' . $count . '.');
+                return;
+            }
+            throw new \InvalidArgumentException('Неизвестное действие доставки.');
+        } catch (Throwable $e) {
+            $this->alerts([$e->getMessage()]);
+        }
     }
 
     private function audit(): void
@@ -1232,12 +1293,14 @@ HTML;
         $branch = Security::e((string)($status['config']['branch'] ?? 'main'));
         $backupDir = Security::e((string)($status['config']['backup_dir'] ?? 'storage/backups/updates'));
         $localChangesList = trim((string)($status['local_changes_list'] ?? ''));
+        $diffStat = trim((string)($status['git_diff_stat'] ?? ''));
         $localChanges = $status['has_local_changes'] === true
-            ? '<div class="notice warn"><strong>В рабочем дереве есть локальные изменения.</strong><p>Обновление через <code>git reset --hard</code> их сотрёт. Проверь изменения и создай backup diff.</p><pre>' . Security::e($localChangesList !== '' ? $localChangesList : 'git status --short') . '</pre></div>'
+            ? '<div class="notice warn"><strong>В рабочем дереве есть локальные изменения.</strong><p>Обновление через <code>git reset --hard</code> их сотрёт. Проверь изменения и создай backup diff.</p><pre>' . Security::e($localChangesList !== '' ? $localChangesList : 'git status --short') . '</pre>' . ($diffStat !== '' ? '<p class="muted">Diff stat:</p><pre>' . Security::e($diffStat) . '</pre>' : '') . '</div>'
             : '';
         $repairRows = '';
         foreach ($manager->repairHints() as $label => $command) {
-            $repairRows .= '<tr><th>' . Security::e((string)$label) . '</th><td><code>' . Security::e((string)$command) . '</code></td></tr>';
+            $cmdEsc = Security::e((string)$command);
+            $repairRows .= '<tr><th>' . Security::e((string)$label) . '</th><td><code>' . $cmdEsc . '</code><button class="button small ghost copy-command" type="button" data-copy-text="' . $cmdEsc . '">Скопировать</button></td></tr>';
         }
         $runtimeRows = '';
         foreach (($status['php_runtime'] ?? []) as $label => $value) {
@@ -1545,6 +1608,147 @@ NGINX;
             . '<section class="panel"><h2>MIME Nginx</h2><p class="muted">Добавь эти location-блоки в server-блок logs.example.com, если Chrome не видит manifest или сервис-воркер.</p><pre>' . Security::e($nginx) . '</pre></section>'
             . '<section class="panel"><h2>Команды проверки</h2><pre>curl -k -I https://logs.example.com/manifest.json\ncurl -k -I https://logs.example.com/manifest.webmanifest\ncurl -k -I https://logs.example.com/sw.js\ncurl -k -I https://logs.example.com/assets/img/icon-192.png\ncurl -k -I https://logs.example.com/assets/img/icon-512.png</pre></section>';
         Response::html(View::layout('PWA / домашний экран', $body));
+    }
+
+
+    private function healthCron(): void
+    {
+        $tasks = [
+            'process-jobs' => 900,
+            'alert-dispatch' => 900,
+            'import-aapanel-logs' => 3600,
+            'retention' => 90000,
+        ];
+        $runs = [];
+        try {
+            foreach ($this->repo()->cronRuns(500) as $run) {
+                $task = (string)$run['task'];
+                if (!isset($runs[$task]) && (string)$run['status'] === 'ok') {
+                    $ts = strtotime((string)($run['finished_at'] ?? $run['started_at'] ?? ''));
+                    $runs[$task] = [
+                        'last_ok' => (string)($run['finished_at'] ?? $run['started_at'] ?? ''),
+                        'age_seconds' => $ts !== false ? max(0, time() - $ts) : null,
+                        'message' => (string)($run['message'] ?? ''),
+                    ];
+                }
+            }
+            $payload = ['ok' => true, 'tasks' => []];
+            foreach ($tasks as $task => $maxAge) {
+                $row = $runs[$task] ?? ['last_ok' => null, 'age_seconds' => null, 'message' => 'нет успешных запусков'];
+                $fresh = is_int($row['age_seconds']) && $row['age_seconds'] <= $maxAge;
+                $payload['tasks'][$task] = array_merge($row, ['fresh' => $fresh, 'max_age_seconds' => $maxAge]);
+                if (!$fresh && in_array($task, ['process-jobs', 'alert-dispatch'], true)) {
+                    $payload['ok'] = false;
+                }
+            }
+            Response::json($payload, $payload['ok'] ? 200 : 503);
+        } catch (Throwable $e) {
+            Response::json(['ok' => false, 'error' => 'cron_health_failed', 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    private function runtimeDiagnostics(): void
+    {
+        $runtime = RuntimeDiagnostics::phpRuntime(Env::get('UPDATE_PHP_BIN', ''));
+        $db = RuntimeDiagnostics::databaseProbe();
+        $rows = '';
+        foreach ($runtime as $label => $value) {
+            $rows .= '<tr><th>' . Security::e((string)$label) . '</th><td><code>' . Security::e((string)$value) . '</code></td></tr>';
+        }
+        $lockViolations = RuntimeDiagnostics::productionLockViolations();
+        $lockHtml = $lockViolations
+            ? '<div class="notice danger"><strong>Production lock: проблема.</strong> ' . Security::e(implode(' ', $lockViolations)) . '</div>'
+            : '<div class="notice success">Production lock: критичных нарушений не найдено.</div>';
+        $dbHtml = '<tr><th>База данных</th><td><span class="status ' . ($db['ok'] ? 'status-ok' : 'status-error') . '">' . Security::e($db['ok'] ? 'OK' : 'Проблема') . '</span> <code>' . Security::e((string)$db['driver']) . '</code> ' . Security::e((string)$db['message']) . '</td></tr>';
+        $body = <<<HTML
+<h1>Runtime-диагностика</h1>
+{$lockHtml}
+<section class="panel wide">
+    <h2>PHP / FPM / CLI</h2>
+    <table class="detail-table"><tbody>{$rows}{$dbHtml}</tbody></table>
+</section>
+<section class="panel">
+    <h2>OPcache</h2>
+    <p class="muted">Если после git reset сайт показывает старый код, перезапусти PHP-FPM. Для aaPanel PHP 8.3 обычно подходит команда:</p>
+    <pre>/etc/init.d/php-fpm-83 restart</pre>
+</section>
+HTML;
+        Response::html(View::layout('Runtime-диагностика', $body));
+    }
+
+    private function jobs(array $errors = [], ?string $message = null): void
+    {
+        $repo = $this->repo();
+        $csrf = Security::csrfToken('job_action');
+        $notice = $message ? '<div class="notice success">' . Security::e($message) . '</div>' : '';
+        if ($errors) {
+            $notice = '<div class="notice danger">' . Security::e(implode(' ', $errors)) . '</div>';
+        }
+        $stats = $repo->jobStats();
+        $cards = '';
+        foreach ($stats as $status => $count) {
+            $cards .= '<div class="card"><div class="label">' . Security::e($this->jobStatusLabel((string)$status)) . '</div><div class="value">' . Security::e((string)$count) . '</div></div>';
+        }
+        $rows = '';
+        foreach ($repo->jobs(150) as $job) {
+            $payload = $this->prettyJson((string)($job['payload'] ?? ''));
+            $error = (string)($job['error'] ?? '');
+            $rows .= '<tr>'
+                . '<td>' . Security::e((string)$job['id']) . '</td>'
+                . '<td>' . Security::e((string)$job['type']) . '</td>'
+                . '<td>' . Security::e($this->jobStatusLabel((string)$job['status'])) . '</td>'
+                . '<td>' . Security::e((string)($job['attempts'] ?? 0)) . '/' . Security::e((string)($job['max_attempts'] ?? 0)) . '</td>'
+                . '<td>' . Security::e((string)($job['run_after_at'] ?? '—')) . '</td>'
+                . '<td>' . Security::e((string)($job['locked_by'] ?? '—')) . '</td>'
+                . '<td>' . Security::e($error !== '' ? $error : '—') . '</td>'
+                . '<td><details><summary>payload</summary><pre>' . Security::e($payload) . '</pre></details></td>'
+                . '<td><form method="post" action="/system/jobs/action"><input type="hidden" name="_csrf" value="' . Security::e($csrf) . '"><input type="hidden" name="id" value="' . Security::e((string)$job['id']) . '"><button class="button small ghost" name="action" value="retry">Повторить</button><button class="button small danger" name="action" value="cancel">Отменить</button></form></td>'
+                . '</tr>';
+        }
+        if ($rows === '') {
+            $rows = '<tr><td colspan="9" class="muted">Очередь задач пуста.</td></tr>';
+        }
+        $body = <<<HTML
+<h1>Очередь задач</h1>
+{$notice}
+<section class="grid cards">{$cards}</section>
+<section class="panel wide">
+    <h2>Задачи</h2>
+    <table><thead><tr><th>ID</th><th>Тип</th><th>Статус</th><th>Попытки</th><th>Запуск после</th><th>Владелец</th><th>Ошибка</th><th>Payload</th><th>Действия</th></tr></thead><tbody>{$rows}</tbody></table>
+</section>
+<section class="panel"><h2>Обработка</h2><pre>cd /www/wwwroot/logs.example.com && /www/server/php/83/bin/php bin/process-jobs.php</pre></section>
+HTML;
+        Response::html(View::layout('Очередь задач', $body));
+    }
+
+    private function jobAction(): void
+    {
+        if (!Security::verifyCsrfToken('job_action', (string)($_POST['_csrf'] ?? ''))) {
+            Response::redirect('/system/jobs');
+            return;
+        }
+        $id = (int)($_POST['id'] ?? 0);
+        $action = (string)($_POST['action'] ?? '');
+        try {
+            if ($id <= 0) {
+                throw new \InvalidArgumentException('Не указан ID задачи.');
+            }
+            if ($action === 'retry') {
+                $this->repo()->resetJob($id);
+                $this->repo()->audit('job.retry', 'job', (string)$id, 'Задача возвращена в очередь');
+                $this->jobs([], 'Задача возвращена в очередь.');
+                return;
+            }
+            if ($action === 'cancel') {
+                $this->repo()->cancelJob($id);
+                $this->repo()->audit('job.cancel', 'job', (string)$id, 'Задача отменена');
+                $this->jobs([], 'Задача отменена.');
+                return;
+            }
+            throw new \InvalidArgumentException('Неизвестное действие.');
+        } catch (Throwable $e) {
+            $this->jobs([$e->getMessage()]);
+        }
     }
 
     private function cron(): void
@@ -1927,6 +2131,22 @@ PY;
             'muted' => 'заглушено',
             'deduplicated' => 'дедупликация',
             'queued' => 'в очереди',
+            'replay_sent' => 'повтор отправлен',
+            'replay_failed' => 'ошибка повтора',
+            default => $status,
+        };
+    }
+
+    private function jobStatusLabel(string $status): string
+    {
+        return match ($status) {
+            'queued' => 'в очереди',
+            'retry' => 'ожидает повтора',
+            'running' => 'выполняется',
+            'done' => 'выполнено',
+            'failed' => 'ошибка',
+            'dead' => 'dead-letter',
+            'cancelled' => 'отменено',
             default => $status,
         };
     }
@@ -1948,7 +2168,7 @@ PY;
 
     private function wantsJson(string $path): bool
     {
-        if ($path === '/health' || str_starts_with($path, '/api/')) {
+        if ($path === '/health' || $path === '/health/cron' || str_starts_with($path, '/api/')) {
             return true;
         }
 
