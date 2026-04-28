@@ -74,6 +74,7 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   initCommandPalette();
+  initCopyButtons();
   initPwaRuntime();
 });
 
@@ -115,6 +116,34 @@ function initCommandPalette() {
       }
     });
   }
+}
+
+
+function initCopyButtons() {
+  document.querySelectorAll('[data-copy-text]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var text = btn.getAttribute('data-copy-text') || '';
+      if (!text) return;
+      function done() {
+        var prev = btn.textContent;
+        btn.textContent = 'Скопировано';
+        window.setTimeout(function () { btn.textContent = prev; }, 1400);
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done).catch(function () {});
+      } else {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        try { document.execCommand('copy'); done(); } catch (e) {}
+        document.body.removeChild(ta);
+      }
+    });
+  });
 }
 
 function setText(selector, text) {
