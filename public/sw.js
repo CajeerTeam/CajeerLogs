@@ -1,7 +1,8 @@
-const CACHE_NAME = 'cajeer-logs-static-v20260427-mobile-ui';
+const CACHE_VERSION = '0.8.2-ops-hardening';
+const CACHE_NAME = 'cajeer-logs-static-' + CACHE_VERSION;
 const STATIC_ASSETS = [
-  '/assets/css/app.css?v=20260427-mobile-ui',
-  '/assets/js/app.js?v=20260427-mobile-ui',
+  '/assets/css/app.css?v=0.8.2-ops-hardening',
+  '/assets/js/app.js?v=0.8.2-ops-hardening',
   '/assets/img/logo.png',
   '/assets/img/icon-192.png',
   '/assets/img/icon-512.png',
@@ -30,14 +31,12 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Важно для installability Chrome: service worker должен обрабатывать navigation.
-  // Приватные страницы не кэшируем: только network-only.
   if (request.mode === 'navigate') {
     event.respondWith(fetch(request));
     return;
   }
 
-  if (url.pathname.startsWith('/api/') || url.pathname === '/health' || url.pathname === '/login' || url.pathname === '/logout') {
+  if (url.pathname.startsWith('/api/') || url.pathname === '/health' || url.pathname === '/health/cron' || url.pathname === '/login' || url.pathname === '/logout') {
     event.respondWith(fetch(request));
     return;
   }
