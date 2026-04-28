@@ -1,12 +1,12 @@
 # Владельцы кода Cajeer Logs.
 # Если в организации нет команд ниже, замените их на аккаунты сопровождающих.
 
-* @CajeerTeam
+* @CajeerTeam/CajeerTeam
 /app/ @CajeerTeam/Cajeer404
 /bin/ @CajeerTeam/Cajeer404
 /public/ @CajeerTeam/Cajeer404
 /clients/ @CajeerTeam/Cajeer404
-/wiki/ @CajeerTeam
-/.github/ @CajeerTeam
+/wiki/ @CajeerTeam/CajeerTeam
+/.github/ @CajeerTeam/CajeerTeam
 /app/Internal/schema.pgsql.sql @CajeerTeam/Cajeer404
-/openapi.yaml @CajeerTeam/Cajeer404 @CajeerTeam
+/openapi.yaml @CajeerTeam/Cajeer404 @CajeerTeam/CajeerTeam
