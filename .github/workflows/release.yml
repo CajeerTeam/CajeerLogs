@@ -1,0 +1,45 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag, например v0.8.2-ops-hardening
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Сборка release artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo, pdo_sqlite
+          coverage: none
+      - name: Проверка релизной готовности
+        run: php bin/release-check.php
+      - name: Проверка tag и версии
+        run: |
+          VERSION="$(cat VERSION)"
+          test "${{ inputs.tag }}" = "v${VERSION}"
+      - name: Сборка ZIP и SHA256SUMS
+        run: |
+          VERSION="$(cat VERSION)"
+          NAME="cajeerlogs-${VERSION}"
+          mkdir -p dist "$NAME"
+          rsync -a --exclude='.git' --exclude='.env' --exclude='storage/*' --exclude='dist' ./ "$NAME"/
+          zip -qr "dist/${NAME}.zip" "$NAME"
+          (cd dist && sha256sum "${NAME}.zip" > SHA256SUMS)
+      - name: Создание GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ inputs.tag }}" dist/* --title "Cajeer Logs $(cat VERSION)" --notes-file wiki/Changelog.md --verify-tag=false

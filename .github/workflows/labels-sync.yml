@@ -1,0 +1,43 @@
+name: Sync labels
+
+on:
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  sync:
+    name: Синхронизация labels
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const text = fs.readFileSync('.github/labels.yml', 'utf8');
+            const labels = [];
+            let current = null;
+            for (const line of text.split(/\r?\n/)) {
+              if (line.startsWith('- name: ')) {
+                if (current) labels.push(current);
+                current = { name: line.replace('- name: ', '').trim() };
+              } else if (current && line.trim().startsWith('color: ')) {
+                current.color = line.trim().replace('color: ', '').trim().replace(/^#/, '');
+              } else if (current && line.trim().startsWith('description: ')) {
+                current.description = line.trim().replace('description: ', '').trim();
+              }
+            }
+            if (current) labels.push(current);
+            for (const label of labels) {
+              try {
+                await github.rest.issues.updateLabel({ owner: context.repo.owner, repo: context.repo.repo, name: label.name, color: label.color, description: label.description });
+                core.info(`updated ${label.name}`);
+              } catch (error) {
+                if (error.status !== 404) throw error;
+                await github.rest.issues.createLabel({ owner: context.repo.owner, repo: context.repo.repo, name: label.name, color: label.color, description: label.description });
+                core.info(`created ${label.name}`);
+              }
+            }

@@ -42,6 +42,11 @@ jobs:
       - name: Проверка релизной готовности
         run: php bin/release-check.php
 
+      - name: Проверка release/labels workflows
+        run: |
+          test -f .github/workflows/release.yml
+          test -f .github/workflows/labels-sync.yml
+
       - name: Проверка запрещённых runtime-файлов
         run: |
           test ! -f .env
@@ -117,3 +122,25 @@ jobs:
         run: php bin/migrate.php
       - name: Самопроверка SQLite
         run: php bin/self-test.php
+
+
+  alert-pipeline-smoke:
+    name: Alert pipeline smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo, pdo_sqlite
+          coverage: none
+      - name: Подготовка .env
+        run: |
+          cp .env.example .env
+          sed -i 's/^DB_CONNECTION=.*/DB_CONNECTION=sqlite/' .env
+          echo 'DB_DATABASE=storage/alert_pipeline.sqlite' >> .env
+          sed -i 's/^ALERT_WEBHOOK_REQUIRE_ALLOWLIST=.*/ALERT_WEBHOOK_REQUIRE_ALLOWLIST=false/' .env
+          sed -i 's/^LOGS_TOKEN_PEPPER=.*/LOGS_TOKEN_PEPPER=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef/' .env
+          sed -i 's/^PRIVACY_HASH_PEPPER=.*/PRIVACY_HASH_PEPPER=abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789/' .env
+      - name: Smoke alert pipeline
+        run: php bin/alert-pipeline-smoke.php
