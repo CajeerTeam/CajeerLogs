@@ -164,6 +164,9 @@ UPDATE_REQUIRE_CLEAN_WORKTREE=true
 UPDATE_ALLOW_WEB=false
 UPDATE_BACKUP_DIR=storage/backups/updates
 UPDATE_ROLLBACK_ON_FAILURE=true
+UPDATE_GIT_BIN=/usr/bin/git
+UPDATE_TAR_BIN=/usr/bin/tar
+UPDATE_PHP_BIN=/www/server/php/83/bin/php
 ```
 
 CLI-команды:
@@ -173,6 +176,7 @@ php bin/update.php status
 php bin/update.php backup
 php bin/update.php update
 php bin/update.php rollback
+php bin/update-env-check.php
 ```
 
 
