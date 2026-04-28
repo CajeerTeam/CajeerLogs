@@ -26,6 +26,7 @@ final class UpdateManager
             'backup_dir' => Env::get('UPDATE_BACKUP_DIR', $this->root() . '/storage/backups/updates'),
             'rollback_on_failure' => Env::bool('UPDATE_ROLLBACK_ON_FAILURE', true),
             'git_bin' => Env::get('UPDATE_GIT_BIN', 'git'),
+            'tar_bin' => Env::get('UPDATE_TAR_BIN', 'tar'),
             'php_bin' => $this->phpBin(),
             'uses_token' => trim((string)Env::get('UPDATE_GITHUB_TOKEN', '')) !== '',
             'allowed_repo_hosts' => Env::get('UPDATE_ALLOWED_REPO_HOSTS', 'github.com'),
@@ -51,10 +52,11 @@ final class UpdateManager
             'remote_commit' => null,
             'has_local_changes' => null,
             'git_status' => null,
-            'git_available' => $this->commandAvailable($config['git_bin']),
-            'tar_available' => $this->commandAvailable('tar'),
-            'php_available' => is_file($config['php_bin']) || $this->commandAvailable($config['php_bin']),
+            'git_available' => $this->commandAvailable((string)$config['git_bin']),
+            'tar_available' => $this->commandAvailable((string)$config['tar_bin']),
+            'php_available' => is_file((string)$config['php_bin']) || $this->commandAvailable((string)$config['php_bin']),
             'backup_dir_writable' => $this->pathWritableOrCreatable((string)$config['backup_dir']),
+            'php_runtime' => $this->phpRuntimeDiagnostics(),
         ];
 
         if (!$gitRepo) {
@@ -67,6 +69,7 @@ final class UpdateManager
             $status['current_branch'] = trim($this->git(['rev-parse', '--abbrev-ref', 'HEAD'])->output);
             $porcelain = trim($this->git(['status', '--porcelain'])->output);
             $status['has_local_changes'] = $porcelain !== '';
+            $status['local_changes_list'] = $porcelain;
             $status['git_status'] = $porcelain === '' ? 'Рабочее дерево чистое.' : $porcelain;
         } catch (Throwable $e) {
             $status['git_status'] = $e->getMessage();
@@ -86,17 +89,18 @@ final class UpdateManager
         $status = $this->status();
         $checks = [];
         $checks[] = $this->check('Web-обновления разрешены', (bool)$status['config']['allow_web'], 'UPDATE_ALLOW_WEB=false');
-        $checks[] = $this->check('Git доступен', (bool)$status['git_available'], 'Команда git не найдена или недоступна PHP.');
+        $checks[] = $this->check('Git доступен', (bool)$status['git_available'], 'Команда git не найдена или недоступна PHP. Укажи UPDATE_GIT_BIN=/usr/bin/git или установи git.');
         $checks[] = $this->check('Каталог является git-репозиторием', (bool)$status['is_git_repo'], 'В каталоге нет .git. Обновление возможно только для git-deploy.');
         $checks[] = $this->check('Резервная директория доступна', (bool)$status['backup_dir_writable'], 'Проверь права на storage/backups/updates.');
-        $checks[] = $this->check('tar доступен для backup', (bool)$status['tar_available'], 'Установи tar или настрой другой backup-процесс.');
-        $checks[] = $this->check('PHP CLI доступен', (bool)$status['php_available'], 'Проверь UPDATE_PHP_BIN.');
+        $checks[] = $this->check('tar доступен для backup', (bool)$status['tar_available'], 'Укажи UPDATE_TAR_BIN=/usr/bin/tar или установи tar.');
+        $checks[] = $this->check('PHP CLI доступен', (bool)$status['php_available'], 'Проверь UPDATE_PHP_BIN=/www/server/php/83/bin/php.');
         $checks[] = $this->check('.env существует', is_file($this->root() . '/.env'), 'Без .env обновление не запускается.');
         $checks[] = $this->check('Репозиторий обновления разрешён', $this->repoUrlAllowed((string)$status['config']['repo_url']), 'UPDATE_REPO_URL не входит в UPDATE_ALLOWED_REPO_HOSTS/UPDATE_ALLOWED_REPO_FULL_NAME.');
         $checks[] = $this->check('Цель обновления допустима', !$status['config']['require_tag'] || $this->looksLikeTag((string)$status['config']['branch']), 'UPDATE_REQUIRE_TAG=true требует UPDATE_BRANCH вида v1.2.3.');
         $checks[] = $this->check('Удалённая ветка/тег доступен', !empty($status['remote_commit']), $status['remote_error'] ?? 'Не удалось получить commit удалённой ветки или тега.');
         if ($status['config']['require_clean_worktree']) {
-            $checks[] = $this->check('Нет локальных изменений', $status['has_local_changes'] === false, 'Есть локальные изменения; git reset --hard их сотрёт.');
+            $details = isset($status['local_changes_list']) && is_string($status['local_changes_list']) && $status['local_changes_list'] !== '' ? $status['local_changes_list'] : 'git status --short';
+            $checks[] = $this->check('Нет локальных изменений', $status['has_local_changes'] === false, 'Есть локальные изменения; git reset --hard их сотрёт. Проверь: ' . $details);
         }
 
         try {
@@ -232,7 +236,8 @@ final class UpdateManager
     {
         $config = $this->config();
         if (is_dir($this->root() . '/.git')) {
-            $this->ensureSafeDirectory($tmp = []);
+            $tmp = [];
+            $this->ensureSafeDirectory($tmp);
         }
         $ref = (string)$config['branch'];
         $flag = $this->looksLikeTag($ref) ? '--tags' : '--heads';
@@ -271,7 +276,7 @@ final class UpdateManager
 
         $archive = $dir . '/files.tar.gz';
         $tar = $this->run([
-            'tar',
+            (string)$this->config()['tar_bin'],
             '--exclude=./.git',
             '--exclude=./storage/backups',
             '--exclude=./storage/logs',
@@ -386,13 +391,15 @@ final class UpdateManager
     private function run(array $argv, string $cwd): CommandResult
     {
         $cmd = implode(' ', array_map('escapeshellarg', $argv));
+        $timeout = max(10, Env::int('UPDATE_COMMAND_TIMEOUT_SECONDS', 120));
         if (!function_exists('proc_open')) {
             if (!function_exists('exec')) {
                 throw new RuntimeException('В PHP отключены proc_open и exec; запуск shell-команд невозможен.');
             }
             $output = [];
             $code = 0;
-            @exec('cd ' . escapeshellarg($cwd) . ' && ' . $cmd . ' 2>&1', $output, $code);
+            $timeoutPrefix = $this->commandAvailable('timeout') ? 'timeout ' . (int)$timeout . 's ' : '';
+            @exec('cd ' . escapeshellarg($cwd) . ' && ' . $timeoutPrefix . $cmd . ' 2>&1', $output, $code);
             return new CommandResult($code, $this->sanitizeOutput(implode("\n", $output)));
         }
         $descriptor = [
@@ -403,12 +410,73 @@ final class UpdateManager
         if (!is_resource($process)) {
             throw new RuntimeException('Не удалось запустить команду: ' . $cmd);
         }
-        $stdout = stream_get_contents($pipes[1]) ?: '';
-        $stderr = stream_get_contents($pipes[2]) ?: '';
+        foreach ($pipes as $pipe) {
+            stream_set_blocking($pipe, false);
+        }
+        $stdout = '';
+        $stderr = '';
+        $started = time();
+        $timedOut = false;
+        while (true) {
+            $stdout .= stream_get_contents($pipes[1]) ?: '';
+            $stderr .= stream_get_contents($pipes[2]) ?: '';
+            $status = proc_get_status($process);
+            if (!$status['running']) {
+                break;
+            }
+            if ((time() - $started) > $timeout) {
+                $timedOut = true;
+                proc_terminate($process, 15);
+                usleep(200000);
+                $status = proc_get_status($process);
+                if ($status['running']) {
+                    proc_terminate($process, 9);
+                }
+                break;
+            }
+            usleep(100000);
+        }
+        $stdout .= stream_get_contents($pipes[1]) ?: '';
+        $stderr .= stream_get_contents($pipes[2]) ?: '';
         fclose($pipes[1]);
         fclose($pipes[2]);
         $code = proc_close($process);
-        return new CommandResult((int)$code, $this->sanitizeOutput(trim($stdout . ($stderr !== '' ? "\n" . $stderr : ''))));
+        $output = trim($stdout . ($stderr !== '' ? "\n" . $stderr : ''));
+        if ($timedOut) {
+            $output .= ($output !== '' ? "\n" : '') . 'Команда прервана по таймауту ' . $timeout . ' сек.';
+            $code = 124;
+        }
+        return new CommandResult((int)$code, $this->sanitizeOutput($output));
+    }
+
+    private function phpRuntimeDiagnostics(): array
+    {
+        $disabled = (string)ini_get('disable_functions');
+        return [
+            'sapi' => PHP_SAPI,
+            'php_binary' => PHP_BINARY,
+            'configured_php_bin' => (string)$this->config()['php_bin'],
+            'path' => (string)getenv('PATH'),
+            'open_basedir' => (string)ini_get('open_basedir'),
+            'disable_functions' => $disabled === '' ? '—' : $disabled,
+            'proc_open' => function_exists('proc_open') ? 'доступен' : 'отключён',
+            'exec' => function_exists('exec') ? 'доступен' : 'отключён',
+            'shell_exec' => function_exists('shell_exec') ? 'доступен' : 'отключён',
+            'user' => function_exists('posix_getpwuid') ? ((posix_getpwuid(posix_geteuid())['name'] ?? (string)posix_geteuid())) : '—',
+        ];
+    }
+
+    public function repairHints(): array
+    {
+        $config = $this->config();
+        return [
+            'Git недоступен' => 'apt install -y git && echo UPDATE_GIT_BIN=/usr/bin/git >> .env',
+            'tar недоступен' => 'apt install -y tar && echo UPDATE_TAR_BIN=/usr/bin/tar >> .env',
+            'PHP CLI недоступен' => 'echo UPDATE_PHP_BIN=/www/server/php/83/bin/php >> .env',
+            'safe.directory' => (string)$config['git_bin'] . ' config --global --add safe.directory ' . $this->root(),
+            'Проверка окружения' => (string)$config['php_bin'] . ' bin/update-env-check.php',
+            'Локальные изменения' => 'git status --short && git diff --stat',
+        ];
     }
 
     private function sanitizeOutput(string $output): string

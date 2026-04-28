@@ -16,7 +16,13 @@ spl_autoload_register(function (string $class): void {
 use CajeerLogs\Env;
 use CajeerLogs\Logger;
 
-Env::load(dirname(__DIR__) . '/.env');
+$envPath = dirname(__DIR__) . '/.env';
+$envExists = is_file($envPath) && is_readable($envPath);
+Env::load($envPath);
+$defaultAppEnv = PHP_SAPI === 'cli' ? 'local' : 'production';
+if (!$envExists && Env::get('APP_ENV', $defaultAppEnv) === 'production') {
+    throw new RuntimeException('Файл .env обязателен для production. Восстановите его из storage/backups/updates/*/env.snapshot или создайте на основе .env.example.');
+}
 date_default_timezone_set(Env::get('APP_TIMEZONE', 'UTC'));
 
 set_error_handler(function (int $severity, string $message, string $file, int $line): bool {

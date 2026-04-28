@@ -65,6 +65,22 @@ final class View
             ? '<div class="notice warn"><strong>Аварийный вход через .env.</strong> Создайте администратора в БД и отключите LOGS_ENV_FALLBACK_LOGIN.</div>'
             : '';
         $bottomNavBlock = $bottomNavHtml !== '' ? '<nav class="mobile-bottom-nav" aria-label="Быстрая навигация">' . $bottomNavHtml . '</nav>' : '';
+        $commandLinks = [
+            ['/logs', 'Журналы', 'logs.view'],
+            ['/logs', 'Поиск по журналам', 'logs.view'],
+            ['/bots/health', 'Здоровье ботов', 'bots.view'],
+            ['/sites', 'Сайты', 'sites.view'],
+            ['/system', 'Система', 'system.view'],
+            ['/system/update', 'Обновление', 'update.manage'],
+            ['/system/pwa', 'PWA / домашний экран', 'system.view'],
+        ];
+        $commandHtml = '';
+        foreach ($commandLinks as [$href, $label, $permission]) {
+            if (Auth::user() && Auth::can($permission)) {
+                $commandHtml .= '<a href="' . Security::e($href) . '">' . Security::e($label) . '</a>';
+            }
+        }
+        $commandHtml .= '<a href="' . $docsUrlEsc . '" target="_blank" rel="noopener noreferrer">Документация</a>';
 
         return <<<HTML
 <!doctype html>
@@ -152,15 +168,10 @@ final class View
 <div id="command-palette" class="command-palette" hidden>
     <div class="command-backdrop" data-command-close></div>
     <div class="command-box" role="dialog" aria-modal="true" aria-label="Быстрый поиск">
+        <div class="command-head"><span>Быстрый поиск</span><button type="button" data-command-close>Закрыть</button></div>
         <input type="search" id="command-search" placeholder="Найти раздел или открыть поиск…" autocomplete="off">
         <div class="command-list">
-            <a href="/logs">Журналы</a>
-            <a href="/logs">Поиск по журналам</a>
-            <a href="/bots/health">Здоровье ботов</a>
-            <a href="/sites">Сайты</a>
-            <a href="/system">Система</a>
-            <a href="/system/pwa">PWA / домашний экран</a>
-            <a href="{$docsUrlEsc}" target="_blank" rel="noopener noreferrer">Документация</a>
+            {$commandHtml}
         </div>
     </div>
 </div>
