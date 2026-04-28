@@ -247,3 +247,17 @@ php bin/release-check.php
 ```bash
 php bin/ingest-smoke.php --url=https://logs.example.com/api/v1/ingest --token=RAW_BOT_TOKEN --signed
 ```
+
+## Эксплуатационная диагностика
+
+Для production-развёртывания полезны страницы:
+
+- `/system/runtime` — PHP-FPM/CLI, OPcache, PDO-драйверы, production lock;
+- `/system/jobs` — очередь фоновых задач и повтор webhook-доставок;
+- `/health/cron` — JSON-проверка свежести cron-задач.
+
+Перед обновлением можно проверить окружение без подключения к БД:
+
+```bash
+php bin/update-env-check.php
+```
