@@ -1,0 +1,45 @@
+- name: bug
+  color: d73a4a
+  description: Ошибка в работе приложения.
+- name: enhancement
+  color: a2eeef
+  description: Улучшение или новая возможность.
+- name: security
+  color: ee0701
+  description: Безопасность, доступы, токены, SSRF, RBAC.
+- name: documentation
+  color: 0075ca
+  description: README, Wiki, OpenAPI и инструкции.
+- name: good first issue
+  color: 7057ff
+  description: Подходит для первого вклада.
+- name: help wanted
+  color: 008672
+  description: Нужна помощь сообщества.
+- name: question
+  color: d876e3
+  description: Вопрос без подтверждённого дефекта.
+- name: area:api
+  color: 1d76db
+  description: Ingest API и HTTP-контракты.
+- name: area:ui
+  color: 1d76db
+  description: Web-интерфейс.
+- name: area:wiki
+  color: 1d76db
+  description: GitHub Wiki и документация.
+- name: area:ingest
+  color: 1d76db
+  description: Приём журналов, лимиты, подписи.
+- name: area:aapanel
+  color: 1d76db
+  description: Интеграция с aaPanel и локальными журналами Nginx.
+- name: area:postgresql
+  color: 1d76db
+  description: PostgreSQL, миграции и SQL-схема.
+- name: priority:high
+  color: b60205
+  description: Высокий приоритет.
+- name: priority:normal
+  color: fbca04
+  description: Обычный приоритет.
