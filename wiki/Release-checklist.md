@@ -21,3 +21,12 @@
 - [ ] `php bin/schema-check.php`
 - [ ] `python3 -m py_compile clients/bot.py`
 - [ ] Проверить ingest smoke test на staging.
+
+
+## Артефакты релиза
+
+- [ ] `cajeerlogs-v0.8.2-ops-hardening.zip` или исходный архив GitHub Release.
+- [ ] `SHA256SUMS` для опубликованных архивов.
+- [ ] выдержка из `wiki/Changelog.md`.
+- [ ] актуальный `openapi.yaml`.
+- [ ] результат `php bin/release-check.php`.

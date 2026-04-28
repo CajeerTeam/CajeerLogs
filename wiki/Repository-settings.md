@@ -70,3 +70,12 @@
 ```bash
 bash bin/wiki-publish.sh
 ```
+
+
+## Рекомендуемые флаги
+
+- `Release immutability` — включить.
+- `Sponsorships` — выключить, если проект не принимает финансовую поддержку через GitHub.
+- `Packages` и `Deployments` — выключить, если они не используются.
+- `Discussions` — выключить, пока обсуждения ведутся через Issues.
+- `Automatically delete head branches` — включить.

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.8.2-ops-hardening
+
+- Добавлены integration-проверки PostgreSQL и SQLite в CI.
+- Усилена публикация GitHub Wiki и добавлена проверка релизной готовности.
+- Добавлен атомарный PostgreSQL rate limit ingest API.
+- Добавлена очередь доставки webhook-оповещений через `process-jobs.php`.
+- Усилены проверки URL webhook для IPv4/IPv6 и DNS-записей.
+- Уточнён update center: allowlist репозитория, опциональный режим tag-only и проверка чистого рабочего дерева.
+- Добавлена страница интеграции aaPanel и social preview SVG.
+
+
 ## 0.8.1-wiki-hardening
 
 - Wiki-исходники переведены на ASCII-имена файлов для корректной упаковки архивов.
