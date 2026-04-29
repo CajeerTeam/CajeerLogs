@@ -9,4 +9,4 @@
 /wiki/ @CajeerTeam/CajeerTeam
 /.github/ @CajeerTeam/CajeerTeam
 /app/Internal/schema.pgsql.sql @CajeerTeam/Cajeer404
-/openapi.yaml @CajeerTeam/Cajeer404 @CajeerTeam/CajeerTeam
+/openapi.yaml @CajeerTeam/Cajeer404
