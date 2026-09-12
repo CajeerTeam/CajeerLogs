@@ -1,0 +1,7 @@
+{
+  "name": "CajeerLogs",
+  "short_name": "CajeerLogs",
+  "start_url": "/",
+  "display": "standalone",
+  "lang": "ru"
+}

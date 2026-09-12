@@ -1,0 +1,9 @@
+{
+  "name": "CajeerLogs",
+  "version": "0.1.0-initial",
+  "channel": "preview",
+  "php": ">=8.4",
+  "compatibilityTarget": "PHP 8.5 ready",
+  "api": "v1",
+  "releasePolicy": "SemVer + LTS + security releases"
+}

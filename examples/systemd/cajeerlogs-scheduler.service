@@ -1,0 +1,9 @@
+[Unit]
+Description=CajeerLogs Scheduler Runner
+
+[Service]
+Type=oneshot
+WorkingDirectory=/var/www/cajeerlogs
+ExecStart=/usr/bin/php bin/cajeer scheduler:run
+User=www-data
+Group=www-data

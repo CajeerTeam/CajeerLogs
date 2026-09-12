@@ -1,0 +1,40 @@
+{
+  "name": "cajeer/cajeerlogs",
+  "description": "Русскоязычный PHP-first сервис для централизованного приема, хранения, поиска и аналитики логов.",
+  "type": "project",
+  "license": "Apache-2.0",
+  "require": {
+    "php": ">=8.4",
+    "ext-json": "*",
+    "ext-pdo": "*",
+    "psr/log": "^3.0",
+    "symfony/console": "^7.0",
+    "symfony/http-foundation": "^7.0",
+    "symfony/routing": "^7.0",
+    "symfony/yaml": "^7.0"
+  },
+  "suggest": {
+    "ext-pdo_pgsql": "PostgreSQL 17+ основной драйвер",
+    "ext-pdo_mysql": "MySQL 8.4+ / MariaDB 10.11+ optional driver",
+    "ext-pdo_sqlite": "SQLite 3.40+ local/demo fallback",
+    "ext-redis": "Redis cache and queue driver",
+    "ext-curl": "ClickHouse, webhooks, OpenTelemetry OTLP export"
+  },
+  "autoload": {
+    "psr-4": {
+      "Cajeer\\Logs\\": "core/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Cajeer\\Logs\\Tests\\": "tests/"
+    }
+  },
+  "scripts": {
+    "test": "phpunit",
+    "doctor": "php bin/cajeer doctor",
+    "openapi:lint": "php bin/cajeer openapi:lint"
+  },
+  "minimum-stability": "stable",
+  "prefer-stable": true
+}

@@ -1,0 +1,12 @@
+{
+  "name": "cajeerlogs/graphql",
+  "type": "module",
+  "version": "0.1.0",
+  "requires": {
+    "cajeerlogs": "^0.1"
+  },
+  "permissions": [
+    "api.graphql.access"
+  ],
+  "entry": "src/GraphqlModule.php"
+}

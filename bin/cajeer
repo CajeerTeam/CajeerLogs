@@ -1,0 +1,27 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+$app = require dirname(__DIR__) . '/core/bootstrap.php';
+$app->boot();
+
+$command = $argv[1] ?? 'help';
+
+$map = [
+    'help' => static fn() => print("CajeerLogs CLI\nCommands: install:check, migrate, doctor, queue:work, scheduler:run, system:report, openapi:lint\n"),
+    'install:check' => static fn() => (new Cajeer\Logs\Console\Command\InstallCheckCommand())->handle(),
+    'migrate' => static fn() => (new Cajeer\Logs\Console\Command\MigrateCommand())->handle(),
+    'doctor' => static fn() => (new Cajeer\Logs\Console\Command\DoctorCommand())->handle(),
+    'queue:work' => static fn() => (new Cajeer\Logs\Console\Command\QueueWorkCommand())->handle(),
+    'scheduler:run' => static fn() => (new Cajeer\Logs\Console\Command\SchedulerRunCommand())->handle(),
+    'system:report' => static fn() => (new Cajeer\Logs\Console\Command\SystemReportCommand())->handle(),
+    'openapi:lint' => static fn() => (new Cajeer\Logs\Console\Command\OpenApiLintCommand())->handle(),
+];
+
+if (!isset($map[$command])) {
+    fwrite(STDERR, "Unknown command: {$command}\n");
+    exit(1);
+}
+
+$result = $map[$command]();
+exit(is_int($result) ? $result : 0);

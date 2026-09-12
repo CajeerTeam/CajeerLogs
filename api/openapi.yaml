@@ -1,0 +1,161 @@
+openapi: 3.1.1
+info:
+  title: CajeerLogs API
+  version: 0.1.0-initial
+  description: Contract-first REST API CajeerLogs.
+servers:
+  - url: /api/v1
+security:
+  - ApiToken: []
+paths:
+  /health:
+    get:
+      summary: Проверка состояния сервиса
+      operationId: getHealth
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /ingest:
+    post:
+      summary: Прием одного или нескольких log events
+      operationId: ingestEvents
+      parameters:
+        - in: header
+          name: X-Log-Timestamp
+          schema: { type: string }
+        - in: header
+          name: X-Log-Nonce
+          schema: { type: string }
+        - in: header
+          name: X-Log-Signature
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/LogEvent'
+                - $ref: '#/components/schemas/LogBatch'
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IngestResponse'
+  /logs:
+    get:
+      summary: Поиск логов
+      operationId: listLogs
+      parameters:
+        - in: query
+          name: q
+          schema: { type: string }
+        - in: query
+          name: level
+          schema: { type: string }
+        - in: query
+          name: source
+          schema: { type: string }
+        - in: query
+          name: from
+          schema: { type: string, format: date-time }
+        - in: query
+          name: to
+          schema: { type: string, format: date-time }
+      responses:
+        '200':
+          description: Logs page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/LogEvent'
+                  meta:
+                    type: object
+  /system/report:
+    get:
+      summary: System report
+      operationId: getSystemReport
+      responses:
+        '200':
+          description: System report
+          content:
+            application/json:
+              schema:
+                type: object
+  /webhooks:
+    post:
+      summary: Создание webhook endpoint
+      operationId: createWebhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url, events]
+              properties:
+                url: { type: string, format: uri }
+                events:
+                  type: array
+                  items: { type: string }
+      responses:
+        '201': { description: Created }
+components:
+  securitySchemes:
+    ApiToken:
+      type: http
+      scheme: bearer
+      bearerFormat: API token
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status, service, version]
+      properties:
+        status: { type: string, enum: [ok, degraded, down] }
+        service: { type: string }
+        version: { type: string }
+    LogEvent:
+      type: object
+      required: [source, level, message, timestamp]
+      properties:
+        id: { type: string }
+        timestamp: { type: string, format: date-time }
+        source: { type: string }
+        service: { type: string }
+        host: { type: string }
+        level: { type: string, enum: [debug, info, notice, warning, error, critical, alert, emergency] }
+        message: { type: string }
+        context: { type: object, additionalProperties: true }
+        trace_id: { type: string }
+        request_id: { type: string }
+        tags:
+          type: array
+          items: { type: string }
+    LogBatch:
+      type: object
+      required: [events]
+      properties:
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/LogEvent'
+    IngestResponse:
+      type: object
+      required: [accepted]
+      properties:
+        accepted: { type: boolean }
+        received: { type: integer }
+        rejected: { type: integer }
+        request_id: { type: string }

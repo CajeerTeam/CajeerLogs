@@ -1,0 +1,15 @@
+{
+  "name": "cajeerlogs/aapanel-importer",
+  "type": "module",
+  "version": "0.1.0",
+  "requires": {
+    "cajeerlogs": "^0.1"
+  },
+  "permissions": [
+    "logs.import",
+    "storage.read"
+  ],
+  "hooks": [
+    "scheduler.tick"
+  ]
+}

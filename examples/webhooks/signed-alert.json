@@ -1,0 +1,8 @@
+{
+  "event": "log.alert.created",
+  "payload": {
+    "level": "critical",
+    "message": "Example alert"
+  },
+  "signature": "hmac-sha256-hex"
+}

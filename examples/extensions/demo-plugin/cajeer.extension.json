@@ -1,0 +1,16 @@
+{
+  "name": "cajeerlogs/demo-plugin",
+  "type": "plugin",
+  "version": "0.1.0",
+  "requires": {
+    "cajeerlogs": "^0.1"
+  },
+  "permissions": [
+    "logs.read",
+    "events.listen"
+  ],
+  "hooks": [
+    "logs.ingested",
+    "alert.created"
+  ]
+}

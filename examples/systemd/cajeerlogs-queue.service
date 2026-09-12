@@ -1,0 +1,13 @@
+[Unit]
+Description=CajeerLogs Queue Worker
+After=network.target
+
+[Service]
+WorkingDirectory=/var/www/cajeerlogs
+ExecStart=/usr/bin/php bin/cajeer queue:work
+Restart=always
+User=www-data
+Group=www-data
+
+[Install]
+WantedBy=multi-user.target

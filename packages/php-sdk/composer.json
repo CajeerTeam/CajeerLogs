@@ -1,0 +1,13 @@
+{
+  "name": "cajeer/logs-extension-sdk",
+  "type": "library",
+  "license": "Apache-2.0",
+  "require": {
+    "php": ">=8.4"
+  },
+  "autoload": {
+    "psr-4": {
+      "Cajeer\\Logs\\Sdk\\": "src/"
+    }
+  }
+}

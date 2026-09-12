@@ -1,0 +1,4 @@
+<x-layout title="CajeerLogs">
+  <h1>Панель CajeerLogs</h1>
+  <p>Server-side component template skeleton.</p>
+</x-layout>
