@@ -1,0 +1,10 @@
+.git
+.env
+.env.*
+!.env.example
+.env-install-*
+vendor
+node_modules
+admin/node_modules
+storage
+*.zip

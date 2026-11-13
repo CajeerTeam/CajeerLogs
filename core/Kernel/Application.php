@@ -7,6 +7,16 @@ use Cajeer\Logs\Api\Controller\HealthController;
 use Cajeer\Logs\Config\ConfigRepository;
 use Cajeer\Logs\Config\Environment;
 use Cajeer\Logs\Http\ErrorHandler;
+use Cajeer\Logs\Database\ConnectionFactory;
+use Cajeer\Logs\Database\ConnectionFactoryInterface;
+use Cajeer\Logs\Database\MigrationRunner;
+use Cajeer\Logs\Database\DatabaseStatus;
+use Cajeer\Logs\Database\Repository\UserRepository;
+use Cajeer\Logs\Database\Repository\ProjectRepository;
+use Cajeer\Logs\Database\Repository\SourceRepository;
+use Cajeer\Logs\Database\Repository\TokenRepository;
+use Cajeer\Logs\Http\JsonResponse;
+use PDO;
 use Cajeer\Logs\Http\HttpException;
 use Cajeer\Logs\Http\Request;
 use Cajeer\Logs\Http\Response;
@@ -56,6 +66,15 @@ final class Application
         $this->container->set(self::class, $this);
         $this->container->set('config', $config);
         $this->container->set(ConfigRepository::class, $config);
+        $this->container->singleton(ConnectionFactory::class, fn(): ConnectionFactory => new ConnectionFactory($config));
+        $this->container->singleton(ConnectionFactoryInterface::class, fn(): ConnectionFactory => $this->container->get(ConnectionFactory::class));
+        $this->container->singleton(PDO::class, fn(): PDO => $this->container->get(ConnectionFactory::class)->make('pgsql'));
+        $this->container->singleton(MigrationRunner::class, fn(): MigrationRunner => new MigrationRunner($this->container->get(PDO::class), $this->basePath('migrations/pgsql'), $this->container->get(ConnectionFactory::class)->schema()));
+        $this->container->singleton(DatabaseStatus::class, fn(): DatabaseStatus => new DatabaseStatus($this));
+        $this->container->singleton(UserRepository::class, fn(): UserRepository => new UserRepository($this->container->get(PDO::class)));
+        $this->container->singleton(ProjectRepository::class, fn(): ProjectRepository => new ProjectRepository($this->container->get(PDO::class)));
+        $this->container->singleton(SourceRepository::class, fn(): SourceRepository => new SourceRepository($this->container->get(PDO::class)));
+        $this->container->singleton(TokenRepository::class, fn(): TokenRepository => new TokenRepository($this->container->get(PDO::class)));
         $this->container->singleton(Diagnostics::class, fn(): Diagnostics => new Diagnostics($this));
         $this->container->singleton(HealthCheck::class, fn(): HealthCheck => new HealthCheck($this));
         $this->container->singleton(SystemReport::class, fn(): SystemReport => new SystemReport($this));
@@ -94,7 +113,7 @@ final class Application
                 throw new \RuntimeException("Invalid route configuration: $key");
             }
         }
-        if (in_array($config->get('observability.prometheus_path'), ['/health', $config->get('api.prefix') . '/health'], true)) {
+        if (in_array($config->get('observability.prometheus_path'), ['/health', '/ready', $config->get('api.prefix') . '/health'], true)) {
             throw new \RuntimeException('Metrics path conflicts with health route.');
         }
     }
@@ -112,6 +131,10 @@ final class Application
         $router->add('GET', '/', $health);
         $router->add('GET', '/health', $health);
         $router->add('GET', $config->get('api.prefix') . '/health', $health);
+        $router->add('GET', '/ready', function (): Response {
+            $ok = $this->container->get(Diagnostics::class)->ok() && $this->container->get(DatabaseStatus::class)->check()['status'] === 'ok';
+            return new JsonResponse(['status' => $ok ? 'ok' : 'down', 'service' => $this->config()->get('app.name'), 'version' => $this->version(), 'scope' => 'database'], $ok ? 200 : 503);
+        });
         if ($config->get('observability.prometheus_enabled')) {
             $router->add('GET', $config->get('observability.prometheus_path'), fn(): Response => new Response(
                 $this->container->get(PrometheusExporter::class)->render(), 200,

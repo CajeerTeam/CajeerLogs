@@ -1,6 +1,6 @@
 {
   "name": "CajeerLogs",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "channel": "preview",
   "php": ">=8.4",
   "compatibilityTarget": "PHP 8.5 ready",

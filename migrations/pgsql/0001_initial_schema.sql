@@ -1,7 +1,6 @@
 -- CajeerLogs PostgreSQL 17+ initial schema
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
-CREATE TABLE IF NOT EXISTS users (
+CREATE TABLE users (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     email varchar(255) NOT NULL UNIQUE,
     password_hash varchar(255) NOT NULL,
@@ -11,7 +10,7 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS api_tokens (
+CREATE TABLE api_tokens (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     name varchar(255) NOT NULL,
     token_hash varchar(255) NOT NULL UNIQUE,
@@ -21,7 +20,7 @@ CREATE TABLE IF NOT EXISTS api_tokens (
     created_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS log_events (
+CREATE TABLE log_events (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     occurred_at timestamptz NOT NULL,
     received_at timestamptz NOT NULL DEFAULT now(),
@@ -41,14 +40,14 @@ CREATE TABLE IF NOT EXISTS log_events (
     ) STORED
 );
 
-CREATE INDEX IF NOT EXISTS idx_log_events_occurred_at ON log_events (occurred_at DESC);
-CREATE INDEX IF NOT EXISTS idx_log_events_level ON log_events (level);
-CREATE INDEX IF NOT EXISTS idx_log_events_source ON log_events (source);
-CREATE INDEX IF NOT EXISTS idx_log_events_trace_id ON log_events (trace_id);
-CREATE INDEX IF NOT EXISTS idx_log_events_search ON log_events USING gin (search_vector);
-CREATE INDEX IF NOT EXISTS idx_log_events_context ON log_events USING gin (context);
+CREATE INDEX idx_log_events_occurred_at ON log_events (occurred_at DESC);
+CREATE INDEX idx_log_events_level ON log_events (level);
+CREATE INDEX idx_log_events_source ON log_events (source);
+CREATE INDEX idx_log_events_trace_id ON log_events (trace_id);
+CREATE INDEX idx_log_events_search ON log_events USING gin (search_vector);
+CREATE INDEX idx_log_events_context ON log_events USING gin (context);
 
-CREATE TABLE IF NOT EXISTS audit_log (
+CREATE TABLE audit_log (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     actor_id uuid NULL,
     action varchar(255) NOT NULL,
@@ -57,7 +56,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
     created_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS jobs (
+CREATE TABLE jobs (
     id bigserial PRIMARY KEY,
     queue varchar(128) NOT NULL DEFAULT 'default',
     name varchar(255) NOT NULL,
@@ -68,13 +67,13 @@ CREATE TABLE IF NOT EXISTS jobs (
     created_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS settings (
+CREATE TABLE settings (
     key varchar(255) PRIMARY KEY,
     value jsonb NOT NULL,
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS webhooks (
+CREATE TABLE webhooks (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     url text NOT NULL,
     events jsonb NOT NULL DEFAULT '[]'::jsonb,
@@ -83,7 +82,7 @@ CREATE TABLE IF NOT EXISTS webhooks (
     created_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS extensions (
+CREATE TABLE extensions (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     name varchar(255) NOT NULL UNIQUE,
     type varchar(32) NOT NULL,

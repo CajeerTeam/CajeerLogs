@@ -23,7 +23,7 @@ def check(condition, label):
 
 
 def request(port, method, path, body=None, headers=None):
-    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    connection = http.client.HTTPConnection("127.0.0.2", port, timeout=5)
     try:
         connection.request(method, path, body, headers or {})
         response = connection.getresponse()
@@ -35,18 +35,18 @@ def request(port, method, path, body=None, headers=None):
 @contextlib.contextmanager
 def server(root=ROOT, **overrides):
     with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
+        sock.bind(("127.0.0.2", 0))
         port = sock.getsockname()[1]
     env = {k: v for k, v in os.environ.items() if not k.startswith(("APP_", "API_", "PROMETHEUS_", "OPENAPI_"))}
     env.update(overrides)
     with tempfile.TemporaryFile() as log:
-        process = subprocess.Popen(["php", "-S", f"127.0.0.1:{port}", "-t", "public", "public/router.php"], cwd=root, env=env, stdout=log, stderr=log)
+        process = subprocess.Popen(["php", "-S", f"127.0.0.2:{port}", "-t", "public", "public/router.php"], cwd=root, env=env, stdout=log, stderr=log)
         try:
             for _ in range(100):
                 if process.poll() is not None:
                     raise RuntimeError("PHP server exited")
                 try:
-                    with socket.create_connection(("127.0.0.1", port), timeout=.1):
+                    with socket.create_connection(("127.0.0.2", port), timeout=.1):
                         break
                 except OSError:
                     time.sleep(.05)
@@ -66,7 +66,7 @@ with server() as port:
     for path in ("/", "/health", "/api/v1/health?probe=1"):
         status, headers, body = request(port, "GET", path)
         data = json.loads(body)
-        check(status == 200 and data["version"] == "0.0.1" and data["scope"] == "runtime", f"GET {path}")
+        check(status == 200 and data["version"] == "0.0.2" and data["scope"] == "runtime", f"GET {path}")
         check(len(headers["x-request-id"]) == 32 and headers["cache-control"] == "no-store" and headers["x-content-type-options"] == "nosniff", f"headers {path}")
     status, headers, body = request(port, "POST", "/health")
     check(status == 405 and headers["allow"] == "GET, HEAD, OPTIONS" and json.loads(body)["request_id"] == headers["x-request-id"], "405 + Allow + correlation")
@@ -108,5 +108,10 @@ with tempfile.TemporaryDirectory() as temp:
     with server(copy) as port:
         status, _, body = request(port, "GET", "/health")
         check(status == 200 and json.loads(body)["service"] == "FromFile", "dotenv loaded at HTTP bootstrap")
+
+with server(DB_CONNECTION="unsupported") as port:
+    status, _, body = request(port, "GET", "/ready")
+    check(status == 503 and json.loads(body)["scope"] == "database" and json.loads(body)["status"] == "down", "database readiness failure")
+    check(request(port, "GET", "/health")[0] == 200, "runtime liveness independent of database")
 
 print(f"HTTP integration: {COUNT} checks passed")

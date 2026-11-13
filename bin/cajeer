@@ -6,20 +6,24 @@ use Cajeer\Logs\Console\Command\DoctorCommand;
 use Cajeer\Logs\Console\Command\InstallCheckCommand;
 use Cajeer\Logs\Console\Command\SystemReportCommand;
 use Cajeer\Logs\Console\Command\OpenApiLintCommand;
+use Cajeer\Logs\Console\Command\InstallCommand;
+use Cajeer\Logs\Console\Command\MigrateCommand;
+use Cajeer\Logs\Console\Command\DbDoctorCommand;
+use Cajeer\Logs\Database\DatabaseException;
 
 ini_set('display_errors', '0');
 error_reporting(E_ALL);
 $command = $argv[1] ?? 'help';
 if ($command === 'help' || $command === '--help') {
-    echo "CajeerLogs CLI\nUsage: php bin/cajeer <command>\nCommands: version, install:check, doctor, system:report, openapi:lint\nPending (unavailable): migrate, db:doctor, queue:work, scheduler:run\n";
+    echo "CajeerLogs CLI\nUsage: php bin/cajeer <command>\nCommands: version, install, install:check, migrate, migrate:status, db:doctor, doctor, system:report, openapi:lint\nPending (unavailable): queue:work, scheduler:run\n";
     exit(0);
 }
-$pending = ['migrate' => '0.0.2', 'db:doctor' => '0.0.2', 'queue:work' => '0.0.8', 'scheduler:run' => '0.0.8', 'alert:dispatch' => '0.3.x', 'import:aapanel' => '0.0.7', 'update:check' => '0.0.9'];
+$pending = ['queue:work' => '0.0.8', 'scheduler:run' => '0.0.8', 'alert:dispatch' => '0.3.x', 'import:aapanel' => '0.0.7', 'update:check' => '0.0.9'];
 if (isset($pending[$command])) {
-    fwrite(STDERR, "$command is not implemented in 0.0.1 (planned for {$pending[$command]}).\n");
+    fwrite(STDERR, "$command is not implemented in this release (planned for {$pending[$command]}).\n");
     exit(69);
 }
-if (!in_array($command, ['version','--version','install:check','doctor','system:report','openapi:lint'], true)) {
+if (!in_array($command, ['version','--version','install:check','doctor','system:report','openapi:lint','install','migrate','migrate:status','db:doctor'], true)) {
     fwrite(STDERR, "Unknown command. Run php bin/cajeer help.\n");
     exit(64);
 }
@@ -34,8 +38,12 @@ try {
         exit(0);
     }
     $app->boot();
+    if ($command === 'install') { exit((new InstallCommand($app))->handle(array_slice($argv, 2))); }
+    if (count($argv) > 2) { throw new DatabaseException('Unexpected command arguments.'); }
+    if ($command === 'migrate' || $command === 'migrate:status') { exit((new MigrateCommand($app))->handle($command === 'migrate:status')); }
     $handler = match ($command) {
         'install:check' => new InstallCheckCommand($app),
+        'db:doctor' => new DbDoctorCommand($app),
         'doctor' => new DoctorCommand($app),
         'system:report' => new SystemReportCommand($app),
         'openapi:lint' => new OpenApiLintCommand($app),
@@ -43,6 +51,6 @@ try {
     exit($handler->handle());
 } catch (Throwable $error) {
     // Configuration validation messages contain field names, not values. Other errors may contain secrets.
-    fwrite(STDERR, 'Runtime failure: ' . ($error instanceof RuntimeException && preg_match('/^(Invalid |APP_|Metrics path|Duplicate \.env|Cannot read environment|PHP 8\.4)/', $error->getMessage()) ? $error->getMessage() : $error::class) . PHP_EOL);
+    fwrite(STDERR, 'Runtime failure: ' . ($error instanceof DatabaseException || $error instanceof RuntimeException && preg_match('/^(Invalid |APP_|Metrics path|Duplicate \.env|Cannot read environment|PHP 8\.4)/', $error->getMessage()) ? $error->getMessage() : $error::class) . PHP_EOL);
     exit(1);
 }

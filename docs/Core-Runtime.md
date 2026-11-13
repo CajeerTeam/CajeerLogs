@@ -58,4 +58,4 @@ Exit codes: 0 — успешно; 1 — ошибка проверки/runtime; 6
 
 `php tests/runtime.php` — проверки ядра без vendor; `python3 tests/http_runtime.py` — реальные HTTP-запросы, включая ошибки конфигурации, лимиты, методы и отказ runtime-хранилища. `composer test` запускает PHPUnit, `composer analyse` — PHPStan для Core Runtime, `.github/workflows/runtime.yml` запускает проверки на PHP 8.4/8.5.
 
-0.0.1 не обещает production-готовность платформы логирования целиком. Следующий релиз 0.0.2 реализует PostgreSQL и установку. Для публичного развёртывания runtime настройте TLS, ограничьте доступ к метрикам сетевой политикой и установите лимиты на reverse proxy/PHP-FPM. Не публикуйте корень репозитория и не используйте PHP development server в production.
+0.0.1 не обещает production-готовность платформы логирования целиком. Начиная с 0.0.2 PostgreSQL и установка реализованы; см. [Database & Installer](Database-Installer.md). Для публичного развёртывания runtime настройте TLS, ограничьте доступ к метрикам сетевой политикой и установите лимиты на reverse proxy/PHP-FPM. Не публикуйте корень репозитория и не используйте PHP development server в production.

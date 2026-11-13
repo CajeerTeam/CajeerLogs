@@ -17,7 +17,10 @@ final class InstallCheckCommand
         foreach ($checks as $name => $passed) {
             echo ($passed ? '[OK] ' : '[FAIL] ') . $name . PHP_EOL;
         }
-        echo "Database connectivity and migrations: not enabled in 0.0.1.\n";
-        return in_array(false, $checks, true) ? 1 : 0;
+        $db = $this->app->container()->get(\Cajeer\Logs\Database\DatabaseStatus::class)->check(false);
+        echo ($db['status'] === 'ok' ? '[OK] ' : '[FAIL] ') . 'PostgreSQL preflight: ' . json_encode($db, JSON_THROW_ON_ERROR) . PHP_EOL;
+        $argon = defined('PASSWORD_ARGON2ID');
+        echo ($argon ? '[OK] ' : '[FAIL] ') . 'Argon2id' . PHP_EOL;
+        return in_array(false, $checks, true) || $db['status'] !== 'ok' || !$argon ? 1 : 0;
     }
 }

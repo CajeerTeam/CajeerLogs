@@ -17,3 +17,6 @@
 !/storage/archives/.gitkeep
 /storage/backups/*
 !/storage/backups/.gitkeep
+
+/storage/.install.lock
+/.env-install-*

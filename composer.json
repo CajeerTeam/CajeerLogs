@@ -14,12 +14,12 @@
     "symfony/yaml": "^7.0",
     "ext-ctype": "*",
     "ext-filter": "*",
-    "ext-pcre": "*"
+    "ext-pcre": "*",
+    "ext-pdo_pgsql": "*"
   },
   "suggest": {
-    "ext-pdo_pgsql": "PostgreSQL 17+ основной драйвер",
-    "ext-pdo_mysql": "MySQL 8.4+ / MariaDB 10.11+ optional driver",
-    "ext-pdo_sqlite": "SQLite 3.40+ local/demo fallback",
+    "ext-pdo_mysql": "Future support; not implemented in 0.0.2",
+    "ext-pdo_sqlite": "Future support; not implemented in 0.0.2",
     "ext-redis": "Redis cache and queue driver",
     "ext-curl": "ClickHouse, webhooks, OpenTelemetry OTLP export"
   },
@@ -39,7 +39,9 @@
     "openapi:lint": "php bin/cajeer openapi:lint",
     "test:runtime": "@php tests/runtime.php",
     "analyse": "phpstan analyse --no-progress",
-    "lint": "@php bin/cajeer openapi:lint"
+    "lint": "@php bin/cajeer openapi:lint",
+    "test:database": "@php tests/database.php",
+    "test:database-config": "@php tests/database_config.php"
   },
   "minimum-stability": "stable",
   "prefer-stable": true,

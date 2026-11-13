@@ -10,6 +10,8 @@ parameters:
         - core/Observability/SystemReport.php
         - core/Observability/PrometheusExporter.php
         - core/Console/Command
+        - core/Database
+        - core/Installer
     bootstrapFiles:
         - core/helpers.php
     tmpDir: storage/cache/phpstan
