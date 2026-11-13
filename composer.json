@@ -18,8 +18,8 @@
     "ext-pdo_pgsql": "*"
   },
   "suggest": {
-    "ext-pdo_mysql": "Future support; not implemented in 0.0.4",
-    "ext-pdo_sqlite": "Future support; not implemented in 0.0.4",
+    "ext-pdo_mysql": "Future support; not implemented in 0.0.5",
+    "ext-pdo_sqlite": "Future support; not implemented in 0.0.5",
     "ext-redis": "Redis cache and queue driver",
     "ext-curl": "ClickHouse, webhooks, OpenTelemetry OTLP export"
   },
@@ -45,7 +45,9 @@
     "test:identity": "@php tests/identity.php",
     "test:identity-database": "@php tests/identity_database.php",
     "test:ingest": "@php tests/ingest.php",
-    "test:ingest-database": "@php tests/ingest_database.php"
+    "test:ingest-database": "@php tests/ingest_database.php",
+    "test:search": "@php tests/search.php",
+    "test:search-database": "@php tests/search_database.php"
   },
   "minimum-stability": "stable",
   "prefer-stable": true,

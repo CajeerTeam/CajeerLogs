@@ -14,7 +14,7 @@ final class ApplicationTest extends TestCase
     public function testVersionAndBoot(): void
     {
         $app = new Application(dirname(__DIR__, 2));
-        self::assertSame('0.0.4', $app->version());
+        self::assertSame('0.0.5', $app->version());
         $app->boot();
         $router = $app->container()->get(Router::class);
         $app->boot();
@@ -25,12 +25,14 @@ final class ApplicationTest extends TestCase
     public function testRuntimeHttpAndErrors(): void
     {
         $app = new Application(dirname(__DIR__, 2));
+        $app->boot();
+        $app->config()->set('app.env', 'test');
         $response = $app->handle(new Request('GET', '/api/v1/health'));
         self::assertSame(200, $response->status);
         self::assertSame('runtime', json_decode($response->body, true, 16, JSON_THROW_ON_ERROR)['scope']);
         self::assertNotEmpty($response->header('X-Request-ID'));
         self::assertSame(405, $app->handle(new Request('POST', '/health'))->status);
-        self::assertSame(404, $app->handle(new Request('GET', '/api/v1/logs'))->status);
+        self::assertSame(401, $app->handle(new Request('GET', '/api/v1/logs', secureTransport: true))->status);
     }
 
     public function testNestedConfiguration(): void

@@ -2,6 +2,14 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.0.5] — Log Search & Explorer
+
+- PostgreSQL FTS, project/source-scoped list and detail, filters, deterministic cursor pagination.
+- UTC statistics (levels, top sources, hourly/daily buckets), paged JSON/CSV export with formula protection.
+- Session RBAC and scoped `logs:read` tokens, production TLS, rate limits, bound SQL parameters; unscoped legacy events remain hidden.
+- Migration 0005 adds filter indexes; 0001–0004 unchanged. Updated OpenAPI, regression tests and PostgreSQL integration suite.
+- Graphical Admin UI and async processing remain future releases.
+
 ## [0.0.4] — Log Ingestion
 
 - Real synchronous `POST /api/v1/ingest`, authenticated by project/source-scoped `logs:write` token; transaction commits before HTTP 201.

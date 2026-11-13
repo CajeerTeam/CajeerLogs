@@ -67,7 +67,7 @@ with server() as port:
     for path in ("/", "/health", "/api/v1/health?probe=1"):
         status, headers, body = request(port, "GET", path)
         data = json.loads(body)
-        check(status == 200 and data["version"] == "0.0.4" and data["scope"] == "runtime", f"GET {path}")
+        check(status == 200 and data["version"] == "0.0.5" and data["scope"] == "runtime", f"GET {path}")
         check(len(headers["x-request-id"]) == 32 and headers["cache-control"] == "no-store" and headers["x-content-type-options"] == "nosniff", f"headers {path}")
     status, headers, body = request(port, "POST", "/health")
     check(status == 405 and headers["allow"] == "GET, HEAD, OPTIONS" and json.loads(body)["request_id"] == headers["x-request-id"], "405 + Allow + correlation")
@@ -75,9 +75,13 @@ with server() as port:
     check(status == 200 and not body, "HEAD without body")
     status, headers, body = request(port, "OPTIONS", "/health")
     check(status == 204 and not body and "GET" in headers["allow"], "OPTIONS without body")
-    for path in ("/does-not-exist", "/api/v1/logs"):
+    for path in ("/does-not-exist",):
         status, _, body = request(port, "GET", path)
         check(status == 404 and json.loads(body)["error"] == "not_found", f"404 {path}")
+    for path in ("/api/v1/logs", "/api/v1/logs/stats", "/api/v1/logs/export", "/api/v1/logs/00000000-0000-0000-0000-000000000001"):
+        check(request(port, "GET", path)[0] == 401, f"protected {path}")
+    check(request(port, "POST", "/api/v1/logs")[0] == 405, "search method restricted")
+    check(request(port, "GET", "/api/v1/logs?project_id=bad", headers={"Authorization":"Bearer cl_"+"a"*64})[0] == 422, "invalid project query")
     check(request(port, "GET", "/api/v1/ingest")[0] == 405, "ingest method restricted")
     check(request(port, "POST", "/api/v1/ingest", b'{}', {"Content-Type":"application/json"})[0] == 401, "ingest requires bearer")
     check(request(port, "OPTIONS", "/api/v1/ingest")[0] == 204, "ingest OPTIONS")
@@ -126,6 +130,7 @@ with server(APP_ENV="production", APP_URL="https://logs.example.test") as port:
 with server(DB_CONNECTION="unsupported") as port:
     check(request(port, "POST", "/api/v1/auth/login", b'{"email":"admin@example.test","password":"secret-test"}', {"Content-Type":"application/json"})[0] == 503, "identity fails closed without database")
     check(request(port, "POST", "/api/v1/ingest", b'{}', {"Authorization":"Bearer cl_"+"a"*64,"Content-Type":"application/json"})[0] == 503, "ingest fails closed without database")
+    check(request(port, "GET", "/api/v1/logs?project_id=00000000-0000-0000-0000-000000000001", headers={"Authorization":"Bearer cl_"+"a"*64})[0] == 503, "search database failure")
     status, _, body = request(port, "GET", "/ready")
     check(status == 503 and json.loads(body)["scope"] == "database" and json.loads(body)["status"] == "down", "database readiness failure")
     check(request(port, "GET", "/health")[0] == 200, "runtime liveness independent of database")

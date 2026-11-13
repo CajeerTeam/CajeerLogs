@@ -24,7 +24,7 @@ function throws(callable $action, string $class, ?int $status = null): bool {
     return false;
 }
 $app->boot();
-check($app->version() === '0.0.4', 'release version');
+check($app->version() === '0.0.5', 'release version');
 check($app->config()->get('app.version') === $app->version(), 'config version');
 $c = new ConfigRepository(['a' => ['b' => 1, 'c' => 2]]);
 $c->set('a.b', 3); $c->set('a.d.e', null);

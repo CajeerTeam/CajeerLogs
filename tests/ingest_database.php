@@ -39,7 +39,7 @@ try {
     $writer=$tokens->create('project writer',['logs:write'],$project); $scoped=$tokens->create('source writer',['logs:write'],$project,$source); $reader=$tokens->create('reader',['logs:read'],$project,$source);
     $legacy=$pdo->query("INSERT INTO log_events(occurred_at,source,level,message) VALUES(now(),'legacy','info','historic event') RETURNING id")->fetchColumn();
     $runner=$app->container()->get(MigrationRunner::class);
-    verify($runner->migrate()===['0004_log_ingestion.sql']&&$runner->migrate()===[],'0.0.3 -> 0.0.4 upgrade and repeat');
+    verify($runner->migrate()===['0004_log_ingestion.sql','0005_log_search.sql']&&$runner->migrate()===[],'0.0.3 -> current upgrade and repeat');
     verify($pdo->query("SELECT id FROM log_events WHERE source='legacy'")->fetchColumn()===$legacy,'historic unscoped row preserved');
     verify($app->handle(new Request('GET','/ready'))->status===200,'readiness after migration');
     $event=['timestamp'=>'2026-01-02T03:04:05.123456+03:00','source'=>'app','level'=>'ERROR','message'=>'login password=hidden-value','service'=>'backend','host'=>'host1','trace_id'=>'trace-1','request_id'=>'req-1','context'=>(object)['password'=>'hidden-context','nested'=>(object)['apiKey'=>'another-secret'],'empty'=>(object)[],'list'=>[]],'tags'=>['one','two','one']];

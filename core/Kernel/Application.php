@@ -6,6 +6,7 @@ namespace Cajeer\Logs\Kernel;
 use Cajeer\Logs\Api\Controller\HealthController;
 use Cajeer\Logs\Api\Controller\IdentityController;
 use Cajeer\Logs\Api\Controller\IngestController;
+use Cajeer\Logs\Api\Controller\LogsController;
 use Cajeer\Logs\Config\ConfigRepository;
 use Cajeer\Logs\Config\Environment;
 use Cajeer\Logs\Http\ErrorHandler;
@@ -148,6 +149,7 @@ final class Application
         }
         IdentityController::register($router, $this, $config->get('api.prefix'));
         IngestController::register($router, $this, $config->get('api.prefix'));
+        LogsController::register($router, $this, $config->get('api.prefix'));
         return $router;
     }
 

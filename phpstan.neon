@@ -7,6 +7,8 @@ parameters:
         - core/Api/Controller/HealthController.php
         - core/Api/Controller/IdentityController.php
         - core/Api/Controller/IngestController.php
+        - core/Api/Controller/LogsController.php
+        - core/Search/PostgresFullTextSearchEngine.php
         - core/Log
         - core/Security/SignedPayload.php
         - core/Security/Identity.php

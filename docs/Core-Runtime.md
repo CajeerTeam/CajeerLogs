@@ -41,7 +41,7 @@ Router поддерживает точные пути и именованные 
 | HEAD | те же пути | без тела |
 | OPTIONS | те же пути | 204 и Allow |
 
-`/api/v1/system/report` доступен с авторизацией с 0.0.3, `/api/v1/ingest` — со scoped Bearer-токеном с 0.0.4 (см. [Log Ingestion](Log-Ingestion.md)). `/api/v1/logs` и `/api/v1/webhooks` ещё не зарегистрированы.
+`/api/v1/system/report` доступен с авторизацией с 0.0.3, `/api/v1/ingest` — со scoped Bearer-токеном с 0.0.4 (см. [Log Ingestion](Log-Ingestion.md)). `/api/v1/logs` доступен с 0.0.5 (см. [Log Search](Log-Search.md)); `/api/v1/webhooks` ещё не зарегистрирован.
 
 ## CLI
 
