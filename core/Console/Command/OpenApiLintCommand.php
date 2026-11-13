@@ -36,6 +36,7 @@ final class OpenApiLintCommand
             if (!is_array($spec['paths'] ?? null) || $spec['paths'] === [] || !isset($spec['paths']['/health']['get'])) {
                 throw new \RuntimeException('OpenAPI health operation is missing.');
             }
+            $expected = \Cajeer\Logs\Api\Controller\IdentityController::ROUTES + ['GET /health'=>'getHealth'];
             $ids = [];
             foreach ($spec['paths'] as $route => $methods) {
                 if (!is_string($route) || !str_starts_with($route, '/') || !is_array($methods)) { throw new \RuntimeException('Invalid OpenAPI path.'); }
@@ -46,13 +47,15 @@ final class OpenApiLintCommand
                     $id = $operation['operationId'] ?? null;
                     if (!is_string($id) || $id === '' || isset($ids[$id])) { throw new \RuntimeException('Missing or duplicate operationId.'); }
                     $ids[$id] = true;
-                    // Core runtime currently publishes only safe GET health; do not invoke future mutating operations.
-                    if ($route !== '/health' || $method !== 'get') { throw new \RuntimeException('Operation is not implemented in the Core Runtime release.'); }
+                    $key = strtoupper($method) . ' ' . $route;
+                    if (($expected[$key] ?? null) !== $id) { throw new \RuntimeException('Operation is not registered in runtime.'); }
+                    unset($expected[$key]);
                     foreach ($operation['responses'] as $status => $response) {
-                        if (!preg_match('/^[1-5][0-9]{2}$/D', (string) $status) || !is_string($response['description'] ?? null)) { throw new \RuntimeException('Invalid response definition.'); }
+                        if (!preg_match('/^[1-5][0-9]{2}$/D', (string) $status) || (!is_string($response['description'] ?? null) && !is_string($response['$ref'] ?? null))) { throw new \RuntimeException('Invalid response definition.'); }
                     }
                 }
             }
+            if ($expected !== []) { throw new \RuntimeException('Runtime operations missing from OpenAPI.'); }
             $this->references($spec, $spec);
             if (file_get_contents($this->app->basePath('openapi.yaml')) !== file_get_contents($this->app->basePath('api/openapi.yaml'))) {
                 throw new \RuntimeException('Root and API OpenAPI documents differ.');

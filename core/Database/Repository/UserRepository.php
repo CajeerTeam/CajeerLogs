@@ -18,7 +18,7 @@ final class UserRepository
 
     public function findByEmail(string $email): ?array
     {
-        $query = $this->pdo->prepare('SELECT id, email, password_hash, role, two_factor_enabled, created_at, updated_at FROM users WHERE lower(email) = :email');
+        $query = $this->pdo->prepare('SELECT id, email, password_hash, role, blocked_at, two_factor_enabled, created_at, updated_at FROM users WHERE lower(email) = :email');
         $query->execute(['email' => self::email($email)]);
         return $query->fetch() ?: null;
     }
@@ -42,9 +42,10 @@ final class UserRepository
         try {
             $lock = $this->pdo->prepare('SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))');
             $lock->execute(['key' => 'cajeerlogs:installer:' . $schema]);
+            $this->pdo->query("SELECT pg_advisory_xact_lock(hashtextextended('cajeerlogs:identity:' || current_schema(),0))");
             $existing = $this->findByEmail($email);
             if ($existing !== null) {
-                if ($existing['role'] !== 'administrator' || !password_verify($password, $existing['password_hash'])) { throw new DatabaseException('Existing user does not match the requested administrator; no password was changed.'); }
+                if ($existing['role'] !== 'administrator' || $existing['blocked_at'] !== null || $existing['two_factor_enabled'] || !password_verify($password, $existing['password_hash'])) { throw new DatabaseException('Existing user does not match the requested administrator; no password was changed.'); }
                 $this->pdo->commit();
                 return false;
             }

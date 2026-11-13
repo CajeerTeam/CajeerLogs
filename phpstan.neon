@@ -5,6 +5,12 @@ parameters:
         - core/Config
         - core/Http
         - core/Api/Controller/HealthController.php
+        - core/Api/Controller/IdentityController.php
+        - core/Security/Identity.php
+        - core/Security/RateLimiter.php
+        - core/Security/Rbac.php
+        - core/Security/CsrfProtection.php
+        - core/Audit/AuditLogger.php
         - core/Observability/Diagnostics.php
         - core/Observability/HealthCheck.php
         - core/Observability/SystemReport.php

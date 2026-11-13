@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Cajeer\Logs\Kernel;
 
 use Cajeer\Logs\Api\Controller\HealthController;
+use Cajeer\Logs\Api\Controller\IdentityController;
 use Cajeer\Logs\Config\ConfigRepository;
 use Cajeer\Logs\Config\Environment;
 use Cajeer\Logs\Http\ErrorHandler;
@@ -108,13 +109,16 @@ final class Application
         $limit = filter_var($config->get('app.max_body_bytes'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 16777216]]);
         if ($limit === false) { throw new \RuntimeException('APP_MAX_BODY_BYTES must be 1..16777216.'); }
         $config->set('app.max_body_bytes', $limit);
+        $rate = !is_bool($config->get('api.rate_limit')) ? filter_var($config->get('api.rate_limit'), FILTER_VALIDATE_INT, ['options'=>['min_range'=>1,'max_range'=>100000]]) : false;
+        if ($rate === false) { throw new \RuntimeException('Invalid API_RATE_LIMIT_PER_MINUTE.'); }
+        $config->set('api.rate_limit', $rate);
         foreach (['api.prefix', 'observability.prometheus_path'] as $key) {
             if (!preg_match('~^/[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*$~D', $config->get($key))) {
                 throw new \RuntimeException("Invalid route configuration: $key");
             }
         }
-        if (in_array($config->get('observability.prometheus_path'), ['/health', '/ready', $config->get('api.prefix') . '/health'], true)) {
-            throw new \RuntimeException('Metrics path conflicts with health route.');
+        if (in_array($config->get('observability.prometheus_path'), ['/health', '/ready'], true) || str_starts_with($config->get('observability.prometheus_path'), $config->get('api.prefix') . '/')) {
+            throw new \RuntimeException('Metrics path conflicts with API or health routes.');
         }
     }
 
@@ -141,6 +145,7 @@ final class Application
                 ['Content-Type' => 'text/plain; version=0.0.4; charset=utf-8']
             ));
         }
+        IdentityController::register($router, $this, $config->get('api.prefix'));
         return $router;
     }
 

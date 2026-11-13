@@ -22,7 +22,7 @@ final class TokenRepository
     public function findActive(string $token): ?array
     {
         if (!preg_match('/^cl_[a-f0-9]{64}$/D', $token)) { return null; }
-        $stmt = $this->pdo->prepare('SELECT id, name, scopes, project_id, source_id, expires_at FROM api_tokens WHERE token_hash = :hash AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())');
+        $stmt = $this->pdo->prepare('UPDATE api_tokens SET last_used_at = now() WHERE token_hash = :hash AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now()) RETURNING id, name, scopes, project_id, source_id, expires_at');
         $stmt->execute(['hash' => hash('sha256', $token)]);
         $row = $stmt->fetch();
         if (!$row) { return null; }

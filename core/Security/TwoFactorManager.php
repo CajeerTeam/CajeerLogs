@@ -7,6 +7,6 @@ final class TwoFactorManager
 {
     public function requiredForAdmins(): bool
 {
-    return true;
+    return false; // TOTP enrollment and verification are scheduled for 0.0.9.
 }
 }

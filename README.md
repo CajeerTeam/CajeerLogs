@@ -2,9 +2,9 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
-## 0.0.2 — Database & Installer
+## 0.0.3 — Identity & Access
 
-Рабочее PHP-ядро, PostgreSQL 17+, транзакционные миграции, CLI-установщик, первый администратор, репозитории пользователей, проектов, источников и API-токенов, диагностика БД. **Сбор и поиск логов, вход через HTTP, очередь и Admin UI пока не доступны.**
+Рабочий PHP-runtime, PostgreSQL 17+, CLI-установка и Identity & Access: HTTP login/logout, серверные сессии, Argon2id, RBAC, членство проектов, пользователи, scoped API-токены, CSRF, rate limiting и аудит. **Приём и поиск логов, очередь, TOTP и графическая Admin UI пока не доступны.** См. [Identity & Access](docs/Identity-Access.md). Для обновления 0.0.2 выполните backup, наложите файлы и `php bin/cajeer migrate`.
 
 ### Быстрый запуск
 
@@ -30,17 +30,19 @@ curl -i http://127.0.0.1:8080/api/v1/health
 curl -i http://127.0.0.1:8080/ready
 ```
 
-`/health` — состояние PHP runtime. `/ready` — состояние runtime, соединения PostgreSQL, миграций и таблиц; при недоступной БД возвращает 503. Встроенный PHP-сервер предназначен только для разработки. Для production используйте PHP-FPM, Nginx/Apache, DocumentRoot `public/`, TLS и непривилегированного системного пользователя.
+`/health` — состояние PHP runtime. `/ready` — состояние runtime, соединения PostgreSQL, миграций и таблиц; при недоступной БД возвращает 503. Встроенный PHP-сервер предназначен только для разработки. Для production используйте PHP-FPM, Nginx/Apache, DocumentRoot `public/`, TLS и непривилегированного системного пользователя. Для локального HTTP задайте `APP_ENV=local`; для production `APP_ENV=production`, `APP_URL=https://ваш-домен` и HTTPS server variable. Запланируйте `auth:cleanup` через cron.
 
 ### Проверки
 
 ```sh
 php tests/runtime.php
 php tests/database_config.php
+php tests/identity.php
 python3 tests/http_runtime.py
 php bin/cajeer openapi:lint
 # На отдельной тестовой БД с экспортированными DB_*:
 CAJEER_TEST_DATABASE=1 php tests/database.php
+CAJEER_TEST_DATABASE=1 php tests/identity_database.php
 composer install
 composer test
 composer analyse

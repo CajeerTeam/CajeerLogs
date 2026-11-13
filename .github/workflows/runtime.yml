@@ -60,5 +60,7 @@ jobs:
       - run: php bin/cajeer install:check
       - run: composer test:database-config
       - run: composer test:database
+      - run: composer test:identity
+      - run: composer test:identity-database
       - run: php bin/cajeer openapi:lint
       - run: python3 tests/http_runtime.py

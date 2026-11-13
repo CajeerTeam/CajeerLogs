@@ -2,6 +2,21 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.0.3] — Identity & Access
+
+### Added
+- PostgreSQL migration 0003: project membership, blocked users, server-side hashed sessions, rate-limit buckets, token issuer metadata.
+- Реальный HTTP login/logout/logout-all/me, Argon2id, изменение пароля, ротация и отзыв сессий, cookie + CSRF, production HTTPS.
+- Управление пользователями и ролями, защита последнего действующего администратора; транзакционные изменения и аудит.
+- Создание/просмотр проектов и источников, управление членством, SQL-изоляция проектов для operator/viewer.
+- Scoped API-токены с expiry, hash storage, last_used_at, выдачей секрета один раз, отзывом и introspection; защищённый system report.
+- Atomic PostgreSQL rate limiting, CLI auth:cleanup, cron, реальные integration tests и OpenAPI runtime routes.
+
+### Changed
+- Существующие миграции 0001/0002 сохранены без изменения checksum; readiness проверяет новые таблицы.
+- Production identity API требует HTTPS. Legacy глобальные токены с log scopes не авторизуются.
+- Нереализованные TOTP/HMAC ingest не объявляются активными. Ingest, поиск, UI и workers — последующие версии.
+
 ## [0.0.2] — Database & Installer
 
 ### Added

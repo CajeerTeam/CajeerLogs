@@ -38,6 +38,7 @@ def server(root=ROOT, **overrides):
         sock.bind(("127.0.0.2", 0))
         port = sock.getsockname()[1]
     env = {k: v for k, v in os.environ.items() if not k.startswith(("APP_", "API_", "PROMETHEUS_", "OPENAPI_"))}
+    env["APP_ENV"] = "test"
     env.update(overrides)
     with tempfile.TemporaryFile() as log:
         process = subprocess.Popen(["php", "-S", f"127.0.0.2:{port}", "-t", "public", "public/router.php"], cwd=root, env=env, stdout=log, stderr=log)
@@ -66,7 +67,7 @@ with server() as port:
     for path in ("/", "/health", "/api/v1/health?probe=1"):
         status, headers, body = request(port, "GET", path)
         data = json.loads(body)
-        check(status == 200 and data["version"] == "0.0.2" and data["scope"] == "runtime", f"GET {path}")
+        check(status == 200 and data["version"] == "0.0.3" and data["scope"] == "runtime", f"GET {path}")
         check(len(headers["x-request-id"]) == 32 and headers["cache-control"] == "no-store" and headers["x-content-type-options"] == "nosniff", f"headers {path}")
     status, headers, body = request(port, "POST", "/health")
     check(status == 405 and headers["allow"] == "GET, HEAD, OPTIONS" and json.loads(body)["request_id"] == headers["x-request-id"], "405 + Allow + correlation")
@@ -74,9 +75,15 @@ with server() as port:
     check(status == 200 and not body, "HEAD without body")
     status, headers, body = request(port, "OPTIONS", "/health")
     check(status == 204 and not body and "GET" in headers["allow"], "OPTIONS without body")
-    for path in ("/does-not-exist", "/api/v1/logs", "/api/v1/system/report", "/api/v1/ingest"):
+    for path in ("/does-not-exist", "/api/v1/logs", "/api/v1/ingest"):
         status, _, body = request(port, "GET", path)
         check(status == 404 and json.loads(body)["error"] == "not_found", f"404 {path}")
+    check(request(port, "GET", "/api/v1/system/report")[0] == 401, "system report requires authentication")
+    status, headers, body = request(port, "GET", "/api/v1/auth/me")
+    check(status == 401 and headers["www-authenticate"].startswith("Bearer") and headers["cache-control"] == "no-store", "identity unauthorized + challenge")
+    check(request(port, "GET", "/api/v1/auth/token", headers={"Authorization":"Bearer invalid"})[0] == 401, "malformed bearer rejected over HTTP")
+    check(request(port, "POST", "/api/v1/users", b'{}', {"Content-Type":"application/json"})[0] == 401, "unauthenticated user mutation rejected")
+    check(request(port, "GET", "/api/v1/auth/login")[0] == 405, "login method rejected")
     status, headers, body = request(port, "GET", "/metrics")
     check(status == 200 and headers["content-type"].startswith("text/plain") and b"cajeerlogs_up 1" in body and b"cajeerlogs_php_memory_bytes " in body, "Prometheus metrics")
     status, _, body = request(port, "GET", "/assets/css/app.css")
@@ -109,7 +116,11 @@ with tempfile.TemporaryDirectory() as temp:
         status, _, body = request(port, "GET", "/health")
         check(status == 200 and json.loads(body)["service"] == "FromFile", "dotenv loaded at HTTP bootstrap")
 
+with server(APP_ENV="production", APP_URL="https://logs.example.test") as port:
+    check(request(port, "POST", "/api/v1/auth/login", b'{}', {"Content-Type":"application/json", "X-Forwarded-Proto":"https"})[0] == 403, "production rejects HTTP and spoofed forwarded proto")
+
 with server(DB_CONNECTION="unsupported") as port:
+    check(request(port, "POST", "/api/v1/auth/login", b'{"email":"admin@example.test","password":"secret-test"}', {"Content-Type":"application/json"})[0] == 503, "identity fails closed without database")
     status, _, body = request(port, "GET", "/ready")
     check(status == 503 and json.loads(body)["scope"] == "database" and json.loads(body)["status"] == "down", "database readiness failure")
     check(request(port, "GET", "/health")[0] == 200, "runtime liveness independent of database")

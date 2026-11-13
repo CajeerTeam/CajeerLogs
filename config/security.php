@@ -6,9 +6,9 @@ return [
     'permission_scopes' => true,
     'api_token_scopes' => true,
     'audit_log' => true,
-    'two_factor' => true,
+    'two_factor' => false,
     'rate_limiting' => true,
     'csrf' => true,
     'security_headers' => true,
-    'signed_payloads' => true
+    'signed_payloads' => false
 ];

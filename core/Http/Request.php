@@ -14,7 +14,7 @@ final class Request
     public readonly string $requestId;
 
     /** @param array<string,string> $headers @param array<string,mixed> $query */
-    public function __construct(string $method, string $path, array $headers = [], public readonly array $query = [], private readonly string $body = '')
+    public function __construct(string $method, string $path, array $headers = [], public readonly array $query = [], private readonly string $body = '', public readonly string $remoteAddress = 'unknown', public readonly bool $secureTransport = false)
     {
         $this->method = strtoupper($method);
         if (!preg_match('/^[A-Z!#$%&\'*+.^_`|~0-9-]+$/D', $this->method)) {
@@ -70,7 +70,7 @@ final class Request
         }
         $uri = (string) ($_SERVER['REQUEST_URI'] ?? '/');
         $path = explode('?', $uri, 2)[0];
-        return new self((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'), $path, $headers, $_GET, $body);
+        return new self((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'), $path, $headers, $_GET, $body, (string) ($_SERVER['REMOTE_ADDR'] ?? 'unknown'), in_array(strtolower((string) ($_SERVER['HTTPS'] ?? '')), ['on','1'], true));
     }
 
     public function header(string $name, ?string $default = null): ?string
