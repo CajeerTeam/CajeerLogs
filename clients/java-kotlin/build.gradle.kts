@@ -3,6 +3,6 @@ plugins {
 }
 
 group = "ru.cajeer.logs"
-version = "0.1.0-initial"
+version = ""
 
 repositories { mavenCentral() }

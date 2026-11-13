@@ -1,7 +1,7 @@
 {
   "name": "cajeerlogs/graphql",
   "type": "module",
-  "version": "0.1.0",
+  "version": "",
   "requires": {
     "cajeerlogs": "^0.1"
   },

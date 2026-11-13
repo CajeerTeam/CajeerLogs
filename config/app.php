@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 return [
@@ -6,5 +7,5 @@ return [
     'env' => 'local',
     'locale' => 'ru',
     'timezone' => 'Europe/Moscow',
-    'version' => '0.1.0-initial'
+    'version' => ''
 ];

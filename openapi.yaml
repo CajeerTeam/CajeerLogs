@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: CajeerLogs API
-  version: 0.1.0-initial
+  version:
   description: Contract-first REST API CajeerLogs.
 servers:
   - url: /api/v1
