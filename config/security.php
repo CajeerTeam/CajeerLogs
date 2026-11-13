@@ -10,5 +10,5 @@ return [
     'rate_limiting' => true,
     'csrf' => true,
     'security_headers' => true,
-    'signed_payloads' => false
+    'signed_payloads' => true // Ingest supports optional HMAC; requirement is configured in ingest.php.
 ];

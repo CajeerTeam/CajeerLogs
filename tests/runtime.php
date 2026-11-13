@@ -24,7 +24,7 @@ function throws(callable $action, string $class, ?int $status = null): bool {
     return false;
 }
 $app->boot();
-check($app->version() === '0.0.3', 'release version');
+check($app->version() === '0.0.4', 'release version');
 check($app->config()->get('app.version') === $app->version(), 'config version');
 $c = new ConfigRepository(['a' => ['b' => 1, 'c' => 2]]);
 $c->set('a.b', 3); $c->set('a.d.e', null);
@@ -80,7 +80,7 @@ $app->config()->set('app.max_body_bytes', 2);
 check($app->handle(new Request('POST', '/__test_json', ['Content-Type'=>'application/json'], [], '{} '))->status === 413, 'body limit middleware');
 $app->config()->set('app.max_body_bytes', 1048576);
 check($app->handle(new Request('GET', '/health'))->status === 200, 'health dispatch');
-check($app->handle(new Request('GET', '/api/v1/ingest'))->status === 404, 'unimplemented ingest not exposed');
+check($app->handle(new Request('GET', '/api/v1/ingest'))->status === 405, 'ingest only accepts POST');
 check($app->handle(new Request('GET', '/metrics'))->status === 200, 'metrics dispatch');
 check($app->handle(new Request('GET', '/api/v1/system/report', secureTransport: true))->status === 401, 'private diagnostics require authentication');
 check($app->handle(new Request('POST', '/health'))->header('Allow') === 'GET, HEAD, OPTIONS', 'Allow header');

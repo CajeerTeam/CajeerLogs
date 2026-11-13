@@ -36,7 +36,7 @@ final class OpenApiLintCommand
             if (!is_array($spec['paths'] ?? null) || $spec['paths'] === [] || !isset($spec['paths']['/health']['get'])) {
                 throw new \RuntimeException('OpenAPI health operation is missing.');
             }
-            $expected = \Cajeer\Logs\Api\Controller\IdentityController::ROUTES + ['GET /health'=>'getHealth'];
+            $expected = \Cajeer\Logs\Api\Controller\IdentityController::ROUTES + \Cajeer\Logs\Api\Controller\IngestController::ROUTES + ['GET /health'=>'getHealth'];
             $ids = [];
             foreach ($spec['paths'] as $route => $methods) {
                 if (!is_string($route) || !str_starts_with($route, '/') || !is_array($methods)) { throw new \RuntimeException('Invalid OpenAPI path.'); }

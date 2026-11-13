@@ -5,6 +5,7 @@ namespace Cajeer\Logs\Kernel;
 
 use Cajeer\Logs\Api\Controller\HealthController;
 use Cajeer\Logs\Api\Controller\IdentityController;
+use Cajeer\Logs\Api\Controller\IngestController;
 use Cajeer\Logs\Config\ConfigRepository;
 use Cajeer\Logs\Config\Environment;
 use Cajeer\Logs\Http\ErrorHandler;
@@ -93,7 +94,7 @@ final class Application
         if (!in_array($config->get('app.env'), ['production', 'local', 'development', 'test'], true)) {
             throw new \RuntimeException('Invalid APP_ENV.');
         }
-        foreach (['app.debug', 'observability.prometheus_enabled'] as $key) {
+        foreach (['app.debug', 'observability.prometheus_enabled', 'ingest.require_hmac'] as $key) {
             if (!is_bool($config->get($key))) { throw new \RuntimeException("Invalid boolean configuration: $key"); }
         }
         if ($config->get('app.env') === 'production' && $config->get('app.debug')) {
@@ -146,6 +147,7 @@ final class Application
             ));
         }
         IdentityController::register($router, $this, $config->get('api.prefix'));
+        IngestController::register($router, $this, $config->get('api.prefix'));
         return $router;
     }
 

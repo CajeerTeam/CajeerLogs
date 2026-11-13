@@ -2,7 +2,7 @@ openapi: 3.1.1
 info:
   title: CajeerLogs API
   version: 0.1.0-planned
-  description: Planned logging API; ingestion, log search and webhooks are not implemented in 0.0.3. For implemented identity routes see api/openapi.yaml.
+  description: Planned logging API; log search and webhooks are not implemented in 0.0.4. For implemented ingest and identity routes see api/openapi.yaml.
 servers:
   - url: /api/v1
 security:
@@ -20,35 +20,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HealthResponse'
-  /ingest:
-    post:
-      summary: Прием одного или нескольких log events
-      operationId: ingestEvents
-      parameters:
-        - in: header
-          name: X-Log-Timestamp
-          schema: { type: string }
-        - in: header
-          name: X-Log-Nonce
-          schema: { type: string }
-        - in: header
-          name: X-Log-Signature
-          schema: { type: string }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              oneOf:
-                - $ref: '#/components/schemas/LogEvent'
-                - $ref: '#/components/schemas/LogBatch'
-      responses:
-        '202':
-          description: Accepted
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/IngestResponse'
   /logs:
     get:
       summary: Поиск логов

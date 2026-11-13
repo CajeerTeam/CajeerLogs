@@ -2,9 +2,9 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
-## 0.0.3 — Identity & Access
+## 0.0.4 — Log Ingestion
 
-Рабочий PHP-runtime, PostgreSQL 17+, CLI-установка и Identity & Access: HTTP login/logout, серверные сессии, Argon2id, RBAC, членство проектов, пользователи, scoped API-токены, CSRF, rate limiting и аудит. **Приём и поиск логов, очередь, TOTP и графическая Admin UI пока не доступны.** См. [Identity & Access](docs/Identity-Access.md). Для обновления 0.0.2 выполните backup, наложите файлы и `php bin/cajeer migrate`.
+Рабочий PHP-runtime, PostgreSQL 17+, CLI-установка, Identity & Access и **реальный синхронный приём логов** через `POST /api/v1/ingest`: авторизация scoped-токеном, одиночные события и batch, нормализация UTC, redaction, транзакционное сохранение, idempotency и опциональный HMAC. См. [Log Ingestion](docs/Log-Ingestion.md) и [Identity & Access](docs/Identity-Access.md). Для обновления 0.0.3 сделайте backup, наложите файлы и `php bin/cajeer migrate`. Поиск, графическая Admin UI, TOTP и очередь ещё не реализованы.
 
 ### Быстрый запуск
 
@@ -38,11 +38,13 @@ curl -i http://127.0.0.1:8080/ready
 php tests/runtime.php
 php tests/database_config.php
 php tests/identity.php
+php tests/ingest.php
 python3 tests/http_runtime.py
 php bin/cajeer openapi:lint
 # На отдельной тестовой БД с экспортированными DB_*:
 CAJEER_TEST_DATABASE=1 php tests/database.php
 CAJEER_TEST_DATABASE=1 php tests/identity_database.php
+CAJEER_TEST_DATABASE=1 php tests/ingest_database.php
 composer install
 composer test
 composer analyse

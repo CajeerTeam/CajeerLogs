@@ -62,5 +62,8 @@ jobs:
       - run: composer test:database
       - run: composer test:identity
       - run: composer test:identity-database
+      - run: composer test:ingest
+      - run: composer test:ingest-database
       - run: php bin/cajeer openapi:lint
       - run: python3 tests/http_runtime.py
+      - run: python3 tests/python_ingest.py

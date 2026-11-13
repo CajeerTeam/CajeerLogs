@@ -2,6 +2,14 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.0.4] — Log Ingestion
+
+- Real synchronous `POST /api/v1/ingest`, authenticated by project/source-scoped `logs:write` token; transaction commits before HTTP 201.
+- Single/batch (100 events), strict JSON/PSR-3/RFC3339 validation, UTC normalization, metadata, recursive secret redaction, prepared PostgreSQL INSERTs and generated UUIDs.
+- Migration 0004 preserves existing data, requires scoped new log rows, adds token attribution, durable idempotency receipts (24h) and HMAC nonce tracking. Previous migrations unchanged.
+- Optional HMAC v1 binds method, path, timestamp, nonce, idempotency key and body hash; per-IP/per-token rate limits and cleanup. Python client updated to canonical signature.
+- OpenAPI, runtime/HTTP tests, PostgreSQL integration suite and CI. Search, UI and async workers remain future releases.
+
 ## [0.0.3] — Identity & Access
 
 ### Added
