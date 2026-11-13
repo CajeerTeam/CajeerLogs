@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 $autoload = dirname(__DIR__) . '/vendor/autoload.php';
 if (is_file($autoload)) {
-    require $autoload;
+    require_once $autoload;
 } else {
     spl_autoload_register(static function (string $class): void {
         $prefix = 'Cajeer\\Logs\\';

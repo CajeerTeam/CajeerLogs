@@ -5,7 +5,8 @@ After=network.target
 [Service]
 WorkingDirectory=/var/www/cajeerlogs
 ExecStart=/usr/bin/php bin/cajeer queue:work
-Restart=always
+Restart=on-failure
+RestartPreventExitStatus=69
 User=www-data
 Group=www-data
 

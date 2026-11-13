@@ -6,8 +6,8 @@ namespace Cajeer\Logs\Console\Command;
 final class QueueWorkCommand
 {
     public function handle(): int
-{
-    echo "Queue worker skeleton\n";
-    return 0;
-}
+    {
+        fwrite(STDERR, "Queue worker is not implemented in 0.0.1 (planned for 0.0.8).\n");
+        return 69;
+    }
 }

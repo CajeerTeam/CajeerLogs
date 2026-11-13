@@ -6,8 +6,8 @@ namespace Cajeer\Logs\Console\Command;
 final class SchedulerRunCommand
 {
     public function handle(): int
-{
-    echo "Scheduler runner skeleton\n";
-    return 0;
-}
+    {
+        fwrite(STDERR, "Scheduler is not implemented in 0.0.1 (planned for 0.0.8).\n");
+        return 69;
+    }
 }

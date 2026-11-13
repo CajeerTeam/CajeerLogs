@@ -1,0 +1,15 @@
+parameters:
+    level: 0
+    paths:
+        - core/Kernel
+        - core/Config
+        - core/Http
+        - core/Api/Controller/HealthController.php
+        - core/Observability/Diagnostics.php
+        - core/Observability/HealthCheck.php
+        - core/Observability/SystemReport.php
+        - core/Observability/PrometheusExporter.php
+        - core/Console/Command
+    bootstrapFiles:
+        - core/helpers.php
+    tmpDir: storage/cache/phpstan

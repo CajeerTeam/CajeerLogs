@@ -1,0 +1,32 @@
+name: Core Runtime
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php: ['8.4', '8.5']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: ctype, filter, pdo, dom, mbstring, xml, xmlwriter
+          coverage: none
+          tools: composer:v2
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist
+      - name: PHP syntax
+        run: |
+          find core config app public bin installer tests -name '*.php' -print0 | xargs -0 -n1 php -l
+          php -l bin/cajeer
+      - run: composer analyse
+      - run: composer test
+      - run: composer test:runtime
+      - run: php bin/cajeer doctor
+      - run: php bin/cajeer openapi:lint
+      - run: python3 tests/http_runtime.py

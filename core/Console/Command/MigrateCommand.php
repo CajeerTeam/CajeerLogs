@@ -6,8 +6,8 @@ namespace Cajeer\Logs\Console\Command;
 final class MigrateCommand
 {
     public function handle(): int
-{
-    echo "Migration runner skeleton\n";
-    return 0;
-}
+    {
+        fwrite(STDERR, "Database migrations is not implemented in 0.0.1 (planned for 0.0.2).\n");
+        return 69;
+    }
 }

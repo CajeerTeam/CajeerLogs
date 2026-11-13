@@ -4,7 +4,7 @@ declare(strict_types=1);
 return [
     'health' => true,
     'system_report' => true,
-    'diagnostics' => ['queue', 'cache', 'storage'],
     'metrics' => 'prometheus',
-    'tracing' => 'opentelemetry'
+    'prometheus_enabled' => env('PROMETHEUS_ENABLED', true),
+    'prometheus_path' => env('PROMETHEUS_PATH', '/metrics'),
 ];

@@ -2,5 +2,5 @@
 <?php
 declare(strict_types=1);
 
-echo "CajeerLogs CLI Installer skeleton\n";
-echo "PHP: " . PHP_VERSION . "\n";
+fwrite(STDERR, "Full installation is not available in 0.0.1; run php bin/cajeer install:check for runtime diagnostics.\n");
+exit(69);

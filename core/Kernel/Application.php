@@ -1,12 +1,26 @@
 <?php
-
 declare(strict_types=1);
 
 namespace Cajeer\Logs\Kernel;
 
+use Cajeer\Logs\Api\Controller\HealthController;
+use Cajeer\Logs\Config\ConfigRepository;
+use Cajeer\Logs\Config\Environment;
+use Cajeer\Logs\Http\ErrorHandler;
+use Cajeer\Logs\Http\HttpException;
+use Cajeer\Logs\Http\Request;
+use Cajeer\Logs\Http\Response;
+use Cajeer\Logs\Http\Router;
+use Cajeer\Logs\Observability\Diagnostics;
+use Cajeer\Logs\Observability\HealthCheck;
+use Cajeer\Logs\Observability\PrometheusExporter;
+use Cajeer\Logs\Observability\SystemReport;
+
 final class Application
 {
     private ServiceContainer $container;
+    private bool $booted = false;
+    private ?string $version = null;
 
     public function __construct(private readonly string $basePath)
     {
@@ -18,18 +32,109 @@ final class Application
         return rtrim($this->basePath . '/' . ltrim($path, '/'), '/');
     }
 
-    public function version(): string
-    {
-        return '';
-    }
-
-    public function container(): ServiceContainer
-    {
-        return $this->container;
-    }
+    public function version(): string { return $this->version ??= Version::read($this->basePath); }
+    public function container(): ServiceContainer { return $this->container; }
 
     public function boot(): void
     {
+        if ($this->booted) { return; }
+        if (PHP_VERSION_ID < 80400) { throw new \RuntimeException('PHP 8.4 or newer is required.'); }
+        $GLOBALS['cajeer_environment'] = Environment::load($this->basePath('.env'));
+        $items = [];
+        $files = glob($this->basePath('config/*.php'));
+        if ($files === false || $files === []) { throw new \RuntimeException('Configuration files are missing.'); }
+        foreach ($files as $file) {
+            $data = require $file;
+            if (!is_array($data)) { throw new \RuntimeException('Configuration must return an array.'); }
+            $items[basename($file, '.php')] = $data;
+        }
+        $config = new ConfigRepository($items);
+        $config->set('app.version', $this->version());
+        $this->validate($config);
+        date_default_timezone_set($config->get('app.timezone'));
         $this->container->set('app', $this);
+        $this->container->set(self::class, $this);
+        $this->container->set('config', $config);
+        $this->container->set(ConfigRepository::class, $config);
+        $this->container->singleton(Diagnostics::class, fn(): Diagnostics => new Diagnostics($this));
+        $this->container->singleton(HealthCheck::class, fn(): HealthCheck => new HealthCheck($this));
+        $this->container->singleton(SystemReport::class, fn(): SystemReport => new SystemReport($this));
+        $this->container->singleton(PrometheusExporter::class, fn(): PrometheusExporter => new PrometheusExporter($this));
+        $this->container->singleton(Router::class, fn(): Router => $this->routes($config));
+        $this->booted = true;
+    }
+
+    private function validate(ConfigRepository $config): void
+    {
+        foreach (['app.name', 'app.env', 'app.locale', 'app.timezone', 'app.url', 'api.prefix', 'api.openapi', 'observability.prometheus_path'] as $key) {
+            $value = $config->get($key);
+            if (!is_string($value) || trim($value) === '') { throw new \RuntimeException("Invalid configuration: $key"); }
+        }
+        if (!in_array($config->get('app.env'), ['production', 'local', 'development', 'test'], true)) {
+            throw new \RuntimeException('Invalid APP_ENV.');
+        }
+        foreach (['app.debug', 'observability.prometheus_enabled'] as $key) {
+            if (!is_bool($config->get($key))) { throw new \RuntimeException("Invalid boolean configuration: $key"); }
+        }
+        if ($config->get('app.env') === 'production' && $config->get('app.debug')) {
+            throw new \RuntimeException('APP_DEBUG must be false in production.');
+        }
+        if (!in_array($config->get('app.timezone'), \DateTimeZone::listIdentifiers(\DateTimeZone::ALL_WITH_BC), true)) {
+            throw new \RuntimeException('Invalid APP_TIMEZONE.');
+        }
+        $url = parse_url($config->get('app.url'));
+        if ($url === false || !in_array($url['scheme'] ?? '', ['http', 'https'], true) || empty($url['host']) || isset($url['user']) || isset($url['pass']) || isset($url['query']) || isset($url['fragment']) || !filter_var($config->get('app.url'), FILTER_VALIDATE_URL)) {
+            throw new \RuntimeException('Invalid APP_URL.');
+        }
+        $limit = filter_var($config->get('app.max_body_bytes'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 16777216]]);
+        if ($limit === false) { throw new \RuntimeException('APP_MAX_BODY_BYTES must be 1..16777216.'); }
+        $config->set('app.max_body_bytes', $limit);
+        foreach (['api.prefix', 'observability.prometheus_path'] as $key) {
+            if (!preg_match('~^/[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*$~D', $config->get($key))) {
+                throw new \RuntimeException("Invalid route configuration: $key");
+            }
+        }
+        if (in_array($config->get('observability.prometheus_path'), ['/health', $config->get('api.prefix') . '/health'], true)) {
+            throw new \RuntimeException('Metrics path conflicts with health route.');
+        }
+    }
+
+    private function routes(ConfigRepository $config): Router
+    {
+        $router = new Router();
+        $router->middleware(static function (Request $request, callable $next) use ($config): Response {
+            if (strlen($request->body()) > $config->get('app.max_body_bytes')) {
+                throw new HttpException(413, 'payload_too_large', 'Request body exceeds the configured limit.');
+            }
+            return $next($request);
+        });
+        $health = new HealthController($this->container->get(HealthCheck::class));
+        $router->add('GET', '/', $health);
+        $router->add('GET', '/health', $health);
+        $router->add('GET', $config->get('api.prefix') . '/health', $health);
+        if ($config->get('observability.prometheus_enabled')) {
+            $router->add('GET', $config->get('observability.prometheus_path'), fn(): Response => new Response(
+                $this->container->get(PrometheusExporter::class)->render(), 200,
+                ['Content-Type' => 'text/plain; version=0.0.4; charset=utf-8']
+            ));
+        }
+        return $router;
+    }
+
+    public function config(): ConfigRepository
+    {
+        $this->boot();
+        return $this->container->get(ConfigRepository::class);
+    }
+
+    public function handle(Request $request): Response
+    {
+        try {
+            $this->boot();
+            $response = $this->container->get(Router::class)->dispatch($request);
+        } catch (\Throwable $error) {
+            $response = ErrorHandler::response($error, $request->requestId);
+        }
+        return ErrorHandler::decorate($response, $request->requestId);
     }
 }
