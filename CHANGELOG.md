@@ -2,6 +2,13 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.1.1] — PostgreSQL Runtime
+
+- Непостоянные PDO-сессии, ограниченный retry подключения с jitter, классификация PostgreSQL/libpq ошибок, настройки application_name и idle-in-transaction timeout.
+- Queue worker восстанавливает соединение на границе заданий без слепого повтора SQL/COMMIT; lease остаётся источником истины. Диагностические PostgreSQL-метрики и безопасные ошибки.
+- Раздельные CLI migration credentials и runtime-пользователь, без записи повышенного пароля в .env; совместимость backup 0.0.9/0.1.0.
+- PostgreSQL 17/18 CI, тесты потери сессии, перезапуска, TLS и отдельной роли; SQL 0001–0008 неизменны.
+
 ## [0.1.0] — First Public Release
 
 - Production Compose: изолированный PHP-FPM/Nginx/PostgreSQL, постоянная конфигурация и storage, workers/scheduler/webhooks.

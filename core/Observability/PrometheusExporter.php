@@ -16,8 +16,10 @@ final class PrometheusExporter
             . "# TYPE cajeerlogs_up gauge\ncajeerlogs_up $up\n"
             . "# HELP cajeerlogs_php_memory_bytes Memory allocated by the current PHP request.\n"
             . "# TYPE cajeerlogs_php_memory_bytes gauge\ncajeerlogs_php_memory_bytes " . memory_get_usage(true) . "\n";
+        try { $pdo=$this->app->container()->get(\PDO::class); } catch (\Throwable) { $pdo=null; }
         // Runtime liveness remains independent of PostgreSQL; omit unavailable queue gauges.
         try {
+            if ($pdo===null) { throw new \RuntimeException('Database unavailable.'); }
             $counts=$this->app->container()->get(\Cajeer\Logs\Queue\PostgresQueueDriver::class)->counts();
             $output.="# HELP cajeerlogs_queue_jobs Current ingest jobs by status.\n# TYPE cajeerlogs_queue_jobs gauge\n";
             foreach ($counts as $status=>$count) { $output.='cajeerlogs_queue_jobs{status="'.$status.'"} '.$count."\n"; }
@@ -25,6 +27,6 @@ final class PrometheusExporter
         } catch (\Throwable) {
             $output.="# HELP cajeerlogs_queue_available Queue database query successful.\n# TYPE cajeerlogs_queue_available gauge\ncajeerlogs_queue_available 0\n";
         }
-        return $output.(new OperationsMetrics($this->app))->render();
+        return $output.($pdo===null ? "# TYPE cajeerlogs_operations_available gauge\ncajeerlogs_operations_available 0\n" : (new OperationsMetrics($this->app))->render()).(new DatabaseRuntimeMetrics($this->app))->render($pdo);
     }
 }

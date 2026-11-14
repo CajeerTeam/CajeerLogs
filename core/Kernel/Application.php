@@ -12,6 +12,7 @@ use Cajeer\Logs\Config\Environment;
 use Cajeer\Logs\Http\ErrorHandler;
 use Cajeer\Logs\Database\ConnectionFactory;
 use Cajeer\Logs\Database\ConnectionFactoryInterface;
+use Cajeer\Logs\Database\ConnectionManager;
 use Cajeer\Logs\Database\MigrationRunner;
 use Cajeer\Logs\Database\DatabaseStatus;
 use Cajeer\Logs\Database\Repository\UserRepository;
@@ -86,7 +87,8 @@ final class Application
         $this->container->set(ConfigRepository::class, $config);
         $this->container->singleton(ConnectionFactory::class, fn(): ConnectionFactory => new ConnectionFactory($config));
         $this->container->singleton(ConnectionFactoryInterface::class, fn(): ConnectionFactory => $this->container->get(ConnectionFactory::class));
-        $this->container->singleton(PDO::class, fn(): PDO => $this->container->get(ConnectionFactory::class)->make('pgsql'));
+        $this->container->singleton(ConnectionManager::class, fn(): ConnectionManager => new ConnectionManager($this->container->get(ConnectionFactoryInterface::class)));
+        $this->container->singleton(PDO::class, fn(): PDO => $this->container->get(ConnectionManager::class)->connection());
         $this->container->singleton(\Cajeer\Logs\Queue\PostgresQueueDriver::class, fn(): \Cajeer\Logs\Queue\PostgresQueueDriver => new \Cajeer\Logs\Queue\PostgresQueueDriver($this->container->get(PDO::class), $config->get('queue.max_jobs')));
         $this->container->singleton(MigrationRunner::class, fn(): MigrationRunner => new MigrationRunner($this->container->get(PDO::class), $this->basePath('migrations/pgsql'), $this->container->get(ConnectionFactory::class)->schema()));
         $this->container->singleton(DatabaseStatus::class, fn(): DatabaseStatus => new DatabaseStatus($this));

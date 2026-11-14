@@ -55,7 +55,7 @@ try {
     $archive=$tmp.'/backups/'.$m['id'].'/database.dump'; $original=file_get_contents($archive); file_put_contents($archive,$original.'tamper'); clearstatcache(true,$archive); verify(rejected(fn()=>$backup->verify($m['id'])),'corrupted backup rejected'); file_put_contents($archive,$original); clearstatcache(true,$archive);
     verify(rejected(fn()=>$backup->restore($m['id'],$cfg->get('database.database'))),'cannot restore over active database');
     $target=getenv('CAJEER_TEST_RESTORE_DB'); if (!$target) throw new RuntimeException('Provision a separate EMPTY CAJEER_TEST_RESTORE_DB owned by the test role.');
-    // 0.0.9 and 0.1.0 have identical SQL migration checksums.
+    // 0.0.9 through 0.1.1 have identical SQL migration checksums.
     $manifestPath=$tmp.'/backups/'.$m['id'].'/manifest.json'; $previous=$m; $previous['version']='0.0.9'; file_put_contents($manifestPath,json_encode($previous,JSON_THROW_ON_ERROR));
     $result=$backup->restore($m['id'],$target); verify($result['status']==='restored'&&$result['api_tokens_revoked'],'restore into isolated database');
     $targetConfig=clone $cfg; $targetConfig->set('database.database',$target); $restored=(new ConnectionFactory($targetConfig))->make('pgsql');

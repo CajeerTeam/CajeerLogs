@@ -67,10 +67,10 @@ def main():
             compose('up','-d','--wait','--wait-timeout','180')
             for _ in range(60):
                 try:
-                    data,_=http('GET','/ready'); assert data['version']=='0.1.0' and data['status']=='ok'; break
+                    data,_=http('GET','/ready'); assert data['version']=='0.1.1' and data['status']=='ok'; break
                 except (OSError, AssertionError, urllib.error.URLError): time.sleep(1)
             else: raise AssertionError('HTTPS readiness did not become healthy')
-            panel,h=http('GET','/admin/'); assert b'0.1.0' in panel and 'frame-ancestors' in h['Content-Security-Policy']
+            panel,h=http('GET','/admin/'); assert b'0.1.1' in panel and 'frame-ancestors' in h['Content-Security-Policy']
             assert len(http('GET','/admin/assets/panel.js')[0])>1000
             http('GET','/.env',expected=404)
             http('GET','/metrics',expected=401)

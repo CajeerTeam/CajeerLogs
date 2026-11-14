@@ -20,10 +20,11 @@ final class DatabaseStatus
                 return ['status' => 'down', 'server_version' => $version, 'error' => 'Database session is read-only.'];
             }
             if ($pdo->query('SHOW fsync')->fetchColumn() !== 'on') { return ['status'=>'down','server_version'=>$version,'error'=>'PostgreSQL fsync must be enabled for durable ingest.']; }
-            $priv = $pdo->prepare("SELECT pg_catalog.has_schema_privilege(current_user, CAST(:schema AS text), 'CREATE')");
+            $migrationPdo = !$requireMigrations && PHP_SAPI==='cli' && (getenv('DB_MIGRATION_USERNAME')!==false || getenv('DB_MIGRATION_PASSWORD')!==false) ? $factory->make('migration') : $pdo;
+            $priv = $migrationPdo->prepare("SELECT pg_catalog.has_schema_privilege(current_user, CAST(:schema AS text), 'CREATE')");
             $priv->execute(['schema' => $schema]);
             $canMigrate = (bool) $priv->fetchColumn();
-            if (!$requireMigrations) { return ['status' => $canMigrate ? 'ok' : 'down', 'server_version' => $version, 'schema_create' => $canMigrate]; }
+            if (!$requireMigrations) { return ['status' => $canMigrate ? 'ok' : 'down', 'server_version' => $version, 'schema_create' => $canMigrate, 'separate_migration_role' => $migrationPdo !== $pdo]; }
             $status = $this->app->container()->get(MigrationRunner::class)->status();
             if ($status['pending'] !== []) { return ['status' => 'down', 'server_version' => $version, 'migrations' => $status]; }
             // Check every expected relation and its read/write privileges in one round trip.
@@ -64,9 +65,10 @@ final class DatabaseStatus
                 try { (new \Cajeer\Logs\Security\TwoFactorManager($pdo,$totpKey))->open($enrolled['id'],$enrolled['secret_ciphertext']); }
                 catch (\Throwable) { return ['status'=>'down','server_version'=>$version,'error'=>'TOTP encryption key cannot decrypt enrolled user secret.']; }
             }
-            return ['status' => 'ok', 'server_version' => $version, 'migrations' => $status];
+            $session=$pdo->query("SELECT current_setting('application_name') AS application_name, current_setting('statement_timeout') AS statement_timeout, current_setting('lock_timeout') AS lock_timeout, current_setting('idle_in_transaction_session_timeout') AS idle_transaction_timeout, COALESCE((SELECT ssl FROM pg_catalog.pg_stat_ssl WHERE pid=pg_backend_pid()),false) AS tls")->fetch();
+            return ['status' => 'ok', 'server_version' => $version, 'migrations' => $status, 'session'=>$session, 'connection'=>$this->app->container()->get(ConnectionManager::class)->metrics()];
         } catch (\Throwable $error) {
-            return ['status' => 'down', 'error' => $error instanceof DatabaseException ? $error->getMessage() : 'Database query failed.'];
+            return ['status' => 'down', 'error' => $error instanceof DatabaseException ? $error->getMessage() : 'Database query failed.', 'category'=>DatabaseFailure::category($error)];
         }
     }
 }

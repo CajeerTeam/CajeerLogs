@@ -8,6 +8,12 @@ use PDOException;
 
 final class ConnectionFactory implements ConnectionFactoryInterface
 {
+    private int $attemptCount=0;
+    private int $failedAttempts=0;
+
+    /** Counts for this factory instance, not cross-process totals. */
+    public function attempts(): array { return ['attempts'=>$this->attemptCount,'failed_attempts'=>$this->failedAttempts]; }
+
     public function __construct(private readonly ConfigRepository $config) {}
 
     public function schema(): string
@@ -21,14 +27,24 @@ final class ConnectionFactory implements ConnectionFactoryInterface
 
     public function make(string $connection): PDO
     {
-        if ($connection !== 'pgsql' || $this->config->get('database.default') !== 'pgsql') {
-            throw new DatabaseException('Only PostgreSQL is supported in 0.1.0.');
+        if (!in_array($connection, ['pgsql','migration'], true) || $this->config->get('database.default') !== 'pgsql') {
+            throw new DatabaseException('Only PostgreSQL is supported.');
         }
         $schema = $this->schema();
         $host = $this->field('host');
         $database = $this->field('database');
         $username = $this->field('username');
         $password = $this->config->get('database.password');
+        // Elevated credentials are injected into trusted CLI processes only, never runtime .env.
+        if ($connection === 'migration') {
+            if (PHP_SAPI !== 'cli') { throw new DatabaseException('Migration connections require CLI.'); }
+            $user = getenv('DB_MIGRATION_USERNAME');
+            $secret = getenv('DB_MIGRATION_PASSWORD');
+            if ($user !== false || $secret !== false) {
+                if ($user === false || $user === '' || $secret === false || $secret === '') { throw new DatabaseException('Set both DB_MIGRATION_USERNAME and DB_MIGRATION_PASSWORD.'); }
+                $username = $user; $password = $secret;
+            }
+        }
         if (!is_string($password) || $password === '' || $password === 'change_me' || str_contains($password, "\0")) {
             throw new DatabaseException('DB_PASSWORD must be a non-placeholder password.');
         }
@@ -36,6 +52,16 @@ final class ConnectionFactory implements ConnectionFactoryInterface
         $timeout = $this->number('connect_timeout', 1, 60);
         $statement = $this->number('statement_timeout_ms', 1, 600000);
         $lock = $this->number('lock_timeout_ms', 1, 600000);
+        $idle = $this->number('idle_transaction_timeout_ms', 1000, 3600000);
+        $attempts = $this->number('connect_attempts', 1, 5);
+        $delay = $this->number('connect_retry_ms', 10, 5000);
+        $keepIdle = $this->number('keepalives_idle', 1, 600);
+        $keepInterval = $this->number('keepalives_interval', 1, 120);
+        $keepCount = $this->number('keepalives_count', 1, 10);
+        $tcpTimeout = $this->number('tcp_user_timeout_ms', 1000, 600000);
+        $application = $this->field('application_name');
+        if (!preg_match('/^[A-Za-z0-9_.:-]{1,48}$/D', $application)) { throw new DatabaseException('Invalid DB_APPLICATION_NAME.'); }
+        if ($connection === 'migration') { $application .= ':migration'; }
         $ssl = $this->field('sslmode');
         if (!in_array($ssl, ['disable','allow','prefer','require','verify-ca','verify-full'], true)) {
             throw new DatabaseException('Invalid DB_SSLMODE.');
@@ -44,7 +70,7 @@ final class ConnectionFactory implements ConnectionFactoryInterface
         if (!preg_match('~^[A-Za-z0-9_.:/-]+$~D', $host) || !preg_match('/^[A-Za-z0-9_.-]+$/D', $database) || !preg_match('/^[A-Za-z0-9_.-]+$/D', $username)) {
             throw new DatabaseException('Invalid DB_HOST, DB_DATABASE or DB_USERNAME.');
         }
-        $dsn = "pgsql:host=$host;port=$port;dbname=$database;sslmode=$ssl";
+        $dsn = "pgsql:host=$host;port=$port;dbname=$database;sslmode=$ssl;gssencmode=disable;connect_timeout=$timeout;application_name=$application;keepalives=1;keepalives_idle=$keepIdle;keepalives_interval=$keepInterval;keepalives_count=$keepCount;tcp_user_timeout=$tcpTimeout";
         $cert = $this->config->get('database.sslrootcert');
         if ($cert !== '') {
             if (!is_string($cert) || !preg_match('~^/[A-Za-z0-9_./-]+$~D', $cert) || !is_readable($cert)) { throw new DatabaseException('Invalid DB_SSLROOTCERT.'); }
@@ -53,19 +79,39 @@ final class ConnectionFactory implements ConnectionFactoryInterface
         if (!in_array('pgsql', PDO::getAvailableDrivers(), true)) {
             throw new DatabaseException('Missing PHP extension pdo_pgsql.');
         }
-        try {
-            $pdo = new PDO($dsn, $username, $password, [PDO::ATTR_TIMEOUT => $timeout, PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_EMULATE_PREPARES => false, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC, PDO::ATTR_STRINGIFY_FETCHES => false]);
+        for ($attempt=1; ; $attempt++) {
+          ++$this->attemptCount;
+          try {
+            $pdo = new PDO($dsn, $username, $password, [PDO::ATTR_TIMEOUT => $timeout, PDO::ATTR_PERSISTENT => false, PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_EMULATE_PREPARES => false, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC, PDO::ATTR_STRINGIFY_FETCHES => false]);
             if ((int) $pdo->query('SHOW server_version_num')->fetchColumn() < 170000) { throw new DatabaseException('PostgreSQL 17 or newer is required.'); }
             $pdo->exec("SET search_path TO \"$schema\", pg_catalog, pg_temp");
-            $pdo->exec("SET TIME ZONE 'UTC'; SET statement_timeout = $statement; SET lock_timeout = $lock");
+            $pdo->exec("SET TIME ZONE 'UTC'; SET statement_timeout = $statement; SET lock_timeout = $lock; SET idle_in_transaction_session_timeout = $idle");
             $pdo->exec("SET client_encoding TO 'UTF8'");
             $check = $pdo->prepare('SELECT pg_catalog.has_schema_privilege(current_user, oid, \'USAGE\') FROM pg_catalog.pg_namespace WHERE nspname = :schema');
             $check->execute(['schema' => $schema]);
             if ($check->fetchColumn() !== true) { throw new DatabaseException('DB_SCHEMA must exist and grant USAGE to the application role.'); }
             return $pdo;
-        } catch (PDOException $e) {
-            throw new DatabaseException('PostgreSQL connection or session initialization failed (check credentials, TLS and permissions).', 0, $e);
+          } catch (PDOException $e) {
+            ++$this->failedAttempts;
+            // No application SQL has run. A new connection is safe; never retry user statements.
+            unset($pdo, $check);
+            $category=DatabaseFailure::category($e);
+            if ($attempt >= $attempts || !DatabaseFailure::reconnectable($e)) {
+                throw new DatabaseException('PostgreSQL connection or session initialization failed (' . $category . ').', 0, $e, $category);
+            }
+            usleep(self::retryDelay($delay, $attempt)*1000);
+          } catch (DatabaseException $e) {
+            ++$this->failedAttempts;
+            unset($pdo, $check);
+            throw $e;
+          }
         }
+    }
+
+    public static function retryDelay(int $base, int $attempt): int
+    {
+        $cap = min(5000, $base * (2 ** min(10, max(0, $attempt-1))));
+        return random_int((int)ceil($cap/2), $cap);
     }
 
     private function field(string $key): string

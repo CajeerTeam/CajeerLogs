@@ -3,6 +3,7 @@ declare(strict_types=1);
 namespace Cajeer\Logs\Queue;
 
 use PDO;
+use Cajeer\Logs\Database\DatabaseFailure;
 use Cajeer\Logs\Http\HttpException;
 use Cajeer\Logs\Log\IngestEvent;
 
@@ -66,7 +67,7 @@ final class PostgresQueueDriver implements QueueDriverInterface
             $claimed=$this->sql("UPDATE jobs SET status='running',attempts=attempts+1,reserved_at=clock_timestamp(),lease_until=clock_timestamp()+interval '2 minutes',lease_id=gen_random_uuid() WHERE id=:id RETURNING id,lease_id,attempts",['id'=>$row['id']])->fetch();
             $this->sql('INSERT INTO job_attempts(job_id,attempt) VALUES (:id,:attempt)',['id'=>$claimed['id'],'attempt'=>$claimed['attempts']]);
             $this->pdo->commit();return $claimed;
-        } catch (\Throwable $e) { if ($this->pdo->inTransaction()) $this->pdo->rollBack();throw $e; }
+        } catch (\Throwable $e) { try { if ($this->pdo->inTransaction()) $this->pdo->rollBack(); } catch (\Throwable) {} throw $e; }
     }
     /** Row lock fences stale workers; handler and completion share a single transaction. */
     public function process(array $claim): string {
@@ -83,7 +84,14 @@ final class PostgresQueueDriver implements QueueDriverInterface
             $this->sql("UPDATE job_attempts SET outcome='completed',finished_at=clock_timestamp() WHERE job_id=:id AND attempt=:attempt",['id'=>$row['id'],'attempt'=>$row['attempts']]);
             $this->pdo->commit();return 'completed';
         } catch (\Throwable $e) {
-            if ($this->pdo->inTransaction()) $this->pdo->rollBack();
+            // A broken session or uncertain COMMIT must not be converted into an ordinary retry.
+            // A fresh worker observes the committed state or recovers the lease after timeout.
+            if (DatabaseFailure::reconnectable($e)) {
+                try { if ($this->pdo->inTransaction()) $this->pdo->rollBack(); } catch (\Throwable) {}
+                throw $e;
+            }
+            try { if ($this->pdo->inTransaction()) $this->pdo->rollBack(); }
+            catch (\Throwable $rollback) { throw $rollback; }
             // Do not persist exception messages, which may contain raw event fields or secrets.
             return $this->fail($claim,$e instanceof \PDOException?'database_error':'processing_error');
         }
@@ -98,7 +106,7 @@ final class PostgresQueueDriver implements QueueDriverInterface
             $this->sql("UPDATE jobs SET status=:status,available_at=clock_timestamp()+CAST(:delay AS integer)*interval '1 second',completed_at=CASE WHEN CAST(:dead AS boolean) THEN clock_timestamp() ELSE NULL END,lease_id=NULL,lease_until=NULL,reserved_at=NULL,last_error=:error WHERE id=:id",['status'=>$dead?'dead':'pending','delay'=>self::backoff((int)$row['attempts']),'dead'=>$dead?'true':'false','error'=>$error,'id'=>$claim['id']]);
             $this->sql('UPDATE job_attempts SET outcome=:outcome,error=:error,finished_at=clock_timestamp() WHERE job_id=:id AND attempt=:attempt',['outcome'=>$outcome,'error'=>$error,'id'=>$claim['id'],'attempt'=>$row['attempts']]);
             $this->pdo->commit();return $outcome;
-        } catch (\Throwable $e) { if ($this->pdo->inTransaction()) $this->pdo->rollBack();throw $e; }
+        } catch (\Throwable $e) { try { if ($this->pdo->inTransaction()) $this->pdo->rollBack(); } catch (\Throwable) {} throw $e; }
     }
     public function retry(string $id): bool {
         return $this->sql("UPDATE jobs SET status='pending',available_at=clock_timestamp(),completed_at=NULL,max_attempts=LEAST(attempts+8,100),last_error=NULL WHERE id=:id AND queue='ingest-v1' AND status='dead' AND attempts<100",['id'=>$id])->rowCount()===1;

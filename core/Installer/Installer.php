@@ -34,7 +34,7 @@ final class Installer
             $this->app->container()->get(PDO::class);
             $factory = $this->app->container()->get(ConnectionFactory::class);
             (new EnvironmentWriter($this->app))->write();
-            $applied = $this->app->container()->get(MigrationRunner::class)->migrate();
+            $applied = (new MigrationRunner($factory->make('migration'), $this->app->basePath('migrations/pgsql'), $factory->schema()))->migrate();
             $created = $this->app->container()->get(UserRepository::class)->ensureFirstAdministrator($email, $password, $factory->schema());
             return ['applied' => $applied, 'administrator_created' => $created];
         } finally { flock($lock, LOCK_UN); fclose($lock); }

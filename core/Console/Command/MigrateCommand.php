@@ -3,6 +3,7 @@ declare(strict_types=1);
 namespace Cajeer\Logs\Console\Command;
 
 use Cajeer\Logs\Database\MigrationRunner;
+use Cajeer\Logs\Database\ConnectionFactory;
 use Cajeer\Logs\Kernel\Application;
 
 final class MigrateCommand
@@ -10,7 +11,8 @@ final class MigrateCommand
     public function __construct(private readonly Application $app) {}
     public function handle(bool $statusOnly = false): int
     {
-        $runner = $this->app->container()->get(MigrationRunner::class);
+        $factory = $this->app->container()->get(ConnectionFactory::class);
+        $runner = $statusOnly ? $this->app->container()->get(MigrationRunner::class) : new MigrationRunner($factory->make('migration'), $this->app->basePath('migrations/pgsql'), $factory->schema());
         if ($statusOnly) {
             $status = $runner->status();
             foreach ($status['applied'] as $name) { echo "[APPLIED] $name\n"; }

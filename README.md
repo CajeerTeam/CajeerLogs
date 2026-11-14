@@ -2,6 +2,10 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.1.1 — PostgreSQL Runtime
+
+Непостоянные PostgreSQL-соединения, ограниченный retry подключения, восстановление queue worker после разрыва, отдельная CLI-роль миграций, параметры сессии и метрики PostgreSQL. [Настройка и диагностика](docs/PostgreSQL-Runtime.md). SQL 0001–0008 не меняются.
+
 ## 0.1.0 — First Public Release
 
 Первый публичный MVP: централизованный приём и поиск логов, Admin Panel, проекты, API-токены, TOTP, SDK PHP/Python/TypeScript/Kotlin, файловый коллектор, PostgreSQL-очередь, webhooks, retention, мониторинг и backup/restore. Рабочая production-конфигурация PHP-FPM/Nginx/PostgreSQL через Compose, проверяемая сборка полного релиза и обязательный CI release gate. Не LTS; дополнительные СУБД, поисковые движки, HA и инциденты остаются вне релиза.

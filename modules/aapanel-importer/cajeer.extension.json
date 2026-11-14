@@ -3,7 +3,7 @@
   "type": "module",
   "version": "0.0.7",
   "requires": {
-    "cajeerlogs": ">=0.0.7 <0.1.0"
+    "cajeerlogs": ">=0.0.7 <0.2.0"
   },
   "permissions": [
     "logs.import",

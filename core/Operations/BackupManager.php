@@ -31,7 +31,7 @@ final class BackupManager
     {
         $c=$this->app->config();
         // Never inherit PGOPTIONS, PGSERVICE, or other libpq overrides. Password stays out of argv.
-        $env=['PATH'=>getenv('PATH')?:'/usr/bin:/bin','LANG'=>'C','LC_ALL'=>'C', 'PGHOST'=>$c->get('database.host'),'PGPORT'=>(string)$c->get('database.port'),'PGDATABASE'=>$database,'PGUSER'=>$c->get('database.username'),'PGPASSWORD'=>$c->get('database.password'),'PGSSLMODE'=>$c->get('database.sslmode'),'PGCONNECT_TIMEOUT'=>(string)$c->get('database.connect_timeout')];
+        $env=['PATH'=>getenv('PATH')?:'/usr/bin:/bin','LANG'=>'C','LC_ALL'=>'C', 'PGHOST'=>$c->get('database.host'),'PGPORT'=>(string)$c->get('database.port'),'PGDATABASE'=>$database,'PGUSER'=>$c->get('database.username'),'PGPASSWORD'=>$c->get('database.password'),'PGSSLMODE'=>$c->get('database.sslmode'),'PGGSSENCMODE'=>'disable','PGAPPNAME'=>'cajeerlogs:backup','PGCONNECT_TIMEOUT'=>(string)$c->get('database.connect_timeout')];
         if ($c->get('database.sslrootcert')!=='') { $env['PGSSLROOTCERT']=$c->get('database.sslrootcert'); }
         return $env;
     }
@@ -84,10 +84,10 @@ final class BackupManager
         $this->process(['pg_restore','--list',$archive],$this->app->config()->get('database.database'));
         return $m;
     }
-    /** 0.1.0 has exactly the same migration set as 0.0.9. Never accept an arbitrary downgrade. */
+    /** These explicit releases share SQL 0001–0008; restored history is checked separately. */
     public static function compatibleRelease(mixed $backup, string $current): bool
     {
-        return is_string($backup) && ($backup === $current || ($current === '0.1.0' && $backup === '0.0.9'));
+        return is_string($backup) && ($backup === $current || ($current === '0.1.0' && $backup === '0.0.9') || ($current === '0.1.1' && in_array($backup,['0.0.9','0.1.0'],true)));
     }
     public function restore(string $id,string $target): array
     {

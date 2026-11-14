@@ -108,14 +108,14 @@ final class IngestController
                 $pdo->commit();
                 return $response;
             } catch (\Throwable $e) {
-                if ($pdo->inTransaction()) { $pdo->rollBack(); }
+                try { if ($pdo->inTransaction()) { $pdo->rollBack(); } } catch (\Throwable) {}
                 throw $e;
             }
         } catch (DatabaseException $e) {
             throw new HttpException(503,'database_unavailable','Log storage unavailable.');
         } catch (PDOException $e) {
             $state=(string)$e->getCode();
-            if (str_starts_with($state,'08') || str_starts_with($state,'53') || in_array($state,['42P01','42703','55P03','57014','57P01','57P02','57P03','40001','40P01','25006'],true)) { throw new HttpException(503,'database_unavailable','Log storage unavailable.'); }
+            if (\Cajeer\Logs\Database\DatabaseFailure::unavailable($e) || str_starts_with($state,'08') || str_starts_with($state,'53') || in_array($state,['42P01','42703','55P03','57014','57P01','57P02','57P03','40001','40P01','25006'],true)) { throw new HttpException(503,'database_unavailable','Log storage unavailable.'); }
             throw $e;
         }
     }
