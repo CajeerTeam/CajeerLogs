@@ -12,3 +12,12 @@ export interface LogEvent {
   request_id?: string
   tags?: string[]
 }
+
+export interface IngestReceipt {
+  accepted: true
+  received: number
+  stored: number
+  rejected: 0
+  event_ids: string[]
+  replayed: boolean
+}

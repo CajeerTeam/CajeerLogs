@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Cajeer\Logs\Console\Command\DoctorCommand;
+use Cajeer\Logs\Console\Command\WebhookCommand;
 use Cajeer\Logs\Console\Command\AuthCleanupCommand;
 use Cajeer\Logs\Console\Command\InstallCheckCommand;
 use Cajeer\Logs\Console\Command\SystemReportCommand;
@@ -16,15 +17,20 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL);
 $command = $argv[1] ?? 'help';
 if ($command === 'help' || $command === '--help') {
-    echo "CajeerLogs CLI\nUsage: php bin/cajeer <command>\nCommands: version, install, install:check, migrate, migrate:status, db:doctor, doctor, system:report, openapi:lint, auth:cleanup\nPending (unavailable): queue:work, scheduler:run\n";
+    echo "CajeerLogs CLI\nUsage: php bin/cajeer <command>\nCommands: version, install, install:check, migrate, migrate:status, db:doctor, doctor, system:report, openapi:lint, auth:cleanup, import:aapanel, webhook:add, webhook:list, webhook:history, webhook:disable, webhook:retry, webhook:work, webhook:cleanup\nPending (unavailable): queue:work, scheduler:run\n";
     exit(0);
 }
-$pending = ['queue:work' => '0.0.8', 'scheduler:run' => '0.0.8', 'alert:dispatch' => '0.3.x', 'import:aapanel' => '0.0.7', 'update:check' => '0.0.9'];
+$pending = ['queue:work' => '0.0.8', 'scheduler:run' => '0.0.8', 'alert:dispatch' => '0.3.x', 'update:check' => '0.0.9'];
 if (isset($pending[$command])) {
     fwrite(STDERR, "$command is not implemented in this release (planned for {$pending[$command]}).\n");
     exit(69);
 }
-if (!in_array($command, ['version','--version','install:check','doctor','system:report','openapi:lint','install','migrate','migrate:status','db:doctor','auth:cleanup'], true)) {
+if ($command === 'import:aapanel') {
+    $args = array_map('escapeshellarg', array_slice($argv, 2));
+    passthru('python3 ' . escapeshellarg(dirname(__DIR__) . '/clients/python/cajeer_logs_collector.py') . ' ' . implode(' ', $args), $code);
+    exit($code);
+}
+if (!in_array($command, ['version','--version','install:check','doctor','system:report','openapi:lint','install','migrate','migrate:status','db:doctor','auth:cleanup','webhook:add','webhook:list','webhook:history','webhook:disable','webhook:retry','webhook:work','webhook:cleanup'], true)) {
     fwrite(STDERR, "Unknown command. Run php bin/cajeer help.\n");
     exit(64);
 }
@@ -40,6 +46,7 @@ try {
     }
     $app->boot();
     if ($command === 'install') { exit((new InstallCommand($app))->handle(array_slice($argv, 2))); }
+    if (str_starts_with($command, 'webhook:')) { exit((new WebhookCommand($app))->handle($command,array_slice($argv,2))); }
     if (count($argv) > 2) { throw new DatabaseException('Unexpected command arguments.'); }
     if ($command === 'migrate' || $command === 'migrate:status') { exit((new MigrateCommand($app))->handle($command === 'migrate:status')); }
     $handler = match ($command) {

@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cajeer-logs-client"
+version = "0.0.7"
+description = "CajeerLogs v1 HTTP SDK and durable file collector"
+requires-python = ">=3.10"
+license = {text = "Apache-2.0"}
+readme = "README.md"
+
+[project.scripts]
+cajeer-logs-collector = "cajeer_logs_collector:main"
+
+[tool.setuptools]
+py-modules = ["cajeer_logs_client", "cajeer_logs_collector"]

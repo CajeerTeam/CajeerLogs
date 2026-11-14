@@ -3,6 +3,16 @@ plugins {
 }
 
 group = "ru.cajeer.logs"
-version = ""
+version = "0.0.7"
 
 repositories { mavenCentral() }
+kotlin {
+    jvmToolchain(17)
+    sourceSets.named("test") { kotlin.srcDir("../../tests/sdk") }
+}
+tasks.register<JavaExec>("wireTest") {
+    dependsOn(tasks.named("testClasses"))
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("WireTestKt")
+    doFirst { args(providers.gradleProperty("wireUrl").get(), providers.gradleProperty("wireToken").get()) }
+}

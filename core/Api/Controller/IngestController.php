@@ -68,6 +68,7 @@ final class IngestController
                 $replayed=$ids!==null;
                 if (!$replayed) {
                     $ids=$repo->storeBatch($events,$project,$sources,$p['id']);
+                    (new \Cajeer\Logs\Integration\EventApiDispatcher($pdo))->publishCommittedLogs($project,$ids);
                     if ($keyHash!==null) { $repo->saveReceipt($p['id'],$keyHash,$requestHash,$ids); }
                 }
                 $response=new JsonResponse(['accepted'=>true,'received'=>count($events),'stored'=>$replayed?0:count($ids),'rejected'=>0,'event_ids'=>$ids,'replayed'=>$replayed],$replayed?200:201);

@@ -2,6 +2,13 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.0.7] — SDK & Integrations
+
+- Рабочие PHP/PSR-3/Monolog, Python/logging, TypeScript/Node и Kotlin/JVM SDK: batch, HMAC v1, retry/backoff, idempotency и проверка подтверждения.
+- Unix/Linux collector: SQLite pending/checkpoint, JSONL/text/Nginx, aaPanel CLI, rotation/restart, systemd example.
+- `logs.ingested` webhooks: атомарный PostgreSQL outbox, HTTPS/HMAC, публичный IPv4 DNS pinning, leases, retry/history/disable/cleanup; CLI worker.
+- Миграция 0006 без изменения 0001–0005; SDK wire/collector tests и webhook integration suite в CI.
+
 ## [0.0.6] — Admin Panel
 
 - Реальная same-origin SPA `/admin/`: cookie-сессии, CSRF, роли, dashboard, фильтры, пагинация, детали, CSV/JSON.

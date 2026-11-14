@@ -36,7 +36,7 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: ctype, filter, pdo, pdo_pgsql, dom, mbstring, xml, xmlwriter
+          extensions: ctype, filter, curl, pdo, pdo_pgsql, dom, mbstring, xml, xmlwriter
           coverage: none
           tools: composer:v2
       - name: Provision restricted PostgreSQL role
@@ -69,6 +69,22 @@ jobs:
       - run: php bin/cajeer openapi:lint
       - run: python3 tests/http_runtime.py
       - run: python3 tests/python_ingest.py
+      - run: php tests/webhooks.php
+      - run: php tests/webhook_database.php
+      - uses: actions/setup-java@v4
+        if: matrix.php == '8.4'
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        if: matrix.php == '8.4'
+        with:
+          gradle-version: '8.10.2'
+      - name: SDK HTTP and collector tests
+        if: matrix.php == '8.4'
+        run: |
+          npm --prefix packages/ts-sdk install --no-audit --no-fund
+          python3 tests/sdk_wire.py
       - name: Admin asset verification
         run: npm --prefix admin run build
       - name: Install browser test runner

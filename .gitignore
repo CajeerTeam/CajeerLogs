@@ -25,3 +25,11 @@
 
 /.browser-venv/
 /tests/__pycache__/
+
+/clients/python/__pycache__/
+/clients/python/*.egg-info/
+/clients/python/build/
+/packages/ts-sdk/dist/
+/packages/ts-sdk/node_modules/
+/clients/java-kotlin/.gradle/
+/clients/java-kotlin/build/

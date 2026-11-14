@@ -28,7 +28,7 @@ final class DatabaseStatus
             // Check every expected relation and its read/write privileges in one round trip.
             $relations = $pdo->prepare(<<<'SQL'
                 WITH expected(name) AS (VALUES ('users'), ('projects'), ('sources'), ('api_tokens'),
-                    ('project_members'), ('auth_sessions'), ('auth_rate_limits'), ('ingest_receipts'), ('ingest_nonces'), ('log_events'), ('audit_log'), ('jobs'), ('settings'), ('webhooks'), ('extensions')),
+                    ('project_members'), ('auth_sessions'), ('auth_rate_limits'), ('ingest_receipts'), ('ingest_nonces'), ('log_events'), ('audit_log'), ('jobs'), ('settings'), ('webhooks'), ('extensions'), ('integration_webhooks'), ('webhook_deliveries'), ('webhook_attempts')),
                 checked AS (
                     SELECT name, pg_catalog.to_regclass(pg_catalog.format('%I.%I', CAST(:schema AS text), name))::oid AS relation
                     FROM expected

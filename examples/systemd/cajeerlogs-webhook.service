@@ -1,0 +1,17 @@
+[Unit]
+Description=CajeerLogs outgoing webhook delivery
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=cajeerlogs
+Group=cajeerlogs
+WorkingDirectory=/var/www/cajeerlogs
+# Optional: put per-hook CAJEER_WEBHOOK_* secrets in protected .env or this file.
+EnvironmentFile=-/etc/cajeerlogs/webhooks.env
+ExecStart=/usr/bin/php bin/cajeer webhook:work 20
+TimeoutStartSec=360
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true

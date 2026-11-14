@@ -1,0 +1,23 @@
+[Unit]
+Description=CajeerLogs remote file collector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cajeer-collector
+Group=cajeer-collector
+EnvironmentFile=/etc/cajeerlogs/collector.env
+StateDirectory=cajeer-collector
+StateDirectoryMode=0700
+UMask=0077
+ExecStart=/usr/bin/python3 /opt/cajeerlogs/clients/python/cajeer_logs_collector.py --file /var/log/myapp/app.jsonl --state /var/lib/cajeer-collector/app.sqlite --source app --format jsonl --signed
+Restart=on-failure
+RestartSec=15
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,3 +1,6 @@
 # Install into the application OS user's crontab; use the actual project and PHP paths.
 */15 * * * * cd /var/www/cajeerlogs && /usr/bin/php bin/cajeer auth:cleanup
 # queue:work and scheduler:run are not available before 0.0.8.
+# Enable only if outgoing hooks are configured; use either cron or systemd timer.
+# * * * * * cd /var/www/cajeerlogs && /usr/bin/php bin/cajeer webhook:work 20
+# 15 3 * * * cd /var/www/cajeerlogs && /usr/bin/php bin/cajeer webhook:cleanup

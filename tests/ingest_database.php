@@ -39,7 +39,7 @@ try {
     $writer=$tokens->create('project writer',['logs:write'],$project); $scoped=$tokens->create('source writer',['logs:write'],$project,$source); $reader=$tokens->create('reader',['logs:read'],$project,$source);
     $legacy=$pdo->query("INSERT INTO log_events(occurred_at,source,level,message) VALUES(now(),'legacy','info','historic event') RETURNING id")->fetchColumn();
     $runner=$app->container()->get(MigrationRunner::class);
-    verify($runner->migrate()===['0004_log_ingestion.sql','0005_log_search.sql']&&$runner->migrate()===[],'0.0.3 -> current upgrade and repeat');
+    verify($runner->migrate()===['0004_log_ingestion.sql','0005_log_search.sql','0006_sdk_integrations.sql']&&$runner->migrate()===[],'0.0.3 -> current upgrade and repeat');
     verify($pdo->query("SELECT id FROM log_events WHERE source='legacy'")->fetchColumn()===$legacy,'historic unscoped row preserved');
     verify($app->handle(new Request('GET','/ready'))->status===200,'readiness after migration');
     $event=['timestamp'=>'2026-01-02T03:04:05.123456+03:00','source'=>'app','level'=>'ERROR','message'=>'login password=hidden-value','service'=>'backend','host'=>'host1','trace_id'=>'trace-1','request_id'=>'req-1','context'=>(object)['password'=>'hidden-context','nested'=>(object)['apiKey'=>'another-secret'],'empty'=>(object)[],'list'=>[]],'tags'=>['one','two','one']];
@@ -140,6 +140,19 @@ WORKER;
         $result=file_get_contents('http://'.$address.'/api/v1/ingest',false,$ctx); verify($result!==false&&str_contains($http_response_header[0]??'',' 201 '),'real network POST committed');
         $network=json_decode($result,true,32,JSON_THROW_ON_ERROR); $stmt=$separate->prepare('SELECT count(*) FROM log_events WHERE id=:id'); $stmt->execute(['id'=>$network['event_ids'][0]]); verify((int)$stmt->fetchColumn()===1,'network event visible in PostgreSQL');
         $result=file_get_contents('http://'.$address.'/api/v1/ingest',false,$ctx); verify($result!==false&&str_contains($http_response_header[0]??'',' 200 ')&&json_decode($result,true)['event_ids']===$network['event_ids'],'network idempotent replay across requests');
+        // Real SDK/collector requests use the same network endpoint and an independent connection.
+        $sdkEnv=array_replace($env,['CL_TEST_URL'=>'http://'.$address,'CL_TEST_TOKEN'=>$secret]);
+        $sdkCommands=[['python3','tests/sdk_database_client.py']];
+        if (is_file($root.'/vendor/autoload.php')) { $sdkCommands[]=[PHP_BINARY,'tests/sdk/php_database.php']; }
+        foreach ($sdkCommands as $command) {
+            $sdk=proc_open($command,[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$sdkPipes,$root,$sdkEnv);
+            if (!is_resource($sdk)) { throw new RuntimeException('Cannot start SDK test.'); }
+            fclose($sdkPipes[0]);$sdkOut=stream_get_contents($sdkPipes[1]);$sdkErr=stream_get_contents($sdkPipes[2]);fclose($sdkPipes[1]);fclose($sdkPipes[2]);
+            verify(proc_close($sdk)===0,'real SDK HTTP integration: '.$command[1]);echo $sdkOut;
+        }
+        $stmt=$separate->prepare('SELECT count(*) FROM log_events WHERE message=:message');
+        foreach (['sdk real postgres event','sdk collector real postgres event'] as $message) { $stmt->execute(['message'=>$message]);verify((int)$stmt->fetchColumn()===1,'SDK event committed exactly once'); }
+        if (count($sdkCommands)>1) { foreach (['sdk psr3 real postgres event','sdk monolog real postgres event'] as $message) { $stmt->execute(['message'=>$message]);verify((int)$stmt->fetchColumn()===1,'logging adapter event committed'); } }
     } finally { proc_terminate($process); proc_close($process); if (is_file($log)) { unlink($log); } }
     echo "Ingest PostgreSQL: $count checks passed\n";
 } finally {

@@ -2,9 +2,9 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
-## 0.0.6 — Admin Panel
+## 0.0.7 — SDK & Integrations
 
-Рабочая административная панель по `/admin/`: вход, dashboard, Log Explorer, экспорт, проекты, источники, участники, API-токены, пользователи, диагностика, настройки профиля. См. [Admin Panel](docs/Admin-Panel.md). PHP 8.4+, PostgreSQL 17+, существующий API v1; Node.js не требуется на сервере. Для обновления 0.0.5 сделайте backup и наложите файлы. Новых миграций нет. TOTP, очереди и инциденты ещё не реализованы.
+Рабочие SDK PHP/PSR-3/Monolog, Python, TypeScript и Kotlin/JVM с HMAC, повторными попытками и проверкой подтверждения. Файловый collector с SQLite checkpoint, JSONL/text/Nginx и aaPanel CLI; исходящие webhooks с транзакционным PostgreSQL outbox, подписью и историей доставки. См. [SDK & Integrations](docs/SDK-Integrations.md). Для обновления 0.0.6 сделайте backup, наложите файлы, выполните `php bin/cajeer migrate` (0006). Admin Panel доступна по `/admin/`; PHP 8.4+, PostgreSQL 17+, Node.js не нужен на сервере. TOTP, общая очередь логов и инциденты ещё не реализованы.
 
 ### Быстрый запуск
 

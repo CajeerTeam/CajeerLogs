@@ -27,7 +27,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Location", "/capture")
             self.end_headers()
             return
-        body = b'{"accepted":true,"event_ids":["test-id"]}'
+        payload = json.loads(raw)
+        count = len(payload["events"]) if "events" in payload else 1
+        body = json.dumps({"accepted": True, "received": count, "stored": count, "rejected": 0, "replayed": False, "event_ids": ["test-id"] * count}).encode()
         self.send_response(201)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))

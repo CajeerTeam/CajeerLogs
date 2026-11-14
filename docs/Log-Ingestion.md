@@ -95,13 +95,13 @@ signature = hmac.new(token.encode(), canonical.encode(), hashlib.sha256).hexdige
 # Send timestamp, nonce, signature in the three X-Log-* headers; send exact body bytes.
 ```
 
-Python-клиент из `clients/python` поддерживает этот протокол через `signed=True`. Старый body-only HMAC не принимается. Webhook signing и Event API не включены в релиз.
+Python-клиент из `clients/python` поддерживает этот протокол через `signed=True`. Старый body-only HMAC не принимается. С 0.0.7 исходящие `logs.ingested` webhooks используют отдельную подпись и transactional outbox: [SDK & Integrations](SDK-Integrations.md).
 
 ## Эксплуатация
 
 Запускайте `php bin/cajeer auth:cleanup` через cron (например каждую минуту или каждые 5 минут); команда удаляет просроченные сессии, rate-limit buckets, receipts и nonce пакетами до 10000 на таблицу. Не удаляет log_events. При высокой частоте следите за отставанием cleanup и размером таблиц; настройте частоту. Политики хранения самих логов — следующий этап, до него контролируйте свободное место и резервные копии PostgreSQL.
 
-`/ready` проверяет 0004 и права к новым таблицам. HTTP 503 при недоступной БД или временной SQL-ошибке. Ошибки 400 (JSON), 401 (credential/signature), 403 (scope/HTTPS), 409 (nonce/key conflict), 413 (size), 415 (media), 422 (validation), 429 (rate), 500 (unexpected). Ответы ошибок не содержат исходного события. С 0.0.5 сохранённые события доступны через [Log Search](Log-Search.md); графическая UI и расширенная аналитика остаются будущими релизами.
+`/ready` проверяет 0004 и права к новым таблицам. HTTP 503 при недоступной БД или временной SQL-ошибке. Ошибки 400 (JSON), 401 (credential/signature), 403 (scope/HTTPS), 409 (nonce/key conflict), 413 (size), 415 (media), 422 (validation), 429 (rate), 500 (unexpected). Ответы ошибок не содержат исходного события. С 0.0.5 сохранённые события доступны через [Log Search](Log-Search.md); графическая Admin Panel доступна с 0.0.6; расширенная аналитика остаётся будущим релизом.
 
 Проверки:
 
