@@ -100,6 +100,7 @@ final class Application
         $this->container->singleton(HealthCheck::class, fn(): HealthCheck => new HealthCheck($this));
         $this->container->singleton(SystemReport::class, fn(): SystemReport => new SystemReport($this));
         $this->container->singleton(PrometheusExporter::class, fn(): PrometheusExporter => new PrometheusExporter($this));
+        $this->container->singleton(\Cajeer\Logs\Log\IngestService::class, fn()=>new \Cajeer\Logs\Log\IngestService($this));
         $this->container->singleton(Router::class, fn(): Router => $this->routes($config));
         $this->booted = true;
     }
@@ -133,6 +134,11 @@ final class Application
         $rate = !is_bool($config->get('api.rate_limit')) ? filter_var($config->get('api.rate_limit'), FILTER_VALIDATE_INT, ['options'=>['min_range'=>1,'max_range'=>100000]]) : false;
         if ($rate === false) { throw new \RuntimeException('Invalid API_RATE_LIMIT_PER_MINUTE.'); }
         $config->set('api.rate_limit', $rate);
+        foreach (['ingest.max_inflight'=>[0,128], 'ingest.budget_ms'=>[100,120000]] as $key=>[$min,$max]) {
+            $value=is_bool($config->get($key)) ? false : filter_var($config->get($key),FILTER_VALIDATE_INT,['options'=>['min_range'=>$min,'max_range'=>$max]]);
+            if ($value===false) throw new \RuntimeException('Invalid configuration: '.$key);
+            $config->set($key,$value);
+        }
         $queueMax=filter_var($config->get('queue.max_jobs'),FILTER_VALIDATE_INT,['options'=>['min_range'=>1,'max_range'=>100000]]);
         if ($queueMax===false) { throw new \RuntimeException('Invalid QUEUE_MAX_JOBS.'); }
         $config->set('queue.max_jobs',$queueMax);
@@ -189,12 +195,16 @@ final class Application
 
     public function handle(Request $request): Response
     {
+        $started=hrtime(true);
+        $mode=null;
         try {
             $this->boot();
+            $mode=\Cajeer\Logs\Observability\IngestMetrics::mode($request->method,$request->path,$this->config()->get('api.prefix'));
             $response = $this->container->get(Router::class)->dispatch($request);
         } catch (\Throwable $error) {
             $response = ErrorHandler::response($error, $request->requestId);
         }
+        if ($mode!==null) (new \Cajeer\Logs\Observability\IngestMetrics($this->basePath('storage/cache')))->record($mode,$response,(hrtime(true)-$started)/1e9);
         return ErrorHandler::decorate($response, $request->requestId, $request->secureTransport);
     }
 }

@@ -48,6 +48,6 @@ check($p->pending,'rolled-back publication retains quarantine');
 RestoreFence::assertAvailable($p);
 check(!$p->pending,'successful publication permits runtime');
 check(BackupManager::expectedPending('0.1.0')===['0009_project_management.sql','0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql'],'exact older release history');
-check(BackupManager::expectedPending('0.1.9')===[]&&BackupManager::expectedPending('0.2.0')===[],'current and immediate previous histories identical');
-check(rejects(fn()=>BackupManager::expectedPending('0.2.1')),'unknown backup release refused');
+check(BackupManager::expectedPending('0.1.9')===[]&&BackupManager::expectedPending('0.2.0')===[]&&BackupManager::expectedPending('0.2.1')===[],'current and immediate previous histories identical');
+check(rejects(fn()=>BackupManager::expectedPending('0.2.2')),'unknown backup release refused');
 echo "Restore fence: $n checks passed\n";

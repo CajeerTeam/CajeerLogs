@@ -67,10 +67,10 @@ def main():
             compose('up','-d','--wait','--wait-timeout','180')
             for _ in range(60):
                 try:
-                    data,_=http('GET','/ready'); assert data['version']=='0.2.0' and data['status']=='ok'; break
+                    data,_=http('GET','/ready'); assert data['version']=='0.2.1' and data['status']=='ok'; break
                 except (OSError, AssertionError, urllib.error.URLError): time.sleep(1)
             else: raise AssertionError('HTTPS readiness did not become healthy')
-            panel,h=http('GET','/admin/'); assert b'0.2.0' in panel and 'frame-ancestors' in h['Content-Security-Policy']
+            panel,h=http('GET','/admin/'); assert b'0.2.1' in panel and 'frame-ancestors' in h['Content-Security-Policy']
             assert len(http('GET','/admin/assets/panel.js')[0])>1000
             http('GET','/.env',expected=404)
             http('GET','/metrics',expected=401)
@@ -95,6 +95,8 @@ def main():
             event={'timestamp':datetime.datetime.now(datetime.timezone.utc).isoformat(),'source':'app','level':'error','message':'release smoke error','context':{'password':'must-not-store','proof':'release'}}
             d,_=http('POST','/api/v1/ingest',event,bearer|{'Idempotency-Key':'release-sync'},201); eventid=d['event_ids'][0]
             d,_=http('POST','/api/v1/ingest',event,bearer|{'Idempotency-Key':'release-sync'}); assert d['replayed'] and d['event_ids']==[eventid]
+            d,h=http('POST','/api/v1/ingest',event,bearer|{'Content-Encoding':'gzip'},415); assert d['error']=='unsupported_media_type' and d['request_id']==h['X-Request-ID']
+            m,_=http('GET','/metrics',headers={'Authorization':'Bearer '+metrics}); assert b'cajeerlogs_ingest_requests_total{mode="sync",status="201"}' in m and b'cajeerlogs_ingest_duration_seconds_count{mode="sync"}' in m
             d,_=http('POST','/api/v1/ingest/async',event|{'message':'release async error'},bearer|{'Idempotency-Key':'release-async'},202); job=d['job_id']
             for _ in range(60):
                 d,_=http('GET',f'/api/v1/ingest/jobs/{job}',headers=bearer)

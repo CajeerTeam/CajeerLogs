@@ -67,7 +67,7 @@ with server() as port:
     for path in ("/", "/health", "/api/v1/health?probe=1"):
         status, headers, body = request(port, "GET", path)
         data = json.loads(body)
-        check(status == 200 and data["version"] == "0.2.0" and data["scope"] == "runtime", f"GET {path}")
+        check(status == 200 and data["version"] == "0.2.1" and data["scope"] == "runtime", f"GET {path}")
         check(len(headers["x-request-id"]) == 32 and headers["cache-control"] == "no-store" and headers["x-content-type-options"] == "nosniff", f"headers {path}")
     status, headers, body = request(port, "POST", "/health")
     check(status == 405 and headers["allow"] == "GET, HEAD, OPTIONS" and json.loads(body)["request_id"] == headers["x-request-id"], "405 + Allow + correlation")
@@ -102,7 +102,7 @@ with server() as port:
     status, headers, body = request(port, "GET", "/admin")
     check(status == 308 and headers["location"] == "/admin/", "admin canonical redirect")
     status, headers, body = request(port, "GET", "/admin/")
-    check(status == 200 and headers["content-type"].startswith("text/html") and b'content="0.2.0"' in body and b'content="/api/v1"' in body, "admin HTML runtime version and API prefix")
+    check(status == 200 and headers["content-type"].startswith("text/html") and b'content="0.2.1"' in body and b'content="/api/v1"' in body, "admin HTML runtime version and API prefix")
     check("script-src 'self'" in headers["content-security-policy"] and "frame-ancestors 'none'" in headers["content-security-policy"] and headers["cache-control"] == "no-store", "admin CSP and no-store")
     check(request(port, "HEAD", "/admin/")[2] == b"", "admin HEAD without body")
     check(request(port, "POST", "/admin/")[0] == 405, "admin unsupported method")
@@ -137,7 +137,7 @@ with tempfile.TemporaryDirectory() as temp:
         status, _, body = request(port, "GET", "/health")
         check(status == 503 and json.loads(body)["status"] == "down" and json.loads(body)["service"] == "FromProcess", "readiness failure + process env precedence")
         check(b"cajeerlogs_up 0" in request(port, "GET", "/metrics")[2], "unhealthy metrics")
-    (copy / "storage").mkdir()
+    (copy / "storage" / "cache").mkdir(parents=True)
     with server(copy) as port:
         status, _, body = request(port, "GET", "/health")
         check(status == 200 and json.loads(body)["service"] == "FromFile", "dotenv loaded at HTTP bootstrap")
@@ -160,5 +160,22 @@ with server(DB_CONNECTION="unsupported") as port:
     status, _, body = request(port, "GET", "/ready")
     check(status == 503 and json.loads(body)["scope"] == "database" and json.loads(body)["status"] == "down", "database readiness failure")
     check(request(port, "GET", "/health")[0] == 200, "runtime liveness independent of database")
+
+# Real HTTP envelope and shared metrics, even when the database is unavailable.
+with server(DB_CONNECTION="unsupported", APP_MAX_BODY_BYTES="16777216") as port:
+    auth={"Authorization":"Bearer cl_"+"a"*64,"Content-Type":"application/json"}
+    for path in ("/api/v1/ingest","/api/v1/ingest/async"):
+        headers=auth|{"Idempotency-Key":"envelope-test"}
+        status, hs, body=request(port,"POST",path,b"{}",headers|{"Content-Type":"application/json; charset=latin1"})
+        check(status==415 and json.loads(body)["request_id"]==hs["x-request-id"],"invalid charset before DB "+path)
+        check(request(port,"POST",path,b"{}",headers|{"Content-Encoding":"gzip"})[0]==415,"compressed body rejected "+path)
+        check(request(port,"POST",path,b"",headers)[0]==400,"empty body rejected "+path)
+        status,hs,body=request(port,"POST",path,b"{}",headers)
+        check(status==503 and hs.get("retry-after")=="5" and json.loads(body)["error"]=="service_unavailable","temporary error retry "+path)
+        status,hs,body=request(port,"POST",path,b"x"*1048577,headers)
+        check(status==413 and json.loads(body)["request_id"]==hs["x-request-id"],"ingest hard cap before body read "+path)
+    metrics=request(port,"GET","/metrics")[2]
+    check(b'cajeerlogs_ingest_requests_total{mode="sync",status="503"}' in metrics and b'cajeerlogs_ingest_requests_total{mode="async",status="413"}' in metrics,"real shared HTTP counters include body-read failures")
+    check(b'cajeerlogs_ingest_duration_seconds_count{mode="sync"}' in metrics and b'cl_'+b'a'*64 not in metrics,"latency histogram has no token labels")
 
 print(f"HTTP integration: {COUNT} checks passed")

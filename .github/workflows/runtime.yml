@@ -10,11 +10,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: |
-          python3 scripts/release.py build release-out/CajeerLogs-0.2.0.zip
-          (cd release-out && sha256sum -c CajeerLogs-0.2.0.zip.sha256)
+          python3 scripts/release.py build release-out/CajeerLogs-0.2.1.zip
+          (cd release-out && sha256sum -c CajeerLogs-0.2.1.zip.sha256)
       - uses: actions/upload-artifact@v4
         with:
-          name: CajeerLogs-0.2.0-candidate-uncertified
+          name: CajeerLogs-0.2.1-candidate-uncertified
           path: release-out/
           if-no-files-found: error
   runtime:
@@ -57,7 +57,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
-          name: CajeerLogs-0.2.0-candidate-uncertified
+          name: CajeerLogs-0.2.1-candidate-uncertified
           path: release-out
       - uses: shivammathur/setup-php@v2
         with:
@@ -108,6 +108,7 @@ jobs:
       - run: composer test:database-config
       - run: composer test:identity
       - run: composer test:ingest
+      - run: php tests/ingest_runtime.php
       - run: composer test:search
       - run: php tests/log_repository.php
       - run: python3 tests/archive_import.py
@@ -142,10 +143,10 @@ jobs:
           psql -h 127.0.0.1 -U postgres -d cajeer_logs -v ON_ERROR_STOP=1 -c 'DROP SCHEMA cl_split_role CASCADE' 
       - name: Database core certification of the exact release ZIP (including both upgrades)
         run: |
-          mkdir -p /tmp/cajeer-0.1.0 /tmp/cajeer-0.1.9
+          mkdir -p /tmp/cajeer-0.1.0 /tmp/cajeer-0.2.0
           git archive 9b2054b80044492311095538867ef774730dd8fb | tar -x -C /tmp/cajeer-0.1.0
-          git archive 10979e297f2e9e627ba0604bfe14b858ec637be1 | tar -x -C /tmp/cajeer-0.1.9
-          python3 scripts/certify.py database release-out/CajeerLogs-0.2.0.zip --from-010 /tmp/cajeer-0.1.0 --from-019 /tmp/cajeer-0.1.9 --output /tmp/database-certification.json
+          git archive a8b9c1529fdcefa280fa70ff7a2539e55f5426ec | tar -x -C /tmp/cajeer-0.2.0
+          python3 scripts/certify.py database release-out/CajeerLogs-0.2.1.zip --from-010 /tmp/cajeer-0.1.0 --from-020 /tmp/cajeer-0.2.0 --output /tmp/database-certification.json
       - uses: actions/setup-java@v4
         if: matrix.php == '8.4' && matrix.postgres == '17'
         with:
@@ -189,7 +190,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: CajeerLogs-0.2.0-candidate-uncertified
+          name: CajeerLogs-0.2.1-candidate-uncertified
           path: release-out
       - uses: actions/download-artifact@v4
         with:
@@ -197,13 +198,13 @@ jobs:
           path: /tmp/database-evidence
       - name: Verify full matrix and execute production smoke on the identical archive
         run: |
-          (cd release-out && sha256sum -c CajeerLogs-0.2.0.zip.sha256)
-          python3 scripts/certify.py release release-out/CajeerLogs-0.2.0.zip --reports /tmp/database-evidence --output release-out/database-certification.json
+          (cd release-out && sha256sum -c CajeerLogs-0.2.1.zip.sha256)
+          python3 scripts/certify.py release release-out/CajeerLogs-0.2.1.zip --reports /tmp/database-evidence --output release-out/database-certification.json
       - uses: actions/upload-artifact@v4
         with:
-          name: CajeerLogs-0.2.0-certified-ci
+          name: CajeerLogs-0.2.1-certified-ci
           path: |
-            release-out/CajeerLogs-0.2.0.zip
-            release-out/CajeerLogs-0.2.0.zip.sha256
+            release-out/CajeerLogs-0.2.1.zip
+            release-out/CajeerLogs-0.2.1.zip.sha256
             release-out/database-certification.json
           if-no-files-found: error

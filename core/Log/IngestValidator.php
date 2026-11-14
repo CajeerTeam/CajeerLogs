@@ -20,10 +20,7 @@ final class IngestValidator
     /** @return list<IngestEvent> */
     public function parse(Request $request): array
     {
-        if (strlen($request->body())>self::MAX_BODY_BYTES) { throw new HttpException(413,'payload_too_large','Ingest body exceeds 1 MiB.'); }
-        $type = strtolower(trim(explode(';', $request->header('Content-Type', '') ?? '', 2)[0]));
-        if ($type !== 'application/json' && !str_ends_with($type, '+json')) { throw new HttpException(415,'unsupported_media_type','Expected JSON.'); }
-        if (!in_array(strtolower($request->header('Content-Encoding','identity') ?? 'identity'),['','identity'],true)) { throw new HttpException(415,'unsupported_media_type','Compressed request bodies are not supported.'); }
+        IngestEnvelope::validate($request,self::MAX_BODY_BYTES);
         try { $data = json_decode($request->body(), false, 32, JSON_THROW_ON_ERROR | JSON_BIGINT_AS_STRING); }
         catch (\JsonException) { throw new HttpException(400,'invalid_json','Malformed JSON request body.'); }
         if (!$data instanceof stdClass) { self::invalid('Expected a log event or an events object.'); }

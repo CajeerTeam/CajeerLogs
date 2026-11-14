@@ -31,6 +31,7 @@ REQUIRED = {'release.json', 'core/bootstrap.php', 'bin/cajeer', 'public/index.ph
             'deploy/production/nginx.conf', 'deploy/production/pool.conf', 'deploy/production/maintenance.sh',
             'deploy/production/environment.example', 'scripts/release.py', 'tests/release.py',
             'tests/release_runtime.php', 'tests/production_smoke.py', 'tests/upgrade_release.py',
+            'core/Log/IngestService.php', 'core/Log/IngestEnvelope.php', 'core/Log/IngestAdmission.php', 'core/Log/IngestBudget.php', 'core/Observability/IngestMetrics.php', 'tests/ingest_runtime.php', 'docs/Ingest-Runtime.md',
             'core/Database/ConnectionManager.php', 'core/Database/DatabaseFailure.php',
             'core/Observability/DatabaseRuntimeMetrics.php', 'docs/PostgreSQL-Runtime.md',
             'tests/postgres_runtime.php', 'tests/postgres_runtime_database.php', 'tests/postgres_split_role.php', 'tests/postgres_ci.sh',

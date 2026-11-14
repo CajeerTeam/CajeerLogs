@@ -13,10 +13,11 @@ set_error_handler(static function (int $severity, string $message, string $file,
     if (!(error_reporting() & $severity)) { return false; }
     throw new ErrorException($message, 0, $severity, $file, $line);
 });
+$started=hrtime(true);
 try {
     $app = require dirname(__DIR__) . '/core/bootstrap.php';
     $app->boot();
-    $request = Request::fromGlobals($app->config()->get('app.max_body_bytes'));
+    $request = Request::fromGlobals($app->config()->get('app.max_body_bytes'),$app->config()->get('api.prefix'));
     $response = $app->handle($request);
 } catch (Throwable $error) {
     $id = bin2hex(random_bytes(16));
@@ -33,6 +34,13 @@ try {
         }
         return;
     }
-    $response = ErrorHandler::decorate(ErrorHandler::response($error, $id), $id);
+    $response = ErrorHandler::decorate(ErrorHandler::response($error, $id), $id, in_array(strtolower((string)($_SERVER['HTTPS']??'')),['on','1'],true));
+    // Body/framing failures before Request construction are also counted when boot succeeded.
+    if (isset($app)) {
+        try {
+            $mode=\Cajeer\Logs\Observability\IngestMetrics::mode((string)($_SERVER['REQUEST_METHOD']??''),explode('?',(string)($_SERVER['REQUEST_URI']??'/'),2)[0],$app->config()->get('api.prefix'));
+            if ($mode!==null) (new \Cajeer\Logs\Observability\IngestMetrics($app->basePath('storage/cache')))->record($mode,$response,(hrtime(true)-$started)/1e9);
+        } catch (Throwable) { /* Never mask the original request failure. */ }
+    }
 }
 $response->send(($_SERVER['REQUEST_METHOD'] ?? '') === 'HEAD');

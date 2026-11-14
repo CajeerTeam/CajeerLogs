@@ -21,6 +21,10 @@ final class Diagnostics
         }
         $checks['configuration_loaded'] = $this->app->container()->has('config');
         $checks['storage_writable'] = is_dir($this->app->basePath('storage')) && is_writable($this->app->basePath('storage'));
+        if ($this->app->config()->get('ingest.max_inflight')>0) {
+            $cache=$this->app->basePath('storage/cache');
+            $checks['ingest_cache_writable']=is_dir($cache) && is_writable($cache);
+        }
         return $checks;
     }
 

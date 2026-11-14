@@ -4,7 +4,7 @@
 
 | Версия | Статус |
 |---|---|
-| 0.2.0 | Database Core; текущая версия (Public Preview до CI) |
+| 0.2.1 | Ingest Runtime; текущая версия (Public Preview до CI) |
 
 ## Сообщение об уязвимости
 

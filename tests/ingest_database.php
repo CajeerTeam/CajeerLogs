@@ -55,6 +55,31 @@ try {
     verify($row['utc']==='2026-01-02 00:04:05.123456'&&$row['level']==='error'&&$row['service']==='backend'&&$row['host']==='host1'&&$row['trace_id']==='trace-1'&&$row['request_id']==='req-1'&&json_decode($row['tags_json'],true)===['one','two'],'stored normalized metadata');
     $ctx=json_decode($row['context']); verify($ctx->password==='[redacted]'&&$ctx->nested->apiKey==='[redacted]'&&$ctx->empty instanceof stdClass&&$ctx->list===[]&&!str_contains($row['message'],'hidden-value'),'secrets masked before persistence');
     verify((int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===$before+1,'single event persisted');
+    // A genuinely blocked token row must respect the transactional SQL budget.
+    $countBeforeBudget=(int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn();
+    $oldBudget=$app->config()->get('ingest.budget_ms');
+    $oldStatement=$pdo->query('SHOW statement_timeout')->fetchColumn();
+    $separate->beginTransaction();
+    try {
+        $lock=$separate->prepare('SELECT id FROM api_tokens WHERE id=:id FOR UPDATE'); $lock->execute(['id'=>$writer['id']]); $lock->closeCursor();
+        $app->config()->set('ingest.budget_ms',1000);
+        $blocked=expect($raw,$secret,503,'blocked token exceeds ingest budget',['Idempotency-Key'=>'budget-lock']);
+        verify($blocked->header('Retry-After')==='5'&&!$pdo->inTransaction(),'temporary failure includes retry and rolls back');
+        verify((int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===$countBeforeBudget,'timeout stores no event');
+        verify($pdo->query('SHOW statement_timeout')->fetchColumn()===$oldStatement,'transaction-local SQL timeout restored');
+    } finally { $separate->rollBack(); $app->config()->set('ingest.budget_ms',$oldBudget); }
+    expect($raw,$secret,201,'same key succeeds after lock released',['Idempotency-Key'=>'budget-lock']);
+    $r=expect($raw,$secret,200,'budget retry receipt remains idempotent',['Idempotency-Key'=>'budget-lock']);
+    verify(data($r)['replayed']===true,'replay returns committed result');
+    // The actual HTTP service rejects requests before database admission when all slots are held.
+    $oldSlots=$app->config()->get('ingest.max_inflight'); $app->config()->set('ingest.max_inflight',1);
+    $slot=\Cajeer\Logs\Log\IngestAdmission::acquire($app->basePath('storage/cache'),1);
+    try {
+        $busy=expect($raw,$secret,503,'full runtime concurrency slot',['Idempotency-Key'=>'busy-lock']);
+        verify($busy->header('Retry-After')==='1'&&data($busy)['error']==='ingest_busy','backpressure has explicit error and retry');
+    } finally { $slot->release(); $app->config()->set('ingest.max_inflight',$oldSlots); }
+    expect($raw,$secret,201,'admission resumes after slot release',['Idempotency-Key'=>'busy-lock']);
+
     $batch=encode(['events'=>[$event,array_replace($event,['source'=>'other','message'=>'second'])]]);
     $r=expect($batch,$secret,201,'project token batch with two sources',['Idempotency-Key'=>'batch-1']); $ids=data($r)['event_ids']; verify(count($ids)===2&&$ids[0]!==$ids[1],'batch generated distinct UUIDs');
     $r=expect($batch,$secret,200,'idempotent retry',['Idempotency-Key'=>'batch-1']); verify(data($r)['event_ids']===$ids&&data($r)['stored']===0&&data($r)['replayed']===true,'same UUIDs without duplicate inserts');

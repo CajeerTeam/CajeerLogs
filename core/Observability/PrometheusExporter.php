@@ -30,6 +30,7 @@ final class PrometheusExporter
         } catch (\Throwable) {
             $output.="# HELP cajeerlogs_queue_available Queue database query successful.\n# TYPE cajeerlogs_queue_available gauge\ncajeerlogs_queue_available 0\n";
         }
+        $output.=(new IngestMetrics($this->app->basePath('storage/cache')))->render();
         return $output.($pdo===null ? "# TYPE cajeerlogs_operations_available gauge\ncajeerlogs_operations_available 0\n" : (new OperationsMetrics($this->app))->render()).(new DatabaseRuntimeMetrics($this->app))->render($pdo);
     }
 }

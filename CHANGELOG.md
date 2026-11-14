@@ -2,6 +2,13 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.2.1] — Ingest Runtime
+
+- Единый IngestService для sync/async; сохранены транзакции, HMAC, receipts и очередь.
+- Строгая проверка framing и JSON media type, лимит тела до чтения, локальный admission и кооперативный SQL-бюджет.
+- Retry-After для временной недоступности, bounded Prometheus counters и histogram.
+- Версии API/SDK и CI обновлены; миграции 0001–0012 не изменены.
+
 ## [0.2.0] — Database Core Release
 
 - Защита целевой БД восстановления сохраняемым PostgreSQL quarantine: runtime не запускается до проверенной публикации; отзыв credentials и снятие fence атомарны.

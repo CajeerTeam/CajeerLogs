@@ -2,7 +2,7 @@
   "openapi": "3.1.1",
   "info": {
     "title": "CajeerLogs API",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "description": "Identity & Access, synchronous and durable asynchronous PostgreSQL ingestion, job status, project-scoped search, statistics and export. Outgoing webhooks and lifecycle administration use the CLI. TOTP enrollment, recovery codes and administrator enrollment policy. Token rotation, scoped service accounts, credential request quotas and bulk revocation."
   },
   "servers": [
@@ -2822,7 +2822,7 @@
       "post": {
         "operationId": "ingestEvents",
         "summary": "Store one or more log events atomically",
-        "description": "Requires project/source-scoped logs:write bearer. No session authentication. HMAC headers are optional unless INGEST_REQUIRE_HMAC=true; send all three together. See docs/Log-Ingestion.md. Limits are measured in UTF-8 bytes. Ingest body max 1 MiB (or lower global limit), each event max 64 KiB.",
+        "description": "Requires project/source-scoped logs:write bearer. No session authentication. HMAC headers are optional unless INGEST_REQUIRE_HMAC=true; send all three together. See docs/Log-Ingestion.md. Limits are measured in UTF-8 bytes. Ingest body max 1 MiB (or lower global limit), each event max 64 KiB. UTF-8 JSON only; compressed bodies are rejected. HTTP 503 with Retry-After indicates temporary capacity or storage failure; retry with the same Idempotency-Key and a fresh HMAC nonce.",
         "security": [
           {
             "bearer": []
@@ -2912,7 +2912,22 @@
             "$ref": "#/components/responses/InternalError"
           },
           "503": {
-            "$ref": "#/components/responses/Unavailable"
+            "description": "Temporary storage failure, ingest concurrency limit or queue capacity; retry safely with the same key.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Suggested retry delay in seconds."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           },
           "413": {
             "description": "Request or event exceeds byte limit",
@@ -3903,7 +3918,7 @@
       "post": {
         "operationId": "enqueueEvents",
         "summary": "Durably enqueue a validated batch for asynchronous ingestion",
-        "description": "Requires logs:write bearer and Idempotency-Key. HTTP 202 acknowledges a durable job, not stored events. Poll the Location with the same token. Same body/key returns existing job; do not reuse a synchronous key.",
+        "description": "Requires logs:write bearer and Idempotency-Key. HTTP 202 acknowledges a durable job, not stored events. Poll the Location with the same token. Same body/key returns existing job; do not reuse a synchronous key. UTF-8 JSON only; compressed bodies are rejected. HTTP 503 with Retry-After indicates temporary capacity or storage failure; retry with the same Idempotency-Key and a fresh HMAC nonce.",
         "security": [
           {
             "bearer": []
@@ -3993,7 +4008,22 @@
             "$ref": "#/components/responses/InternalError"
           },
           "503": {
-            "$ref": "#/components/responses/Unavailable"
+            "description": "Temporary storage failure, ingest concurrency limit or queue capacity; retry safely with the same key.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Suggested retry delay in seconds."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           },
           "413": {
             "description": "Request or event exceeds byte limit",
