@@ -5,7 +5,20 @@ on:
 permissions:
   contents: read
 jobs:
+  build-candidate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          python3 scripts/release.py build release-out/CajeerLogs-0.2.0.zip
+          (cd release-out && sha256sum -c CajeerLogs-0.2.0.zip.sha256)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CajeerLogs-0.2.0-candidate-uncertified
+          path: release-out/
+          if-no-files-found: error
   runtime:
+    needs: build-candidate
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -42,6 +55,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: CajeerLogs-0.2.0-candidate-uncertified
+          path: release-out
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
@@ -81,41 +98,29 @@ jobs:
       - run: php bin/cajeer install:check
       - run: php tests/postgres_runtime.php
       - run: php tests/transaction.php
-      - run: php tests/transaction_database.php
       - run: php tests/migration_engine.php
-      - run: php tests/migration_engine_database.php
       - run: php tests/installer.php
       - run: php tests/projects.php
-      - run: php tests/projects_database.php
       - run: php tests/sources.php
-      - run: php tests/sources_database.php
       - run: php tests/tokens.php
-      - run: php tests/tokens_database.php
       - run: php tests/integrity.php
-      - run: php tests/integrity_database.php
       - run: python3 tests/benchmark.py
       - run: composer test:database-config
-      - run: composer test:database
       - run: composer test:identity
-      - run: composer test:identity-database
       - run: composer test:ingest
-      - run: composer test:ingest-database
       - run: composer test:search
-      - run: composer test:search-database
       - run: php tests/log_repository.php
-      - run: php tests/log_repository_database.php
       - run: python3 tests/archive_import.py
       - run: php bin/cajeer openapi:lint
       - run: python3 tests/http_runtime.py
       - run: python3 tests/python_ingest.py
       - run: php tests/webhooks.php
-      - run: php tests/webhook_database.php
       - run: php tests/queue.php
-      - run: php tests/queue_database.php
       - run: php tests/security_operations.php
       - run: php tests/release_runtime.php
+      - run: php tests/restore_fence.php
+      - run: python3 tests/certify.py
       - run: python3 tests/release.py
-      - run: php tests/security_database.php
       - name: PostgreSQL runtime failure recovery, TLS and session pooling
         env:
           PGPASSWORD: ci-postgres-superuser-only
@@ -135,11 +140,12 @@ jobs:
           SQL
           php tests/postgres_split_role.php
           psql -h 127.0.0.1 -U postgres -d cajeer_logs -v ON_ERROR_STOP=1 -c 'DROP SCHEMA cl_split_role CASCADE' 
-      - name: Actual 0.1.8 to 0.1.9 upgrade
+      - name: Database core certification of the exact release ZIP (including both upgrades)
         run: |
-          mkdir /tmp/cajeer-0.1.8
-          git archive 347974c17a398f52718b50300cda0ac76bbce03b | tar -x -C /tmp/cajeer-0.1.8
-          python3 tests/upgrade_release.py /tmp/cajeer-0.1.8
+          mkdir -p /tmp/cajeer-0.1.0 /tmp/cajeer-0.1.9
+          git archive 9b2054b80044492311095538867ef774730dd8fb | tar -x -C /tmp/cajeer-0.1.0
+          git archive 10979e297f2e9e627ba0604bfe14b858ec637be1 | tar -x -C /tmp/cajeer-0.1.9
+          python3 scripts/certify.py database release-out/CajeerLogs-0.2.0.zip --from-010 /tmp/cajeer-0.1.0 --from-019 /tmp/cajeer-0.1.9 --output /tmp/database-certification.json
       - uses: actions/setup-java@v4
         if: matrix.php == '8.4' && matrix.postgres == '17'
         with:
@@ -169,24 +175,35 @@ jobs:
         if: matrix.php == '8.4' && matrix.postgres == '17'
         run: /tmp/cajeer-browser-venv/bin/python tests/admin_browser_database.py
 
+      - name: Upload database evidence only after all mandatory tests pass
+        uses: actions/upload-artifact@v4
+        with:
+          name: database-evidence-php${{ matrix.php }}-pg${{ matrix.postgres }}
+          path: /tmp/database-certification.json
+          if-no-files-found: error
+
   public-release:
-    # A distributable build is published only after BOTH PHP matrix jobs and the
-    # real production deployment smoke test complete successfully.
-    needs: runtime
+    needs: [build-candidate, runtime]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build and extract release
+      - uses: actions/download-artifact@v4
+        with:
+          name: CajeerLogs-0.2.0-candidate-uncertified
+          path: release-out
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: database-evidence-*
+          path: /tmp/database-evidence
+      - name: Verify full matrix and execute production smoke on the identical archive
         run: |
-          python3 scripts/release.py build release-out/CajeerLogs-0.1.9.zip
-          (cd release-out && sha256sum -c CajeerLogs-0.1.9.zip.sha256)
-          python3 scripts/release.py verify release-out/CajeerLogs-0.1.9.zip --extract /tmp/cajeer-release
-      - name: Production HTTPS, PHP-FPM, PostgreSQL smoke test
-        run: python3 /tmp/cajeer-release/tests/production_smoke.py
+          (cd release-out && sha256sum -c CajeerLogs-0.2.0.zip.sha256)
+          python3 scripts/certify.py release release-out/CajeerLogs-0.2.0.zip --reports /tmp/database-evidence --output release-out/database-certification.json
       - uses: actions/upload-artifact@v4
         with:
-          name: CajeerLogs-0.1.9-certified-ci
+          name: CajeerLogs-0.2.0-certified-ci
           path: |
-            release-out/CajeerLogs-0.1.9.zip
-            release-out/CajeerLogs-0.1.9.zip.sha256
+            release-out/CajeerLogs-0.2.0.zip
+            release-out/CajeerLogs-0.2.0.zip.sha256
+            release-out/database-certification.json
           if-no-files-found: error

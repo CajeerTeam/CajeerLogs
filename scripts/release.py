@@ -42,7 +42,9 @@ REQUIRED = {'release.json', 'core/bootstrap.php', 'bin/cajeer', 'public/index.ph
             'core/Database/IntegrityInspector.php', 'core/Database/PerformanceInspector.php',
             'core/Console/Command/DatabaseMaintenanceCommand.php', 'migrations/pgsql/0012_database_integrity.sql',
             'docs/Database-Integrity-Performance.md', 'scripts/benchmark.py', 'tests/benchmark.py',
-            'tests/integrity.php', 'tests/integrity_database.php'}
+            'tests/integrity.php', 'tests/integrity_database.php',
+            'core/Database/RestoreFence.php', 'scripts/certify.py', 'tests/certify.py',
+            'tests/restore_fence.php', 'docs/Database-Core-Release.md'}
 
 
 def digest(data):
@@ -95,6 +97,11 @@ def validate_payload(files):
         raise ValueError('Invalid public release version')
     if json.loads(files['admin/package.json'])['version'] != version or files['openapi.yaml'] != files['api/openapi.yaml'] or json.loads(files['api/openapi.yaml'])['info']['version'] != version:
         raise ValueError('Release, admin and API versions must agree')
+    if any(json.loads(files[name])['version'] != version for name in ('packages/php-sdk/composer.json','packages/ts-sdk/package.json')):
+        raise ValueError('Release and SDK versions must agree')
+    # Keep all four client package versions synchronized, not only the API and UI.
+    if not re.search(r'^version\s*=\s*\"'+re.escape(version)+r'\"\s*$', files['clients/python/pyproject.toml'].decode(), re.M) or not re.search(r'^version\s*=\s*\"'+re.escape(version)+r'\"\s*$', files['clients/java-kotlin/build.gradle.kts'].decode(), re.M):
+        raise ValueError('Release and client versions must agree')
     migrations = sorted(n for n in files if n.startswith('migrations/pgsql/') and n.endswith('.sql'))
     if not migrations or any(not re.fullmatch(rf'migrations/pgsql/{i:04d}_[a-z0-9_]+\.sql', n) for i, n in enumerate(migrations, 1)):
         raise ValueError('Non-sequential PostgreSQL migrations')

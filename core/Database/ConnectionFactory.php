@@ -88,6 +88,7 @@ final class ConnectionFactory implements ConnectionFactoryInterface
             $pdo->exec($connection === 'migration-bootstrap' ? 'SET search_path TO pg_catalog, pg_temp' : "SET search_path TO \"$schema\", pg_catalog, pg_temp");
             $pdo->exec("SET TIME ZONE 'UTC'; SET statement_timeout = $statement; SET lock_timeout = $lock; SET idle_in_transaction_session_timeout = $idle");
             $pdo->exec("SET client_encoding TO 'UTF8'");
+            RestoreFence::assertAvailable($pdo);
             if ($connection === 'migration-bootstrap') { return $pdo; }
             $check = $pdo->prepare('SELECT pg_catalog.has_schema_privilege(current_user, oid, \'USAGE\') FROM pg_catalog.pg_namespace WHERE nspname = :schema');
             $check->execute(['schema' => $schema]);

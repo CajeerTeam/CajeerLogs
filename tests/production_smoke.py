@@ -67,10 +67,10 @@ def main():
             compose('up','-d','--wait','--wait-timeout','180')
             for _ in range(60):
                 try:
-                    data,_=http('GET','/ready'); assert data['version']=='0.1.9' and data['status']=='ok'; break
+                    data,_=http('GET','/ready'); assert data['version']=='0.2.0' and data['status']=='ok'; break
                 except (OSError, AssertionError, urllib.error.URLError): time.sleep(1)
             else: raise AssertionError('HTTPS readiness did not become healthy')
-            panel,h=http('GET','/admin/'); assert b'0.1.9' in panel and 'frame-ancestors' in h['Content-Security-Policy']
+            panel,h=http('GET','/admin/'); assert b'0.2.0' in panel and 'frame-ancestors' in h['Content-Security-Policy']
             assert len(http('GET','/admin/assets/panel.js')[0])>1000
             http('GET','/.env',expected=404)
             http('GET','/metrics',expected=401)
@@ -109,7 +109,7 @@ def main():
             m=json.loads(cli('backup:create')); assert m['bytes']>0
             assert json.loads(cli('backup:verify',m['id']))['sha256']==m['sha256']
             compose('exec','-T','db','psql','-U','postgres','-d','postgres','-v','ON_ERROR_STOP=1','-c','CREATE DATABASE cajeer_restore_smoke OWNER cajeer_logs')
-            restored=json.loads(cli('backup:restore',m['id'],'cajeer_restore_smoke')); assert restored['api_tokens_revoked']
+            restored=json.loads(cli('backup:restore',m['id'],'cajeer_restore_smoke')); assert restored['api_tokens_revoked'] and restored['integrity_verified']
             # Independent target connection: check actual restored events, credentials and source isolation.
             proof=compose('exec','-T','-e','DB_DATABASE=cajeer_restore_smoke','app','php','-r',
                 '$a=require "core/bootstrap.php"; $a->boot(); $p=$a->container()->get(PDO::class); echo json_encode([$p->query("SELECT count(*) FROM log_events")->fetchColumn(),$p->query("SELECT count(*) FROM api_tokens WHERE revoked_at IS NULL")->fetchColumn()]);',capture=True)
@@ -129,7 +129,7 @@ def main():
             bench=subprocess.check_output(['python3',str(ROOT/'scripts/benchmark.py'),'--url',url,'--project',pid,'--source','app','--requests','12','--batch','5','--concurrency','4','--ca-file',str(tls/'fullchain.pem'),'--confirm'],env=dict(env,CAJEER_TOKEN=t['token']),text=True,timeout=150)
             measured=json.loads(bench); assert measured['events_verified']==44 and measured['errors']==0
             print(bench,flush=True)
-            assert json.loads(cli('db:integrity'))['status']=='ok'
+            assert json.loads(cli('db:verify'))['status']=='ok'
             assert json.loads(cli('db:performance'))['tables']
             assert json.loads(cli('db:explain',pid,'--analyze'))['plans']['latest']
 

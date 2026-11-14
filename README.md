@@ -2,6 +2,10 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.2.0 — Database Core Release
+
+Завершение цикла PostgreSQL-ядра: защищённая публикация восстановленной БД с логическим аудитом, проверка совместимости backup и обязательная матрица интеграции на одном ZIP (PHP 8.4/8.5 × PostgreSQL 17/18, обновления 0.1.0 и 0.1.9, production smoke). Канал public-preview до фактического прохождения release gate. [Инструкция](docs/Database-Core-Release.md).
+
 ## 0.1.9 — Database Integrity & Performance
 
 Миграция 0012 проверяет связи логов, источников, токенов и очереди; добавлены индексируемый retention, логический аудит данных, диагностика PostgreSQL и конкурентный HTTP benchmark со сверкой UUID. [Инструкция](docs/Database-Integrity-Performance.md).

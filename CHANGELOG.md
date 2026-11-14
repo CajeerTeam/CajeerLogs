@@ -2,6 +2,14 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.2.0] — Database Core Release
+
+- Защита целевой БД восстановления сохраняемым PostgreSQL quarantine: runtime не запускается до проверенной публикации; отзыв credentials и снятие fence атомарны.
+- `db:verify`: единая рабочая проверка установки, PostgreSQL readiness, администратора и логической целостности.
+- Логическая проверка восстановленных данных и строгая история совместимых backup; проверка неверно маркированного архива и повреждённых receipts.
+- Один проверенный ZIP для всей матрицы PHP 8.4/8.5 × PostgreSQL 17/18. Исполняемый release gate, отчёты с фактическими версиями, exit codes и SHA-256; полный upgrade с 0.1.0 и 0.1.9 и production smoke.
+- Версия backend/API/SDK/Admin Panel 0.2.0; миграции 0001–0012 не изменены. Public preview до подтверждённого CI.
+
 ## [0.1.9] — Database Integrity & Performance
 
 - Миграция 0012: проверяемые FK проекта токена и slug источника, состояния lease и завершения ingest jobs, индексы поиска и FK.

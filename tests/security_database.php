@@ -54,11 +54,28 @@ try {
     $backup=new BackupManager($app); $m=$backup->create(); verify($m['bytes']>0&&$backup->verify($m['id'])===$m&&$backup->list()===[$m['id']],'actual pg_dump + checksum + pg_restore list');
     $archive=$tmp.'/backups/'.$m['id'].'/database.dump'; $original=file_get_contents($archive); file_put_contents($archive,$original.'tamper'); clearstatcache(true,$archive); verify(rejected(fn()=>$backup->verify($m['id'])),'corrupted backup rejected'); file_put_contents($archive,$original); clearstatcache(true,$archive);
     verify(rejected(fn()=>$backup->restore($m['id'],$cfg->get('database.database'))),'cannot restore over active database');
-    $target=getenv('CAJEER_TEST_RESTORE_DB'); if (!$target) throw new RuntimeException('Provision a separate EMPTY CAJEER_TEST_RESTORE_DB owned by the test role.');
-    // 0.0.9 through 0.1.2 have identical numbered SQL migration checksums.
+    $target=getenv('CAJEER_TEST_RESTORE_DB'); if (!$target || !preg_match('/^[a-z_][a-z0-9_]{0,62}$/D',$target) || $target===$cfg->get('database.database')) throw new RuntimeException('Provision a separate EMPTY CAJEER_TEST_RESTORE_DB owned by the test role.');
+    // A false legacy label must be rejected, even if the archive checksum is correct.
     $manifestPath=$tmp.'/backups/'.$m['id'].'/manifest.json'; $previous=$m; $previous['version']='0.0.9'; file_put_contents($manifestPath,json_encode($previous,JSON_THROW_ON_ERROR));
-    $result=$backup->restore($m['id'],$target); verify($result['status']==='restored'&&$result['api_tokens_revoked'],'restore into isolated database');
-    $targetConfig=clone $cfg; $targetConfig->set('database.database',$target); $restored=(new ConnectionFactory($targetConfig))->make('pgsql');
+    verify(rejected(fn()=>$backup->restore($m['id'],$target)),'mislabeled archive rejected after restore history check');
+    $targetConfig=clone $cfg; $targetConfig->set('database.database',$target);
+    verify(rejected(fn()=>(new ConnectionFactory($targetConfig))->make('pgsql')),'failed restore quarantines new runtime connections');
+    // Test-only cleanup: remove failed disposable schema and clear database fence as owner.
+    $base->exec('ALTER DATABASE "'.$target.'" RESET cajeerlogs.restore_state');
+    $failedTarget=(new ConnectionFactory($targetConfig))->make('pgsql');
+    $failedTarget->exec('DROP SCHEMA "'.$schema.'" CASCADE'); $failedTarget=null;
+    file_put_contents($manifestPath,json_encode($m,JSON_THROW_ON_ERROR));
+    // A structurally valid snapshot can still have inconsistent JSON receipts.
+    $bad=$pdo->prepare("INSERT INTO ingest_receipts(token_id,key_hash,request_hash,event_ids,expires_at) VALUES (:token,:key,:hash,'[\"bad\"]'::jsonb,now()+interval '1 day')");
+    $bad->execute(['token'=>$token['id'],'key'=>str_repeat('a',64),'hash'=>str_repeat('b',64)]);
+    $invalid=$backup->create(); $pdo->exec('DELETE FROM ingest_receipts');
+    verify(rejected(fn()=>$backup->restore($invalid['id'],$target)),'logical integrity failure prevents restore publication');
+    verify(rejected(fn()=>(new ConnectionFactory($targetConfig))->make('pgsql')),'logical failure persists database quarantine');
+    $base->exec('ALTER DATABASE "'.$target.'" RESET cajeerlogs.restore_state');
+    $failedTarget=(new ConnectionFactory($targetConfig))->make('pgsql');
+    $failedTarget->exec('DROP SCHEMA "'.$schema.'" CASCADE'); $failedTarget=null;
+    $result=$backup->restore($m['id'],$target); verify($result['status']==='restored'&&$result['api_tokens_revoked']&&$result['integrity_verified'],'restore into isolated database after logical audit');
+    $restored=(new ConnectionFactory($targetConfig))->make('pgsql');
     verify($restored->query('SELECT message FROM log_events')->fetchColumn()==='backup proof'&&(int)$restored->query('SELECT count(*) FROM users')->fetchColumn()===1,'restored real event and user');
     verify((int)$restored->query('SELECT count(*) FROM auth_sessions')->fetchColumn()===0&&$restored->query('SELECT revoked_at IS NOT NULL FROM api_tokens')->fetchColumn()===true,'restore invalidates credentials');
     verify($pdo->query('SELECT revoked_at IS NULL FROM api_tokens')->fetchColumn()===true,'source untouched by restore');

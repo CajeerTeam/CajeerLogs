@@ -15,6 +15,7 @@ final class DatabaseStatus
             $pdo = $this->app->container()->get(PDO::class);
             $factory = $this->app->container()->get(ConnectionFactory::class);
             $schema = $factory->schema();
+            RestoreFence::assertAvailable($pdo);
             $version = (string) $pdo->query('SHOW server_version')->fetchColumn();
             if ($pdo->query('SHOW transaction_read_only')->fetchColumn() !== 'off' || $pdo->query('SELECT pg_is_in_recovery()')->fetchColumn() === true) {
                 return ['status' => 'down', 'server_version' => $version, 'error' => 'Database session is read-only.'];

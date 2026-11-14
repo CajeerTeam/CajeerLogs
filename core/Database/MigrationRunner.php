@@ -106,9 +106,10 @@ final class MigrationRunner
     public function guard(bool $integrityPreflight=false): MigrationGuard {
         $guard=new MigrationGuard($this->pdo,$this->key());
         try {
+            RestoreFence::assertAvailable($this->pdo);
             if ($integrityPreflight) {
                 $status=$this->status(false);
-                if ($status['integrity']!=='verified' || !in_array($status['pending'],[[],['0012_database_integrity.sql']],true)) throw new DatabaseException('Integrity preflight requires verified 0.1.8 or 0.1.9 schema.');
+                if ($status['integrity']!=='verified' || !in_array($status['pending'],[[],['0012_database_integrity.sql']],true)) throw new DatabaseException('Integrity preflight requires the verified 0.1.8 or current schema.');
             } else $this->assertCurrent();
             return $guard;
         } catch (\Throwable $e) { $guard->release(); throw $e; }

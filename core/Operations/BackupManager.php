@@ -7,6 +7,7 @@ use Cajeer\Logs\Database\TransactionManager;
 use Cajeer\Logs\Database\{ConnectionFactory,DatabaseException,MigrationRunner};
 use Cajeer\Logs\Kernel\Application;
 use PDO;
+use Cajeer\Logs\Database\{IntegrityInspector,RestoreFence};
 
 /** Private, atomic custom-format PostgreSQL backups. No shell or destructive in-place restore. */
 final class BackupManager
@@ -53,11 +54,10 @@ final class BackupManager
     {
         $root=$this->root(); $id='backup-'.gmdate('Ymd\THis\Z').'-'.bin2hex(random_bytes(8)); $temp=$root.'/.'.$id.'.partial';
         if (!mkdir($temp,0700)) { throw new DatabaseException('Cannot create temporary backup.'); }
-        $locked=false;
+        $guard=null;
         try {
             $pdo=$this->app->container()->get(PDO::class); $schema=$this->app->container()->get(ConnectionFactory::class)->schema(); $db=$this->app->config()->get('database.database');
-            $lock=$pdo->prepare('SELECT pg_advisory_lock_shared(hashtextextended(:key,0))'); $lock->execute(['key'=>'cajeerlogs:migrations:'.$schema]); $lock->closeCursor(); $locked=true;
-            $this->app->container()->get(MigrationRunner::class)->assertCurrent();
+            $guard=$this->app->container()->get(MigrationRunner::class)->guard();
             $archive=$temp.'/database.dump';
             // Pre-create with mode 0600; pg_dump writes only to our private directory.
             $f=fopen($archive,'xb'); if ($f===false) { throw new DatabaseException('Cannot create backup archive.'); } fclose($f); chmod($archive,0600);
@@ -73,7 +73,7 @@ final class BackupManager
             if (!rename($temp,$root.'/'.$id)) { throw new DatabaseException('Cannot publish backup.'); }
             return $meta;
         } finally {
-            if ($locked) { $unlock=$pdo->prepare('SELECT pg_advisory_unlock_shared(hashtextextended(:key,0))'); $unlock->execute(['key'=>'cajeerlogs:migrations:'.$schema]); }
+            $guard?->release();
             if (is_dir($temp)) { foreach (['database.dump','manifest.json'] as $file) { if (is_file($temp.'/'.$file)) { unlink($temp.'/'.$file); } } rmdir($temp); }
         }
     }
@@ -86,10 +86,19 @@ final class BackupManager
         $this->process(['pg_restore','--list',$archive],$this->app->config()->get('database.database'));
         return $m;
     }
-    /** These explicit releases share SQL 0001–0008; restored history is checked separately. */
+    /** Explicit supported release histories, no acceptance of unknown versions. */
     public static function compatibleRelease(mixed $backup, string $current): bool
     {
-        return is_string($backup) && (($current === '0.1.9' && in_array($backup,['0.0.9','0.1.0','0.1.1','0.1.2','0.1.3','0.1.4','0.1.5','0.1.6','0.1.7','0.1.8'],true)) || $backup === $current || ($current === '0.1.0' && $backup === '0.0.9') || ($current === '0.1.1' && in_array($backup,['0.0.9','0.1.0'],true)) || ($current === '0.1.2' && in_array($backup,['0.0.9','0.1.0','0.1.1'],true)) || ($current === '0.1.3' && in_array($backup,['0.0.9','0.1.0','0.1.1','0.1.2'],true)) || ($current === '0.1.4' && in_array($backup,['0.0.9','0.1.0','0.1.1','0.1.2','0.1.3'],true)) || ($current === '0.1.5' && in_array($backup,['0.0.9','0.1.0','0.1.1','0.1.2','0.1.3','0.1.4'],true)) || ($current === '0.1.6' && in_array($backup,['0.0.9','0.1.0','0.1.1','0.1.2','0.1.3','0.1.4','0.1.5'],true)) || ($current === '0.1.8' && in_array($backup,['0.0.9','0.1.0','0.1.1','0.1.2','0.1.3','0.1.4','0.1.5','0.1.6','0.1.7'],true)) || ($current === '0.1.7' && in_array($backup,['0.0.9','0.1.0','0.1.1','0.1.2','0.1.3','0.1.4','0.1.5','0.1.6'],true)));
+        $versions=['0.0.9','0.1.0','0.1.1','0.1.2','0.1.3','0.1.4','0.1.5','0.1.6','0.1.7','0.1.8','0.1.9','0.2.0'];
+        $from=array_search($backup,$versions,true); $to=array_search($current,$versions,true);
+        return $from!==false && $to!==false && $from<=$to;
+    }
+
+    public static function expectedPending(string $version): array
+    {
+        if (!self::compatibleRelease($version,'0.2.0')) throw new DatabaseException('Unsupported backup release.');
+        $migrations=['0009_project_management.sql','0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql'];
+        return array_slice($migrations,match($version) {'0.2.0','0.1.9'=>4,'0.1.8'=>3,'0.1.7'=>2,'0.1.6'=>1,default=>0});
     }
     public function restore(string $id,string $target): array
     {
@@ -104,23 +113,34 @@ final class BackupManager
         // Require a freshly provisioned target, with no user objects in any non-system schema.
         $check=$pdo->query("SELECT EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname NOT LIKE 'pg\\_%' AND n.nspname<>'information_schema') OR EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname NOT LIKE 'pg\\_%' AND n.nspname<>'information_schema') OR EXISTS(SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace WHERE n.nspname NOT LIKE 'pg\\_%' AND n.nspname<>'information_schema') OR EXISTS(SELECT 1 FROM pg_namespace WHERE nspname NOT LIKE 'pg\\_%' AND nspname NOT IN ('information_schema','public')) OR EXISTS(SELECT 1 FROM pg_extension WHERE extname<>'plpgsql') OR EXISTS(SELECT 1 FROM pg_largeobject_metadata) OR EXISTS(SELECT 1 FROM pg_foreign_server) OR EXISTS(SELECT 1 FROM pg_publication)")->fetchColumn();
         if ($check) { throw new DatabaseException('Restore target is not empty.'); }
-        // Dedicated target only; --clean handles pre-created public schema, never the live database.
-        $this->process(['pg_restore','--no-password','--exit-on-error','--single-transaction','--clean','--if-exists','--no-owner','--no-privileges','--dbname='.$target,$this->location($id).'/database.dump'],$target);
-        $targetConfig->set('database.schema',$m['schema']); $restored=(new ConnectionFactory($targetConfig))->make('pgsql');
-        $runner=new MigrationRunner($restored,$this->app->basePath('migrations/pgsql'),$m['schema']);
-        // A compatible snapshot must contain all migrations of its declared release.
-        $pending=$runner->status()['pending'];
-        $expected=match($m['version']) {
-            '0.1.9'=>[], '0.1.8'=>['0012_database_integrity.sql'], '0.1.7'=>['0011_token_management.sql','0012_database_integrity.sql'],
-            '0.1.6'=>['0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql'],
-            default=>['0009_project_management.sql','0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql'],
-        };
-        if ($pending!==$expected) { throw new DatabaseException('Restored migration history incomplete or inconsistent with backup release; do not switch production to this database.'); }
-        $runner->migrate(); // Validate and adopt legacy schema without trusting a stale catalog.
-        $runner->assertCurrent();
-        // Old snapshots must not resurrect revoked credentials. Reconcile external deliveries before starting workers.
-        (new TransactionManager($restored))->run(fn()=> $restored->exec('DELETE FROM auth_sessions; DELETE FROM user_recovery_codes; UPDATE api_tokens SET revoked_at=now(), updated_at=now(), revision=revision+1 WHERE revoked_at IS NULL'), maxAttempts: 3);
-        return ['id'=>$id,'database'=>$target,'schema'=>$m['schema'],'status'=>'restored','sessions_revoked'=>true,'api_tokens_revoked'=>true,'recovery_codes_invalidated'=>true];
+        // Persist quarantine before pg_restore opens its independent session. The marker
+        // survives a killed process, failed migration or failed validation. Reuse this PDO:
+        // ordinary ConnectionFactory sessions deliberately reject a quarantined database.
+        RestoreFence::quarantine($pdo,$target);
+        try {
+            $this->process(['pg_restore','--no-password','--exit-on-error','--single-transaction','--clean','--if-exists','--no-owner','--no-privileges','--dbname='.$target,$this->location($id).'/database.dump'],$target);
+            $pdo->exec('SET search_path TO "'.$m['schema'].'", pg_catalog, pg_temp');
+            $runner=new MigrationRunner($pdo,$this->app->basePath('migrations/pgsql'),$m['schema']);
+            // A compatible snapshot must contain exactly the history of its declared release.
+            if ($runner->status()['pending']!==self::expectedPending($m['version'])) {
+                throw new DatabaseException('Restored migration history inconsistent with backup release.');
+            }
+            $runner->migrate();
+            $runner->assertCurrent();
+            // Structural checks are not enough: verify all logical relationships before
+            // publishing the target. Never automatically repair or discard historic rows.
+            $integrity=(new IntegrityInspector($pdo))->inspect(1);
+            if ($integrity['status']!=='ok') throw new DatabaseException('Restored data failed logical integrity checks.');
+            // Credentials and publication share a durable transaction: no restored secret
+            // becomes usable if the process dies before the final commit.
+            (new TransactionManager($pdo))->run(function () use ($pdo,$target) {
+                $pdo->exec('DELETE FROM auth_sessions; DELETE FROM user_recovery_codes; UPDATE api_tokens SET revoked_at=now(), updated_at=now(), revision=revision+1 WHERE revoked_at IS NULL');
+                RestoreFence::publish($pdo,$target);
+            }, maxAttempts: 3);
+        } catch (\Throwable $e) {
+            throw new DatabaseException('Restore did not complete; target remains quarantined or commit outcome must be checked. Never switch production to this target. Recreate an empty target and retry.',0,$e);
+        }
+        return ['id'=>$id,'database'=>$target,'schema'=>$m['schema'],'status'=>'restored','integrity_verified'=>true,'sessions_revoked'=>true,'api_tokens_revoked'=>true,'recovery_codes_invalidated'=>true];
     }
     public function list(): array
     {

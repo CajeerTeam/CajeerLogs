@@ -1,7 +1,8 @@
 <?php
 declare(strict_types=1);
 use Cajeer\Logs\Database\{IntegrityInspector,PerformanceInspector,MigrationRunner,ConnectionFactory,TransactionManager};
-use Cajeer\Logs\Database\Repository\{ProjectRepository,SourceRepository,TokenRepository};
+use Cajeer\Logs\Database\Repository\{ProjectRepository,SourceRepository,TokenRepository,UserRepository};
+use Cajeer\Logs\Console\Command\DatabaseMaintenanceCommand;
 use Cajeer\Logs\Lifecycle\Retention;
 use Cajeer\Logs\Log\{IngestEvent,LogRepository,LogQuery};
 use Cajeer\Logs\Queue\PostgresQueueDriver;
@@ -35,8 +36,14 @@ try {
     check($q->process($q->claim())==='completed','existing pending job completes after upgrade');
     $tx->run(fn()=>$log->saveReceipt($t['id'],hash('sha256','receipt'),$hash,$ids));
     check((new IntegrityInspector($pdo))->inspect()['status']==='ok','receipts, queue result and attempts consistent');
+    (new UserRepository($pdo))->create('core@example.test','core-test-password-123','administrator');
+    $verify=new DatabaseMaintenanceCommand($app);
+    ob_start();$code=$verify->handle('db:verify',['1']);$report=json_decode(ob_get_clean(),true,512,JSON_THROW_ON_ERROR);
+    check($code===0&&$report['status']==='ok'&&$report['active_administrators']===1,'unified installed database verification');
     $pdo->exec("UPDATE ingest_receipts SET event_ids='[\"bad\"]'::jsonb");
     check((new IntegrityInspector($pdo))->inspect()['checks']['receipt_shape']['issues_at_least']===1,'malformed receipt reported without cast failure');
+    ob_start();$code=$verify->handle('db:verify',['1']);$report=json_decode(ob_get_clean(),true,512,JSON_THROW_ON_ERROR);
+    check($code===2&&$report['status']==='issues','installed verification refuses logical corruption');
     $pdo->exec('DELETE FROM ingest_receipts');
     // Index-backed retention: overlap policies, bounded delete, independently locked old row, other project safe.
     $pdo->exec('UPDATE projects SET retention_days=1 WHERE id='.$pdo->quote($p));$pdo->exec('UPDATE sources SET retention_days=1 WHERE id='.$pdo->quote($s));
