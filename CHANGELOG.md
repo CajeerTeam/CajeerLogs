@@ -2,6 +2,15 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.1.5] — Installer & Administrator
+
+- Проверяемый bootstrap: PostgreSQL session lock, локальные locks, preflight, продолжение после частичных миграций и атомарный completion marker с audit.
+- `install:prepare-schema --confirm` для выделенной пустой схемы с раздельными ролями; `install:status` без секретов.
+- Защищённый password-file, отказ от неявной смены DB target/ключей, атомарная запись .env и проверка TOTP enrollments.
+- `admin:reset-password EMAIL --confirm [--unblock]`: Argon2id, отзыв сессий, отмена pending TOTP и аудит; enrolled TOTP и API-токены сохраняются.
+- Runtime doctor не требует DDL-прав и writable config; readiness проверяет права последовательности jobs.
+- SQL 0001–0008 неизменны; backup 0.1.4 совместим.
+
 ## [0.1.4] — Log Repository
 
 - Единый репозиторий записи, keyset-чтения, FTS, detail и statistics.

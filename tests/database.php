@@ -71,7 +71,20 @@ try {
     $testApp->config()->set('database.schema', $schema);
     $testApp->config()->set('app.env', 'test');
     verify($testApp->handle(new Request('GET','/ready'))->status === 503, 'readiness down before migrations');
-    [$code, $output] = command(['install','--non-interactive'], $env);
+    // Interrupted installation: one committed migration, no administrator and no local config yet.
+    mkdir($tmp.'/partial'); copy($root.'/migrations/pgsql/0001_initial_schema.sql',$tmp.'/partial/0001_initial_schema.sql');
+    (new MigrationRunner($pdo,$tmp.'/partial',$schema))->migrate();
+    [$statusCode,$statusOutput]=command(['install:status'],$env);
+    verify($statusCode!==0 && json_decode($statusOutput,true)['state']==='migration_required','partial install status identifies pending migrations');
+    $lock=$pdo->prepare('SELECT pg_advisory_lock(hashtextextended(:key,0))'); $lock->execute(['key'=>'cajeerlogs:install-session:'.$schema]); $lock->closeCursor();
+    verify(command(['install','--non-interactive'],$env)[0]!==0 && !is_file($tmp.'/.env'),'second installer blocked across PostgreSQL sessions');
+    $unlock=$pdo->prepare('SELECT pg_advisory_unlock(hashtextextended(:key,0))'); $unlock->execute(['key'=>'cajeerlogs:install-session:'.$schema]); $unlock->closeCursor();
+    $passwordFile=$tmp.'/administrator-password'; file_put_contents($passwordFile,$env['CAJEER_ADMIN_PASSWORD']."\n"); chmod($passwordFile,0600);
+    $fileEnv=$env; unset($fileEnv['CAJEER_ADMIN_PASSWORD']); $fileEnv['CAJEER_ADMIN_PASSWORD_FILE']=$passwordFile;
+    // Do not inherit a test runner password through the process environment.
+    $oldAdminPassword=getenv('CAJEER_ADMIN_PASSWORD'); putenv('CAJEER_ADMIN_PASSWORD');
+    try { [$code,$output]=command(['install','--non-interactive'],$fileEnv); }
+    finally { if($oldAdminPassword!==false) putenv('CAJEER_ADMIN_PASSWORD='.$oldAdminPassword); }
     if ($code !== 0) { throw new RuntimeException('Installer failed: ' . $output); }
     verify($code === 0 && str_contains($output,'Administrator created'), 'CLI installer creates first administrator');
     $values = Environment::load($tmp . '/.env');
@@ -86,7 +99,11 @@ try {
     verify($admin !== null && $admin['role'] === 'administrator' && password_verify($env['CAJEER_ADMIN_PASSWORD'], $admin['password_hash']) && password_get_info($admin['password_hash'])['algoName'] === 'argon2id', 'administrator stored with Argon2id');
     [$code, $output] = command(['install','--non-interactive'], $env);
     verify($code === 0 && str_contains($output,'already exists') && Environment::load($tmp . '/.env')['SECURITY_HMAC_SECRET'] === $values['SECURITY_HMAC_SECRET'], 'installer retry preserves admin and secrets');
-    verify(command(['install','--non-interactive'], array_replace($env,['CAJEER_ADMIN_PASSWORD'=>'different-admin-password-456']))[0] !== 0, 'installer refuses password reset');
+    $before=file_get_contents($tmp.'/.env');
+    verify(command(['install','--non-interactive'], array_replace($env,['CAJEER_ADMIN_PASSWORD'=>'different-admin-password-456','APP_URL'=>'http://different.example.test']))[0] !== 0 && file_get_contents($tmp.'/.env')===$before, 'wrong administrator credentials cannot change configuration');
+    [$statusCode,$statusOutput]=command(['install:status'],$env); $installed=json_decode($statusOutput,true);
+    verify($statusCode===0 && $installed['state']==='ready' && $installed['completion_recorded'] && $installed['active_administrators']===1,'installation completion recorded and ready');
+    verify((int)$pdo->query("SELECT count(*) FROM audit_log WHERE action='installation.administrator_created'")->fetchColumn()===1,'bootstrap audit is recorded once');
     verify(command(['install','--non-interactive'], array_replace($env,['CAJEER_ADMIN_EMAIL'=>'other@example.test']))[0] !== 0, 'installer refuses second initial admin');
     verify(command(['migrate:status'], $env)[0] === 0 && command(['db:doctor'],$env)[0] === 0 && command(['doctor'],$env)[0] === 0, 'CLI status and diagnostics');
     $projects = new ProjectRepository($pdo); $sources = new SourceRepository($pdo); $tokens = new TokenRepository($pdo);
@@ -102,6 +119,25 @@ try {
     $expired = $tokens->create('expires',['logs:read'],$p1,null,new DateTimeImmutable('+1 hour'));
     $expire = $pdo->prepare("UPDATE api_tokens SET expires_at = now() - interval '1 second' WHERE id = :id"); $expire->execute(['id'=>$expired['id']]);
     verify($tokens->findActive($expired['token']) === null, 'expired token rejected');
+    // Password recovery preserves TOTP and service credentials, revokes sessions, and audits atomically.
+    $key=$values['SECURITY_TOTP_KEY'] ?: $values['SECURITY_HMAC_SECRET'];
+    $totp=new \Cajeer\Logs\Security\TwoFactorManager($pdo,$key);
+    $secret=random_bytes(20); $cipher=$totp->seal($admin['id'],$secret);
+    $pdo->prepare('INSERT INTO user_totp(user_id,secret_ciphertext) VALUES (:id,:cipher)')->execute(['id'=>$admin['id'],'cipher'=>$cipher]);
+    $pdo->prepare('UPDATE users SET two_factor_enabled=true WHERE id=:id')->execute(['id'=>$admin['id']]);
+    $pdo->prepare("INSERT INTO auth_sessions(token_hash,user_id,csrf_token,expires_at) VALUES (:hash,:id,:csrf,now()+interval '1 hour')")->execute(['hash'=>str_repeat('a',64),'id'=>$admin['id'],'csrf'=>str_repeat('b',64)]);
+    $service=$tokens->create('recovery-proof',['logs:read'],$p1,$source);
+    $recoveryEnv=$env+['CAJEER_ADMIN_NEW_PASSWORD'=>'replacement-password-123'];
+    verify(command(['admin:reset-password','admin@example.test'],$recoveryEnv)[0]!==0,'recovery requires explicit confirmation');
+    $pdo->prepare('UPDATE users SET blocked_at=now() WHERE id=:id')->execute(['id'=>$admin['id']]);
+    verify(command(['admin:reset-password','admin@example.test','--confirm'],$recoveryEnv)[0]!==0,'blocked administrator requires explicit unblock');
+    [$rc,$out]=command(['admin:reset-password','admin@example.test','--confirm','--unblock'],$recoveryEnv);
+    $recovered=$users->findByEmail('admin@example.test');
+    verify($rc===0 && password_verify($recoveryEnv['CAJEER_ADMIN_NEW_PASSWORD'],$recovered['password_hash']) && $recovered['blocked_at']===null && $recovered['two_factor_enabled']===true,'recovery replaces password and explicitly unblocks without disabling TOTP');
+    verify((int)$pdo->query('SELECT count(*) FROM auth_sessions')->fetchColumn()===0 && $totp->open($admin['id'],$pdo->query('SELECT secret_ciphertext FROM user_totp')->fetchColumn())===$secret && $tokens->findActive($service['token'])!==null,'recovery revokes sessions but preserves TOTP and API tokens');
+    verify((int)$pdo->query("SELECT count(*) FROM audit_log WHERE action='auth.administrator_password_reset_cli'")->fetchColumn()===1,'password recovery audited');
+    // Leave the fixture consistent for the original app instance, which was booted before secret generation.
+    $pdo->exec('DELETE FROM user_totp; UPDATE users SET two_factor_enabled=false');
     // Test actual rollback: first statement succeeds, second fails. Neither schema nor history may change.
     $dir = $tmp . '/migrations/pgsql';
     file_put_contents($dir . '/0009_failure.sql', 'CREATE TABLE rollback_probe(id integer); SELECT * FROM nonexistent_table;');

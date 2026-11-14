@@ -27,7 +27,7 @@ final class ConnectionFactory implements ConnectionFactoryInterface
 
     public function make(string $connection): PDO
     {
-        if (!in_array($connection, ['pgsql','migration'], true) || $this->config->get('database.default') !== 'pgsql') {
+        if (!in_array($connection, ['pgsql','migration','migration-bootstrap'], true) || $this->config->get('database.default') !== 'pgsql') {
             throw new DatabaseException('Only PostgreSQL is supported.');
         }
         $schema = $this->schema();
@@ -36,10 +36,11 @@ final class ConnectionFactory implements ConnectionFactoryInterface
         $username = $this->field('username');
         $password = $this->config->get('database.password');
         // Elevated credentials are injected into trusted CLI processes only, never runtime .env.
-        if ($connection === 'migration') {
+        if ($connection !== 'pgsql') {
             if (PHP_SAPI !== 'cli') { throw new DatabaseException('Migration connections require CLI.'); }
             $user = getenv('DB_MIGRATION_USERNAME');
             $secret = getenv('DB_MIGRATION_PASSWORD');
+            if ($connection === 'migration-bootstrap' && ($user === false || $secret === false)) { throw new DatabaseException('Schema preparation requires explicit migration credentials.'); }
             if ($user !== false || $secret !== false) {
                 if ($user === false || $user === '' || $secret === false || $secret === '') { throw new DatabaseException('Set both DB_MIGRATION_USERNAME and DB_MIGRATION_PASSWORD.'); }
                 $username = $user; $password = $secret;
@@ -61,7 +62,7 @@ final class ConnectionFactory implements ConnectionFactoryInterface
         $tcpTimeout = $this->number('tcp_user_timeout_ms', 1000, 600000);
         $application = $this->field('application_name');
         if (!preg_match('/^[A-Za-z0-9_.:-]{1,48}$/D', $application)) { throw new DatabaseException('Invalid DB_APPLICATION_NAME.'); }
-        if ($connection === 'migration') { $application .= ':migration'; }
+        if ($connection !== 'pgsql') { $application .= ':migration'; }
         $ssl = $this->field('sslmode');
         if (!in_array($ssl, ['disable','allow','prefer','require','verify-ca','verify-full'], true)) {
             throw new DatabaseException('Invalid DB_SSLMODE.');
@@ -84,9 +85,10 @@ final class ConnectionFactory implements ConnectionFactoryInterface
           try {
             $pdo = new PDO($dsn, $username, $password, [PDO::ATTR_TIMEOUT => $timeout, PDO::ATTR_PERSISTENT => false, PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_EMULATE_PREPARES => false, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC, PDO::ATTR_STRINGIFY_FETCHES => false]);
             if ((int) $pdo->query('SHOW server_version_num')->fetchColumn() < 170000) { throw new DatabaseException('PostgreSQL 17 or newer is required.'); }
-            $pdo->exec("SET search_path TO \"$schema\", pg_catalog, pg_temp");
+            $pdo->exec($connection === 'migration-bootstrap' ? 'SET search_path TO pg_catalog, pg_temp' : "SET search_path TO \"$schema\", pg_catalog, pg_temp");
             $pdo->exec("SET TIME ZONE 'UTC'; SET statement_timeout = $statement; SET lock_timeout = $lock; SET idle_in_transaction_session_timeout = $idle");
             $pdo->exec("SET client_encoding TO 'UTF8'");
+            if ($connection === 'migration-bootstrap') { return $pdo; }
             $check = $pdo->prepare('SELECT pg_catalog.has_schema_privilege(current_user, oid, \'USAGE\') FROM pg_catalog.pg_namespace WHERE nspname = :schema');
             $check->execute(['schema' => $schema]);
             if ($check->fetchColumn() !== true) { throw new DatabaseException('DB_SCHEMA must exist and grant USAGE to the application role.'); }

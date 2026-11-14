@@ -35,7 +35,10 @@ REQUIRED = {'release.json', 'core/bootstrap.php', 'bin/cajeer', 'public/index.ph
             'core/Observability/DatabaseRuntimeMetrics.php', 'docs/PostgreSQL-Runtime.md',
             'tests/postgres_runtime.php', 'tests/postgres_runtime_database.php', 'tests/postgres_split_role.php', 'tests/postgres_ci.sh',
             'core/Database/MigrationSql.php', 'core/Database/SchemaInspector.php', 'core/Database/MigrationGuard.php',
-            'docs/Migration-Engine.md', 'tests/migration_engine.php', 'tests/migration_engine_database.php'}
+            'docs/Migration-Engine.md', 'tests/migration_engine.php', 'tests/migration_engine_database.php',
+            'core/Installer/AdministratorPassword.php', 'core/Installer/InstallPreflight.php',
+            'core/Installer/InstallationStatus.php', 'core/Installer/SchemaPreparation.php',
+            'docs/Installer-Administrator.md', 'tests/installer.php'}
 
 
 def digest(data):

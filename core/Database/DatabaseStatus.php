@@ -47,6 +47,10 @@ final class DatabaseStatus
             if ($missing !== []) {
                 return ['status' => 'down', 'server_version' => $version, 'error' => 'Missing or inaccessible database tables.', 'tables' => $missing];
             }
+            // Async ingest uses jobs.id's sequence; table grants alone do not authorize nextval().
+            $sequence = $pdo->prepare("SELECT pg_catalog.has_sequence_privilege(current_user, pg_catalog.pg_get_serial_sequence(pg_catalog.format('%I.jobs',CAST(:schema AS text)),'id'), 'USAGE')");
+            $sequence->execute(['schema'=>$schema]);
+            if ($sequence->fetchColumn() !== true) { return ['status'=>'down','server_version'=>$version,'error'=>'Runtime role needs USAGE on the jobs ID sequence.']; }
             $totpKey = $this->app->config()->get('security.totp_key');
             if ($this->app->config()->get('app.env') === 'production') {
                 if (!$pdo->query("SELECT EXISTS(SELECT 1 FROM users WHERE role='administrator' AND blocked_at IS NULL)")->fetchColumn()) {

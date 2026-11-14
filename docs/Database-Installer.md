@@ -1,5 +1,7 @@
 # Database & Installer 0.0.2
 
+> Историческая инструкция. Для текущего установщика 0.1.5, раздельных ролей, статуса и восстановления администратора используйте [Installer & Administrator](Installer-Administrator.md).
+
 ## Требования и подготовка PostgreSQL
 
 PHP 8.4+ с `pdo_pgsql`, поддержкой `password_hash(..., PASSWORD_ARGON2ID)`, PDO, ctype, filter, PCRE, JSON. PostgreSQL 17+. Composer не требуется для runtime/CLI. Установите PHP-FPM отдельно для production. Все поддерживаемые операции БД работают через PostgreSQL; остальные драйверы в репозитории не поддерживаются этим релизом.

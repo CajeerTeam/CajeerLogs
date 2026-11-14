@@ -4,7 +4,6 @@ declare(strict_types=1);
 namespace Cajeer\Logs\Console\Command;
 
 use Cajeer\Logs\Kernel\Application;
-use Cajeer\Logs\Observability\Diagnostics;
 
 final class InstallCheckCommand
 {
@@ -12,7 +11,7 @@ final class InstallCheckCommand
 
     public function handle(): int
     {
-        $checks = $this->app->container()->get(Diagnostics::class)->checks();
+        $checks = (new \Cajeer\Logs\Installer\InstallPreflight($this->app))->checks();
         echo 'CajeerLogs ' . $this->app->version() . " runtime checks\n";
         foreach ($checks as $name => $passed) {
             echo ($passed ? '[OK] ' : '[FAIL] ') . $name . PHP_EOL;
