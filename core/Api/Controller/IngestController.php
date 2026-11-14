@@ -86,6 +86,7 @@ final class IngestController
                 if ($async) {
                     if ($repo->receipt($p['id'],$keyHash,$requestHash)!==null) { throw new HttpException(409,'idempotency_conflict','Idempotency-Key already used for synchronous ingest.'); }
                     $queue=$this->app->container()->get(\Cajeer\Logs\Queue\PostgresQueueDriver::class);
+                    if (!$queue->hasKey($p['id'],$keyHash)) (new \Cajeer\Logs\Database\Repository\ProjectRepository($pdo))->admit($project,strlen($r->body()),count($events));
                     $job=$queue->enqueue($p['id'],$project,$keyHash,$requestHash,$events,$sources);
                     $response=new JsonResponse(['accepted'=>true,'received'=>count($events)]+$job,$job['replayed']?200:202,['Location'=>$config->get('api.prefix').'/ingest/jobs/'.$job['job_id']]);
                     return $response;
@@ -95,6 +96,7 @@ final class IngestController
                 $replayed=$ids!==null;
                 if ($replayed && count($ids)!==count($events)) { throw new DatabaseException('Stored receipt count differs from request.'); }
                 if (!$replayed) {
+                    (new \Cajeer\Logs\Database\Repository\ProjectRepository($pdo))->admit($project,strlen($r->body()),count($events));
                     $ids=$repo->storeBatch($events,$project,$sources,$p['id']);
                     (new \Cajeer\Logs\Integration\EventApiDispatcher($pdo))->publishCommittedLogs($project,$ids);
                     if ($keyHash!==null) { $repo->saveReceipt($p['id'],$keyHash,$requestHash,$ids); }

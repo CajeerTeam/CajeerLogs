@@ -22,6 +22,7 @@ final class IdentityController
         'POST /auth/logout'=>'logout', 'POST /auth/logout-all'=>'logoutAll', 'POST /auth/password'=>'password',
         'GET /users'=>'users', 'POST /users'=>'createUser', 'PATCH /users/{user}'=>'updateUser',
         'GET /projects'=>'projects', 'POST /projects'=>'createProject', 'GET /projects/{project}'=>'project',
+        'PATCH /projects/{project}'=>'updateProject', 'POST /projects/{project}/archive'=>'archiveProject', 'POST /projects/{project}/restore'=>'restoreProject', 'GET /projects/{project}/stats'=>'projectStats',
         'GET /projects/{project}/members'=>'members', 'PUT /projects/{project}/members/{user}'=>'addMember',
         'DELETE /projects/{project}/members/{user}'=>'removeMember',
         'GET /projects/{project}/sources'=>'sources', 'POST /projects/{project}/sources'=>'createSource',
@@ -117,11 +118,11 @@ final class IdentityController
     private function id(Request $r,string $name): string { return self::uuid($r->parameter($name)??''); }
     private function session(array $p): void { if ($p['kind']!=='session') { Identity::forbidden(); } }
     private function allow(array $p,string $permission,?string $project=null,?string $source=null): void { $this->identity->permission($p,$permission,$project,$source); }
-    private function audit(Request $r,array $p,string $action,?string $target=null): void
-    { (new AuditLogger($this->pdo))->record($action,['request_id'=>$r->requestId],$p['id'],$target); }
+    private function audit(Request $r,array $p,string $action,?string $target=null,array $context=[]): void
+    { (new AuditLogger($this->pdo))->record($action,['request_id'=>$r->requestId]+$context,$p['id'],$target); }
     private function sql(string $query,array $params=[]): \PDOStatement { return $this->identity->sql($query,$params); }
     private function one(string $query,array $params): array { $row=$this->sql($query,$params)->fetch(); if (!$row) { self::missing(); } return $row; }
-    private function page(Request $r,string $query,array $params=[],string $id='id'): Response
+    private function page(Request $r,string $query,array $params=[],string $id='id',bool $projects=false): Response
     {
         $limit=filter_var($r->query['limit']??50,FILTER_VALIDATE_INT,['options'=>['min_range'=>1,'max_range'=>100]]);
         if ($limit===false) { self::invalid('limit must be 1..100.'); }
@@ -130,7 +131,7 @@ final class IdentityController
         $rows=$this->sql($query." ORDER BY $id LIMIT ".($limit+1),$params)->fetchAll();
         $next=null;
         if (count($rows)>$limit) { array_pop($rows); $next=end($rows)['id']; }
-        foreach ($rows as &$row) { if (isset($row['scopes']) && is_string($row['scopes'])) { $row['scopes']=json_decode($row['scopes'],true,32,JSON_THROW_ON_ERROR); } }
+        foreach ($rows as &$row) { if ($projects) $row=ProjectRepository::decode($row); if (isset($row['scopes']) && is_string($row['scopes'])) { $row['scopes']=json_decode($row['scopes'],true,32,JSON_THROW_ON_ERROR); } }
         unset($row);
         return new JsonResponse(['items'=>$rows,'next_cursor'=>$next]);
     }
@@ -221,7 +222,18 @@ final class IdentityController
     private function projects(Request $r,array $p): Response
     {
         $this->session($p); $this->allow($p,'projects:read');
-        return $p['user']['role']==='administrator'?$this->page($r,'SELECT id,name,slug,created_at FROM projects WHERE true'):$this->page($r,'SELECT p.id,p.name,p.slug,p.created_at FROM projects p JOIN project_members m ON m.project_id=p.id WHERE m.user_id=:user',['user'=>$p['id']],'p.id');
+        $fields=implode(',',array_map(static fn($f)=>'p.'.$f,explode(',',ProjectRepository::FIELDS)));
+        $admin=$p['user']['role']==='administrator';
+        $query='SELECT '.$fields.($admin?",'administrator' AS effective_role":",CASE WHEN m.project_role='viewer' THEN 'viewer' ELSE :role END AS effective_role").' FROM projects p'.($admin?' WHERE true':' JOIN project_members m ON m.project_id=p.id WHERE m.user_id=:user');
+        $params=$admin?[]:['user'=>$p['id'],'role'=>$p['user']['role']];
+        $status=$r->query['status']??'all';
+        if (!in_array($status,['all','active','archived'],true)) self::invalid('Invalid project status.');
+        if ($status!=='all') $query.=' AND p.archived_at IS '.($status==='active'?'NULL':'NOT NULL');
+        if (isset($r->query['q'])) {
+            $q=$r->query['q']; if (!is_string($q)||strlen($q)>255||str_contains($q,"\0")) self::invalid('Invalid project search.');
+            $query.=" AND (strpos(lower(p.name),lower(:q_name))>0 OR strpos(p.slug,lower(:q_slug))>0)"; $params['q_name']=$q; $params['q_slug']=$q;
+        }
+        return $this->page($r,$query,$params,'p.id',true);
     }
     private function nameSlug(array $d): array
     {
@@ -237,20 +249,50 @@ final class IdentityController
     private function project(Request $r,array $p): Response
     {
         $id=$this->id($r,'project'); $this->allow($p,$p['kind']==='token'?'logs:read':'projects:read',$id);
-        return new JsonResponse($this->one('SELECT id,name,slug,created_at FROM projects WHERE id=:id',['id'=>$id]));
+        $row=(new ProjectRepository($this->pdo))->find($id); if (!$row) self::missing();
+        // Source-scoped tokens cannot access the project-wide endpoint (permission() above).
+        if ($p['kind']==='session') $row['effective_role']=$this->identity->projectRole($p,$id);
+        return new JsonResponse($row);
+    }
+    private function updateProject(Request $r,array $p): Response
+    {
+        $this->session($p); $this->allow($p,'projects:manage'); $id=$this->id($r,'project');
+        $d=$this->body($r,['revision','name','description','metadata','retention_days','max_body_bytes','max_batch_events','events_per_minute']);
+        $revision=ProjectRepository::revision($d['revision']??null); unset($d['revision']);
+        // Preserve the distinction between a JSON object and an array, including {}.
+        if (array_key_exists('metadata',$d)) $d['metadata']=json_decode($r->body(),false,64,JSON_THROW_ON_ERROR)->metadata;
+        $row=(new ProjectRepository($this->pdo))->update($id,$revision,$d);
+        $this->audit($r,$p,'project.updated',$id,['revision'=>$row['revision'],'fields'=>array_keys($d)]); return new JsonResponse($row);
+    }
+    private function changeProjectState(Request $r,array $p,bool $archived): Response
+    {
+        $this->session($p); $this->allow($p,'projects:manage'); $id=$this->id($r,'project');
+        $d=$this->body($r,['revision']);
+        $row=(new ProjectRepository($this->pdo))->archive($id,ProjectRepository::revision($d['revision']??null),$archived);
+        $this->audit($r,$p,$archived?'project.archived':'project.restored',$id,['revision'=>$row['revision']]); return new JsonResponse($row);
+    }
+    private function archiveProject(Request $r,array $p): Response { return $this->changeProjectState($r,$p,true); }
+    private function restoreProject(Request $r,array $p): Response { return $this->changeProjectState($r,$p,false); }
+    private function projectStats(Request $r,array $p): Response
+    {
+        $this->session($p); $id=$this->id($r,'project'); $this->allow($p,'projects:read',$id);
+        return new JsonResponse((new ProjectRepository($this->pdo))->statistics($id));
     }
     private function members(Request $r,array $p): Response
     {
         $this->session($p); $this->allow($p,'projects:manage'); $id=$this->id($r,'project');
         $this->one('SELECT id FROM projects WHERE id=:id',['id'=>$id]);
-        return $this->page($r,'SELECT u.id,u.email,u.role,u.blocked_at FROM project_members m JOIN users u ON u.id=m.user_id WHERE m.project_id=:project',['project'=>$id],'u.id');
+        return $this->page($r,'SELECT u.id,u.email,u.role,u.blocked_at,m.project_role FROM project_members m JOIN users u ON u.id=m.user_id WHERE m.project_id=:project',['project'=>$id],'u.id');
     }
     private function addMember(Request $r,array $p): Response
     {
         $this->session($p); $this->allow($p,'projects:manage'); $project=$this->id($r,'project'); $user=$this->id($r,'user');
         $this->one('SELECT id FROM projects WHERE id=:id',['id'=>$project]); $this->one('SELECT id FROM users WHERE id=:id',['id'=>$user]);
-        $this->sql('INSERT INTO project_members(project_id,user_id) VALUES (:project,:user) ON CONFLICT DO NOTHING',['project'=>$project,'user'=>$user]);
-        $this->audit($r,$p,'project.member_added',$project.':'.$user); return new Response('',204);
+        $d=$r->body()===''?[]:$this->body($r,['role']);
+        $role=$d['role']??null; if ($role!==null&&!in_array($role,['operator','viewer'],true)) self::invalid('Invalid project role.');
+        if (array_key_exists('role',$d)) $this->sql('INSERT INTO project_members(project_id,user_id,project_role) VALUES (:project,:user,:role) ON CONFLICT(project_id,user_id) DO UPDATE SET project_role=EXCLUDED.project_role',['project'=>$project,'user'=>$user,'role'=>$role]);
+        else $this->sql('INSERT INTO project_members(project_id,user_id) VALUES (:project,:user) ON CONFLICT DO NOTHING',['project'=>$project,'user'=>$user]);
+        $this->audit($r,$p,array_key_exists('role',$d)?'project.member_role_set':'project.member_added',$project.':'.$user,array_key_exists('role',$d)?['project_role'=>$role]:[]); return new Response('',204);
     }
     private function removeMember(Request $r,array $p): Response
     {

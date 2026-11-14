@@ -113,6 +113,14 @@ final class Identity
         $this->sql("UPDATE auth_sessions SET last_seen_at=now() WHERE token_hash=:hash AND last_seen_at<now()-interval '5 minutes'",['hash'=>$hash]);
         return ['kind'=>'session','id'=>$row['id'],'user'=>self::publicUser($row),'hash'=>$hash,'csrf'=>$row['csrf_token']];
     }
+    /** A project role can restrict, never elevate, the global role. Administrators retain global access. */
+    public function projectRole(array $p,string $project): string
+    {
+        $role=$p['user']['role']; if ($role==='administrator') return $role;
+        $row=$this->sql('SELECT project_role FROM project_members WHERE project_id=:project AND user_id=:user',['project'=>$project,'user'=>$p['id']])->fetch();
+        if (!$row) self::forbidden();
+        return $role==='viewer'||$row['project_role']==='viewer'?'viewer':$role;
+    }
     public function permission(array $p, string $permission, ?string $project = null, ?string $source = null): void
     {
         if ($p['kind'] === 'token') {
@@ -120,9 +128,8 @@ final class Identity
             if (!in_array($permission,$t['scopes'],true) || $t['project_id'] !== $project || ($t['source_id'] !== null && $t['source_id'] !== $source)) { self::forbidden(); }
             return;
         }
-        $role = $p['user']['role'];
+        $role = $project===null?$p['user']['role']:$this->projectRole($p,$project);
         if (!(new Rbac())->roleAllows($role,$permission)) { self::forbidden(); }
-        if ($project !== null && $role !== 'administrator' && !$this->sql('SELECT 1 FROM project_members WHERE project_id=:project AND user_id=:user',['project'=>$project,'user'=>$p['id']])->fetchColumn()) { self::forbidden(); }
     }
     public function lock(): void { $this->pdo->query("SELECT pg_advisory_xact_lock(hashtextextended('cajeerlogs:identity:' || current_schema(),0))")->closeCursor(); }
     public function sql(string $sql,array $params=[]): \PDOStatement { $s=$this->pdo->prepare($sql); $s->execute($params); return $s; }

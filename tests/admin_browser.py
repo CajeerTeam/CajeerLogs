@@ -69,7 +69,7 @@ def login(page, email='admin@example.test', password='admin-password-12345'):
 
 class Fixture:
     def __init__(self):
-        self.user = None; self.totp_enabled=False; self.require_totp=False; self.role = 'administrator'; self.projects=[{'id':P1,'name':'Production','slug':'production','created_at':'2026-01-01T00:00:00Z'}]
+        self.user = None; self.totp_enabled=False; self.require_totp=False; self.role = 'administrator'; self.projects=[{'id':P1,'name':'Production','slug':'production','revision':'1','status':'active','description':'','metadata':{},'max_body_bytes':1048576,'max_batch_events':100,'created_at':'2026-01-01T00:00:00Z'}]
         self.sources=[{'id':S1,'project_id':P1,'name':'Application','slug':'app','created_at':'2026-01-01T00:00:00Z'}]
         self.users=[{'id':U1,'email':'admin@example.test','role':'administrator','blocked_at':None}]
         self.members=[]; self.tokens=[]; self.calls=[]; self.fail_next=False
@@ -86,7 +86,7 @@ class Fixture:
             if body['password']=='bad' or (self.totp_enabled and body.get('otp')!='123456'): return err(401,'unauthorized')
             self.user={'id':U1 if self.role=='administrator' else U2,'email':body['email'],'role':self.role,'two_factor_enabled':self.totp_enabled}
             return send({'user':self.user,'csrf_token':CSRF,'expires_in':28800,'enrollment_required':self.require_totp and not self.totp_enabled},headers={'Set-Cookie':'cajeerlogs_session='+'b'*64+'; Path=/; HttpOnly; SameSite=Strict'})
-        if path=='/health': return send({'status':'ok','version':'0.1.5'})
+        if path=='/health': return send({'status':'ok','version':'0.1.6'})
         if self.user is None: return err(401,'unauthorized')
         if method!='GET': assert req.headers.get('x-csrf-token')==CSRF, (method,path,req.headers)
         if path=='/auth/me': return send({'user':self.user,'csrf_token':CSRF,'enrollment_required':self.require_totp and not self.totp_enabled})
@@ -100,16 +100,24 @@ class Fixture:
         if path in ['/auth/logout','/auth/logout-all','/auth/password']:
             self.user=None;return send(status=204,headers={'Set-Cookie':'cajeerlogs_session=; Path=/; Max-Age=0'})
         if path=='/projects':
-            if method=='POST': self.projects.append({'id':P2,**body});return send({'id':P2},201)
-            return listing(self.projects)
-        if path in ['/projects/'+P1,'/projects/'+P2]: return send(next(p for p in self.projects if p['id']==path.split('/')[-1]))
+            if method=='POST': self.projects.append({'id':P2,'revision':'1','status':'active','description':'','metadata':{},'max_body_bytes':1048576,'max_batch_events':100,**body});return send({'id':P2},201)
+            return listing([p for p in self.projects if (q.get('status','all')=='all' or p['status']==q['status']) and q.get('q','').lower() in p['name'].lower()])
+        if path in ['/projects/'+P1,'/projects/'+P2]:
+            project=next(p for p in self.projects if p['id']==path.split('/')[-1])
+            if method=='PATCH':
+                assert body['revision']==project['revision']; project.update({k:v for k,v in body.items() if k!='revision'}); project['revision']=str(int(project['revision'])+1)
+            return send(project)
+        if path.startswith('/projects/') and path.endswith(('/archive','/restore')):
+            project=next(p for p in self.projects if p['id']==path.split('/')[2]); assert body['revision']==project['revision']; project['status']='archived' if path.endswith('/archive') else 'active'; project['revision']=str(int(project['revision'])+1); return send(project)
+        if path.startswith('/projects/') and path.endswith('/stats'):
+            return send({'sources':len(self.sources),'members':len(self.members),'active_tokens':len(self.tokens),'events':2,'events_24h':2,'queued_jobs':0,'dead_jobs':0,'last_received_at':None})
         if path.endswith('/sources'):
             if method=='POST': self.sources.append({'id':'99999999-9999-4999-8999-999999999999','project_id':path.split('/')[2],**body});return send({'id':self.sources[-1]['id']},201)
             return listing([s for s in self.sources if s['project_id']==path.split('/')[2]])
         if path.endswith('/members'):
             return listing(self.members)
         if '/members/' in path:
-            if method=='PUT': self.members=[self.users[-1]]
+            if method=='PUT': self.members=[dict(self.users[-1],project_role=(body or {}).get('role'))]
             else: self.members=[]
             return send(status=204)
         if path=='/users':
@@ -189,7 +197,7 @@ def run():
         browser=browser_for(p); ctx=browser.new_context(accept_downloads=True); page=ctx.new_page(); page.set_default_timeout(8000)
         errors=[]; page.on('pageerror',lambda e: errors.append(str(e)))
         # Actual PHP router, not intercepted, even in offline browser mode.
-        status,headers,body=http(url+'/admin');assert status==200 and b'0.1.5' in body
+        status,headers,body=http(url+'/admin');assert status==200 and b'0.1.6' in body
         assert "script-src 'self'" in {k.lower():v for k,v in headers.items()}['content-security-policy']
         assert http(url+'/api/v1/auth/me')[0]==401
         assert http(url+'/admin/assets/panel.js')[0]==200
@@ -224,10 +232,14 @@ def run():
             assert dl.value.suggested_filename=='cajeerlogs.csv' and 'database error' in Path(dl.value.path()).read_text()
         print('PASS filters, safe detail rendering, pagination and CSV '+('blob' if offline else 'download'))
         nav(page,'projects');expect(page.get_by_role('heading',name='Создать проект')).to_be_visible();form=page.locator('form').filter(has=page.get_by_role('button',name='Создать проект',exact=True));form.get_by_label('Название').fill('New project');form.get_by_label('Slug').fill('new-project');form.get_by_role('button',name='Создать проект').click();expect(page.get_by_role('heading',name='New project')).to_be_visible()
+        page.get_by_label('Название проекта',exact=True).fill('Renamed project');page.get_by_label('Описание проекта').fill('Project details');page.get_by_label('Метаданные JSON').fill('{"environment":"test"}');page.get_by_label('Событий в минуту (пусто = без квоты)').fill('50');page.get_by_role('button',name='Сохранить проект').click();expect(page.get_by_role('heading',name='Renamed project')).to_be_visible()
+        page.get_by_role('button',name='Архивировать проект').click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_role('button',name='Восстановить проект')).to_be_visible()
+        page.get_by_role('button',name='Восстановить проект').click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_role('button',name='Архивировать проект')).to_be_visible()
+        print('PASS project edit, quotas, archive and restore fixture')
         form=page.locator('form').filter(has=page.get_by_role('button',name='Добавить источник'));form.get_by_label('Название').fill('New source');form.get_by_label('Slug').fill('new-source');form.get_by_role('button',name='Добавить источник').click();expect(page.get_by_text('New source',exact=True)).to_be_visible()
         nav(page,'users');form=page.locator('form').filter(has=page.get_by_role('button',name='Создать пользователя'));form.get_by_label('Email').fill('viewer@example.test');form.get_by_label('Пароль').fill('viewer-password-12345');form.get_by_role('button',name='Создать пользователя').click();expect(page.get_by_text('viewer@example.test',exact=True)).to_be_visible()
         page.get_by_role('row').filter(has_text='viewer@example.test').get_by_role('button',name='Изменить').click();page.get_by_role('dialog').get_by_label('Роль',exact=True).select_option('operator');page.get_by_role('dialog').get_by_role('button',name='Сохранить').click();expect(page.get_by_role('row').filter(has_text='viewer@example.test')).to_contain_text('Оператор')
-        nav(page,'projects');page.get_by_label('UUID пользователя').fill(U2);page.get_by_role('button',name='Добавить участника').click();expect(page.get_by_text('viewer@example.test',exact=True)).to_be_visible();page.get_by_role('button',name='Убрать доступ').click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_text('viewer@example.test',exact=True)).to_have_count(0)
+        nav(page,'projects');page.get_by_label('UUID пользователя').fill(U2);page.get_by_role('button',name='Добавить участника').click();expect(page.get_by_text('viewer@example.test',exact=True)).to_be_visible();page.get_by_role('button',name='Изменить роль').click();page.get_by_role('dialog').get_by_label('Роль в проекте').select_option('viewer');page.get_by_role('dialog').get_by_role('button',name='Сохранить роль').click();expect(page.get_by_role('row').filter(has_text='viewer@example.test')).to_contain_text('Наблюдатель');page.get_by_role('button',name='Убрать доступ').click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_text('viewer@example.test',exact=True)).to_have_count(0)
         print('PASS create project/source/user, role update, project membership')
         nav(page,'tokens');form=page.locator('form').filter(has=page.get_by_label('logs:read'));form.get_by_label('Название').fill('Reader');form.get_by_role('button',name='Выпустить токен').click();expect(page.get_by_role('dialog')).to_contain_text(TOKEN);assert TOKEN not in page.evaluate('JSON.stringify(localStorage)+JSON.stringify(sessionStorage)');page.locator('#close-modal').click();expect(page.get_by_text(TOKEN,exact=True)).to_have_count(0);page.get_by_role('button',name='Отозвать').click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_text('Отозван',exact=True)).to_be_visible()
         nav(page,'system');expect(page.get_by_role('heading',name='Системный отчёт')).to_be_visible();nav(page,'settings');page.get_by_role('button',name='Тёмная тема').first.click();assert page.locator('html').get_attribute('data-theme')=='dark';page.set_viewport_size({'width':390,'height':844});assert page.evaluate('document.documentElement.scrollWidth <= innerWidth');page.set_viewport_size({'width':1280,'height':720});

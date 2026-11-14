@@ -89,7 +89,7 @@ final class BackupManager
     /** These explicit releases share SQL 0001–0008; restored history is checked separately. */
     public static function compatibleRelease(mixed $backup, string $current): bool
     {
-        return is_string($backup) && ($backup === $current || ($current === '0.1.0' && $backup === '0.0.9') || ($current === '0.1.1' && in_array($backup,['0.0.9','0.1.0'],true)) || ($current === '0.1.2' && in_array($backup,['0.0.9','0.1.0','0.1.1'],true)) || ($current === '0.1.3' && in_array($backup,['0.0.9','0.1.0','0.1.1','0.1.2'],true)) || ($current === '0.1.4' && in_array($backup,['0.0.9','0.1.0','0.1.1','0.1.2','0.1.3'],true)) || ($current === '0.1.5' && in_array($backup,['0.0.9','0.1.0','0.1.1','0.1.2','0.1.3','0.1.4'],true)));
+        return is_string($backup) && ($backup === $current || ($current === '0.1.0' && $backup === '0.0.9') || ($current === '0.1.1' && in_array($backup,['0.0.9','0.1.0'],true)) || ($current === '0.1.2' && in_array($backup,['0.0.9','0.1.0','0.1.1'],true)) || ($current === '0.1.3' && in_array($backup,['0.0.9','0.1.0','0.1.1','0.1.2'],true)) || ($current === '0.1.4' && in_array($backup,['0.0.9','0.1.0','0.1.1','0.1.2','0.1.3'],true)) || ($current === '0.1.5' && in_array($backup,['0.0.9','0.1.0','0.1.1','0.1.2','0.1.3','0.1.4'],true)) || ($current === '0.1.6' && in_array($backup,['0.0.9','0.1.0','0.1.1','0.1.2','0.1.3','0.1.4','0.1.5'],true)));
     }
     public function restore(string $id,string $target): array
     {
@@ -108,7 +108,9 @@ final class BackupManager
         $this->process(['pg_restore','--no-password','--exit-on-error','--single-transaction','--clean','--if-exists','--no-owner','--no-privileges','--dbname='.$target,$this->location($id).'/database.dump'],$target);
         $targetConfig->set('database.schema',$m['schema']); $restored=(new ConnectionFactory($targetConfig))->make('pgsql');
         $runner=new MigrationRunner($restored,$this->app->basePath('migrations/pgsql'),$m['schema']);
-        if ($runner->status()['pending']!==[]) { throw new DatabaseException('Restored migration history incomplete; do not switch production to this database.'); }
+        // Older compatible snapshots must contain all eight original migrations; only the new project migration may be pending.
+        $pending=$runner->status()['pending'];
+        if ($pending!==[] && !($this->app->version()==='0.1.6' && $m['version']!=='0.1.6' && $pending===['0009_project_management.sql'])) { throw new DatabaseException('Restored migration history incomplete; do not switch production to this database.'); }
         $runner->migrate(); // Validate and adopt legacy schema without trusting a stale catalog.
         $runner->assertCurrent();
         // Old snapshots must not resurrect revoked credentials. Reconcile external deliveries before starting workers.

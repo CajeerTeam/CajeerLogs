@@ -16,7 +16,7 @@ final class Retention
         if ($days!==null && ($days<1 || $days>3650)) { throw new \InvalidArgumentException('Retention days must be 1..3650.'); }
         return (new TransactionManager($this->pdo))->run(function () use ($project,$days) {
             $this->lock();
-            $s=$this->pdo->prepare('UPDATE projects SET retention_days=:days WHERE id=:id');$s->execute(['days'=>$days,'id'=>$project]);
+            $s=$this->pdo->prepare('UPDATE projects SET retention_days=:days,revision=revision+1,updated_at=clock_timestamp() WHERE id=:id');$s->execute(['days'=>$days,'id'=>$project]);
             $changed=$s->rowCount()===1;return $changed;
         }, maxAttempts: 3);
     }

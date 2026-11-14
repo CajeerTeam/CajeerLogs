@@ -2,6 +2,14 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.1.6] — Project Management
+
+- Реальные операции PATCH, archive/restore, поиск, фильтрация и статистика проектов.
+- Оптимистичная ревизия и аудит; архив блокирует новые sync/async admissions без удаления истории.
+- Политики размера тела, пакета, событий в минуту и retention; роли проекта ограничивают глобальную роль.
+- Admin Panel: редактирование, политики, состояние, поиск и статистика.
+- SQL 0009; 0001–0008 неизменны. Совместимые старые backup восстанавливаются с применением 0009.
+
 ## [0.1.5] — Installer & Administrator
 
 - Проверяемый bootstrap: PostgreSQL session lock, локальные locks, preflight, продолжение после частичных миграций и атомарный completion marker с audit.

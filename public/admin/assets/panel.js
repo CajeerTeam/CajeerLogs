@@ -4,7 +4,7 @@ const apiPrefix = document.querySelector('meta[name=cajeer-api]').content;
 const version = document.querySelector('meta[name=cajeer-version]').content;
 const roles = { administrator: 'Администратор', operator: 'Оператор', viewer: 'Наблюдатель' };
 const levels = ['debug', 'info', 'notice', 'warning', 'error', 'critical', 'alert', 'emergency'];
-const state = { user: null, csrf: null, projects: [], project: null, projectCursor: null, route: 'overview', epoch: 0, authEpoch: 0, controller: null, filters: null };
+const state = { user: null, csrf: null, projects: [], project: null, projectCursor: null, projectQuery: {}, route: 'overview', epoch: 0, authEpoch: 0, controller: null, filters: null };
 const names = { overview: 'Обзор', logs: 'Логи', projects: 'Проекты и источники', tokens: 'API-токены', users: 'Пользователи', system: 'Система', settings: 'Настройки' };
 const errors = { unauthorized: 'Неверные учётные данные или сессия истекла.', forbidden: 'Недостаточно прав для операции.', csrf_failed: 'Сессия изменилась. Обновите страницу и повторите операцию.', service_unavailable: 'Сервис или база данных временно недоступны.', rate_limited: 'Слишком много запросов. Повторите позже.', last_administrator: 'Нельзя отключить последнего администратора.', conflict: 'Конфликт с существующими данными.', invalid_password: 'Текущий пароль неверен.', not_found: 'Объект не найден.' };
 class ApiError extends Error {
@@ -43,7 +43,7 @@ const date = value => value ? new Date(value).toLocaleString('ru-RU', { timeZone
 const enc = encodeURIComponent;
 const projectPath = () => `/projects/${enc(state.project)}`;
 const admin = () => state.user?.role === 'administrator';
-const manage = () => admin() || state.user?.role === 'operator';
+const manage = () => admin() || (state.user?.role === 'operator' && state.projects.find(p => p.id === state.project)?.effective_role !== 'viewer');
 function message(error) { return h('div', { class: 'error', role: 'alert' }, error instanceof Error ? error.message : String(error)); }
 let noticeTimer;
 let tokenIssuing = false;
@@ -60,7 +60,7 @@ $('modal').addEventListener('close', () => { if (!$('modal').open) {
 } });
 function modal(title, content) { clearModal(); $('modal-title').textContent = title; $('modal-body').append(content); $('modal').showModal(); }
 function active(epoch) { return epoch === state.epoch && !!state.user; }
-function clearSession(reason) { state.authEpoch++; state.epoch++; state.controller?.abort(); state.user = null; state.csrf = null; state.projects = []; state.project = null; state.projectCursor = null; state.filters = null; clearModal(); $('notice').hidden = true; $('notice').textContent = ''; renderLogin(reason); }
+function clearSession(reason) { state.authEpoch++; state.epoch++; state.controller?.abort(); state.user = null; state.csrf = null; state.projects = []; state.project = null; state.projectCursor = null; state.projectQuery = {}; state.filters = null; clearModal(); $('notice').hidden = true; $('notice').textContent = ''; renderLogin(reason); }
 async function request(path, { method = 'GET', body, query, signal, raw = false, login = false, allowStatus = [] } = {}) {
     const url = new URL(apiPrefix + path, location.origin);
     if (url.origin !== location.origin)
@@ -157,7 +157,7 @@ function renderLogin(reason = '') {
         field('Email', input('email', { type: 'email', required: true, autocomplete: 'username', maxlength: 255 })), field('Пароль', input('password', { type: 'password', required: true, autocomplete: 'current-password', maxlength: 1024 })), field('Код 2FA / recovery (если включено)', input('otp', { autocomplete: 'one-time-code', maxlength: 32 }))
     ], async (d, f) => { const credentials = { email: String(d.get('email')), password: String(d.get('password')) }; if (d.get('otp')) credentials.otp=String(d.get('otp')).trim(); const res = await request('/auth/login', { method: 'POST', body: credentials, login: true }); f.reset(); await startSession(res); }, { cls: 'stack' }), h('p', { class: 'muted small' }, 'CajeerLogs ' + version)));
 }
-async function startSession(res) { state.authEpoch++; state.user = res.user; state.enrollmentRequired = Boolean(res.enrollment_required); state.csrf = res.csrf_token; state.projects = []; state.project = null; state.projectCursor = null; state.filters = null; await render(); }
+async function startSession(res) { state.authEpoch++; state.user = res.user; state.enrollmentRequired = Boolean(res.enrollment_required); state.csrf = res.csrf_token; state.projects = []; state.project = null; state.projectCursor = null; state.projectQuery = {}; state.filters = null; await render(); }
 async function bootstrap() { try {
     await startSession(await get('/auth/me'));
 }
@@ -183,10 +183,10 @@ finally {
 } }
 window.addEventListener('focus', () => void revalidateSession());
 setInterval(() => void revalidateSession(), 60000);
-async function loadProjects(signal, more = false) { const result = await get('/projects', { limit: 100, cursor: more ? state.projectCursor : null }, signal); if (signal?.aborted)
+async function loadProjects(signal, more = false) { const result = await get('/projects', { ...state.projectQuery, limit: 100, cursor: more ? state.projectCursor : null }, signal); if (signal?.aborted)
     return; state.projects = more ? [...state.projects, ...result.items.filter(p => !state.projects.some(x => x.id === p.id))] : result.items; state.projectCursor = result.next_cursor; if (!state.project || !state.projects.some(p => p.id === state.project))
     state.project = state.projects[0]?.id ?? null; }
-function projectSelector() { const picker = select('active_project', state.projects.map(p => [p.id, `${p.name} (${p.slug})`]), state.project, { 'aria-label': 'Активный проект' }); picker.disabled = !state.projects.length; picker.addEventListener('change', () => { state.project = picker.value; state.filters = null; void render(); }); return h('div', { class: 'project-strip' }, h('strong', {}, 'Проект:'), picker, state.projectCursor ? button('Ещё проекты', async (e) => { const b = e.currentTarget; const signal = state.controller.signal; b.disabled = true; try {
+function projectSelector() { const picker = select('active_project', state.projects.map(p => [p.id, `${p.name} (${p.slug})${p.status === 'archived' ? ' — архив' : ''}`]), state.project, { 'aria-label': 'Активный проект' }); picker.disabled = !state.projects.length; picker.addEventListener('change', () => { state.project = picker.value; state.filters = null; void render(); }); return h('div', { class: 'project-strip' }, h('strong', {}, 'Проект:'), picker, state.projectCursor ? button('Ещё проекты', async (e) => { const b = e.currentTarget; const signal = state.controller.signal; b.disabled = true; try {
     await loadProjects(signal, true);
     if (!signal.aborted)
         void render();
@@ -419,10 +419,11 @@ finally {
 } }, 'danger'); modal(title, h('div', {}, h('p', {}, description), h('div', { class: 'actions' }, ok, button('Отмена', clearModal)), err)); dialogEpoch = modalEpoch; }
 async function projects(signal, epoch) {
     const root = h('div', {}, heading('Проекты и источники', 'Управление доступными проектами и подключёнными приложениями.'), projectSelector());
+    root.append(card(form('Найти проекты', [field('Поиск проектов', input('q', {value: state.projectQuery.q || '', maxlength: 255})), field('Статус проекта', select('status', [['all','Все'],['active','Активные'],['archived','Архивные']], state.projectQuery.status || 'all'))], async d => { state.projectQuery = {q: String(d.get('q')), status: String(d.get('status'))}; await loadProjects(signal); state.filters = null; if (active(epoch)) await render(); })));
     if (admin())
         root.append(card(h('h2', {}, 'Создать проект'), form('Создать проект', nameFields(), async (d) => { const r = await write('/projects', 'POST', nameBody(d)); if (!active(epoch))
             return; const created = await get('/projects/' + enc(r.id)); if (!active(epoch))
-            return; state.projects.push(created); state.project = created.id; state.filters = null; await mutationSuccess(epoch, 'Проект создан.'); })));
+            return; state.projectQuery = {}; state.projects.push(created); state.project = created.id; state.filters = null; await mutationSuccess(epoch, 'Проект создан.'); })));
     if (!state.project) {
         root.append(needProject());
         return root;
@@ -430,10 +431,30 @@ async function projects(signal, epoch) {
     const path = projectPath();
     const project = state.projects.find(p => p.id === state.project);
     root.append(card(h('h2', {}, project.name), h('p', { class: 'muted' }, 'Slug: ' + project.slug), h('code', {}, project.id), h('div', { class: 'actions' }, h('a', { href: '#logs' }, 'Открыть логи'), manage() ? h('a', { href: '#tokens' }, 'Управление токенами') : null)));
+    root.append(card(h('h2', {}, 'Состояние проекта'), badge(project.status === 'archived' ? 'Архивный' : 'Активный'), h('p', {}, project.description || 'Описание не задано.'), h('p', {class:'muted'}, 'Архивация запрещает новые события. История и ранее принятые задания сохраняются; retention продолжает действовать.'), h('pre', {}, JSON.stringify(project.metadata || {}, null, 2))));
+    if (admin()) {
+        const numeric = (name, label, value, min, max, required = false) => field(label, input(name, {type:'number', min, max, step:1, value:value ?? '', required}));
+        root.append(card(h('h2', {}, 'Редактирование и политики'), form('Сохранить проект', [
+            field('Название проекта', input('name', {value:project.name, required:true, maxlength:255})),
+            field('Описание проекта', h('textarea', {name:'description', maxlength:4096}, project.description || '')),
+            field('Метаданные JSON', h('textarea', {name:'metadata', required:true, maxlength:8192}, JSON.stringify(project.metadata || {}, null, 2))),
+            numeric('retention_days','Хранение, дней (пусто = без ограничения)',project.retention_days,1,3650),
+            numeric('max_body_bytes','Максимум байт запроса',project.max_body_bytes ?? 1048576,1024,1048576,true),
+            numeric('max_batch_events','Максимум событий в пакете',project.max_batch_events ?? 100,1,100,true),
+            numeric('events_per_minute','Событий в минуту (пусто = без квоты)',project.events_per_minute,1,1000000)
+        ], async d => {
+            const metadata=JSON.parse(String(d.get('metadata'))); if (!metadata || Array.isArray(metadata) || typeof metadata !== 'object') throw new Error('Метаданные должны быть JSON-объектом.');
+            const optional = k => d.get(k) === '' ? null : Number(d.get(k));
+            await write(path, 'PATCH', {revision:String(project.revision), name:String(d.get('name')), description:String(d.get('description')), metadata, retention_days:optional('retention_days'), max_body_bytes:Number(d.get('max_body_bytes')), max_batch_events:Number(d.get('max_batch_events')), events_per_minute:optional('events_per_minute')});
+            await loadProjects(signal); await mutationSuccess(epoch,'Проект обновлён.');
+        }), button(project.status === 'archived' ? 'Восстановить проект' : 'Архивировать проект', () => confirmAction('Изменить состояние проекта', project.status === 'archived' ? 'Возобновить приём новых логов?' : 'Остановить новый ingest? История не удаляется.', async () => { await write(path + (project.status === 'archived' ? '/restore' : '/archive'), 'POST', {revision:String(project.revision)}); await loadProjects(signal); await mutationSuccess(epoch,'Состояние проекта изменено.'); }), 'danger')));
+    }
+    const summary = await get(path + '/stats', {}, signal);
+    root.append(card(h('h2', {}, 'Статистика проекта'), table(['Показатель','Значение'], [['Источники',summary.sources],['Участники',summary.members],['Активные токены',summary.active_tokens],['События',summary.events],['За 24 часа',summary.events_24h],['Задания в очереди',summary.queued_jobs],['Dead-letter',summary.dead_jobs],['Последнее событие',date(summary.last_received_at)]])));
     const sources = pagedList({ path: path + '/sources', query: { limit: 50 }, signal, epoch, headers: ['Название', 'Slug', 'UUID', 'Создан'], rows: r => [r.name, r.slug, h('code', {}, r.id), date(r.created_at)] });
     root.append(card(h('h2', {}, 'Источники'), manage() ? form('Добавить источник', nameFields(), async (d) => { await write(path + '/sources', 'POST', nameBody(d)); await mutationSuccess(epoch, 'Источник создан.'); }) : null, sources));
     if (admin()) {
-        root.append(card(h('h2', {}, 'Участники проекта'), h('p', { class: 'muted' }, 'Укажите UUID пользователя из раздела «Пользователи». Администраторы имеют доступ ко всем проектам независимо от членства.'), form('Добавить участника', [field('UUID пользователя', input('user', { required: true, pattern: '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}' }))], async (d) => { await write(path + '/members/' + enc(String(d.get('user'))), 'PUT'); await mutationSuccess(epoch, 'Доступ предоставлен.'); }), pagedList({ path: path + '/members', query: { limit: 50 }, signal, epoch, headers: ['Email', 'Роль', 'UUID', ''], rows: r => [r.email, roles[r.role] || r.role, h('code', {}, r.id), button('Убрать доступ', () => confirmAction('Удалить участника', `Убрать ${r.email} из проекта?`, async () => { await write(path + '/members/' + enc(r.id), 'DELETE'); await mutationSuccess(epoch, 'Доступ удалён.'); }), 'danger')] })));
+        root.append(card(h('h2', {}, 'Участники проекта'), h('p', { class: 'muted' }, 'Укажите UUID пользователя из раздела «Пользователи». Администраторы имеют доступ ко всем проектам независимо от членства.'), form('Добавить участника', [field('UUID пользователя', input('user', { required: true, pattern: '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}' })), field('Роль в проекте', select('project_role', [['','Глобальная роль'],['operator','Оператор'],['viewer','Наблюдатель']], ''))], async (d) => { await write(path + '/members/' + enc(String(d.get('user'))), 'PUT', {role:d.get('project_role') || null}); await mutationSuccess(epoch, 'Доступ предоставлен.'); }), pagedList({ path: path + '/members', query: { limit: 50 }, signal, epoch, headers: ['Email', 'Глобальная роль', 'Роль проекта', 'UUID', ''], rows: r => [r.email, roles[r.role] || r.role, r.project_role ? roles[r.project_role] : 'Наследуется', h('code', {}, r.id), h('div', {class:'actions'}, button('Изменить роль', () => modal('Роль участника', form('Сохранить роль', [field('Роль в проекте', select('role', [['','Глобальная роль'],['operator','Оператор'],['viewer','Наблюдатель']], r.project_role || ''))], async d => { await write(path + '/members/' + enc(r.id), 'PUT', {role:d.get('role') || null}); clearModal(); await mutationSuccess(epoch,'Роль участника изменена.'); }))), button('Убрать доступ', () => confirmAction('Удалить участника', `Убрать ${r.email} из проекта?`, async () => { await write(path + '/members/' + enc(r.id), 'DELETE'); await mutationSuccess(epoch, 'Доступ удалён.'); }), 'danger'))] })));
     }
     return root;
 }
@@ -459,7 +480,8 @@ finally {
 async function tokens(signal, epoch) { const root = h('div', {}, heading('API-токены', 'Выпуск и отзыв сервисных credentials.'), projectSelector()); if (state.project) {
     const path = projectPath();
     const sources = await get(path + '/sources', { limit: 100 }, signal);
-    root.append(tokenSection(path + '/tokens', sources.items, signal, epoch));
+    if (manage()) root.append(tokenSection(path + '/tokens', sources.items, signal, epoch));
+    else root.append(card(empty('У вас нет прав управления токенами в этом проекте.')));
 }
 else
     root.append(needProject()); if (admin())
