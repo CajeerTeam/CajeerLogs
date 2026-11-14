@@ -1,9 +1,9 @@
 {
   "name": "CajeerLogs",
-  "version": "0.0.9",
-  "channel": "preview",
+  "version": "0.1.0",
+  "channel": "public-preview",
   "php": ">=8.4",
-  "compatibilityTarget": "PHP 8.5 ready",
+  "compatibilityTarget": "PHP 8.4/8.5; PostgreSQL 17+",
   "api": "v1",
   "releasePolicy": "SemVer + LTS + security releases"
 }

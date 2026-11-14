@@ -8,3 +8,16 @@ node_modules
 admin/node_modules
 storage
 *.zip
+**/node_modules
+**/__pycache__
+**/.gradle
+**/build
+**/dist
+**/*.dump
+**/*.sqlite
+**/*.pem
+**/*.key
+release-out
+**/.env
+**/.env.*
+!.env.example

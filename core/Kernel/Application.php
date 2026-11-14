@@ -45,6 +45,21 @@ final class Application
         return rtrim($this->basePath . '/' . ltrim($path, '/'), '/');
     }
 
+    public function environmentPath(): string
+    {
+        $path = getenv('CAJEER_ENV_FILE');
+        if ($path === false || $path === '') { return $this->basePath('.env'); }
+        if (!str_starts_with($path, '/') || str_contains($path, "\0") || basename($path) !== '.env' || is_link($path)) {
+            throw new \RuntimeException('Invalid CAJEER_ENV_FILE (absolute .env path required, no symlink).');
+        }
+        $directory = realpath(dirname($path));
+        $public = realpath($this->basePath('public'));
+        if ($directory === false || ($public !== false && ($directory === $public || str_starts_with($directory, $public . '/')))) {
+            throw new \RuntimeException('Invalid CAJEER_ENV_FILE directory.');
+        }
+        return $directory . '/.env';
+    }
+
     public function version(): string { return $this->version ??= Version::read($this->basePath); }
     public function container(): ServiceContainer { return $this->container; }
 
@@ -52,7 +67,7 @@ final class Application
     {
         if ($this->booted) { return; }
         if (PHP_VERSION_ID < 80400) { throw new \RuntimeException('PHP 8.4 or newer is required.'); }
-        $GLOBALS['cajeer_environment'] = Environment::load($this->basePath('.env'));
+        $GLOBALS['cajeer_environment'] = Environment::load($this->environmentPath());
         $items = [];
         $files = glob($this->basePath('config/*.php'));
         if ($files === false || $files === []) { throw new \RuntimeException('Configuration files are missing.'); }
@@ -106,7 +121,7 @@ final class Application
             throw new \RuntimeException('Invalid APP_TIMEZONE.');
         }
         $url = parse_url($config->get('app.url'));
-        if ($url === false || !in_array($url['scheme'] ?? '', ['http', 'https'], true) || empty($url['host']) || isset($url['user']) || isset($url['pass']) || isset($url['query']) || isset($url['fragment']) || !filter_var($config->get('app.url'), FILTER_VALIDATE_URL)) {
+        if ($url === false || !in_array($url['scheme'] ?? '', ['http', 'https'], true) || empty($url['host']) || isset($url['user']) || isset($url['pass']) || isset($url['query']) || isset($url['fragment']) || !in_array($url['path'] ?? '', ['', '/'], true) || !filter_var($config->get('app.url'), FILTER_VALIDATE_URL)) {
             throw new \RuntimeException('Invalid APP_URL.');
         }
         if ($config->get('operations.metrics_token')!=='' && !preg_match('/^[A-Za-z0-9._~-]{32,256}$/D',$config->get('operations.metrics_token'))) { throw new \RuntimeException('Invalid PROMETHEUS_TOKEN (32–256 URL-safe characters).'); }
@@ -146,7 +161,7 @@ final class Application
         $router->add('GET', '/health', $health);
         $router->add('GET', $config->get('api.prefix') . '/health', $health);
         $router->add('GET', '/ready', function (): Response {
-            $ok = (!$this->config()->get('security.require_admin_totp') || \Cajeer\Logs\Security\TwoFactorManager::keyValid($this->config()->get('security.totp_key'))) && $this->container->get(Diagnostics::class)->ok() && $this->container->get(DatabaseStatus::class)->check()['status'] === 'ok';
+            $ok = ($this->config()->get('app.env') !== 'production' || parse_url($this->config()->get('app.url'), PHP_URL_SCHEME) === 'https') && (!$this->config()->get('security.require_admin_totp') || \Cajeer\Logs\Security\TwoFactorManager::keyValid($this->config()->get('security.totp_key'))) && $this->container->get(Diagnostics::class)->ok() && $this->container->get(DatabaseStatus::class)->check()['status'] === 'ok';
             return new JsonResponse(['status' => $ok ? 'ok' : 'down', 'service' => $this->config()->get('app.name'), 'version' => $this->version(), 'scope' => 'database'], $ok ? 200 : 503);
         });
         if ($config->get('observability.prometheus_enabled')) {

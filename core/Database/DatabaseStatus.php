@@ -16,9 +16,10 @@ final class DatabaseStatus
             $factory = $this->app->container()->get(ConnectionFactory::class);
             $schema = $factory->schema();
             $version = (string) $pdo->query('SHOW server_version')->fetchColumn();
-            if ($pdo->query('SHOW transaction_read_only')->fetchColumn() !== 'off') {
+            if ($pdo->query('SHOW transaction_read_only')->fetchColumn() !== 'off' || $pdo->query('SELECT pg_is_in_recovery()')->fetchColumn() === true) {
                 return ['status' => 'down', 'server_version' => $version, 'error' => 'Database session is read-only.'];
             }
+            if ($pdo->query('SHOW fsync')->fetchColumn() !== 'on') { return ['status'=>'down','server_version'=>$version,'error'=>'PostgreSQL fsync must be enabled for durable ingest.']; }
             $priv = $pdo->prepare("SELECT pg_catalog.has_schema_privilege(current_user, CAST(:schema AS text), 'CREATE')");
             $priv->execute(['schema' => $schema]);
             $canMigrate = (bool) $priv->fetchColumn();
@@ -45,7 +46,24 @@ final class DatabaseStatus
             if ($missing !== []) {
                 return ['status' => 'down', 'server_version' => $version, 'error' => 'Missing or inaccessible database tables.', 'tables' => $missing];
             }
-            if (!\Cajeer\Logs\Security\TwoFactorManager::keyValid($this->app->config()->get('security.totp_key')) && $pdo->query('SELECT EXISTS(SELECT 1 FROM users WHERE two_factor_enabled)')->fetchColumn()) { return ['status'=>'down','server_version'=>$version,'error'=>'TOTP encryption key unavailable for enrolled users.']; }
+            $totpKey = $this->app->config()->get('security.totp_key');
+            if ($this->app->config()->get('app.env') === 'production') {
+                if (!$pdo->query("SELECT EXISTS(SELECT 1 FROM users WHERE role='administrator' AND blocked_at IS NULL)")->fetchColumn()) {
+                    return ['status'=>'down','server_version'=>$version,'error'=>'Installation has no active administrator.'];
+                }
+                if ($this->app->config()->get('security.require_admin_totp') && !\Cajeer\Logs\Security\TwoFactorManager::keyValid($totpKey)) {
+                    return ['status'=>'down','server_version'=>$version,'error'=>'Required TOTP encryption key is unavailable.'];
+                }
+            }
+            if ($pdo->query('SELECT EXISTS(SELECT 1 FROM users u LEFT JOIN user_totp t ON t.user_id=u.id AND t.pending_session IS NULL WHERE u.two_factor_enabled AND t.user_id IS NULL)')->fetchColumn()) {
+                return ['status'=>'down','server_version'=>$version,'error'=>'An enrolled user has no active TOTP secret.'];
+            }
+            $enrolled = $pdo->query('SELECT u.id,t.secret_ciphertext FROM users u JOIN user_totp t ON t.user_id=u.id WHERE u.two_factor_enabled ORDER BY u.id LIMIT 1')->fetch();
+            if ($enrolled) {
+                // A syntactically valid but wrong key previously passed readiness after restore/rotation.
+                try { (new \Cajeer\Logs\Security\TwoFactorManager($pdo,$totpKey))->open($enrolled['id'],$enrolled['secret_ciphertext']); }
+                catch (\Throwable) { return ['status'=>'down','server_version'=>$version,'error'=>'TOTP encryption key cannot decrypt enrolled user secret.']; }
+            }
             return ['status' => 'ok', 'server_version' => $version, 'migrations' => $status];
         } catch (\Throwable $error) {
             return ['status' => 'down', 'error' => $error instanceof DatabaseException ? $error->getMessage() : 'Database query failed.'];

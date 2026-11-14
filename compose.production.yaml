@@ -1,0 +1,117 @@
+# Run with --env-file .env.production. See docs/First-Public-Release.md.
+name: cajeerlogs
+x-runtime: &runtime
+  image: cajeerlogs:0.1.0
+  build:
+    context: .
+    dockerfile: deploy/production/Dockerfile
+    target: app
+  environment:
+    CAJEER_ENV_FILE: /config/.env
+    APP_ENV: production
+    APP_DEBUG: 'false'
+    APP_URL: ${APP_URL:?Set HTTPS APP_URL}
+    DB_CONNECTION: pgsql
+    DB_HOST: db
+    DB_PORT: '5432'
+    DB_DATABASE: cajeer_logs
+    DB_USERNAME: cajeer_logs
+    DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
+    DB_SCHEMA: public
+    DB_SSLMODE: disable
+    SECURITY_2FA_REQUIRED_FOR_ADMINS: 'true'
+    PROMETHEUS_TOKEN: ${PROMETHEUS_TOKEN:?Set PROMETHEUS_TOKEN}
+  volumes:
+    - config:/config:ro
+    - storage:/app/storage
+  read_only: true
+  tmpfs:
+    - /tmp:mode=1777
+  security_opt:
+    - no-new-privileges:true
+  networks: [backend]
+  restart: unless-stopped
+  depends_on:
+    db:
+      condition: service_healthy
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: cajeer_logs
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?Set POSTGRES_ADMIN_PASSWORD}
+      CAJEER_DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./deploy/dev/init-db.sh:/docker-entrypoint-initdb.d/10-app-role.sh:ro
+    networks: [backend]
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U postgres -d cajeer_logs']
+      interval: 5s
+      timeout: 3s
+      retries: 30
+  install:
+    <<: *runtime
+    profiles: [tools]
+    restart: 'no'
+    command: [php, bin/cajeer, install, --non-interactive]
+    volumes:
+      - config:/config
+      - storage:/app/storage
+  app:
+    <<: *runtime
+    healthcheck:
+      test: [CMD, php, bin/cajeer, doctor]
+      interval: 15s
+      timeout: 12s
+      retries: 10
+      start_period: 10s
+  queue:
+    <<: *runtime
+    command: [php, bin/cajeer, 'queue:work']
+    stop_grace_period: 90s
+    depends_on:
+      app:
+        condition: service_healthy
+  scheduler:
+    <<: *runtime
+    command: [cajeer-maintenance, scheduler]
+    stop_grace_period: 90s
+    depends_on:
+      app:
+        condition: service_healthy
+  webhook:
+    <<: *runtime
+    command: [cajeer-maintenance, webhook]
+    stop_grace_period: 360s
+    # Separate egress network for outbound webhook HTTPS. No host port.
+    networks: [backend, egress]
+    depends_on:
+      app:
+        condition: service_healthy
+  gateway:
+    image: cajeerlogs-gateway:0.1.0
+    build:
+      context: .
+      dockerfile: deploy/production/Dockerfile
+      target: gateway
+    ports:
+      - '${CAJEER_HTTPS_BIND:-0.0.0.0}:${CAJEER_HTTPS_PORT:-443}:443'
+    volumes:
+      - ${CAJEER_TLS_DIR:?Set CAJEER_TLS_DIR}:/tls:ro
+    networks: [backend, ingress]
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+networks:
+  backend:
+    internal: true
+  ingress: {}
+  egress: {}
+volumes:
+  pgdata: {}
+  config: {}
+  storage: {}

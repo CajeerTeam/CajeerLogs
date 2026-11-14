@@ -69,6 +69,7 @@ try {
     $testApp = new Application($tmp);
     $testApp->boot();
     $testApp->config()->set('database.schema', $schema);
+    $testApp->config()->set('app.env', 'test');
     verify($testApp->handle(new Request('GET','/ready'))->status === 503, 'readiness down before migrations');
     [$code, $output] = command(['install','--non-interactive'], $env);
     if ($code !== 0) { throw new RuntimeException('Installer failed: ' . $output); }

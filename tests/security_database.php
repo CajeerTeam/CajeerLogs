@@ -32,6 +32,9 @@ try {
     $row=$pdo->query('SELECT secret_ciphertext FROM user_totp')->fetchColumn(); $t=new T($pdo,$cfg->get('security.totp_key')); $secret=$t->open($id,$row); verify(T::base32($secret)===$setup['secret']&&!str_contains($row,$setup['secret']),'encrypted enrollment persisted');
     $step=intdiv(time(),30); $code=T::code($secret,$step); $enabled=call('POST','/auth/2fa/enable',['otp'=>$code],$session); $session2=credentials($enabled); $codes=json_decode($enabled->body,true)['recovery_codes']; verify(count($codes)===10&&count(array_unique($codes))===10,'ten recovery codes');
     verify((int)$pdo->query('SELECT count(*) FROM user_recovery_codes')->fetchColumn()===10&&!in_array($codes[0],$pdo->query('SELECT code_hash FROM user_recovery_codes')->fetchAll(PDO::FETCH_COLUMN),true),'recovery codes hashed');
+    $correctKey=$cfg->get('security.totp_key'); $cfg->set('security.totp_key',bin2hex(random_bytes(32)));
+    verify($app->handle(new Request('GET','/ready'))->status===503,'wrong but valid TOTP key fails readiness');
+    $cfg->set('security.totp_key',$correctKey); verify($app->handle(new Request('GET','/ready'))->status===200,'original TOTP key restores readiness');
     data(call('GET','/auth/me',null,$session),401); data(call('GET','/projects',null,$session2));
     data(call('POST','/auth/login',$password),401); data(call('POST','/auth/login',$password+['otp'=>$code]),401);
     $new=credentials(call('POST','/auth/login',$password+['otp'=>T::code($secret,$step+1)]));
@@ -52,6 +55,8 @@ try {
     $archive=$tmp.'/backups/'.$m['id'].'/database.dump'; $original=file_get_contents($archive); file_put_contents($archive,$original.'tamper'); clearstatcache(true,$archive); verify(rejected(fn()=>$backup->verify($m['id'])),'corrupted backup rejected'); file_put_contents($archive,$original); clearstatcache(true,$archive);
     verify(rejected(fn()=>$backup->restore($m['id'],$cfg->get('database.database'))),'cannot restore over active database');
     $target=getenv('CAJEER_TEST_RESTORE_DB'); if (!$target) throw new RuntimeException('Provision a separate EMPTY CAJEER_TEST_RESTORE_DB owned by the test role.');
+    // 0.0.9 and 0.1.0 have identical SQL migration checksums.
+    $manifestPath=$tmp.'/backups/'.$m['id'].'/manifest.json'; $previous=$m; $previous['version']='0.0.9'; file_put_contents($manifestPath,json_encode($previous,JSON_THROW_ON_ERROR));
     $result=$backup->restore($m['id'],$target); verify($result['status']==='restored'&&$result['api_tokens_revoked'],'restore into isolated database');
     $targetConfig=clone $cfg; $targetConfig->set('database.database',$target); $restored=(new ConnectionFactory($targetConfig))->make('pgsql');
     verify($restored->query('SELECT message FROM log_events')->fetchColumn()==='backup proof'&&(int)$restored->query('SELECT count(*) FROM users')->fetchColumn()===1,'restored real event and user');

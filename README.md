@@ -2,9 +2,11 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
-## 0.0.9 — Security & Operations
+## 0.1.0 — First Public Release
 
-Рабочая TOTP 2FA с recovery-кодами, шифрованием секрета, ограниченной сессией до обязательной настройки администратора и настройкой в Admin Panel. PostgreSQL backup/restore через реальные `pg_dump`/`pg_restore`, SHA-256, отдельная пустая БД восстановления; мониторинг очередей, scheduler, webhooks и защищённый Prometheus. Для обновления 0.0.8: backup, overlay, `php bin/cajeer migrate` (0008). [Security & Operations](docs/Security-Operations.md). Все возможности [Queue & Lifecycle](docs/Queue-Lifecycle.md), ingest, поиск, SDK и webhooks сохранены. Инциденты остаются будущим релизом.
+Первый публичный MVP: централизованный приём и поиск логов, Admin Panel, проекты, API-токены, TOTP, SDK PHP/Python/TypeScript/Kotlin, файловый коллектор, PostgreSQL-очередь, webhooks, retention, мониторинг и backup/restore. Рабочая production-конфигурация PHP-FPM/Nginx/PostgreSQL через Compose, проверяемая сборка полного релиза и обязательный CI release gate. Не LTS; дополнительные СУБД, поисковые движки, HA и инциденты остаются вне релиза.
+
+**Установка, обновление с 0.0.9, сборка и эксплуатация:** [First Public Release](docs/First-Public-Release.md). Миграции 0001–0008 не меняются. Для локального запуска ниже используйте `APP_ENV=local`.
 
 ### Быстрый запуск
 

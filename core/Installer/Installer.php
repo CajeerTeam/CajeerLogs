@@ -17,9 +17,12 @@ final class Installer
     public function run(string $email, string $password): array
     {
         $email = UserRepository::email($email);
+        if ($this->app->config()->get('app.env') === 'production' && parse_url($this->app->config()->get('app.url'), PHP_URL_SCHEME) !== 'https') {
+            throw new DatabaseException('Production installation requires an HTTPS APP_URL. Set APP_ENV=local for development.');
+        }
         if (strlen($password) < 12 || strlen($password) > 1024 || str_contains($password, "\0") || !defined('PASSWORD_ARGON2ID')) { throw new DatabaseException('Administrator needs a 12–1024 byte password and PHP Argon2id support.'); }
         if (!$this->app->container()->get(Diagnostics::class)->ok()) { throw new DatabaseException('Runtime preflight failed; run install:check.'); }
-        $path = $this->app->basePath('.env');
+        $path = $this->app->environmentPath();
         if (is_link($path)) { throw new DatabaseException('Refusing to replace a symlinked .env file.'); }
         $lockPath = $this->app->basePath('storage/.install.lock');
         if (is_link($lockPath)) { throw new DatabaseException('Invalid installer lock path.'); }

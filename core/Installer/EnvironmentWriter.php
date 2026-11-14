@@ -12,10 +12,10 @@ final class EnvironmentWriter
 
     public function write(): void
     {
-        $path = $this->app->basePath('.env');
+        $path = $this->app->environmentPath();
         if (is_link($path)) { throw new DatabaseException('Refusing to replace a symlinked .env file.'); }
         $values = is_file($path) ? Environment::load($path) : Environment::load($this->app->basePath('.env.example'));
-        if (!is_file($path)) { $values['APP_ENV'] = 'production'; $values['APP_DEBUG'] = 'false'; }
+        if (!is_file($path)) { $values['APP_ENV'] = (string) $this->app->config()->get('app.env'); $values['APP_URL'] = (string) $this->app->config()->get('app.url'); $values['APP_DEBUG'] = 'false'; }
         // Preserve effective runtime settings when installing from environment-only configuration.
         foreach (['APP_NAME','APP_ENV','APP_DEBUG','APP_URL','APP_LOCALE','APP_TIMEZONE','APP_MAX_BODY_BYTES','API_PREFIX','API_RATE_LIMIT_PER_MINUTE','PROMETHEUS_ENABLED','PROMETHEUS_PATH','OPENAPI_PATH','INGEST_REQUIRE_HMAC','QUEUE_MAX_JOBS','SECURITY_2FA_REQUIRED_FOR_ADMINS','SECURITY_TOTP_KEY','PROMETHEUS_TOKEN','BACKUP_DIR','PG_DUMP_BIN','PG_RESTORE_BIN'] as $key) {
             if (getenv($key) !== false || isset($_ENV[$key])) { $values[$key] = env_raw($key); }

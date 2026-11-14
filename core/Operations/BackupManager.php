@@ -84,10 +84,15 @@ final class BackupManager
         $this->process(['pg_restore','--list',$archive],$this->app->config()->get('database.database'));
         return $m;
     }
+    /** 0.1.0 has exactly the same migration set as 0.0.9. Never accept an arbitrary downgrade. */
+    public static function compatibleRelease(mixed $backup, string $current): bool
+    {
+        return is_string($backup) && ($backup === $current || ($current === '0.1.0' && $backup === '0.0.9'));
+    }
     public function restore(string $id,string $target): array
     {
         $m=$this->verify($id); $c=$this->app->config();
-        if (!preg_match('/^[a-z_][a-z0-9_]{0,62}$/D',$target)||strcasecmp($target,$c->get('database.database'))===0||in_array($target,['postgres','template0','template1'],true)||$m['schema']!==$this->app->container()->get(ConnectionFactory::class)->schema()||$m['version']!==$this->app->version()) { throw new DatabaseException('Restore requires a different empty database, matching schema and release version.'); }
+        if (!preg_match('/^[a-z_][a-z0-9_]{0,62}$/D',$target)||strcasecmp($target,$c->get('database.database'))===0||in_array($target,['postgres','template0','template1'],true)||$m['schema']!==$this->app->container()->get(ConnectionFactory::class)->schema()||!self::compatibleRelease($m['version']??null,$this->app->version())) { throw new DatabaseException('Restore requires a different empty database, matching schema and compatible release version.'); }
         $targetConfig=clone $c; $targetConfig->set('database.database',$target); $targetConfig->set('database.schema','public');
         $pdo=(new ConnectionFactory($targetConfig))->make('pgsql');
         // Only the owner of an exclusive freshly provisioned database may restore.

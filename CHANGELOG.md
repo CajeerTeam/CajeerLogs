@@ -2,6 +2,14 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.1.0] — First Public Release
+
+- Production Compose: изолированный PHP-FPM/Nginx/PostgreSQL, постоянная конфигурация и storage, workers/scheduler/webhooks.
+- Детерминированная сборка и верификация ZIP, обязательный release gate после регрессий и production smoke.
+- Совместимость восстановления 0.0.9, диагностика fsync/реплики и повреждённого или неверного TOTP-ключа.
+- Production HTTPS-origin и отдельный защищённый путь конфигурации. SQL 0001–0008 неизменны.
+- Публичный MVP; не LTS. Статус интеграционных проверок определяется фактическим CI.
+
 ## [0.0.9] — Security & Operations
 
 - TOTP RFC 6238, encrypted per-user secrets, replay prevention, one-time recovery codes, optional mandatory admin enrollment, browser setup and session rotation; trusted CLI recovery with audit.

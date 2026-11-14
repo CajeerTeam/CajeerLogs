@@ -23,6 +23,8 @@ jobs:
           --health-cmd "pg_isready -U postgres -d cajeer_logs"
           --health-interval 5s --health-timeout 5s --health-retries 10
     env:
+      APP_ENV: test
+      APP_URL: http://localhost:8080
       DB_HOST: 127.0.0.1
       DB_PORT: '5432'
       DB_DATABASE: cajeer_logs
@@ -32,10 +34,13 @@ jobs:
       DB_SSLMODE: disable
       CAJEER_TEST_DATABASE: '1'
       CAJEER_TEST_RESTORE_DB: cajeer_restore_ci
+      CAJEER_TEST_UPGRADE_RESTORE_DB: cajeer_upgrade_restore_ci
       PG_DUMP_BIN: /usr/lib/postgresql/17/bin/pg_dump
       PG_RESTORE_BIN: /usr/lib/postgresql/17/bin/pg_restore
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
@@ -51,6 +56,7 @@ jobs:
           CREATE ROLE cajeer_logs LOGIN PASSWORD 'ci-app-role-password-only';
           ALTER DATABASE cajeer_logs OWNER TO cajeer_logs;
           CREATE DATABASE cajeer_restore_ci OWNER cajeer_logs;
+          CREATE DATABASE cajeer_upgrade_restore_ci OWNER cajeer_logs;
           SQL
       - name: Install PostgreSQL 17 client tools
         run: |
@@ -88,7 +94,14 @@ jobs:
       - run: php tests/queue.php
       - run: php tests/queue_database.php
       - run: php tests/security_operations.php
+      - run: php tests/release_runtime.php
+      - run: python3 tests/release.py
       - run: php tests/security_database.php
+      - name: Actual 0.0.9 to 0.1.0 upgrade
+        run: |
+          mkdir /tmp/cajeer-0.0.9
+          git archive 5af718bc0df3870c19238137221e8a52ce718348 | tar -x -C /tmp/cajeer-0.0.9
+          python3 tests/upgrade_release.py /tmp/cajeer-0.0.9
       - uses: actions/setup-java@v4
         if: matrix.php == '8.4'
         with:
@@ -117,3 +130,25 @@ jobs:
       - name: Admin browser PostgreSQL E2E
         if: matrix.php == '8.4'
         run: /tmp/cajeer-browser-venv/bin/python tests/admin_browser_database.py
+
+  public-release:
+    # A distributable build is published only after BOTH PHP matrix jobs and the
+    # real production deployment smoke test complete successfully.
+    needs: runtime
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and extract release
+        run: |
+          python3 scripts/release.py build release-out/CajeerLogs-0.1.0.zip
+          (cd release-out && sha256sum -c CajeerLogs-0.1.0.zip.sha256)
+          python3 scripts/release.py verify release-out/CajeerLogs-0.1.0.zip --extract /tmp/cajeer-release
+      - name: Production HTTPS, PHP-FPM, PostgreSQL smoke test
+        run: python3 /tmp/cajeer-release/tests/production_smoke.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CajeerLogs-0.1.0-certified-ci
+          path: |
+            release-out/CajeerLogs-0.1.0.zip
+            release-out/CajeerLogs-0.1.0.zip.sha256
+          if-no-files-found: error
