@@ -1,6 +1,6 @@
 FROM php:8.4-cli
 RUN apt-get update && apt-get install -y --no-install-recommends libpq-dev libcurl4-openssl-dev python3 tzdata \
-    && docker-php-ext-install pdo_pgsql curl \
+    && docker-php-ext-install pdo_pgsql curl pcntl \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 CMD ["php", "-S", "0.0.0.0:8080", "-t", "public", "public/router.php"]

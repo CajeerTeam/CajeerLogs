@@ -2,8 +2,8 @@
   "openapi": "3.1.1",
   "info": {
     "title": "CajeerLogs API",
-    "version": "0.0.7",
-    "description": "Implemented Identity & Access, synchronous PostgreSQL ingestion and project-scoped log search, statistics and export. Webhooks are not implemented."
+    "version": "0.0.8",
+    "description": "Identity & Access, synchronous and durable asynchronous PostgreSQL ingestion, job status, project-scoped search, statistics and export. Outgoing webhooks and lifecycle administration use the CLI."
   },
   "servers": [
     {
@@ -3176,6 +3176,337 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/ingest/async": {
+      "post": {
+        "operationId": "enqueueEvents",
+        "summary": "Durably enqueue a validated batch for asynchronous ingestion",
+        "description": "Requires logs:write bearer and Idempotency-Key. HTTP 202 acknowledges a durable job, not stored events. Poll the Location with the same token. Same body/key returns existing job; do not reuse a synchronous key.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "description": "Required per-token key; retained while active or dead and at least seven days after completion/cancellation until cleanup.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Log-Timestamp",
+            "required": false,
+            "description": "Unix seconds, within 300 seconds.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]{9}$"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Log-Nonce",
+            "required": false,
+            "description": "Fresh random nonce per signed attempt.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{32,64}$"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Log-Signature",
+            "required": false,
+            "description": "HMAC-SHA256 over canonical request using bearer token as key.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/IngestEvent"
+                  },
+                  {
+                    "$ref": "#/components/schemas/IngestBatch"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/InvalidPayload"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "413": {
+            "description": "Request or event exceeds byte limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported content type or encoding",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Existing job returned, no duplicate job",
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "accepted",
+                    "received",
+                    "job_id",
+                    "status",
+                    "replayed"
+                  ],
+                  "properties": {
+                    "accepted": {
+                      "type": "boolean"
+                    },
+                    "received": {
+                      "type": "integer"
+                    },
+                    "job_id": {
+                      "type": "string",
+                      "pattern": "^[1-9][0-9]{0,18}$"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "pending",
+                        "running",
+                        "completed",
+                        "dead",
+                        "cancelled"
+                      ]
+                    },
+                    "replayed": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Durable job committed; processing pending",
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "accepted",
+                    "received",
+                    "job_id",
+                    "status",
+                    "replayed"
+                  ],
+                  "properties": {
+                    "accepted": {
+                      "type": "boolean"
+                    },
+                    "received": {
+                      "type": "integer"
+                    },
+                    "job_id": {
+                      "type": "string",
+                      "pattern": "^[1-9][0-9]{0,18}$"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "pending",
+                        "running",
+                        "completed",
+                        "dead",
+                        "cancelled"
+                      ]
+                    },
+                    "replayed": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ingest/jobs/{job}": {
+      "get": {
+        "operationId": "getIngestJob",
+        "summary": "Read status of a job created by this exact token",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]{0,18}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current status; result contains event IDs only after completion",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "status",
+                    "attempts",
+                    "max_attempts",
+                    "result"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "pending",
+                        "running",
+                        "completed",
+                        "dead",
+                        "cancelled"
+                      ]
+                    },
+                    "attempts": {
+                      "type": "integer"
+                    },
+                    "max_attempts": {
+                      "type": "integer"
+                    },
+                    "created_at": {
+                      "type": "string"
+                    },
+                    "available_at": {
+                      "type": "string"
+                    },
+                    "completed_at": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "last_error": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "result": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "event_ids": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "format": "uuid"
+                          }
+                        },
+                        "stored": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "Job missing or belongs to another token"
+          },
+          "422": {
+            "$ref": "#/components/responses/InvalidPayload"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
           }
         }
       }

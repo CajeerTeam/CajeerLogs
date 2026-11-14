@@ -13,22 +13,28 @@ final class LogRepository
     public function storeBatch(array $events, string $project, array $sources, string $token): array
     {
         if (!$this->pdo->inTransaction() || $events===[]) { throw new \LogicException('Log writes require a nonempty transaction.'); }
-        $stmt=$this->pdo->prepare(<<<'SQL'
-            INSERT INTO log_events(occurred_at,source,service,host,level,message,context,trace_id,request_id,tags,project_id,source_id,ingest_token_id)
-            VALUES (CAST(:occurred AS timestamptz),:source,:service,:host,:level,:message,CAST(:context AS jsonb),:trace,:request,
-                ARRAY(SELECT jsonb_array_elements_text(CAST(:tags AS jsonb))),:project,:source_id,:token)
-            RETURNING id
-            SQL);
-        $ids=[];
+        // Generate UUIDs before a single multi-row INSERT, preserving receipt order.
+        $ids=[];$rows=[];
         foreach ($events as $event) {
-            $stmt->execute(['occurred'=>$event->timestamp,'source'=>$event->source,'service'=>$event->service,'host'=>$event->host,
-                'level'=>$event->level,'message'=>$event->message,'context'=>json_encode($event->context,JSON_THROW_ON_ERROR),
-                'trace'=>$event->traceId,'request'=>$event->requestId,'tags'=>json_encode($event->tags,JSON_THROW_ON_ERROR),
-                'project'=>$project,'source_id'=>$sources[$event->source],'token'=>$token]);
-            $id=$stmt->fetchColumn(); $stmt->closeCursor();
-            if (!is_string($id)) { throw new \RuntimeException('Missing stored event ID.'); }
+            $bytes=random_bytes(16);
+            $bytes[6]=chr((ord($bytes[6])&0x0f)|0x40);
+            $bytes[8]=chr((ord($bytes[8])&0x3f)|0x80);
+            $hex=bin2hex($bytes);
+            $id=substr($hex,0,8).'-'.substr($hex,8,4).'-'.substr($hex,12,4).'-'.substr($hex,16,4).'-'.substr($hex,20);
             $ids[]=$id;
+            $rows[]=['id'=>$id,'occurred_at'=>$event->timestamp,'source'=>$event->source,'service'=>$event->service,'host'=>$event->host,
+                'level'=>$event->level,'message'=>$event->message,'context'=>$event->context,'trace_id'=>$event->traceId,'request_id'=>$event->requestId,
+                'tags'=>$event->tags,'source_id'=>$sources[$event->source]];
         }
+        $stmt=$this->pdo->prepare(<<<'SQL'
+            INSERT INTO log_events(id,occurred_at,source,service,host,level,message,context,trace_id,request_id,tags,project_id,source_id,ingest_token_id)
+            SELECT e.id,e.occurred_at,e.source,e.service,e.host,e.level,e.message,e.context,e.trace_id,e.request_id,
+                ARRAY(SELECT jsonb_array_elements_text(e.tags)),CAST(:project AS uuid),e.source_id,CAST(:token AS uuid)
+            FROM jsonb_to_recordset(CAST(:events AS jsonb)) AS e(id uuid,occurred_at timestamptz,source text,service text,host text,
+                level text,message text,context jsonb,trace_id text,request_id text,tags jsonb,source_id uuid)
+            SQL);
+        $stmt->execute(['events'=>json_encode($rows,JSON_THROW_ON_ERROR),'project'=>$project,'token'=>$token]);
+        if ($stmt->rowCount()!==count($ids)) { throw new \RuntimeException('Incomplete batch insert.'); }
         return $ids;
     }
 

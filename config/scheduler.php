@@ -1,7 +1,3 @@
 <?php
 declare(strict_types=1);
-
-return [
-    'enabled' => true,
-    'runner' => 'built-in cron/job runner'
-];
+return ['enabled'=>true,'runner'=>'PostgreSQL maintenance scheduler'];

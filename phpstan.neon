@@ -23,6 +23,9 @@ parameters:
         - core/Console/Command
         - core/Database
         - core/Installer
+        - core/Queue
+        - core/Lifecycle
+        - core/Scheduler
     bootstrapFiles:
         - core/helpers.php
     tmpDir: storage/cache/phpstan

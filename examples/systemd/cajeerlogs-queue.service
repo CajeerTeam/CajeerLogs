@@ -1,14 +1,21 @@
 [Unit]
-Description=CajeerLogs Queue Worker
-After=network.target
+Description=CajeerLogs durable ingest worker
+After=network-online.target
+Wants=network-online.target
 
 [Service]
+Type=simple
+User=cajeerlogs
+Group=cajeerlogs
 WorkingDirectory=/var/www/cajeerlogs
 ExecStart=/usr/bin/php bin/cajeer queue:work
 Restart=on-failure
-RestartPreventExitStatus=69
-User=www-data
-Group=www-data
+RestartSec=5
+TimeoutStopSec=90
+KillSignal=SIGTERM
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
 
 [Install]
 WantedBy=multi-user.target

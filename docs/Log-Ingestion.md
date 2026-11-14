@@ -116,3 +116,7 @@ CAJEER_TEST_DATABASE=1 php tests/ingest_database.php
 ```
 
 PostgreSQL integration suite проверяет обновление 0.0.3, запись через независимое соединение, реальные HTTP-запросы, откат пакета при SQL-ошибке, scoping, отзыв/истечение, rate limiting, HMAC/replay, idempotency и cleanup. CI запускает его на PostgreSQL 17 с PHP 8.4/8.5. До публичной production эксплуатации выполните CI и нагрузочные проверки на целевой инфраструктуре.
+
+## Асинхронный режим (с 0.0.8)
+
+`POST /api/v1/ingest/async` использует тот же формат, проверку scope и HMAC, но требует Idempotency-Key и возвращает durable job ID, а не event IDs. Обычный `/ingest` остаётся синхронным. Подробности: [Queue & Lifecycle](Queue-Lifecycle.md).

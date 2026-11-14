@@ -72,6 +72,7 @@ final class Application
         $this->container->singleton(ConnectionFactory::class, fn(): ConnectionFactory => new ConnectionFactory($config));
         $this->container->singleton(ConnectionFactoryInterface::class, fn(): ConnectionFactory => $this->container->get(ConnectionFactory::class));
         $this->container->singleton(PDO::class, fn(): PDO => $this->container->get(ConnectionFactory::class)->make('pgsql'));
+        $this->container->singleton(\Cajeer\Logs\Queue\PostgresQueueDriver::class, fn(): \Cajeer\Logs\Queue\PostgresQueueDriver => new \Cajeer\Logs\Queue\PostgresQueueDriver($this->container->get(PDO::class), $config->get('queue.max_jobs')));
         $this->container->singleton(MigrationRunner::class, fn(): MigrationRunner => new MigrationRunner($this->container->get(PDO::class), $this->basePath('migrations/pgsql'), $this->container->get(ConnectionFactory::class)->schema()));
         $this->container->singleton(DatabaseStatus::class, fn(): DatabaseStatus => new DatabaseStatus($this));
         $this->container->singleton(UserRepository::class, fn(): UserRepository => new UserRepository($this->container->get(PDO::class)));
@@ -114,6 +115,9 @@ final class Application
         $rate = !is_bool($config->get('api.rate_limit')) ? filter_var($config->get('api.rate_limit'), FILTER_VALIDATE_INT, ['options'=>['min_range'=>1,'max_range'=>100000]]) : false;
         if ($rate === false) { throw new \RuntimeException('Invalid API_RATE_LIMIT_PER_MINUTE.'); }
         $config->set('api.rate_limit', $rate);
+        $queueMax=filter_var($config->get('queue.max_jobs'),FILTER_VALIDATE_INT,['options'=>['min_range'=>1,'max_range'=>100000]]);
+        if ($queueMax===false) { throw new \RuntimeException('Invalid QUEUE_MAX_JOBS.'); }
+        $config->set('queue.max_jobs',$queueMax);
         foreach (['api.prefix', 'observability.prometheus_path'] as $key) {
             if (!preg_match('~^/[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*$~D', $config->get($key))) {
                 throw new \RuntimeException("Invalid route configuration: $key");

@@ -13,6 +13,10 @@ final class SystemReport
     {
         $checks = $this->app->container()->get(Diagnostics::class)->checks();
         $db = $this->app->container()->get(\Cajeer\Logs\Database\DatabaseStatus::class)->check();
+        $queue=null;
+        if ($db['status']==='ok') {
+            try { $queue=$this->app->container()->get(\Cajeer\Logs\Queue\PostgresQueueDriver::class)->counts(); } catch (\Throwable) {}
+        }
         return [
             'service' => $this->app->config()->get('app.name'),
             'version' => $this->app->version(),
@@ -27,6 +31,7 @@ final class SystemReport
             'pdo_drivers' => class_exists(\PDO::class) ? \PDO::getAvailableDrivers() : [],
             'checks' => $checks,
             'database' => $db,
+            'queue' => $queue,
         ];
     }
 }

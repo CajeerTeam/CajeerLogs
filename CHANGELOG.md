@@ -2,6 +2,13 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.0.8] — Queue & Lifecycle
+
+- Durable PostgreSQL async ingest, token-owned job status, capacity backpressure, cross-mode idempotency conflict and validated/redacted payloads.
+- Concurrent `SKIP LOCKED` worker, leases/fencing, transactional batch INSERT + webhook outbox + completion, retries/dead-letter/history, manual retry/discard, SIGTERM/SIGINT.
+- Opt-in per-project retention by receipt time, bounded cleanup, persisted scheduler with advisory locks, queue metrics and systemd/cron examples.
+- Migration 0007 preserves previous checksums and legacy rows; queue integration suite, HTTP/CLI tests and CI.
+
 ## [0.0.7] — SDK & Integrations
 
 - Рабочие PHP/PSR-3/Monolog, Python/logging, TypeScript/Node и Kotlin/JVM SDK: batch, HMAC v1, retry/backoff, idempotency и проверка подтверждения.

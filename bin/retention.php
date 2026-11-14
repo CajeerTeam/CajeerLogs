@@ -4,6 +4,6 @@ declare(strict_types=1);
 
 $binary = PHP_BINARY;
 $entry = __DIR__ . '/cajeer';
-$command = 'scheduler:run';
+$command = 'retention:run';
 passthru(escapeshellarg($binary) . ' ' . escapeshellarg($entry) . ' ' . escapeshellarg($command), $code);
 exit((int) $code);

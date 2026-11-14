@@ -1,9 +1,15 @@
 [Unit]
-Description=CajeerLogs Scheduler Runner
+Description=CajeerLogs bounded maintenance scheduler
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=oneshot
+User=cajeerlogs
+Group=cajeerlogs
 WorkingDirectory=/var/www/cajeerlogs
 ExecStart=/usr/bin/php bin/cajeer scheduler:run
-User=www-data
-Group=www-data
+TimeoutStartSec=180
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true

@@ -2,9 +2,9 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
-## 0.0.7 — SDK & Integrations
+## 0.0.8 — Queue & Lifecycle
 
-Рабочие SDK PHP/PSR-3/Monolog, Python, TypeScript и Kotlin/JVM с HMAC, повторными попытками и проверкой подтверждения. Файловый collector с SQLite checkpoint, JSONL/text/Nginx и aaPanel CLI; исходящие webhooks с транзакционным PostgreSQL outbox, подписью и историей доставки. См. [SDK & Integrations](docs/SDK-Integrations.md). Для обновления 0.0.6 сделайте backup, наложите файлы, выполните `php bin/cajeer migrate` (0006). Admin Panel доступна по `/admin/`; PHP 8.4+, PostgreSQL 17+, Node.js не нужен на сервере. TOTP, общая очередь логов и инциденты ещё не реализованы.
+Рабочая durable PostgreSQL очередь ingest: `/api/v1/ingest/async`, status API, конкурентные workers с lease/retry/dead-letter, пакетный SQL INSERT, транзакционный webhook outbox. Scheduler с сохраняемым расписанием, opt-in retention по проектам и bounded cleanup. Синхронный ingest, четыре SDK, collector, webhooks и Admin Panel из предыдущих релизов сохранены. [Queue & Lifecycle](docs/Queue-Lifecycle.md). Для обновления 0.0.7: backup, наложение файлов, `php bin/cajeer migrate` (0007), запуск worker/scheduler. PHP 8.4+, PostgreSQL 17+; непрерывный worker требует pcntl. TOTP и инциденты ещё не реализованы.
 
 ### Быстрый запуск
 
@@ -31,7 +31,7 @@ curl -i http://127.0.0.1:8080/ready
 # Откройте http://127.0.0.1:8080/admin/
 ```
 
-`/health` — состояние PHP runtime. `/ready` — состояние runtime, соединения PostgreSQL, миграций и таблиц; при недоступной БД возвращает 503. Встроенный PHP-сервер предназначен только для разработки. Для production используйте PHP-FPM, Nginx/Apache, DocumentRoot `public/`, TLS и непривилегированного системного пользователя. Для локального HTTP задайте `APP_ENV=local` и `APP_URL=http://127.0.0.1:8080` (origin должен совпадать с адресом браузера); для production `APP_ENV=production`, `APP_URL=https://ваш-домен` и HTTPS server variable. Запланируйте `auth:cleanup` через cron.
+`/health` — состояние PHP runtime. `/ready` — состояние runtime, соединения PostgreSQL, миграций и таблиц; при недоступной БД возвращает 503. Встроенный PHP-сервер предназначен только для разработки. Для production используйте PHP-FPM, Nginx/Apache, DocumentRoot `public/`, TLS и непривилегированного системного пользователя. Для локального HTTP задайте `APP_ENV=local` и `APP_URL=http://127.0.0.1:8080` (origin должен совпадать с адресом браузера); для production `APP_ENV=production`, `APP_URL=https://ваш-домен` и HTTPS server variable. Настройте `queue:work` и `scheduler:run` по [инструкции](docs/Queue-Lifecycle.md).
 
 ### Проверки
 
@@ -41,6 +41,7 @@ php tests/database_config.php
 php tests/identity.php
 php tests/ingest.php
 php tests/search.php
+php tests/queue.php
 python3 tests/http_runtime.py
 php bin/cajeer openapi:lint
 # На отдельной тестовой БД с экспортированными DB_*:
@@ -48,6 +49,7 @@ CAJEER_TEST_DATABASE=1 php tests/database.php
 CAJEER_TEST_DATABASE=1 php tests/identity_database.php
 CAJEER_TEST_DATABASE=1 php tests/ingest_database.php
 CAJEER_TEST_DATABASE=1 php tests/search_database.php
+CAJEER_TEST_DATABASE=1 php tests/queue_database.php
 composer install
 composer test
 composer analyse

@@ -1,8 +1,8 @@
 [Unit]
-Description=Run CajeerLogs scheduler every minute
+Description=Run CajeerLogs maintenance scheduler every minute
 
 [Timer]
-OnCalendar=*:0/1
+OnCalendar=*-*-* *:*:00
 Persistent=true
 
 [Install]

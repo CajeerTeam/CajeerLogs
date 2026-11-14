@@ -17,10 +17,10 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL);
 $command = $argv[1] ?? 'help';
 if ($command === 'help' || $command === '--help') {
-    echo "CajeerLogs CLI\nUsage: php bin/cajeer <command>\nCommands: version, install, install:check, migrate, migrate:status, db:doctor, doctor, system:report, openapi:lint, auth:cleanup, import:aapanel, webhook:add, webhook:list, webhook:history, webhook:disable, webhook:retry, webhook:work, webhook:cleanup\nPending (unavailable): queue:work, scheduler:run\n";
+    echo "CajeerLogs CLI\nUsage: php bin/cajeer <command>\nCommands: version, install, install:check, migrate, migrate:status, db:doctor, doctor, system:report, openapi:lint, auth:cleanup, import:aapanel, webhook:add, webhook:list, webhook:history, webhook:disable, webhook:retry, webhook:work, webhook:cleanup\nQueue: queue:work [limit], queue:status, queue:list STATUS, queue:history ID, queue:retry ID, queue:discard ID, scheduler:run, retention:list, retention:set PROJECT DAYS|off, retention:run [limit]\n";
     exit(0);
 }
-$pending = ['queue:work' => '0.0.8', 'scheduler:run' => '0.0.8', 'alert:dispatch' => '0.3.x', 'update:check' => '0.0.9'];
+$pending = ['alert:dispatch' => '0.3.x', 'update:check' => '0.0.9'];
 if (isset($pending[$command])) {
     fwrite(STDERR, "$command is not implemented in this release (planned for {$pending[$command]}).\n");
     exit(69);
@@ -30,7 +30,7 @@ if ($command === 'import:aapanel') {
     passthru('python3 ' . escapeshellarg(dirname(__DIR__) . '/clients/python/cajeer_logs_collector.py') . ' ' . implode(' ', $args), $code);
     exit($code);
 }
-if (!in_array($command, ['version','--version','install:check','doctor','system:report','openapi:lint','install','migrate','migrate:status','db:doctor','auth:cleanup','webhook:add','webhook:list','webhook:history','webhook:disable','webhook:retry','webhook:work','webhook:cleanup'], true)) {
+if (!in_array($command, ['version','--version','install:check','doctor','system:report','openapi:lint','install','migrate','migrate:status','db:doctor','auth:cleanup','webhook:add','webhook:list','webhook:history','webhook:disable','webhook:retry','webhook:work','webhook:cleanup','queue:work','queue:status','queue:list','queue:history','queue:retry','queue:discard','scheduler:run','retention:list','retention:set','retention:run'], true)) {
     fwrite(STDERR, "Unknown command. Run php bin/cajeer help.\n");
     exit(64);
 }
@@ -47,6 +47,8 @@ try {
     $app->boot();
     if ($command === 'install') { exit((new InstallCommand($app))->handle(array_slice($argv, 2))); }
     if (str_starts_with($command, 'webhook:')) { exit((new WebhookCommand($app))->handle($command,array_slice($argv,2))); }
+    if (str_starts_with($command,'queue:')) { exit((new \Cajeer\Logs\Console\Command\QueueWorkCommand($app))->handle($command,array_slice($argv,2))); }
+    if ($command==='scheduler:run' || str_starts_with($command,'retention:')) { exit((new \Cajeer\Logs\Console\Command\SchedulerRunCommand($app))->handle($command,array_slice($argv,2))); }
     if (count($argv) > 2) { throw new DatabaseException('Unexpected command arguments.'); }
     if ($command === 'migrate' || $command === 'migrate:status') { exit((new MigrateCommand($app))->handle($command === 'migrate:status')); }
     $handler = match ($command) {

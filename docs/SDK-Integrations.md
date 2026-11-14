@@ -118,4 +118,4 @@ CAJEER_TEST_DATABASE=1 php tests/webhook_database.php
 CAJEER_TEST_DATABASE=1 php tests/ingest_database.php
 ```
 
-Wire tests используют настоящий HTTP-сервер с контролируемыми ответами, не подменяют PostgreSQL E2E. CI запускает DB integration suite и предыдущие тесты. `webhook_database.php` проверяет outbox, scoping, откат, replay, историю, backoff, lease, ручной retry, disable и cleanup. Production TLS/egress, нагрузку, отказоустойчивость файловой системы и фактическую доставку в receiver проверьте на целевом стенде. Общая очередь обработки логов, scheduler, ClickHouse и alerts остаются будущими релизами.
+Wire tests используют настоящий HTTP-сервер с контролируемыми ответами, не подменяют PostgreSQL E2E. CI запускает DB integration suite и предыдущие тесты. `webhook_database.php` проверяет outbox, scoping, откат, replay, историю, backoff, lease, ручной retry, disable и cleanup. Production TLS/egress, нагрузку, отказоустойчивость файловой системы и фактическую доставку в receiver проверьте на целевом стенде. С 0.0.8 доступны очередь логов и scheduler: [Queue & Lifecycle](Queue-Lifecycle.md). ClickHouse и alerts остаются будущими релизами.
