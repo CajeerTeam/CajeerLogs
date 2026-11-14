@@ -25,7 +25,7 @@ final class Retention
     public function prune(int $limit=1000): int {
         if ($limit<1 || $limit>10000) { throw new \InvalidArgumentException('Retention batch must be 1..10000.'); }
         $this->lock();
-        $s=$this->pdo->prepare("WITH expired AS (SELECT l.id FROM log_events l JOIN projects p ON p.id=l.project_id WHERE p.retention_days IS NOT NULL AND l.received_at<statement_timestamp()-p.retention_days*interval '1 day' ORDER BY l.received_at,l.id LIMIT :limit FOR UPDATE OF l SKIP LOCKED) DELETE FROM log_events l USING expired e WHERE l.id=e.id");
+        $s=$this->pdo->prepare("WITH expired AS (SELECT l.id FROM log_events l JOIN projects p ON p.id=l.project_id LEFT JOIN sources s ON s.project_id=l.project_id AND s.id=l.source_id WHERE LEAST(p.retention_days,s.retention_days) IS NOT NULL AND l.received_at<statement_timestamp()-LEAST(p.retention_days,s.retention_days)*interval '1 day' ORDER BY l.received_at,l.id LIMIT :limit FOR UPDATE OF l SKIP LOCKED) DELETE FROM log_events l USING expired e WHERE l.id=e.id");
         $s->bindValue(':limit',$limit,PDO::PARAM_INT);$s->execute();return $s->rowCount();
     }
     public function run(int $limit=1000): int {

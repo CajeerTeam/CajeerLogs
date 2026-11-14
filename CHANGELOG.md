@@ -2,6 +2,14 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.1.7] — Source Management
+
+- SourceRepository: метаданные, типы, неизменяемый slug, revision и переходы active/disabled/archived; restore оставляет disabled.
+- Реальные source admission, квоты и ограничения в sync/async ingest, атомарные counters, сохранение принятых jobs и idempotency.
+- Индивидуальный retention ограничен сроком проекта; статистика, last seen и аудит.
+- Admin Panel: управление источником, фильтрация, статистика, подписанный тестовый ingest.
+- SQL 0010; 0001–0009 неизменны, совместимое восстановление старых backup с миграцией.
+
 ## [0.1.6] — Project Management
 
 - Реальные операции PATCH, archive/restore, поиск, фильтрация и статистика проектов.

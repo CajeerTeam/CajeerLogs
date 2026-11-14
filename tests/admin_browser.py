@@ -70,7 +70,7 @@ def login(page, email='admin@example.test', password='admin-password-12345'):
 class Fixture:
     def __init__(self):
         self.user = None; self.totp_enabled=False; self.require_totp=False; self.role = 'administrator'; self.projects=[{'id':P1,'name':'Production','slug':'production','revision':'1','status':'active','description':'','metadata':{},'max_body_bytes':1048576,'max_batch_events':100,'created_at':'2026-01-01T00:00:00Z'}]
-        self.sources=[{'id':S1,'project_id':P1,'name':'Application','slug':'app','created_at':'2026-01-01T00:00:00Z'}]
+        self.sources=[{'id':S1,'project_id':P1,'name':'Application','slug':'app','created_at':'2026-01-01T00:00:00Z','status':'active','revision':'1','source_type':'application','metadata':{}}]
         self.users=[{'id':U1,'email':'admin@example.test','role':'administrator','blocked_at':None}]
         self.members=[]; self.tokens=[]; self.calls=[]; self.fail_next=False
         self.event={'id':E1,'project_id':P1,'source_id':S1,'source':'app','service':'api','host':'host-1','level':'error','message':'<img src=x onerror="window.pwned=1"> database error','context':{'secret':'[redacted]','html':'<script>window.pwned=1</script>'},'trace_id':'trace-1','request_id':'req-1','tags':['prod'],'timestamp':'2026-11-14T00:00:00Z','received_at':'2026-11-14T00:00:01Z'}
@@ -86,7 +86,7 @@ class Fixture:
             if body['password']=='bad' or (self.totp_enabled and body.get('otp')!='123456'): return err(401,'unauthorized')
             self.user={'id':U1 if self.role=='administrator' else U2,'email':body['email'],'role':self.role,'two_factor_enabled':self.totp_enabled}
             return send({'user':self.user,'csrf_token':CSRF,'expires_in':28800,'enrollment_required':self.require_totp and not self.totp_enabled},headers={'Set-Cookie':'cajeerlogs_session='+'b'*64+'; Path=/; HttpOnly; SameSite=Strict'})
-        if path=='/health': return send({'status':'ok','version':'0.1.6'})
+        if path=='/health': return send({'status':'ok','version':'0.1.7'})
         if self.user is None: return err(401,'unauthorized')
         if method!='GET': assert req.headers.get('x-csrf-token')==CSRF, (method,path,req.headers)
         if path=='/auth/me': return send({'user':self.user,'csrf_token':CSRF,'enrollment_required':self.require_totp and not self.totp_enabled})
@@ -107,13 +107,21 @@ class Fixture:
             if method=='PATCH':
                 assert body['revision']==project['revision']; project.update({k:v for k,v in body.items() if k!='revision'}); project['revision']=str(int(project['revision'])+1)
             return send(project)
+        if '/sources/' in path:
+            parts=path.split('/'); source=next(x for x in self.sources if x['id']==parts[4] and x['project_id']==parts[2]); action=parts[5] if len(parts)>5 else None
+            if action=='stats': return send({'events':2,'events_24h':2,'events_60s':2,'active_tokens':1,'accepted_events_total':'2','rejected_events_total':'0','last_seen_at':None,'last_received_at':None})
+            if method=='PATCH':
+                assert body['revision']==source['revision'];source.update({k:v for k,v in body.items() if k!='revision'});source['revision']=str(int(source['revision'])+1)
+            if action in ['disable','enable','archive','restore']:
+                assert body['revision']==source['revision'];source['status']={'disable':'disabled','enable':'active','archive':'archived','restore':'disabled'}[action];source['revision']=str(int(source['revision'])+1)
+            return send(source)
         if path.startswith('/projects/') and path.endswith(('/archive','/restore')):
             project=next(p for p in self.projects if p['id']==path.split('/')[2]); assert body['revision']==project['revision']; project['status']='archived' if path.endswith('/archive') else 'active'; project['revision']=str(int(project['revision'])+1); return send(project)
         if path.startswith('/projects/') and path.endswith('/stats'):
             return send({'sources':len(self.sources),'members':len(self.members),'active_tokens':len(self.tokens),'events':2,'events_24h':2,'queued_jobs':0,'dead_jobs':0,'last_received_at':None})
         if path.endswith('/sources'):
-            if method=='POST': self.sources.append({'id':'99999999-9999-4999-8999-999999999999','project_id':path.split('/')[2],**body});return send({'id':self.sources[-1]['id']},201)
-            return listing([s for s in self.sources if s['project_id']==path.split('/')[2]])
+            if method=='POST': self.sources.append({'id':'99999999-9999-4999-8999-999999999999','project_id':path.split('/')[2],'status':'active','revision':'1','metadata':{},**body});return send({'id':self.sources[-1]['id']},201)
+            return listing([s for s in self.sources if s['project_id']==path.split('/')[2] and (q.get('status','all')=='all' or s['status']==q['status']) and q.get('q','').lower() in s['name'].lower()])
         if path.endswith('/members'):
             return listing(self.members)
         if '/members/' in path:
@@ -197,7 +205,7 @@ def run():
         browser=browser_for(p); ctx=browser.new_context(accept_downloads=True); page=ctx.new_page(); page.set_default_timeout(8000)
         errors=[]; page.on('pageerror',lambda e: errors.append(str(e)))
         # Actual PHP router, not intercepted, even in offline browser mode.
-        status,headers,body=http(url+'/admin');assert status==200 and b'0.1.6' in body
+        status,headers,body=http(url+'/admin');assert status==200 and b'0.1.7' in body
         assert "script-src 'self'" in {k.lower():v for k,v in headers.items()}['content-security-policy']
         assert http(url+'/api/v1/auth/me')[0]==401
         assert http(url+'/admin/assets/panel.js')[0]==200
@@ -237,6 +245,12 @@ def run():
         page.get_by_role('button',name='Восстановить проект').click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_role('button',name='Архивировать проект')).to_be_visible()
         print('PASS project edit, quotas, archive and restore fixture')
         form=page.locator('form').filter(has=page.get_by_role('button',name='Добавить источник'));form.get_by_label('Название').fill('New source');form.get_by_label('Slug').fill('new-source');form.get_by_role('button',name='Добавить источник').click();expect(page.get_by_text('New source',exact=True)).to_be_visible()
+        page.get_by_role('button',name='Открыть источник').click();expect(page.get_by_role('dialog').get_by_role('heading',name='New source')).to_be_visible()
+        page.get_by_label('Название источника').fill('Renamed source');page.get_by_role('dialog').get_by_label('Тип источника').select_option('nginx');page.get_by_label('Событий в минуту (пусто = без отдельной квоты)').fill('10');page.get_by_role('button',name='Сохранить источник').click();expect(page.get_by_text('Renamed source',exact=True)).to_be_visible()
+        for action,status in [('Отключить источник','Отключён'),('Архивировать источник','Архивный'),('Восстановить источник','Отключён'),('Включить источник','Активный')]:
+            page.get_by_role('button',name='Открыть источник').click();page.get_by_role('dialog').get_by_role('button',name=action).click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_role('row').filter(has_text='Renamed source')).to_contain_text(status)
+        page.get_by_label('Поиск источников').fill('missing');page.get_by_role('button',name='Найти источники').click();expect(page.get_by_text('Renamed source',exact=True)).to_have_count(0);page.get_by_label('Поиск источников').fill('Renamed');page.get_by_role('button',name='Найти источники').click();expect(page.get_by_text('Renamed source',exact=True)).to_be_visible()
+        print('PASS source edit, type, policy, disable/archive/restore/enable and search fixture')
         nav(page,'users');form=page.locator('form').filter(has=page.get_by_role('button',name='Создать пользователя'));form.get_by_label('Email').fill('viewer@example.test');form.get_by_label('Пароль').fill('viewer-password-12345');form.get_by_role('button',name='Создать пользователя').click();expect(page.get_by_text('viewer@example.test',exact=True)).to_be_visible()
         page.get_by_role('row').filter(has_text='viewer@example.test').get_by_role('button',name='Изменить').click();page.get_by_role('dialog').get_by_label('Роль',exact=True).select_option('operator');page.get_by_role('dialog').get_by_role('button',name='Сохранить').click();expect(page.get_by_role('row').filter(has_text='viewer@example.test')).to_contain_text('Оператор')
         nav(page,'projects');page.get_by_label('UUID пользователя').fill(U2);page.get_by_role('button',name='Добавить участника').click();expect(page.get_by_text('viewer@example.test',exact=True)).to_be_visible();page.get_by_role('button',name='Изменить роль').click();page.get_by_role('dialog').get_by_label('Роль в проекте').select_option('viewer');page.get_by_role('dialog').get_by_role('button',name='Сохранить роль').click();expect(page.get_by_role('row').filter(has_text='viewer@example.test')).to_contain_text('Наблюдатель');page.get_by_role('button',name='Убрать доступ').click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_text('viewer@example.test',exact=True)).to_have_count(0)

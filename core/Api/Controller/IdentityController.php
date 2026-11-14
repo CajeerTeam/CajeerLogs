@@ -27,6 +27,9 @@ final class IdentityController
         'DELETE /projects/{project}/members/{user}'=>'removeMember',
         'GET /projects/{project}/sources'=>'sources', 'POST /projects/{project}/sources'=>'createSource',
         'GET /projects/{project}/sources/{source}'=>'source',
+        'PATCH /projects/{project}/sources/{source}'=>'updateSource', 'POST /projects/{project}/sources/{source}/disable'=>'disableSource',
+        'POST /projects/{project}/sources/{source}/enable'=>'enableSource', 'POST /projects/{project}/sources/{source}/archive'=>'archiveSource',
+        'POST /projects/{project}/sources/{source}/restore'=>'restoreSource', 'GET /projects/{project}/sources/{source}/stats'=>'sourceStats',
         'GET /projects/{project}/tokens'=>'tokens', 'POST /projects/{project}/tokens'=>'createToken',
         'DELETE /projects/{project}/tokens/{token}'=>'revokeToken',
         'GET /system/tokens'=>'systemTokens', 'POST /system/tokens'=>'createSystemToken', 'DELETE /system/tokens/{token}'=>'revokeSystemToken',
@@ -122,7 +125,7 @@ final class IdentityController
     { (new AuditLogger($this->pdo))->record($action,['request_id'=>$r->requestId]+$context,$p['id'],$target); }
     private function sql(string $query,array $params=[]): \PDOStatement { return $this->identity->sql($query,$params); }
     private function one(string $query,array $params): array { $row=$this->sql($query,$params)->fetch(); if (!$row) { self::missing(); } return $row; }
-    private function page(Request $r,string $query,array $params=[],string $id='id',bool $projects=false): Response
+    private function page(Request $r,string $query,array $params=[],string $id='id',bool $projects=false,bool $sources=false): Response
     {
         $limit=filter_var($r->query['limit']??50,FILTER_VALIDATE_INT,['options'=>['min_range'=>1,'max_range'=>100]]);
         if ($limit===false) { self::invalid('limit must be 1..100.'); }
@@ -131,7 +134,7 @@ final class IdentityController
         $rows=$this->sql($query." ORDER BY $id LIMIT ".($limit+1),$params)->fetchAll();
         $next=null;
         if (count($rows)>$limit) { array_pop($rows); $next=end($rows)['id']; }
-        foreach ($rows as &$row) { if ($projects) $row=ProjectRepository::decode($row); if (isset($row['scopes']) && is_string($row['scopes'])) { $row['scopes']=json_decode($row['scopes'],true,32,JSON_THROW_ON_ERROR); } }
+        foreach ($rows as &$row) { if ($projects) $row=ProjectRepository::decode($row); if ($sources) $row=SourceRepository::decode($row); if (isset($row['scopes']) && is_string($row['scopes'])) { $row['scopes']=json_decode($row['scopes'],true,32,JSON_THROW_ON_ERROR); } }
         unset($row);
         return new JsonResponse(['items'=>$rows,'next_cursor'=>$next]);
     }
@@ -300,20 +303,59 @@ final class IdentityController
         $this->sql('DELETE FROM project_members WHERE project_id=:project AND user_id=:user',['project'=>$project,'user'=>$user]);
         $this->audit($r,$p,'project.member_removed',$project.':'.$user); return new Response('',204);
     }
+    private const SOURCE_OPTIONS=['description','metadata','source_type','retention_days','max_body_bytes','max_batch_events','events_per_minute'];
+    private function sourceData(Request $r,array $extra): array
+    {
+        $d=$this->body($r,array_merge(self::SOURCE_OPTIONS,$extra));
+        if (array_key_exists('metadata',$d)) $d['metadata']=json_decode($r->body(),false,64,JSON_THROW_ON_ERROR)->metadata;
+        return $d;
+    }
     private function sources(Request $r,array $p): Response
     {
         $id=$this->id($r,'project'); $this->allow($p,$p['kind']==='token'?'logs:read':'projects:read',$id);
-        $this->one('SELECT id FROM projects WHERE id=:id',['id'=>$id]); return $this->page($r,'SELECT id,project_id,name,slug,created_at FROM sources WHERE project_id=:project',['project'=>$id]);
+        $this->one('SELECT id FROM projects WHERE id=:id',['id'=>$id]);
+        $query='SELECT '.SourceRepository::FIELDS.' FROM sources WHERE project_id=:project'; $params=['project'=>$id];
+        $status=$r->query['status']??'all';
+        if (!in_array($status,array_merge(['all'],SourceRepository::STATES),true)) self::invalid('Invalid source status.');
+        if ($status!=='all') { $query.=' AND status=:status'; $params['status']=$status; }
+        if (isset($r->query['q'])) {
+            $q=$r->query['q']; if (!is_string($q)||strlen($q)>255||str_contains($q,"\0")) self::invalid('Invalid source search.');
+            $query.=' AND (strpos(lower(name),lower(:q_name))>0 OR strpos(slug,lower(:q_slug))>0)'; $params['q_name']=$q; $params['q_slug']=$q;
+        }
+        return $this->page($r,$query,$params,'id',false,true);
     }
     private function createSource(Request $r,array $p): Response
     {
-        $this->session($p); $project=$this->id($r,'project'); $this->allow($p,'sources:manage',$project); [$name,$slug]=$this->nameSlug($this->body($r,['name','slug']));
-        $this->one('SELECT id FROM projects WHERE id=:id',['id'=>$project]); $id=(new SourceRepository($this->pdo))->create($project,$name,$slug); $this->audit($r,$p,'source.created',$id); return new JsonResponse(['id'=>$id],201);
+        $this->session($p); $project=$this->id($r,'project'); $this->allow($p,'sources:manage',$project);
+        $d=$this->sourceData($r,['name','slug']); [$name,$slug]=$this->nameSlug($d); unset($d['name'],$d['slug']);
+        $this->one('SELECT id FROM projects WHERE id=:id',['id'=>$project]); $id=(new SourceRepository($this->pdo))->create($project,$name,$slug,$d); $this->audit($r,$p,'source.created',$id,['project_id'=>$project]); return new JsonResponse(['id'=>$id],201);
     }
     private function source(Request $r,array $p): Response
     {
         $project=$this->id($r,'project'); $source=$this->id($r,'source'); $this->allow($p,$p['kind']==='token'?'logs:read':'projects:read',$project,$source);
-        return new JsonResponse($this->one('SELECT id,project_id,name,slug,created_at FROM sources WHERE project_id=:project AND id=:id',['project'=>$project,'id'=>$source]));
+        $row=(new SourceRepository($this->pdo))->find($project,$source); if (!$row) self::missing(); return new JsonResponse($row);
+    }
+    private function updateSource(Request $r,array $p): Response
+    {
+        $this->session($p); $project=$this->id($r,'project'); $source=$this->id($r,'source'); $this->allow($p,'sources:manage',$project);
+        $d=$this->sourceData($r,['revision','name']); $revision=ProjectRepository::revision($d['revision']??null); unset($d['revision']);
+        $row=(new SourceRepository($this->pdo))->update($project,$source,$revision,$d);
+        $this->audit($r,$p,'source.updated',$source,['project_id'=>$project,'revision'=>$row['revision'],'fields'=>array_keys($d)]); return new JsonResponse($row);
+    }
+    private function changeSourceState(Request $r,array $p,string $action): Response
+    {
+        $this->session($p); $project=$this->id($r,'project'); $source=$this->id($r,'source'); $this->allow($p,'sources:manage',$project);
+        $d=$this->body($r,['revision']); $row=(new SourceRepository($this->pdo))->transition($project,$source,ProjectRepository::revision($d['revision']??null),$action);
+        $this->audit($r,$p,'source.'.$action,$source,['project_id'=>$project,'revision'=>$row['revision'],'status'=>$row['status']]); return new JsonResponse($row);
+    }
+    private function disableSource(Request $r,array $p): Response { return $this->changeSourceState($r,$p,'disable'); }
+    private function enableSource(Request $r,array $p): Response { return $this->changeSourceState($r,$p,'enable'); }
+    private function archiveSource(Request $r,array $p): Response { return $this->changeSourceState($r,$p,'archive'); }
+    private function restoreSource(Request $r,array $p): Response { return $this->changeSourceState($r,$p,'restore'); }
+    private function sourceStats(Request $r,array $p): Response
+    {
+        $project=$this->id($r,'project'); $source=$this->id($r,'source'); $this->allow($p,$p['kind']==='token'?'logs:read':'projects:read',$project,$source);
+        return new JsonResponse((new SourceRepository($this->pdo))->statistics($project,$source));
     }
     private function tokenList(Request $r,?string $project): Response
     {
