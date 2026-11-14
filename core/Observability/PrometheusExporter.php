@@ -17,6 +17,9 @@ final class PrometheusExporter
             . "# HELP cajeerlogs_php_memory_bytes Memory allocated by the current PHP request.\n"
             . "# TYPE cajeerlogs_php_memory_bytes gauge\ncajeerlogs_php_memory_bytes " . memory_get_usage(true) . "\n";
         try { $pdo=$this->app->container()->get(\PDO::class); } catch (\Throwable) { $pdo=null; }
+        $verified=0;
+        if ($pdo!==null) { try { $this->app->container()->get(\Cajeer\Logs\Database\MigrationRunner::class)->assertCurrent(); $verified=1; } catch (\Throwable) {} }
+        $output.="# HELP cajeerlogs_schema_verified Applied migration history and catalog match this release.\n# TYPE cajeerlogs_schema_verified gauge\ncajeerlogs_schema_verified $verified\n";
         // Runtime liveness remains independent of PostgreSQL; omit unavailable queue gauges.
         try {
             if ($pdo===null) { throw new \RuntimeException('Database unavailable.'); }

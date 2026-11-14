@@ -23,7 +23,7 @@ try {
     $bad=json_encode(['timestamp'=>'bad','source'=>'app','level'=>'error','message'=>'bad'],JSON_THROW_ON_ERROR);verify($send('bad',$bad)->status===422&&(int)$pdo->query('SELECT count(*) FROM webhook_deliveries')->fetchColumn()===1,'invalid ingest leaves no delivery');
     $pdo->exec("ALTER TABLE webhook_deliveries ADD CONSTRAINT test_outbox_reject CHECK (false) NOT VALID");
     $before=(int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn();
-    verify($send('rollback',$raw)->status===500&&(int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===$before,'outbox SQL failure rolls back log insert');
+    verify($send('rollback',$raw)->status===503&&(int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===$before,'untracked outbox constraint blocks ingest');
     $pdo->exec('ALTER TABLE webhook_deliveries DROP CONSTRAINT test_outbox_reject');
     $attempts=[];$fake=function(string $url,string $id,string $body,string $secret)use(&$attempts):int{$attempts[]=[$id,$body,$secret];return count($attempts)===1?503:204;};
     verify($outbox->work(1,$fake)['retry']===1,'503 schedules retry');

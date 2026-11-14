@@ -17,7 +17,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL);
 $command = $argv[1] ?? 'help';
 if ($command === 'help' || $command === '--help') {
-    echo "CajeerLogs CLI\nUsage: php bin/cajeer <command>\nCommands: version, install, install:check, migrate, migrate:status, db:doctor, doctor, system:report, openapi:lint, auth:cleanup, import:aapanel, webhook:add, webhook:list, webhook:history, webhook:disable, webhook:retry, webhook:work, webhook:cleanup\nQueue: queue:work [limit], queue:status, queue:list STATUS, queue:history ID, queue:retry ID, queue:discard ID, scheduler:run, retention:list, retention:set PROJECT DAYS|off, retention:run [limit]\nOperations: backup:create, backup:list, backup:verify ID, backup:restore ID EMPTY_DB, update:check FILE, auth:2fa-reset EMAIL --confirm\n";
+    echo "CajeerLogs CLI\nUsage: php bin/cajeer <command>\nCommands: version, install, install:check, migrate, migrate:status, migrate:plan, migrate:verify, db:doctor, doctor, system:report, openapi:lint, auth:cleanup, import:aapanel, webhook:add, webhook:list, webhook:history, webhook:disable, webhook:retry, webhook:work, webhook:cleanup\nQueue: queue:work [limit], queue:status, queue:list STATUS, queue:history ID, queue:retry ID, queue:discard ID, scheduler:run, retention:list, retention:set PROJECT DAYS|off, retention:run [limit]\nOperations: backup:create, backup:list, backup:verify ID, backup:restore ID EMPTY_DB, update:check FILE, auth:2fa-reset EMAIL --confirm\n";
     exit(0);
 }
 $pending = ['alert:dispatch' => '0.3.x'];
@@ -30,7 +30,7 @@ if ($command === 'import:aapanel') {
     passthru('python3 ' . escapeshellarg(dirname(__DIR__) . '/clients/python/cajeer_logs_collector.py') . ' ' . implode(' ', $args), $code);
     exit($code);
 }
-if (!in_array($command, ['version','--version','install:check','doctor','system:report','openapi:lint','install','migrate','migrate:status','db:doctor','auth:cleanup','webhook:add','webhook:list','webhook:history','webhook:disable','webhook:retry','webhook:work','webhook:cleanup','queue:work','queue:status','queue:list','queue:history','queue:retry','queue:discard','scheduler:run','retention:list','retention:set','retention:run','backup:create','backup:list','backup:verify','backup:restore','update:check','auth:2fa-reset'], true)) {
+if (!in_array($command, ['version','--version','install:check','doctor','system:report','openapi:lint','install','migrate','migrate:status','migrate:plan','migrate:verify','db:doctor','auth:cleanup','webhook:add','webhook:list','webhook:history','webhook:disable','webhook:retry','webhook:work','webhook:cleanup','queue:work','queue:status','queue:list','queue:history','queue:retry','queue:discard','scheduler:run','retention:list','retention:set','retention:run','backup:create','backup:list','backup:verify','backup:restore','update:check','auth:2fa-reset'], true)) {
     fwrite(STDERR, "Unknown command. Run php bin/cajeer help.\n");
     exit(64);
 }
@@ -45,13 +45,14 @@ try {
         exit(0);
     }
     $app->boot();
+    if ($command !== 'queue:work' && (str_starts_with($command,'queue:') || str_starts_with($command,'webhook:') || str_starts_with($command,'retention:') || in_array($command,['scheduler:run','auth:cleanup','auth:2fa-reset'],true))) { $schemaGuard=$app->container()->get(\Cajeer\Logs\Database\MigrationRunner::class)->guard(); }
     if (str_starts_with($command,'backup:') || $command==='update:check' || $command==='auth:2fa-reset') { exit((new \Cajeer\Logs\Console\Command\OperationsCommand($app))->handle($command,array_slice($argv,2))); }
     if ($command === 'install') { exit((new InstallCommand($app))->handle(array_slice($argv, 2))); }
     if (str_starts_with($command, 'webhook:')) { exit((new WebhookCommand($app))->handle($command,array_slice($argv,2))); }
     if (str_starts_with($command,'queue:')) { exit((new \Cajeer\Logs\Console\Command\QueueWorkCommand($app))->handle($command,array_slice($argv,2))); }
     if ($command==='scheduler:run' || str_starts_with($command,'retention:')) { exit((new \Cajeer\Logs\Console\Command\SchedulerRunCommand($app))->handle($command,array_slice($argv,2))); }
     if (count($argv) > 2) { throw new DatabaseException('Unexpected command arguments.'); }
-    if ($command === 'migrate' || $command === 'migrate:status') { exit((new MigrateCommand($app))->handle($command === 'migrate:status')); }
+    if (in_array($command,['migrate','migrate:status','migrate:plan','migrate:verify'],true)) { exit((new MigrateCommand($app))->handle($command)); }
     $handler = match ($command) {
         'auth:cleanup' => new AuthCleanupCommand($app),
         'install:check' => new InstallCheckCommand($app),

@@ -32,6 +32,7 @@ final class IngestController
         if (!preg_match('/^[1-9][0-9]{0,18}$/D',$id) || strlen($id)===19 && strcmp($id,'9223372036854775807')>0) { throw new HttpException(422,'invalid_job','Invalid job ID.'); }
         try {
             $pdo=$this->app->container()->get(PDO::class);
+            $schemaGuard=$this->app->container()->get(\Cajeer\Logs\Database\MigrationRunner::class)->guard();
             $rate=new RateLimiter($pdo);
             $rate->enforce('job-status-ip:'.$r->remoteAddress,$config->get('api.rate_limit'),60);
             $p=(new Identity($pdo,true,''))->authenticate($r,$credential);
@@ -56,6 +57,7 @@ final class IngestController
         $signer=new SignedPayload();
         try {
             $pdo=$this->app->container()->get(PDO::class);
+            $schemaGuard=$this->app->container()->get(\Cajeer\Logs\Database\MigrationRunner::class)->guard();
             $rate=new RateLimiter($pdo);
             $rate->enforce('ingest-ip:'.$r->remoteAddress,$config->get('api.rate_limit'),60);
             $identity=new Identity($pdo,true,'');

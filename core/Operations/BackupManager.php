@@ -54,8 +54,8 @@ final class BackupManager
         $locked=false;
         try {
             $pdo=$this->app->container()->get(PDO::class); $schema=$this->app->container()->get(ConnectionFactory::class)->schema(); $db=$this->app->config()->get('database.database');
-            $lock=$pdo->prepare('SELECT pg_advisory_lock(hashtextextended(:key,0))'); $lock->execute(['key'=>'cajeerlogs:migrations:'.$schema]); $lock->closeCursor(); $locked=true;
-            if ($this->app->container()->get(MigrationRunner::class)->status()['pending']!==[]) { throw new DatabaseException('Apply migrations before backup.'); }
+            $lock=$pdo->prepare('SELECT pg_advisory_lock_shared(hashtextextended(:key,0))'); $lock->execute(['key'=>'cajeerlogs:migrations:'.$schema]); $lock->closeCursor(); $locked=true;
+            $this->app->container()->get(MigrationRunner::class)->assertCurrent();
             $archive=$temp.'/database.dump';
             // Pre-create with mode 0600; pg_dump writes only to our private directory.
             $f=fopen($archive,'xb'); if ($f===false) { throw new DatabaseException('Cannot create backup archive.'); } fclose($f); chmod($archive,0600);
@@ -71,7 +71,7 @@ final class BackupManager
             if (!rename($temp,$root.'/'.$id)) { throw new DatabaseException('Cannot publish backup.'); }
             return $meta;
         } finally {
-            if ($locked) { $unlock=$pdo->prepare('SELECT pg_advisory_unlock(hashtextextended(:key,0))'); $unlock->execute(['key'=>'cajeerlogs:migrations:'.$schema]); }
+            if ($locked) { $unlock=$pdo->prepare('SELECT pg_advisory_unlock_shared(hashtextextended(:key,0))'); $unlock->execute(['key'=>'cajeerlogs:migrations:'.$schema]); }
             if (is_dir($temp)) { foreach (['database.dump','manifest.json'] as $file) { if (is_file($temp.'/'.$file)) { unlink($temp.'/'.$file); } } rmdir($temp); }
         }
     }
@@ -87,7 +87,7 @@ final class BackupManager
     /** These explicit releases share SQL 0001–0008; restored history is checked separately. */
     public static function compatibleRelease(mixed $backup, string $current): bool
     {
-        return is_string($backup) && ($backup === $current || ($current === '0.1.0' && $backup === '0.0.9') || ($current === '0.1.1' && in_array($backup,['0.0.9','0.1.0'],true)));
+        return is_string($backup) && ($backup === $current || ($current === '0.1.0' && $backup === '0.0.9') || ($current === '0.1.1' && in_array($backup,['0.0.9','0.1.0'],true)) || ($current === '0.1.2' && in_array($backup,['0.0.9','0.1.0','0.1.1'],true)));
     }
     public function restore(string $id,string $target): array
     {
@@ -107,6 +107,8 @@ final class BackupManager
         $targetConfig->set('database.schema',$m['schema']); $restored=(new ConnectionFactory($targetConfig))->make('pgsql');
         $runner=new MigrationRunner($restored,$this->app->basePath('migrations/pgsql'),$m['schema']);
         if ($runner->status()['pending']!==[]) { throw new DatabaseException('Restored migration history incomplete; do not switch production to this database.'); }
+        $runner->migrate(); // Validate and adopt legacy schema without trusting a stale catalog.
+        $runner->assertCurrent();
         // Old snapshots must not resurrect revoked credentials. Reconcile external deliveries before starting workers.
         $restored->beginTransaction();
         try { $restored->exec('DELETE FROM auth_sessions; DELETE FROM user_recovery_codes; UPDATE api_tokens SET revoked_at=now() WHERE revoked_at IS NULL'); $restored->commit(); }

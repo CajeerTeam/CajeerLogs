@@ -1,6 +1,6 @@
-"""Real 0.1.0 -> 0.1.1 upgrade using the previous source tree and PostgreSQL.
+"""Real 0.1.1 -> 0.1.2 upgrade using the previous source tree and PostgreSQL.
 
-Usage: CAJEER_TEST_DATABASE=1 python3 tests/upgrade_release.py /path/to/0.1.0
+Usage: CAJEER_TEST_DATABASE=1 python3 tests/upgrade_release.py /path/to/0.1.1
 Requires a disposable DB_* database and a separate empty CAJEER_TEST_UPGRADE_RESTORE_DB.
 """
 import contextlib
@@ -27,10 +27,10 @@ def main(previous):
     if os.environ.get('CAJEER_TEST_DATABASE')!='1': raise SystemExit('Use a disposable PostgreSQL database only.')
     target=os.environ.get('CAJEER_TEST_UPGRADE_RESTORE_DB')
     if not target or target==os.environ.get('DB_DATABASE'): raise SystemExit('Provision a separate empty restore database.')
-    if json.loads((previous/'release.json').read_text())['version']!='0.1.0': raise SystemExit('Expected actual 0.1.0 source tree.')
+    if json.loads((previous/'release.json').read_text())['version']!='0.1.1': raise SystemExit('Expected actual 0.1.1 source tree.')
     old_migrations={p.name:p.read_bytes() for p in (previous/'migrations/pgsql').glob('*.sql')}
     new_migrations={p.name:p.read_bytes() for p in (ROOT/'migrations/pgsql').glob('*.sql')}
-    assert old_migrations==new_migrations,'0.1.0 migration history changed'
+    assert old_migrations==new_migrations,'0.1.1 migration history changed'
     schema='cl_upgrade_'+secrets.token_hex(8)
     with tempfile.TemporaryDirectory() as tmp:
         p=Path(tmp); tree=p/'app'; shutil.copytree(previous,tree,ignore=shutil.ignore_patterns('.git','.env','vendor','node_modules'))
@@ -66,10 +66,10 @@ def main(previous):
                 return json.loads(resp.read()),resp.headers
         sql(f'CREATE SCHEMA "{schema}"')
         try:
-            assert cli('version').strip()=='0.1.0'
+            assert cli('version').strip()=='0.1.1'
             cli('install','--non-interactive'); before=(tree/'.env').read_bytes()
             with server():
-                assert call('GET','/ready')[0]['version']=='0.1.0'
+                assert call('GET','/ready')[0]['version']=='0.1.1'
                 d,h=call('POST','/api/v1/auth/login',{'email':'upgrade@example.test','password':password}); auth={'Cookie':h['Set-Cookie'].split(';',1)[0],'X-CSRF-Token':d['csrf_token'],'Origin':url}
                 pid=call('POST','/api/v1/projects',{'name':'Upgrade proof','slug':'upgrade-proof'},auth,201)[0]['id']
                 sid=call('POST',f'/api/v1/projects/{pid}/sources',{'name':'App','slug':'app'},auth,201)[0]['id']
@@ -77,15 +77,15 @@ def main(previous):
                 event={'timestamp':datetime.datetime.now(datetime.timezone.utc).isoformat(),'source':'app','level':'info','message':'previous release proof'}
                 eid=call('POST','/api/v1/ingest',event,bearer,201)[0]['event_ids'][0]
                 jid=call('POST','/api/v1/ingest/async',event|{'message':'queued before upgrade'},bearer|{'Idempotency-Key':'before-upgrade'},202)[0]['job_id']
-            backup=json.loads(cli('backup:create')); assert backup['version']=='0.1.0'
-            # Overlay the verified public distribution, not a source fixture emulating 0.1.0.
+            backup=json.loads(cli('backup:create')); assert backup['version']=='0.1.1'
+            # Overlay the verified public distribution, not a source fixture emulating 0.1.1.
             package=p/'release.zip'; release.build(ROOT,package); extracted=p/'new'; release.verify(package,extracted)
             shutil.copytree(extracted,tree,dirs_exist_ok=True)
             assert (tree/'.env').read_bytes()==before
-            assert cli('version').strip()=='0.1.1'; cli('migrate'); cli('doctor')
+            assert cli('version').strip()=='0.1.2'; cli('migrate'); cli('doctor')
             cli('queue:work','10')
             with server():
-                assert call('GET','/ready')[0]['version']=='0.1.1'
+                assert call('GET','/ready')[0]['version']=='0.1.2'
                 assert call('GET','/api/v1/auth/me',headers=auth)[0]['user']['email']=='upgrade@example.test'
                 assert call('GET',f'/api/v1/logs/{eid}?project_id={pid}',headers=bearer)[0]['data']['message']=='previous release proof'
                 assert call('GET',f'/api/v1/ingest/jobs/{jid}',headers=bearer)[0]['status']=='completed'
@@ -94,7 +94,7 @@ def main(previous):
             assert sql(f'SELECT count(*) FROM "{schema}".log_events',target)=='1'
             assert sql(f'SELECT count(*) FROM "{schema}".api_tokens WHERE revoked_at IS NULL',target)=='0'
             assert sql(f'SELECT count(*) FROM "{schema}".log_events')=='2'
-            print('PASS actual 0.1.0 install, backup, overlay upgrade, old session/token/log, pending job and restore',flush=True)
+            print('PASS actual 0.1.1 install, backup, overlay upgrade, old session/token/log, pending job and restore',flush=True)
         finally:
             sql(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
             sql(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE',target)

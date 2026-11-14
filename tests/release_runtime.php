@@ -32,9 +32,9 @@ try {
     putenv('APP_URL=http://logs.example.test'); $app=new Application($root); $app->boot();
     check(rejects(fn()=>(new Installer($app))->run('admin@example.test','test-only-password-123'),'Production installation requires'),'production installer rejects HTTP before touching DB');
     check($app->handle(new Request('GET','/ready'))->status===503,'production HTTP origin never ready');
-    check(BackupManager::compatibleRelease('0.0.9','0.1.1')&&BackupManager::compatibleRelease('0.1.0','0.1.1'),'restore supported from previous compatible releases');
-    check(BackupManager::compatibleRelease('0.1.1','0.1.1'),'same release restore');
-    check(!BackupManager::compatibleRelease('0.0.8','0.1.1')&&!BackupManager::compatibleRelease('0.1.2','0.1.1')&&!BackupManager::compatibleRelease(null,'0.1.1'),'incompatible restore rejected');
+    check(BackupManager::compatibleRelease('0.0.9','0.1.2')&&BackupManager::compatibleRelease('0.1.0','0.1.2')&&BackupManager::compatibleRelease('0.1.1','0.1.2'),'restore supported from previous compatible releases');
+    check(BackupManager::compatibleRelease('0.1.2','0.1.2'),'same release restore');
+    check(!BackupManager::compatibleRelease('0.0.8','0.1.2')&&!BackupManager::compatibleRelease('0.1.3','0.1.2')&&!BackupManager::compatibleRelease(null,'0.1.2'),'incompatible restore rejected');
 } finally {
     foreach (['CAJEER_ENV_FILE'=>$old,'APP_ENV'=>$env,'APP_URL'=>$url] as $name=>$value) putenv($value===false?$name:$name.'='.$value);
     if (file_exists($tmp.'/config/.env')||is_link($tmp.'/config/.env')) unlink($tmp.'/config/.env'); rmdir($tmp.'/config'); rmdir($tmp);

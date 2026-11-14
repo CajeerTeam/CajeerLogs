@@ -2,6 +2,14 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.1.2] — Migration Engine
+
+- Последовательные per-file транзакции под общей session advisory lock; история SHA-256, durable attempts и безопасные ошибки.
+- `migrate:plan`/`migrate:verify`: структурный PostgreSQL catalog, drift, read-only plan; legacy adoption через replay в rollback-only reference schema.
+- Явные режимы concurrent index и ограниченного idempotent batch backfill; восстановление незавершённых попыток.
+- Shared guard для HTTP/worker/maintenance, readiness и schema_verified metric; поддержка восстановления backup 0.1.1.
+- SQL 0001–0008 неизменны. Служебные таблицы миграций создаются движком. PostgreSQL 17/18 integration и upgrade tests в CI.
+
 ## [0.1.1] — PostgreSQL Runtime
 
 - Непостоянные PDO-сессии, ограниченный retry подключения с jitter, классификация PostgreSQL/libpq ошибок, настройки application_name и idle-in-transaction timeout.

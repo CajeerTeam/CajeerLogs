@@ -67,11 +67,18 @@ try {
     expect(encode(['events'=>[$event,array_replace($event,['timestamp'=>'bad'])]]),$secret,422,'invalid batch rejected');
     verify((int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===$countBefore,'denials, replay and invalid batch do not add rows');
     expect($raw,$scoped['token'],201,'source-bound token can write assigned source',['Idempotency-Key'=>'batch-1']);
-    // Force a SQL failure on the second event to verify rollback after a successful first INSERT.
+    // Untracked DDL must block HTTP; independently exercise actual bulk INSERT rollback.
     $pdo->exec("ALTER TABLE log_events ADD CONSTRAINT ingest_test_reject CHECK (message <> 'force-db-failure')");
     $bad=encode(['events'=>[$event,array_replace($event,['message'=>'force-db-failure'])]]);
     $countBefore=(int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn();
-    expect($bad,$secret,500,'SQL failure on second row',['Idempotency-Key'=>'rollback-1']);
+    expect($bad,$secret,503,'untracked constraint blocks ingest before SQL',['Idempotency-Key'=>'rollback-1']);
+    $pdo->beginTransaction();
+    try {
+        $events=(new \Cajeer\Logs\Log\IngestValidator())->parse(new Request('POST','/api/v1/ingest',['Content-Type'=>'application/json'],[],$bad));
+        (new \Cajeer\Logs\Log\LogRepository($pdo))->storeBatch($events,$project,['app'=>$source],$writer['id']);
+        throw new RuntimeException('Expected actual constraint failure');
+    } catch (PDOException $e) { verify((string)$e->getCode()==='23514','real batch constraint failure'); }
+    finally { if ($pdo->inTransaction()) $pdo->rollBack(); }
     verify((int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===$countBefore,'failed transaction rolled back first row');
     $pdo->exec('ALTER TABLE log_events DROP CONSTRAINT ingest_test_reject');
     expect($bad,$secret,201,'failed attempt did not reserve idempotency key',['Idempotency-Key'=>'rollback-1']);

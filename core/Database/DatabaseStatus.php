@@ -26,7 +26,7 @@ final class DatabaseStatus
             $canMigrate = (bool) $priv->fetchColumn();
             if (!$requireMigrations) { return ['status' => $canMigrate ? 'ok' : 'down', 'server_version' => $version, 'schema_create' => $canMigrate, 'separate_migration_role' => $migrationPdo !== $pdo]; }
             $status = $this->app->container()->get(MigrationRunner::class)->status();
-            if ($status['pending'] !== []) { return ['status' => 'down', 'server_version' => $version, 'migrations' => $status]; }
+            if ($status['pending'] !== [] || $status['integrity'] !== 'verified') { return ['status' => 'down', 'server_version' => $version, 'migrations' => $status]; }
             // Check every expected relation and its read/write privileges in one round trip.
             $relations = $pdo->prepare(<<<'SQL'
                 WITH expected(name) AS (VALUES ('users'), ('projects'), ('sources'), ('api_tokens'),

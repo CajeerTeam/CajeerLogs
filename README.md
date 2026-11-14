@@ -2,6 +2,10 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.1.2 — Migration Engine
+
+Отдельные транзакции миграций, реальный контроль PostgreSQL catalog, read-only plan/verify, журнал попыток, безопасное восстановление concurrent indexes и batch backfill. При обновлении с 0.1.1 обязательно выполнить `php bin/cajeer migrate` даже при отсутствии pending SQL. [Инструкция](docs/Migration-Engine.md).
+
 ## 0.1.1 — PostgreSQL Runtime
 
 Непостоянные PostgreSQL-соединения, ограниченный retry подключения, восстановление queue worker после разрыва, отдельная CLI-роль миграций, параметры сессии и метрики PostgreSQL. [Настройка и диагностика](docs/PostgreSQL-Runtime.md). SQL 0001–0008 не меняются.

@@ -31,6 +31,7 @@ final class IdentityController
     ];
     private Identity $identity;
     private PDO $pdo;
+    private \Cajeer\Logs\Database\MigrationGuard $schemaGuard;
     public function __construct(private readonly Application $app)
     {
         $url=parse_url($app->config()->get('app.url'));
@@ -38,6 +39,7 @@ final class IdentityController
         if ($app->config()->get('app.env')==='production' && !$secure) { throw new HttpException(503,'https_required','HTTPS configuration required.'); }
         $origin=$url['scheme'].'://'.$url['host'].(isset($url['port']) && !(($secure && $url['port']===443)||(!$secure && $url['port']===80)) ? ':'.$url['port'] : '');
         $this->pdo=$app->container()->get(PDO::class);
+        $this->schemaGuard=$app->container()->get(\Cajeer\Logs\Database\MigrationRunner::class)->guard();
         $this->identity=new Identity($this->pdo,$secure,$origin,28800,$app->config()->get('security.totp_key'),$app->config()->get('security.require_admin_totp'));
     }
     public static function register(Router $router, Application $app, string $prefix): void

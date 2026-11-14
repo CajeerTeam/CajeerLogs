@@ -57,8 +57,9 @@ try {
     verify($secondQueue->process($newClaim)==='retry'&&(int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===2,'failed outbox rolls back inserted log and schedules retry');
     verify($queue->claim()===null&&$queue->history($id2)[0]['outcome']==='retry','backoff and attempt history');
     $pdo->exec("UPDATE jobs SET available_at=clock_timestamp()-interval '1 second',max_attempts=attempts+1 WHERE id=".$id2);
-    $failed=$queue->claim();verify($queue->process($failed)==='dead'&&data($poll($id2,$token['token']))['status']==='dead','exhausted attempts enter dead-letter');
+    $failed=$queue->claim();verify($queue->process($failed)==='dead'&&$pdo->query('SELECT status FROM jobs WHERE id='.$id2)->fetchColumn()==='dead','exhausted attempts enter dead-letter');
     $pdo->exec('ALTER TABLE webhook_deliveries DROP CONSTRAINT test_queue_reject');
+    verify(data($poll($id2,$token['token']))['status']==='dead','status API restored after drift repair');
     verify($queue->retry($id2)&&$queue->process($queue->claim())==='completed','manual retry processes original durable payload');
     verify((int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===3&&(int)$pdo->query('SELECT count(*) FROM webhook_deliveries')->fetchColumn()===2,'successful retry stores exactly once');
     // A revoked token cannot read status, but jobs admitted before revocation remain durable.

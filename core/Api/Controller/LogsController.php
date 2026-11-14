@@ -31,6 +31,7 @@ final class LogsController
         $event=$mode==='detail'?LogQuery::uuid($r->parameter('event')??''):null;
         try {
             $pdo=$this->app->container()->get(PDO::class);
+            $schemaGuard=$this->app->container()->get(\Cajeer\Logs\Database\MigrationRunner::class)->guard();
             $rate=new RateLimiter($pdo);
             $rate->enforce('logs-ip:'.$r->remoteAddress,$config->get('api.rate_limit'),60);
             $identity=new Identity($pdo,true,'',28800,'',$config->get('security.require_admin_totp'));
