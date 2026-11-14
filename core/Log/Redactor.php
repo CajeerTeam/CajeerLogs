@@ -15,7 +15,7 @@ final class Redactor
             '~\b(Bearer|Basic)\s+[A-Za-z0-9._\~+/-]+={0,2}~i' => '$1 [redacted]',
             '~\bcl_[a-f0-9]{64}\b~i' => '[redacted]',
             '~\b(https?://)[^\s/@:]+:[^\s/@]+@~i' => '$1[redacted]@',
-            '~(?<![\w-])(["\']?(?:'.self::SECRET.')["\']?\s*[:=]\s*)(?:"(?:\\\\.|[^"\\\\])*"|\'(?:\\\\.|[^\'\\\\])*\'|[^\s,;&}\]]+)~i' => '$1[redacted]',
+            '~(?<![\w-])(["\']?(?:'.self::SECRET.')["\']?\s*[:=]\s*)(?:\[redacted\]|"(?:\\\\.|[^"\\\\])*"|\'(?:\\\\.|[^\'\\\\])*\'|[^\s,;&}\]]+)~i' => '$1[redacted]',
         ];
         foreach ($patterns as $pattern => $replacement) {
             $masked = preg_replace($pattern, $replacement, $value);

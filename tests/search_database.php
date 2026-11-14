@@ -24,7 +24,17 @@ function get(string $path,array $query,array $headers,int $status=200):Response 
     $r=api('GET',$path,$query,$headers); verify($r->status===$status,'GET '.$path.' => '.$status.' (got '.$r->status.')'); return $r;
 }
 function ingest(array $event,string $secret):string {
-    $r=api('POST','/ingest',[],bearer($secret),$event); verify($r->status===201,'ingest commits event'); return data($r)['event_ids'][0];
+    global $pdo;
+    // Seed the historical 0004 schema using the same validated repository write, not
+    // the current HTTP runtime (which correctly refuses pending migrations).
+    $events=(new \Cajeer\Logs\Log\IngestValidator())->parse(new Request('POST','/api/v1/ingest',['Content-Type'=>'application/json'],[],json_encode($event,JSON_THROW_ON_ERROR)));
+    $repo=new \Cajeer\Logs\Log\LogRepository($pdo);
+    return (new \Cajeer\Logs\Database\TransactionManager($pdo))->run(function () use ($pdo,$repo,$events,$secret) {
+        $token=(new TokenRepository($pdo))->findActive($secret);
+        if (!$token) throw new RuntimeException('Historical seed token unavailable');
+        $sources=$repo->resolveSources($events,$token['project_id'],$token['source_id']);
+        return $repo->storeBatch($events,$token['project_id'],$sources,$token['id'])[0];
+    });
 }
 function login(string $email,string $password):array {
     $r=api('POST','/auth/login',[],[],['email'=>$email,'password'=>$password]); verify($r->status===200,'session login '.$email);

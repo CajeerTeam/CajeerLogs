@@ -5,8 +5,7 @@ namespace Cajeer\Logs\Api\Controller;
 use Cajeer\Logs\Database\DatabaseException;
 use Cajeer\Logs\Http\{HttpException,JsonResponse,Request,Response,Router};
 use Cajeer\Logs\Kernel\Application;
-use Cajeer\Logs\Log\{LogQuery,LogExport};
-use Cajeer\Logs\Search\PostgresFullTextSearchEngine;
+use Cajeer\Logs\Log\{LogQuery,LogExport,LogRepository};
 use Cajeer\Logs\Security\{Identity,RateLimiter};
 use PDO;
 use PDOException;
@@ -44,7 +43,7 @@ final class LogsController
             }
             $identity->permission($p,'logs:read',$project,$source);
             $query=$query->scoped($source);
-            $engine=new PostgresFullTextSearchEngine($pdo);
+            $engine=new LogRepository($pdo);
             if ($mode==='detail') {
                 $row=$engine->find($query,$event);
                 if ($row===null) { throw new HttpException(404,'not_found','Log event not found.'); }

@@ -2,6 +2,13 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.1.4] — Log Repository
+
+- Единый репозиторий записи, keyset-чтения, FTS, detail и statistics.
+- Атомарный PostgreSQL INSERT с проверкой project/source/token и сверкой возвращённых UUID; ограничение размера нормализованного пакета.
+- Согласованный потоковый JSONL-экспорт, возобновляемый импорт архива через коллектор, проверка и явное назначение legacy-событий с аудитом.
+- SQL 0001–0008 неизменны; backup 0.1.3 совместим.
+
 ## [0.1.3] — Transaction Management
 
 - Единое владение транзакциями, savepoints, isolation и ограниченные retry SQLSTATE 40001/40P01.

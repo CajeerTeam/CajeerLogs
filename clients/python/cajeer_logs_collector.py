@@ -32,10 +32,18 @@ def parse_line(raw: bytes, fmt: str, source: str, zone: ZoneInfo, service: str |
     event = {'source': source, 'timestamp': datetime.now(timezone.utc).isoformat(timespec='microseconds'), 'level': 'info', 'message': text}
     if service:
         event['service'] = service
-    if fmt == 'jsonl':
+    if fmt in ('jsonl', 'cajeer-jsonl'):
         data = json.loads(text)
         if not isinstance(data, dict):
             raise ValueError('JSONL line must be an object')
+        if fmt == 'cajeer-jsonl':
+            # Explicit single-source archive: never silently merge distinct sources.
+            if data.get('source') != source:
+                raise ValueError('Archive source does not match configured source')
+            # Archive metadata belongs to the old server; routing and IDs are new.
+            data = {k: v for k, v in data.items() if k in ('timestamp','level','message','context','service','host','trace_id','request_id','tags')}
+            if not {'timestamp','level','message'} <= data.keys():
+                raise ValueError('Invalid Cajeer archive event')
         event.update(data)
         event['source'] = source  # never trust input routing
     elif fmt == 'nginx-access':
@@ -165,12 +173,15 @@ class Collector:
                 raise CollectorError('File truncated or rewritten; refusing to skip or duplicate data')
             f.seek(offset)
             events, end = [], offset
+            max_line = 131072 if self.fmt == 'cajeer-jsonl' else 65536
             for _ in range(self.batch):
-                raw = f.readline(65537)
-                if len(raw) > 65536:
+                raw = f.readline(max_line + 1)
+                if len(raw) > max_line:
                     if events: break
-                    raise CollectorError('Log line exceeds 64 KiB; fix input before resuming')
+                    raise CollectorError('Log line exceeds format limit; fix input before resuming')
                 if not raw or not raw.endswith(b'\n'):
+                    if raw and self.fmt == 'cajeer-jsonl' and not events:
+                        raise CollectorError('Archive has an incomplete final line; repair input before resuming')
                     break  # incomplete tail is never acknowledged
                 try:
                     event = parse_line(raw, self.fmt, self.source, self.zone, self.service)
@@ -220,7 +231,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--file', required=True, type=Path); parser.add_argument('--state', required=True, type=Path)
     parser.add_argument('--url', default=os.getenv('CAJEER_URL')); parser.add_argument('--source', required=True)
-    parser.add_argument('--format', choices=['text','jsonl','nginx-access','nginx-error'], default='text')
+    parser.add_argument('--format', choices=['text','jsonl','cajeer-jsonl','nginx-access','nginx-error'], default='text')
     parser.add_argument('--timezone', default='UTC'); parser.add_argument('--service'); parser.add_argument('--rotated-glob')
     parser.add_argument('--batch', type=int, default=50); parser.add_argument('--signed', action='store_true'); parser.add_argument('--once', action='store_true')
     parser.add_argument('--interval', type=float, default=2); parser.add_argument('--api-prefix', default='/api/v1')

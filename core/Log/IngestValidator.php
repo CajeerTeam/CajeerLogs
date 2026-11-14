@@ -40,11 +40,22 @@ final class IngestValidator
         return $events;
     }
 
-    private function event(mixed $event): IngestEvent
+    /** Recheck decoded durable jobs and internal writes; the normalized encoding may be
+     * larger than the original HTTP event after masking and escaping. */
+    public function forStorage(IngestEvent $event): IngestEvent
+    {
+        return $this->event((object)[
+            'source'=>$event->source,'level'=>$event->level,'message'=>$event->message,'context'=>$event->context,
+            'timestamp'=>$event->timestamp,'service'=>$event->service,'host'=>$event->host,
+            'trace_id'=>$event->traceId,'request_id'=>$event->requestId,'tags'=>$event->tags,
+        ], 131072);
+    }
+
+    private function event(mixed $event,int $maxBytes=self::MAX_EVENT_BYTES): IngestEvent
     {
         if (!$event instanceof stdClass || array_diff(array_keys(get_object_vars($event)),self::FIELDS)!==[]) { self::invalid('Invalid event fields.'); }
         $this->checkJson($event);
-        if (strlen(json_encode($event, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) > self::MAX_EVENT_BYTES) { throw new HttpException(413,'event_too_large','Event exceeds 65536 bytes.'); }
+        if (strlen(json_encode($event, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) > $maxBytes) { throw new HttpException(413,'event_too_large','Event exceeds size limit.'); }
         $source = self::field($event,'source',100,true);
         if (!preg_match('/^[a-z0-9]+(?:-[a-z0-9]+)*$/D',$source)) { self::invalid('source must be a registered source slug.'); }
         $level = strtolower(self::field($event,'level',32,true));
@@ -54,7 +65,7 @@ final class IngestValidator
         $context = property_exists($event,'context') ? $event->context : new stdClass();
         if (!$context instanceof stdClass || strlen(json_encode($context,JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES))>32768) { self::invalid('context must be an object of at most 32768 bytes.'); }
         $tags = property_exists($event,'tags') ? $event->tags : [];
-        if (!is_array($tags) || count($tags)>32) { self::invalid('tags must be an array of at most 32 strings.'); }
+        if (!is_array($tags) || !array_is_list($tags) || count($tags)>32) { self::invalid('tags must be an array of at most 32 strings.'); }
         foreach ($tags as &$tag) {
             if (!is_string($tag) || trim($tag)==='' || strlen($tag)>128) { self::invalid('Invalid tag.'); }
             $tag = $this->masked($tag,128);

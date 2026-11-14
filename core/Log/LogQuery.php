@@ -87,7 +87,11 @@ final class LogQuery
     public function scoped(?string $source): self
     {
         $f=$this->filters;
-        if ($source!==null) { $f['source_id']=$source; }
+        if ($source!==null) {
+            $source=self::uuid($source);
+            if (isset($f['source_id']) && $f['source_id']!==$source) { throw new HttpException(403,'forbidden','Access denied.'); }
+            $f['source_id']=$source;
+        }
         return new self($f,$this->limit,$this->cursor,$this->interval,$this->format);
     }
     private function fingerprint(): string

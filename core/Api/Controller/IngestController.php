@@ -77,16 +77,9 @@ final class IngestController
                 $p=$identity->authenticate($r,$credential);
                 $project=$p['token']['project_id'];
                 if ($project===null) { Identity::forbidden(); }
-                $sources=[];
-                foreach ($events as $event) {
-                    if (!isset($sources[$event->source])) {
-                        $source=$identity->sql('SELECT id FROM sources WHERE project_id=:project AND slug=:slug',['project'=>$project,'slug'=>$event->source])->fetchColumn();
-                        if (!is_string($source)) { Identity::forbidden(); }
-                        $identity->permission($p,'logs:write',$project,$source);
-                        $sources[$event->source]=$source;
-                    }
-                }
+                if (!in_array('logs:write',$p['token']['scopes'],true)) { Identity::forbidden(); }
                 $repo=new LogRepository($pdo);
+                $sources=$repo->resolveSources($events,$project,$p['token']['source_id']);
                 // Verify freshness again after waiting on concurrent writers.
                 $nonce=$signer->verify($r,$credential['secret'],$key,$config->get('ingest.require_hmac'));
                 if ($nonce!==null) { $repo->claimNonce($p['id'],$nonce); }
@@ -100,6 +93,7 @@ final class IngestController
                 if ($keyHash!==null && $this->app->container()->get(\Cajeer\Logs\Queue\PostgresQueueDriver::class)->hasKey($p['id'],$keyHash)) { throw new HttpException(409,'idempotency_conflict','Idempotency-Key already used for asynchronous ingest.'); }
                 $ids=$keyHash===null ? null : $repo->receipt($p['id'],$keyHash,$requestHash);
                 $replayed=$ids!==null;
+                if ($replayed && count($ids)!==count($events)) { throw new DatabaseException('Stored receipt count differs from request.'); }
                 if (!$replayed) {
                     $ids=$repo->storeBatch($events,$project,$sources,$p['id']);
                     (new \Cajeer\Logs\Integration\EventApiDispatcher($pdo))->publishCommittedLogs($project,$ids);

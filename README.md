@@ -2,6 +2,10 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.1.4 — Log Repository
+
+Единый PostgreSQL-репозиторий записи и чтения, атомарная проверка области доступа всего пакета, потоковый JSONL-экспорт, возобновляемый импорт архивов и явное назначение legacy-событий. [Инструкция](docs/Log-Repository.md).
+
 ## 0.1.3 — Transaction Management
 
 Единый TransactionManager, savepoints, уровни изоляции, ограниченный retry конфликтов PostgreSQL и атомарные операции ingest, очереди и аудита. [Инструкция](docs/Transaction-Management.md).
