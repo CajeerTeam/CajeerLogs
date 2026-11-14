@@ -15,11 +15,12 @@
     "ext-ctype": "*",
     "ext-filter": "*",
     "ext-pcre": "*",
-    "ext-pdo_pgsql": "*"
+    "ext-pdo_pgsql": "*",
+    "ext-sodium": "*"
   },
   "suggest": {
-    "ext-pdo_mysql": "Future support; not implemented in 0.0.8",
-    "ext-pdo_sqlite": "Future support; not implemented in 0.0.8",
+    "ext-pdo_mysql": "Future support; not implemented in 0.0.9",
+    "ext-pdo_sqlite": "Future support; not implemented in 0.0.9",
     "ext-redis": "Reserved for future optional Redis support",
     "ext-curl": "Required for outgoing webhook worker; future ClickHouse and OTLP support",
     "ext-pcntl": "Required for continuous queue worker signal handling"
@@ -52,7 +53,9 @@
     "test:webhooks": "@php tests/webhooks.php",
     "test:webhook-database": "@php tests/webhook_database.php",
     "test:queue": "@php tests/queue.php",
-    "test:queue-database": "@php tests/queue_database.php"
+    "test:queue-database": "@php tests/queue_database.php",
+    "test:security": "@php tests/security_operations.php",
+    "test:security-database": "@php tests/security_database.php"
   },
   "minimum-stability": "stable",
   "prefer-stable": true,

@@ -28,7 +28,7 @@ final class DatabaseStatus
             // Check every expected relation and its read/write privileges in one round trip.
             $relations = $pdo->prepare(<<<'SQL'
                 WITH expected(name) AS (VALUES ('users'), ('projects'), ('sources'), ('api_tokens'),
-                    ('project_members'), ('auth_sessions'), ('auth_rate_limits'), ('ingest_receipts'), ('ingest_nonces'), ('log_events'), ('audit_log'), ('jobs'), ('settings'), ('webhooks'), ('extensions'), ('integration_webhooks'), ('webhook_deliveries'), ('webhook_attempts'), ('job_attempts'), ('scheduler_runs')),
+                    ('project_members'), ('auth_sessions'), ('auth_rate_limits'), ('ingest_receipts'), ('ingest_nonces'), ('log_events'), ('audit_log'), ('jobs'), ('settings'), ('webhooks'), ('extensions'), ('integration_webhooks'), ('webhook_deliveries'), ('webhook_attempts'), ('job_attempts'), ('scheduler_runs'), ('user_totp'), ('user_recovery_codes')),
                 checked AS (
                     SELECT name, pg_catalog.to_regclass(pg_catalog.format('%I.%I', CAST(:schema AS text), name))::oid AS relation
                     FROM expected
@@ -37,7 +37,7 @@ final class DatabaseStatus
                     OR NOT pg_catalog.has_table_privilege(current_user, relation, 'SELECT')
                     OR NOT pg_catalog.has_table_privilege(current_user, relation, 'INSERT')
                     OR NOT pg_catalog.has_table_privilege(current_user, relation, 'UPDATE')
-                    OR (name IN ('project_members','auth_sessions','auth_rate_limits','ingest_receipts','ingest_nonces','jobs','job_attempts','log_events','webhook_deliveries','webhook_attempts') AND NOT pg_catalog.has_table_privilege(current_user, relation, 'DELETE'))
+                    OR (name IN ('project_members','auth_sessions','auth_rate_limits','ingest_receipts','ingest_nonces','jobs','job_attempts','log_events','webhook_deliveries','webhook_attempts','user_totp','user_recovery_codes') AND NOT pg_catalog.has_table_privilege(current_user, relation, 'DELETE'))
                 ORDER BY name
                 SQL);
             $relations->execute(['schema' => $schema]);
@@ -45,6 +45,7 @@ final class DatabaseStatus
             if ($missing !== []) {
                 return ['status' => 'down', 'server_version' => $version, 'error' => 'Missing or inaccessible database tables.', 'tables' => $missing];
             }
+            if (!\Cajeer\Logs\Security\TwoFactorManager::keyValid($this->app->config()->get('security.totp_key')) && $pdo->query('SELECT EXISTS(SELECT 1 FROM users WHERE two_factor_enabled)')->fetchColumn()) { return ['status'=>'down','server_version'=>$version,'error'=>'TOTP encryption key unavailable for enrolled users.']; }
             return ['status' => 'ok', 'server_version' => $version, 'migrations' => $status];
         } catch (\Throwable $error) {
             return ['status' => 'down', 'error' => $error instanceof DatabaseException ? $error->getMessage() : 'Database query failed.'];

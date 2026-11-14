@@ -8,7 +8,7 @@ use Cajeer\Logs\Database\Repository\{UserRepository,ProjectRepository,SourceRepo
 use Cajeer\Logs\Http\{Request,Response,JsonResponse,HttpException,Router};
 use Cajeer\Logs\Kernel\Application;
 use Cajeer\Logs\Observability\SystemReport;
-use Cajeer\Logs\Security\{Identity,RateLimiter};
+use Cajeer\Logs\Security\{Identity,RateLimiter,TwoFactorManager};
 use PDO;
 use PDOException;
 
@@ -16,6 +16,7 @@ final class IdentityController
 {
     public const ROUTES = [
         'POST /auth/login'=>'login', 'GET /auth/me'=>'me', 'GET /auth/token'=>'token',
+        'POST /auth/2fa/setup'=>'totpSetup', 'POST /auth/2fa/enable'=>'totpEnable', 'POST /auth/2fa/disable'=>'totpDisable',
         'POST /auth/logout'=>'logout', 'POST /auth/logout-all'=>'logoutAll', 'POST /auth/password'=>'password',
         'GET /users'=>'users', 'POST /users'=>'createUser', 'PATCH /users/{user}'=>'updateUser',
         'GET /projects'=>'projects', 'POST /projects'=>'createProject', 'GET /projects/{project}'=>'project',
@@ -37,7 +38,7 @@ final class IdentityController
         if ($app->config()->get('app.env')==='production' && !$secure) { throw new HttpException(503,'https_required','HTTPS configuration required.'); }
         $origin=$url['scheme'].'://'.$url['host'].(isset($url['port']) && !(($secure && $url['port']===443)||(!$secure && $url['port']===80)) ? ':'.$url['port'] : '');
         $this->pdo=$app->container()->get(PDO::class);
-        $this->identity=new Identity($this->pdo,$secure,$origin);
+        $this->identity=new Identity($this->pdo,$secure,$origin,28800,$app->config()->get('security.totp_key'),$app->config()->get('security.require_admin_totp'));
     }
     public static function register(Router $router, Application $app, string $prefix): void
     {
@@ -62,15 +63,15 @@ final class IdentityController
         $rate=new RateLimiter($this->pdo);
         $rate->enforce('identity-ip:'.$r->remoteAddress,$this->app->config()->get('api.rate_limit'),60);
         if ($action==='login') { return $this->login($r); }
-        $p=$this->identity->authenticate($r,$credential ?? []);
+        $p=$this->identity->authenticate($r,$credential ?? [],in_array($action,['me','logout','logoutAll','totpSetup','totpEnable'],true));
         $rate->enforce('identity-'.$p['kind'].':'.$p['id'],300,60);
-        if ($action==='password') { $rate->enforce('password:'.$p['id'],5,300); }
+        if (in_array($action,['password','totpSetup','totpEnable','totpDisable'],true)) { $rate->enforce('password:'.$p['id'],5,300); }
         // Serialize authorization changes with administrative writes. Recheck after lock.
         if (in_array($r->method,['GET','HEAD'],true)) { return $this->$action($r,$p); }
         $this->pdo->beginTransaction();
         try {
             $this->identity->lock();
-            $p=$this->identity->authenticate($r,$credential ?? []);
+            $p=$this->identity->authenticate($r,$credential ?? [],in_array($action,['me','logout','logoutAll','totpSetup','totpEnable'],true));
             $response=$this->$action($r,$p);
             $this->pdo->commit();
             return $response;
@@ -133,12 +134,45 @@ final class IdentityController
     }
     private function login(Request $r): Response
     {
-        $d=$this->body($r,['email','password']);
-        $result=$this->identity->login($r,self::email($d),self::str($d,'password',1024));
+        $d=$this->body($r,['email','password','otp']);
+        $otp=isset($d['otp'])?self::str($d,'otp',32):null;
+        $result=$this->identity->login($r,self::email($d),self::str($d,'password',1024),$otp);
         $cookie=$result['cookie']; unset($result['cookie']);
         return new JsonResponse($result,200,['Set-Cookie'=>$cookie]);
     }
-    private function me(Request $r,array $p): Response { $this->session($p); return new JsonResponse(['user'=>$p['user'],'csrf_token'=>$p['csrf']]); }
+    private function me(Request $r,array $p): Response { $this->session($p); return new JsonResponse(['user'=>$p['user'],'csrf_token'=>$p['csrf'],'enrollment_required'=>$this->identity->enrollmentRequired($p['user'])]); }
+    private function totp(): TwoFactorManager { return new TwoFactorManager($this->pdo,$this->app->config()->get('security.totp_key'),$this->app->config()->get('security.require_admin_totp')); }
+    private function confirmPassword(array $p,array $d): void
+    {
+        $row=$this->one('SELECT password_hash FROM users WHERE id=:id',['id'=>$p['id']]);
+        if (!password_verify(self::str($d,'password',1024),$row['password_hash'])) { throw new HttpException(403,'invalid_password','Current password is incorrect.'); }
+    }
+    private function totpSetup(Request $r,array $p): Response
+    {
+        $this->session($p); $d=$this->body($r,['password']); $this->confirmPassword($p,$d);
+        if ($p['user']['two_factor_enabled']) { throw new HttpException(409,'conflict','Two-factor authentication already enabled.'); }
+        $data=$this->totp()->setup($p['id'],$p['user']['email'],$p['hash']); $this->audit($r,$p,'auth.totp_setup');
+        return new JsonResponse($data);
+    }
+    private function totpEnable(Request $r,array $p): Response
+    {
+        $this->session($p); $d=$this->body($r,['otp']);
+        if ($p['user']['two_factor_enabled']) { throw new HttpException(409,'conflict','Two-factor authentication already enabled.'); }
+        $codes=$this->totp()->enable($p['id'],$p['hash'],self::str($d,'otp',6));
+        $this->sql('DELETE FROM auth_sessions WHERE user_id=:id',['id'=>$p['id']]);
+        $user=$p['user']; $user['two_factor_enabled']=true;
+        $result=$this->identity->issueSession($user); $cookie=$result['cookie']; unset($result['cookie']);
+        $this->audit($r,$p,'auth.totp_enabled');
+        return new JsonResponse($result+['recovery_codes'=>$codes],200,['Set-Cookie'=>$cookie]);
+    }
+    private function totpDisable(Request $r,array $p): Response
+    {
+        $this->session($p); $d=$this->body($r,['password','otp']); $this->confirmPassword($p,$d);
+        if ($p['user']['role']==='administrator' && $this->totp()->requiredForAdmins()) { throw new HttpException(403,'forbidden','Two-factor authentication is required for administrators.'); }
+        if (!$p['user']['two_factor_enabled'] || !$this->totp()->verify($p['id'],self::str($d,'otp',32))) { throw new HttpException(403,'invalid_otp','Invalid second factor.'); }
+        $this->totp()->disable($p['id']); $this->sql('DELETE FROM auth_sessions WHERE user_id=:id',['id'=>$p['id']]); $this->audit($r,$p,'auth.totp_disabled');
+        return new Response('',204,['Set-Cookie'=>$this->identity->cookie('',true)]);
+    }
     private function token(Request $r,array $p): Response { if ($p['kind']!=='token') { Identity::forbidden(); } return new JsonResponse(['token'=>$p['token']]); }
     private function logout(Request $r,array $p): Response
     {
@@ -175,7 +209,7 @@ final class IdentityController
         $role=array_key_exists('role',$d)?self::role($d):$u['role'];
         $blocked=array_key_exists('blocked',$d)?$d['blocked']:$u['blocked_at']!==null;
         if (!is_bool($blocked)) { self::invalid('blocked must be boolean.'); }
-        if ($u['role']==='administrator' && $u['blocked_at']===null && !$u['two_factor_enabled'] && ($role!=='administrator'||$blocked) && (int)$this->sql("SELECT count(*) FROM users WHERE role='administrator' AND blocked_at IS NULL AND NOT two_factor_enabled")->fetchColumn()<=1) { throw new HttpException(409,'last_administrator','Cannot disable the last usable administrator.'); }
+        if ($u['role']==='administrator' && $u['blocked_at']===null && ($role!=='administrator'||$blocked) && (int)$this->sql("SELECT count(*) FROM users u WHERE role='administrator' AND blocked_at IS NULL AND (NOT two_factor_enabled OR EXISTS(SELECT 1 FROM user_totp t WHERE t.user_id=u.id AND t.pending_session IS NULL))")->fetchColumn()<=1) { throw new HttpException(409,'last_administrator','Cannot disable the last usable administrator.'); }
         $params=['id'=>$id,'email'=>array_key_exists('email',$d)?self::email($d):$u['email'],'role'=>$role,'blocked'=>$blocked?'true':'false'];
         $extra=''; if (array_key_exists('password',$d)) { $params['hash']=password_hash(self::passwordValue($d),PASSWORD_ARGON2ID); $extra=',password_hash=:hash'; }
         $this->sql('UPDATE users SET email=:email,role=:role,blocked_at=CASE WHEN CAST(:blocked AS boolean) THEN COALESCE(blocked_at,now()) ELSE NULL END,updated_at=now()'.$extra.' WHERE id=:id',$params);

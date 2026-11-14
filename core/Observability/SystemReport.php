@@ -13,15 +13,16 @@ final class SystemReport
     {
         $checks = $this->app->container()->get(Diagnostics::class)->checks();
         $db = $this->app->container()->get(\Cajeer\Logs\Database\DatabaseStatus::class)->check();
-        $queue=null;
+        $queue=null; $operations=null;
         if ($db['status']==='ok') {
             try { $queue=$this->app->container()->get(\Cajeer\Logs\Queue\PostgresQueueDriver::class)->counts(); } catch (\Throwable) {}
         }
+        try { if ($db['status']==='ok') { $operations=(new OperationsMetrics($this->app))->snapshot(); } } catch (\Throwable) {}
         return [
             'service' => $this->app->config()->get('app.name'),
             'version' => $this->app->version(),
             'scope' => 'runtime+database',
-            'status' => in_array(false, $checks, true) || $db['status'] !== 'ok' ? 'down' : 'ok',
+            'status' => in_array(false, $checks, true) || $db['status'] !== 'ok' || ($this->app->config()->get('security.require_admin_totp') && !\Cajeer\Logs\Security\TwoFactorManager::keyValid($this->app->config()->get('security.totp_key'))) ? 'down' : 'ok',
             'php' => PHP_VERSION,
             'sapi' => PHP_SAPI,
             'os' => PHP_OS_FAMILY,
@@ -32,6 +33,9 @@ final class SystemReport
             'checks' => $checks,
             'database' => $db,
             'queue' => $queue,
+            'operations' => $operations,
+            'storage_free_bytes' => is_dir($this->app->basePath('storage')) ? (disk_free_space($this->app->basePath('storage')) ?: null) : null,
+            'security' => ['admin_totp_required'=>$this->app->config()->get('security.require_admin_totp'), 'totp_key_ready'=>\Cajeer\Logs\Security\TwoFactorManager::keyValid($this->app->config()->get('security.totp_key')), 'metrics_protected'=>$this->app->config()->get('operations.metrics_token')!==''],
         ];
     }
 }

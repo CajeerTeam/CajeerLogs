@@ -63,7 +63,7 @@ try {
     $factory = new ConnectionFactory($config);
     $pdo = $factory->make('pgsql');
     $runner = new MigrationRunner($pdo, $root . '/migrations/pgsql', $schema);
-    verify(count($runner->status()['pending']) === 7, 'fresh schema reports pending migrations');
+    verify(count($runner->status()['pending']) === 8, 'fresh schema reports pending migrations');
     verify($pdo->query("SELECT to_regclass('schema_migrations') IS NULL")->fetchColumn() === true, 'status is read-only');
     $env = ['DB_SCHEMA'=>$schema, 'CAJEER_ADMIN_EMAIL'=>'admin@example.test', 'CAJEER_ADMIN_PASSWORD'=>'test-only-admin-password-123', 'APP_ENV'=>'test', 'APP_DEBUG'=>'false'];
     $testApp = new Application($tmp);
@@ -77,7 +77,7 @@ try {
     verify(strlen($values['SECURITY_HMAC_SECRET']) >= 64 && $values['SECURITY_HMAC_SECRET'] !== $values['SECURITY_TOKEN_PEPPER'] && !isset($values['CAJEER_ADMIN_PASSWORD']), 'unique generated secrets, no admin password in dotenv');
     verify((fileperms($tmp . '/.env') & 0777) === 0600, 'dotenv private permissions');
     verify($values['DB_SCHEMA'] === $schema && $values['DB_PASSWORD'] === $config->get('database.password'), 'effective DB configuration persisted');
-    verify($runner->status()['pending'] === [] && count($runner->status()['applied']) === 7, 'all migration checksums recorded');
+    verify($runner->status()['pending'] === [] && count($runner->status()['applied']) === 8, 'all migration checksums recorded');
     verify($runner->migrate() === [], 'migration rerun is a no-op');
     verify($testApp->handle(new Request('GET','/ready'))->status === 200, 'readiness healthy after installation');
     $users = new UserRepository($pdo);
@@ -103,11 +103,11 @@ try {
     verify($tokens->findActive($expired['token']) === null, 'expired token rejected');
     // Test actual rollback: first statement succeeds, second fails. Neither schema nor history may change.
     $dir = $tmp . '/migrations/pgsql';
-    file_put_contents($dir . '/0008_failure.sql', 'CREATE TABLE rollback_probe(id integer); SELECT * FROM nonexistent_table;');
+    file_put_contents($dir . '/0009_failure.sql', 'CREATE TABLE rollback_probe(id integer); SELECT * FROM nonexistent_table;');
     $testRunner = new MigrationRunner($pdo,$dir,$schema);
     verify(fails(fn() => $testRunner->migrate(), DatabaseException::class), 'broken migration fails');
-    verify($pdo->query("SELECT to_regclass('rollback_probe') IS NULL")->fetchColumn() === true && count($runner->status()['applied']) === 7, 'failed migration rolled back including history');
-    unlink($dir . '/0008_failure.sql');
+    verify($pdo->query("SELECT to_regclass('rollback_probe') IS NULL")->fetchColumn() === true && count($runner->status()['applied']) === 8, 'failed migration rolled back including history');
+    unlink($dir . '/0009_failure.sql');
     file_put_contents($dir . '/0001_initial_schema.sql', "\n-- tampered\n", FILE_APPEND);
     verify(fails(fn() => $testRunner->status(), DatabaseException::class), 'checksum drift rejected');
     copy($root . '/migrations/pgsql/0001_initial_schema.sql',$dir . '/0001_initial_schema.sql');

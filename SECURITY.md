@@ -4,6 +4,7 @@
 
 | Версия | Статус |
 |---|---|
+| 0.0.9 | Preview; текущая версия |
 
 ## Сообщение об уязвимости
 
@@ -14,9 +15,12 @@
 - RBAC и permission scopes.
 - API token scopes.
 - Audit log.
-- 2FA для административных учетных записей.
+- TOTP 2FA, одноразовые recovery-коды, обязательная настройка для администраторов при включённой политике.
+- Зашифрованные TOTP-секреты, одноразовые временные интервалы; backup/restore с отзывом восстановленных credentials.
 - Rate limiting.
 - CSRF protection.
 - Security headers.
 - Signed payloads для webhooks и Event API.
 - Redaction секретов в логах.
+
+Эксплуатация, восстановление доступа, ограничения резервирования и мониторинг: [Security & Operations](docs/Security-Operations.md).

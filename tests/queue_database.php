@@ -23,7 +23,7 @@ try {
     $sources=new SourceRepository($pdo);$source=$sources->create($p,'App','app');$otherSource=$sources->create($other,'Other','app');
     $tokens=new TokenRepository($pdo);$token=$tokens->create('Writer',['logs:write'],$p,$source);$foreign=$tokens->create('Foreign',['logs:write'],$other,$otherSource);
     $pdo->exec("INSERT INTO jobs(queue,name) VALUES ('default','legacy')");
-    $runner=$app->container()->get(MigrationRunner::class);verify($runner->migrate()===['0007_queue_lifecycle.sql'] && $runner->migrate()===[],'0.0.7 upgrade, repeat and preserved migration history');
+    $runner=$app->container()->get(MigrationRunner::class);verify($runner->migrate()===['0007_queue_lifecycle.sql','0008_security_operations.sql'] && $runner->migrate()===[],'0.0.7 upgrade, repeat and preserved migration history');
     verify((int)$pdo->query("SELECT count(*) FROM jobs WHERE name='legacy'")->fetchColumn()===1 && $app->handle(new Request('GET','/ready'))->status===200,'legacy rows preserved and readiness');
     $queue=$app->container()->get(PostgresQueueDriver::class);
     $body=json_encode(['timestamp'=>'2026-01-01T00:00:00Z','source'=>'app','level'=>'error','message'=>'queue integration','context'=>['password'=>'do-not-store']],JSON_THROW_ON_ERROR);

@@ -2,13 +2,13 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
-## 0.0.8 — Queue & Lifecycle
+## 0.0.9 — Security & Operations
 
-Рабочая durable PostgreSQL очередь ingest: `/api/v1/ingest/async`, status API, конкурентные workers с lease/retry/dead-letter, пакетный SQL INSERT, транзакционный webhook outbox. Scheduler с сохраняемым расписанием, opt-in retention по проектам и bounded cleanup. Синхронный ingest, четыре SDK, collector, webhooks и Admin Panel из предыдущих релизов сохранены. [Queue & Lifecycle](docs/Queue-Lifecycle.md). Для обновления 0.0.7: backup, наложение файлов, `php bin/cajeer migrate` (0007), запуск worker/scheduler. PHP 8.4+, PostgreSQL 17+; непрерывный worker требует pcntl. TOTP и инциденты ещё не реализованы.
+Рабочая TOTP 2FA с recovery-кодами, шифрованием секрета, ограниченной сессией до обязательной настройки администратора и настройкой в Admin Panel. PostgreSQL backup/restore через реальные `pg_dump`/`pg_restore`, SHA-256, отдельная пустая БД восстановления; мониторинг очередей, scheduler, webhooks и защищённый Prometheus. Для обновления 0.0.8: backup, overlay, `php bin/cajeer migrate` (0008). [Security & Operations](docs/Security-Operations.md). Все возможности [Queue & Lifecycle](docs/Queue-Lifecycle.md), ingest, поиск, SDK и webhooks сохранены. Инциденты остаются будущим релизом.
 
 ### Быстрый запуск
 
-Требуется PHP 8.4+ с PDO, `pdo_pgsql`, Argon2id, JSON, ctype, filter и PCRE; PostgreSQL 17+. Для установки создайте отдельную базу и непривилегированную роль PostgreSQL; подробности в [Database & Installer](docs/Database-Installer.md).
+Требуется PHP 8.4+ с PDO, `pdo_pgsql`, sodium, Argon2id, JSON, ctype, filter и PCRE; PostgreSQL 17+. Для установки создайте отдельную базу и непривилегированную роль PostgreSQL; подробности в [Database & Installer](docs/Database-Installer.md).
 
 ```sh
 cp .env.example .env

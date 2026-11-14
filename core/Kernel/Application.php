@@ -96,7 +96,7 @@ final class Application
         if (!in_array($config->get('app.env'), ['production', 'local', 'development', 'test'], true)) {
             throw new \RuntimeException('Invalid APP_ENV.');
         }
-        foreach (['app.debug', 'observability.prometheus_enabled', 'ingest.require_hmac'] as $key) {
+        foreach (['app.debug', 'observability.prometheus_enabled', 'ingest.require_hmac', 'security.require_admin_totp'] as $key) {
             if (!is_bool($config->get($key))) { throw new \RuntimeException("Invalid boolean configuration: $key"); }
         }
         if ($config->get('app.env') === 'production' && $config->get('app.debug')) {
@@ -109,6 +109,7 @@ final class Application
         if ($url === false || !in_array($url['scheme'] ?? '', ['http', 'https'], true) || empty($url['host']) || isset($url['user']) || isset($url['pass']) || isset($url['query']) || isset($url['fragment']) || !filter_var($config->get('app.url'), FILTER_VALIDATE_URL)) {
             throw new \RuntimeException('Invalid APP_URL.');
         }
+        if ($config->get('operations.metrics_token')!=='' && !preg_match('/^[A-Za-z0-9._~-]{32,256}$/D',$config->get('operations.metrics_token'))) { throw new \RuntimeException('Invalid PROMETHEUS_TOKEN (32–256 URL-safe characters).'); }
         $limit = filter_var($config->get('app.max_body_bytes'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 16777216]]);
         if ($limit === false) { throw new \RuntimeException('APP_MAX_BODY_BYTES must be 1..16777216.'); }
         $config->set('app.max_body_bytes', $limit);
@@ -145,14 +146,16 @@ final class Application
         $router->add('GET', '/health', $health);
         $router->add('GET', $config->get('api.prefix') . '/health', $health);
         $router->add('GET', '/ready', function (): Response {
-            $ok = $this->container->get(Diagnostics::class)->ok() && $this->container->get(DatabaseStatus::class)->check()['status'] === 'ok';
+            $ok = (!$this->config()->get('security.require_admin_totp') || \Cajeer\Logs\Security\TwoFactorManager::keyValid($this->config()->get('security.totp_key'))) && $this->container->get(Diagnostics::class)->ok() && $this->container->get(DatabaseStatus::class)->check()['status'] === 'ok';
             return new JsonResponse(['status' => $ok ? 'ok' : 'down', 'service' => $this->config()->get('app.name'), 'version' => $this->version(), 'scope' => 'database'], $ok ? 200 : 503);
         });
         if ($config->get('observability.prometheus_enabled')) {
-            $router->add('GET', $config->get('observability.prometheus_path'), fn(): Response => new Response(
-                $this->container->get(PrometheusExporter::class)->render(), 200,
-                ['Content-Type' => 'text/plain; version=0.0.4; charset=utf-8']
-            ));
+            $router->add('GET', $config->get('observability.prometheus_path'), function(Request $r) use ($config): Response {
+                $token=$config->get('operations.metrics_token');
+                if ($token!=='' && $config->get('app.env')==='production' && !$r->secureTransport) { throw new HttpException(403,'https_required','HTTPS is required for metrics authentication.'); }
+                if ($token!=='' && !hash_equals('Bearer '.$token,$r->header('Authorization','')??'')) { throw new HttpException(401,'unauthorized','Metrics authentication required.',['WWW-Authenticate'=>'Bearer']); }
+                return new Response($this->container->get(PrometheusExporter::class)->render(),200,['Content-Type'=>'text/plain; version=0.0.4; charset=utf-8']);
+            });
         }
         \Cajeer\Logs\Http\AdminPanel::register($router, $this);
         IdentityController::register($router, $this, $config->get('api.prefix'));
@@ -175,6 +178,6 @@ final class Application
         } catch (\Throwable $error) {
             $response = ErrorHandler::response($error, $request->requestId);
         }
-        return ErrorHandler::decorate($response, $request->requestId);
+        return ErrorHandler::decorate($response, $request->requestId, $request->secureTransport);
     }
 }

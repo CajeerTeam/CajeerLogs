@@ -45,7 +45,7 @@ final class UserRepository
             $this->pdo->query("SELECT pg_advisory_xact_lock(hashtextextended('cajeerlogs:identity:' || current_schema(),0))");
             $existing = $this->findByEmail($email);
             if ($existing !== null) {
-                if ($existing['role'] !== 'administrator' || $existing['blocked_at'] !== null || $existing['two_factor_enabled'] || !password_verify($password, $existing['password_hash'])) { throw new DatabaseException('Existing user does not match the requested administrator; no password was changed.'); }
+                if ($existing['role'] !== 'administrator' || $existing['blocked_at'] !== null || !password_verify($password, $existing['password_hash'])) { throw new DatabaseException('Existing user does not match the requested administrator; no password was changed.'); }
                 $this->pdo->commit();
                 return false;
             }

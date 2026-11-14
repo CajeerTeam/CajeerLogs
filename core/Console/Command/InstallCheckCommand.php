@@ -21,6 +21,8 @@ final class InstallCheckCommand
         echo ($db['status'] === 'ok' ? '[OK] ' : '[FAIL] ') . 'PostgreSQL preflight: ' . json_encode($db, JSON_THROW_ON_ERROR) . PHP_EOL;
         $argon = defined('PASSWORD_ARGON2ID');
         echo ($argon ? '[OK] ' : '[FAIL] ') . 'Argon2id' . PHP_EOL;
+        $key=\Cajeer\Logs\Security\TwoFactorManager::keyValid($this->app->config()->get('security.totp_key'));
+        echo ($key ? '[OK] ' : '[INFO] ') . 'TOTP encryption key (installer generates legacy fallback; required before enrollment)' . PHP_EOL;
         return in_array(false, $checks, true) || $db['status'] !== 'ok' || !$argon ? 1 : 0;
     }
 }

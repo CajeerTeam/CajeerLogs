@@ -2,6 +2,13 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.0.9] — Security & Operations
+
+- TOTP RFC 6238, encrypted per-user secrets, replay prevention, one-time recovery codes, optional mandatory admin enrollment, browser setup and session rotation; trusted CLI recovery with audit.
+- PostgreSQL custom-format backup, atomic private publication, SHA-256 verification and restore to a separate empty database with credential invalidation; daily systemd example.
+- Real operations metrics and protected scrape token, scheduler/queue/webhook monitoring, readiness security checks, HSTS and storage path hardening.
+- Migration 0008, preserved 0001–0007, expanded runtime/browser and PostgreSQL backup/restore integration tests; local release metadata comparison.
+
 ## [0.0.8] — Queue & Lifecycle
 
 - Durable PostgreSQL async ingest, token-owned job status, capacity backpressure, cross-mode idempotency conflict and validated/redacted payloads.

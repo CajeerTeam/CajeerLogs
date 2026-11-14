@@ -25,6 +25,6 @@ final class PrometheusExporter
         } catch (\Throwable) {
             $output.="# HELP cajeerlogs_queue_available Queue database query successful.\n# TYPE cajeerlogs_queue_available gauge\ncajeerlogs_queue_available 0\n";
         }
-        return $output;
+        return $output.(new OperationsMetrics($this->app))->render();
     }
 }

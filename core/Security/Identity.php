@@ -13,7 +13,7 @@ use Cajeer\Logs\Database\Repository\TokenRepository;
 final class Identity
 {
     private const DUMMY = '$argon2id$v=19$m=65536,t=4,p=1$MTIzNDU2Nzg5MDEyMzQ1Ng$Qx3xdVf8W+33jD9M2Y2I8YtRVfPivgEht0+CNzR3GLU';
-    public function __construct(private readonly PDO $pdo, private readonly bool $secureCookie, private readonly string $origin, private readonly int $ttl = 28800) {}
+    public function __construct(private readonly PDO $pdo, private readonly bool $secureCookie, private readonly string $origin, private readonly int $ttl = 28800, private readonly string $totpKey = '', private readonly bool $requireAdminTotp = false) {}
 
     public static function credentials(Request $r): array
     {
@@ -43,7 +43,7 @@ final class Identity
     {
         return 'cajeerlogs_session=' . $value . '; Path=/; HttpOnly; SameSite=Strict; Max-Age=' . ($clear ? '0' : $this->ttl) . ($this->secureCookie ? '; Secure' : '');
     }
-    public function login(Request $r, string $email, string $password): array
+    public function login(Request $r, string $email, string $password, ?string $otp = null): array
     {
         $this->origin($r);
         $rate = new RateLimiter($this->pdo);
@@ -52,7 +52,7 @@ final class Identity
         $users = new UserRepository($this->pdo);
         $user = $users->findByEmail($email);
         $valid = password_verify($password,$user['password_hash'] ?? self::DUMMY);
-        if (!$valid || $user === null || $user['blocked_at'] !== null || $user['two_factor_enabled']) {
+        if (!$valid || $user === null || $user['blocked_at'] !== null) {
             (new AuditLogger($this->pdo))->record('auth.login_failed',['request_id'=>$r->requestId],$user['id'] ?? null);
             self::unauthorized();
         }
@@ -62,8 +62,12 @@ final class Identity
         try {
             $this->lock();
             $current = $users->findByEmail($email);
-            if ($current === null || $current['id'] !== $user['id'] || $current['password_hash'] !== $user['password_hash'] || $current['blocked_at'] !== null || $current['two_factor_enabled']) { self::unauthorized(); }
+            if ($current === null || $current['id'] !== $user['id'] || $current['password_hash'] !== $user['password_hash'] || $current['blocked_at'] !== null) { self::unauthorized(); }
             $user = $current;
+            if ($user['two_factor_enabled'] && !(new TwoFactorManager($this->pdo,$this->totpKey))->verify($user['id'],$otp)) {
+                (new AuditLogger($this->pdo))->record('auth.login_failed',['request_id'=>$r->requestId],$user['id']);
+                $this->pdo->commit(); self::unauthorized();
+            }
             if ($newHash !== null) {
                 $this->sql('UPDATE users SET password_hash=:hash,updated_at=now() WHERE id=:id',['hash'=>$newHash,'id'=>$user['id']]);
             }
@@ -72,15 +76,21 @@ final class Identity
             if (preg_match('/(?:^|;\s*)cajeerlogs_session=([a-f0-9]{64})(?:;|$)/D',$old,$m)) {
                 $this->sql('DELETE FROM auth_sessions WHERE token_hash=:hash',['hash'=>hash('sha256',$m[1])]);
             }
-            $secret = bin2hex(random_bytes(32));
-            $csrf = (new CsrfProtection())->token();
-            $this->sql("INSERT INTO auth_sessions(token_hash,user_id,csrf_token,expires_at) VALUES (:hash,:id,:csrf,now()+CAST(:ttl AS integer)*interval '1 second')",['hash'=>hash('sha256',$secret),'id'=>$user['id'],'csrf'=>$csrf,'ttl'=>$this->ttl]);
+            $result=$this->issueSession($user);
             (new AuditLogger($this->pdo))->record('auth.login',['request_id'=>$r->requestId],$user['id']);
             $this->pdo->commit();
-            return ['user'=>self::publicUser($user),'csrf_token'=>$csrf,'cookie'=>$this->cookie($secret),'expires_in'=>$this->ttl];
+            return $result;
         } catch (\Throwable $e) { if ($this->pdo->inTransaction()) { $this->pdo->rollBack(); } throw $e; }
     }
-    public function authenticate(Request $r, array $credential): array
+    public function enrollmentRequired(array $user): bool { return $this->requireAdminTotp && $user['role']==='administrator' && !$user['two_factor_enabled']; }
+    public function issueSession(array $user): array
+    {
+        if (!$this->pdo->inTransaction()) { throw new \LogicException('Session creation requires transaction.'); }
+        $secret=bin2hex(random_bytes(32)); $csrf=(new CsrfProtection())->token();
+        $this->sql("INSERT INTO auth_sessions(token_hash,user_id,csrf_token,expires_at) VALUES (:hash,:id,:csrf,now()+CAST(:ttl AS integer)*interval '1 second')",['hash'=>hash('sha256',$secret),'id'=>$user['id'],'csrf'=>$csrf,'ttl'=>$this->ttl]);
+        return ['user'=>self::publicUser($user),'csrf_token'=>$csrf,'cookie'=>$this->cookie($secret),'expires_in'=>$this->ttl,'enrollment_required'=>$this->enrollmentRequired($user)];
+    }
+    public function authenticate(Request $r, array $credential, bool $allowEnrollment = false): array
     {
         if ($credential['kind'] === 'token') {
             $row = (new TokenRepository($this->pdo))->findActive($credential['secret']);
@@ -91,8 +101,9 @@ final class Identity
             return ['kind'=>'token','id'=>$row['id'],'token'=>$row];
         }
         $hash = hash('sha256',$credential['secret']);
-        $row = $this->sql('SELECT u.id,u.email,u.role,u.blocked_at,u.two_factor_enabled,u.created_at,u.updated_at,s.csrf_token FROM auth_sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=:hash AND s.expires_at>now() AND u.blocked_at IS NULL AND NOT u.two_factor_enabled',['hash'=>$hash])->fetch();
+        $row = $this->sql('SELECT u.id,u.email,u.role,u.blocked_at,u.two_factor_enabled,u.created_at,u.updated_at,s.csrf_token FROM auth_sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=:hash AND s.expires_at>now() AND u.blocked_at IS NULL',['hash'=>$hash])->fetch();
         if (!$row) { self::unauthorized(); }
+        if (!$allowEnrollment && $this->enrollmentRequired($row)) { throw new HttpException(403,'totp_enrollment_required','Enroll in two-factor authentication first.'); }
         if (!in_array($r->method,['GET','HEAD','OPTIONS'],true)) {
             $this->origin($r);
             if (!(new CsrfProtection())->verify($row['csrf_token'],$r->header('X-CSRF-Token'))) { throw new HttpException(403,'csrf_failed','Invalid CSRF token.'); }

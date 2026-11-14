@@ -69,7 +69,7 @@ def login(page, email='admin@example.test', password='admin-password-12345'):
 
 class Fixture:
     def __init__(self):
-        self.user = None; self.role = 'administrator'; self.projects=[{'id':P1,'name':'Production','slug':'production','created_at':'2026-01-01T00:00:00Z'}]
+        self.user = None; self.totp_enabled=False; self.require_totp=False; self.role = 'administrator'; self.projects=[{'id':P1,'name':'Production','slug':'production','created_at':'2026-01-01T00:00:00Z'}]
         self.sources=[{'id':S1,'project_id':P1,'name':'Application','slug':'app','created_at':'2026-01-01T00:00:00Z'}]
         self.users=[{'id':U1,'email':'admin@example.test','role':'administrator','blocked_at':None}]
         self.members=[]; self.tokens=[]; self.calls=[]; self.fail_next=False
@@ -83,13 +83,20 @@ class Fixture:
         def err(status,code): send({'error':code,'request_id':'test'},status)
         def listing(items,next_cursor=None): send({'items':items,'next_cursor':next_cursor})
         if path=='/auth/login':
-            if body['password']=='bad': return err(401,'unauthorized')
-            self.user={'id':U1 if self.role=='administrator' else U2,'email':body['email'],'role':self.role}
-            return send({'user':self.user,'csrf_token':CSRF,'expires_in':28800},headers={'Set-Cookie':'cajeerlogs_session='+'b'*64+'; Path=/; HttpOnly; SameSite=Strict'})
-        if path=='/health': return send({'status':'ok','version':'0.0.8'})
+            if body['password']=='bad' or (self.totp_enabled and body.get('otp')!='123456'): return err(401,'unauthorized')
+            self.user={'id':U1 if self.role=='administrator' else U2,'email':body['email'],'role':self.role,'two_factor_enabled':self.totp_enabled}
+            return send({'user':self.user,'csrf_token':CSRF,'expires_in':28800,'enrollment_required':self.require_totp and not self.totp_enabled},headers={'Set-Cookie':'cajeerlogs_session='+'b'*64+'; Path=/; HttpOnly; SameSite=Strict'})
+        if path=='/health': return send({'status':'ok','version':'0.0.9'})
         if self.user is None: return err(401,'unauthorized')
         if method!='GET': assert req.headers.get('x-csrf-token')==CSRF, (method,path,req.headers)
-        if path=='/auth/me': return send({'user':self.user,'csrf_token':CSRF})
+        if path=='/auth/me': return send({'user':self.user,'csrf_token':CSRF,'enrollment_required':self.require_totp and not self.totp_enabled})
+        if path=='/auth/2fa/setup':
+            assert body['password']=='admin-password-12345'; return send({'secret':'JBSWY3DPEHPK3PXP','otpauth_uri':'otpauth://totp/test','expires_in':600})
+        if path=='/auth/2fa/enable':
+            assert body['otp']=='123456'; self.totp_enabled=True; self.user['two_factor_enabled']=True
+            return send({'user':self.user,'csrf_token':CSRF,'expires_in':28800,'enrollment_required':False,'recovery_codes':['a'*32,'b'*32]})
+        if path=='/auth/2fa/disable':
+            assert body['otp']=='123456' and body['password']=='admin-password-12345'; self.totp_enabled=False; self.user=None; return send(status=204)
         if path in ['/auth/logout','/auth/logout-all','/auth/password']:
             self.user=None;return send(status=204,headers={'Set-Cookie':'cajeerlogs_session=; Path=/; Max-Age=0'})
         if path=='/projects':
@@ -182,7 +189,7 @@ def run():
         browser=browser_for(p); ctx=browser.new_context(accept_downloads=True); page=ctx.new_page(); page.set_default_timeout(8000)
         errors=[]; page.on('pageerror',lambda e: errors.append(str(e)))
         # Actual PHP router, not intercepted, even in offline browser mode.
-        status,headers,body=http(url+'/admin');assert status==200 and b'0.0.8' in body
+        status,headers,body=http(url+'/admin');assert status==200 and b'0.0.9' in body
         assert "script-src 'self'" in {k.lower():v for k,v in headers.items()}['content-security-policy']
         assert http(url+'/api/v1/auth/me')[0]==401
         assert http(url+'/admin/assets/panel.js')[0]==200
@@ -231,6 +238,15 @@ def run():
         f.role='viewer';login(page,email='viewer@example.test');expect(page.get_by_role('heading',name='Логи',exact=True)).to_be_visible();expect(page.locator('#nav a[href="#tokens"]')).to_have_count(0);expect(page.locator('#nav a[href="#users"]')).to_have_count(0);nav(page,'projects');expect(page.get_by_role('button',name='Создать проект')).to_have_count(0);expect(page.get_by_role('button',name='Добавить источник')).to_have_count(0)
         page.get_by_role('button',name='Выйти',exact=True).click();expect(page.get_by_role('heading',name='Вход в CajeerLogs')).to_be_visible();assert not errors, errors
         print('PASS session restore, expiry, viewer restrictions, logout; no uncaught browser errors')
+        f.role='administrator'; f.require_totp=True; login(page)
+        expect(page.get_by_role('heading',name='Настройка 2FA',exact=True)).to_be_visible();expect(page.locator('#nav a[href="#logs"]')).to_have_count(0)
+        setup=page.locator('form').filter(has=page.get_by_role('button',name='Настроить 2FA',exact=True));setup.get_by_label('Текущий пароль').fill('admin-password-12345');setup.get_by_role('button',name='Настроить 2FA').click()
+        expect(page.get_by_role('dialog')).to_contain_text('JBSWY3DPEHPK3PXP');page.get_by_role('dialog').get_by_label('6-значный код').fill('123456');page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_role('dialog')).to_contain_text('a'*32)
+        assert 'a'*32 not in page.evaluate('JSON.stringify(localStorage)+JSON.stringify(sessionStorage)');page.get_by_role('button',name='Сохранено').click();expect(page.get_by_text('a'*32,exact=True)).to_have_count(0)
+        page.get_by_role('button',name='Выйти',exact=True).click();expect(page.get_by_role('heading',name='Вход в CajeerLogs')).to_be_visible();login(page);expect(page.get_by_role('alert')).to_contain_text('Неверные')
+        page.get_by_label('Код 2FA / recovery (если включено)').fill('123456');login(page);expect(page.get_by_role('heading',name='Настройки',exact=True)).to_be_visible();f.require_totp=False
+        disable=page.locator('form').filter(has=page.get_by_role('button',name='Отключить 2FA',exact=True));disable.get_by_label('Текущий пароль').fill('admin-password-12345');disable.get_by_label('Код приложения или recovery-код').fill('123456');disable.get_by_role('button',name='Отключить 2FA').click();expect(page.get_by_role('heading',name='Вход в CajeerLogs')).to_be_visible();assert not errors,errors
+        print('PASS mandatory enrollment, TOTP setup/enable, recovery code lifecycle, login factor and disable (fixture)')
         browser.close()
 
 if __name__=='__main__': run()

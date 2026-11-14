@@ -20,12 +20,14 @@ final class ErrorHandler
         return new JsonResponse(['error' => 'internal_error', 'message' => 'Internal server error.', 'request_id' => $requestId], $status);
     }
 
-    public static function decorate(Response $response, string $requestId): Response
+    public static function decorate(Response $response, string $requestId, bool $secure = false): Response
     {
+        if ($secure) { $response=$response->withHeader('Strict-Transport-Security','max-age=31536000'); }
         return $response->withHeader('X-Request-ID', $requestId)
             ->withHeader('X-Content-Type-Options', 'nosniff')
             ->withHeader('X-Frame-Options', 'DENY')
             ->withHeader('Referrer-Policy', 'no-referrer')
+            ->withHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
             ->withHeader('Cache-Control', 'no-store')
             ->withHeader('Content-Security-Policy', $response->header('Content-Security-Policy') ?? "default-src 'none'; frame-ancestors 'none'");
     }

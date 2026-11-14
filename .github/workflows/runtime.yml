@@ -31,12 +31,15 @@ jobs:
       DB_SCHEMA: public
       DB_SSLMODE: disable
       CAJEER_TEST_DATABASE: '1'
+      CAJEER_TEST_RESTORE_DB: cajeer_restore_ci
+      PG_DUMP_BIN: /usr/lib/postgresql/17/bin/pg_dump
+      PG_RESTORE_BIN: /usr/lib/postgresql/17/bin/pg_restore
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: ctype, filter, curl, pdo, pdo_pgsql, dom, mbstring, xml, xmlwriter
+          extensions: ctype, filter, curl, pdo, pdo_pgsql, sodium, dom, mbstring, xml, xmlwriter
           coverage: none
           tools: composer:v2
       - name: Provision restricted PostgreSQL role
@@ -47,7 +50,18 @@ jobs:
           psql -h 127.0.0.1 -U postgres -d cajeer_logs -v ON_ERROR_STOP=1 <<'SQL'
           CREATE ROLE cajeer_logs LOGIN PASSWORD 'ci-app-role-password-only';
           ALTER DATABASE cajeer_logs OWNER TO cajeer_logs;
+          CREATE DATABASE cajeer_restore_ci OWNER cajeer_logs;
           SQL
+      - name: Install PostgreSQL 17 client tools
+        run: |
+          if [ ! -x /usr/lib/postgresql/17/bin/pg_dump ]; then
+            sudo install -d /usr/share/postgresql-common/pgdg
+            sudo curl --fail --silent --show-error https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+            . /etc/os-release
+            echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+            sudo apt-get update
+            sudo apt-get install -y postgresql-client-17
+          fi
       - name: Install dependencies
         run: composer install --no-interaction --prefer-dist
       - name: PHP syntax
@@ -73,6 +87,8 @@ jobs:
       - run: php tests/webhook_database.php
       - run: php tests/queue.php
       - run: php tests/queue_database.php
+      - run: php tests/security_operations.php
+      - run: php tests/security_database.php
       - uses: actions/setup-java@v4
         if: matrix.php == '8.4'
         with:

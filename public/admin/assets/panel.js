@@ -105,7 +105,7 @@ function navigate(route) { if (location.hash === '#' + route)
     void render();
 else
     location.hash = route; }
-function permitted(route) { return !(['users', 'system'].includes(route) && !admin()) && !(route === 'tokens' && !manage()); }
+function permitted(route) { if (state.enrollmentRequired) return route === 'settings'; return !(['users', 'system'].includes(route) && !admin()) && !(route === 'tokens' && !manage()); }
 function themeButton() { return button(document.documentElement.dataset.theme === 'dark' ? 'Светлая тема' : 'Тёмная тема', e => { const theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = theme; try {
     localStorage.setItem('cajeer-theme', theme);
 }
@@ -154,10 +154,10 @@ function form(submitLabel, fields, handler, { cls = 'form-grid', after = [] } = 
 function renderLogin(reason = '') {
     navigation();
     $('main').replaceChildren(h('section', { class: 'card login' }, h('h1', {}, 'Вход в CajeerLogs'), h('p', { class: 'muted' }, 'Войдите с учётной записью, созданной установщиком.'), reason ? h('p', { role: 'status' }, reason) : null, form('Войти', [
-        field('Email', input('email', { type: 'email', required: true, autocomplete: 'username', maxlength: 255 })), field('Пароль', input('password', { type: 'password', required: true, autocomplete: 'current-password', maxlength: 1024 }))
-    ], async (d, f) => { const res = await request('/auth/login', { method: 'POST', body: { email: String(d.get('email')), password: String(d.get('password')) }, login: true }); f.reset(); await startSession(res); }, { cls: 'stack' }), h('p', { class: 'muted small' }, 'CajeerLogs ' + version)));
+        field('Email', input('email', { type: 'email', required: true, autocomplete: 'username', maxlength: 255 })), field('Пароль', input('password', { type: 'password', required: true, autocomplete: 'current-password', maxlength: 1024 })), field('Код 2FA / recovery (если включено)', input('otp', { autocomplete: 'one-time-code', maxlength: 32 }))
+    ], async (d, f) => { const credentials = { email: String(d.get('email')), password: String(d.get('password')) }; if (d.get('otp')) credentials.otp=String(d.get('otp')).trim(); const res = await request('/auth/login', { method: 'POST', body: credentials, login: true }); f.reset(); await startSession(res); }, { cls: 'stack' }), h('p', { class: 'muted small' }, 'CajeerLogs ' + version)));
 }
-async function startSession(res) { state.authEpoch++; state.user = res.user; state.csrf = res.csrf_token; state.projects = []; state.project = null; state.projectCursor = null; state.filters = null; await render(); }
+async function startSession(res) { state.authEpoch++; state.user = res.user; state.enrollmentRequired = Boolean(res.enrollment_required); state.csrf = res.csrf_token; state.projects = []; state.project = null; state.projectCursor = null; state.filters = null; await render(); }
 async function bootstrap() { try {
     await startSession(await get('/auth/me'));
 }
@@ -175,7 +175,7 @@ async function revalidateSession() { if (!state.user || sessionChecking || docum
         clearSession('Учётная запись изменилась. Войдите снова.');
         return;
     }
-    state.csrf = res.csrf_token;
+    state.csrf = res.csrf_token; if (state.enrollmentRequired !== Boolean(res.enrollment_required)) { state.enrollmentRequired=Boolean(res.enrollment_required); void render(); }
 }
 catch (e) { /* 401 is handled centrally; transient connectivity errors must not imply logout. */ }
 finally {
@@ -222,8 +222,8 @@ async function render() {
     const epoch = ++state.epoch;
     state.route = currentRoute();
     if (!permitted(state.route)) {
-        state.route = 'overview';
-        history.replaceState(null, '', '#overview');
+        state.route = state.enrollmentRequired ? 'settings' : 'overview';
+        history.replaceState(null, '', '#'+state.route);
     }
     navigation();
     const main = $('main');
@@ -472,7 +472,25 @@ function editUser(user, epoch) { modal('Редактировать пользо�
 } clearModal(); await mutationSuccess(epoch, 'Пользователь обновлён.'); }))); }
 async function users(signal, epoch) { return h('div', {}, heading('Пользователи', 'Управление ролями, паролями и блокировкой.'), card(h('h2', {}, 'Создать пользователя'), form('Создать пользователя', userFields(), async (d) => { await write('/users', 'POST', { email: String(d.get('email')), password: String(d.get('password')), role: String(d.get('role')) }); await mutationSuccess(epoch, 'Пользователь создан.'); })), card(h('h2', {}, 'Список пользователей'), pagedList({ path: '/users', query: { limit: 50 }, signal, epoch, headers: ['Email', 'Роль', 'UUID', 'Статус', ''], rows: r => [r.email, roles[r.role] || r.role, h('code', {}, r.id), badge(r.blocked_at ? 'Заблокирован' : 'Активен'), button('Изменить', () => editUser(r, epoch))] }))); }
 async function system(signal) { const root = h('div', {}, heading('Система', 'Диагностика runtime, PostgreSQL и миграций.', button('Обновить', () => void render()))); const [health, ready, report] = await Promise.all([get('/health', {}, signal), fetch('/ready', { credentials: 'same-origin', cache: 'no-store', signal }).then(async (r) => ({ status: r.status, data: await r.json() })), request('/system/report', { signal, raw: true, allowStatus: [503] }).then(r => r.json())]); root.append(card(h('h2', {}, 'Состояние'), table(['Проверка', 'Результат'], [['Runtime', badge(health.status)], ['PostgreSQL readiness', badge(ready.status === 200 ? 'ok' : 'down')], ['Версия', health.version], ['Среда', report.environment || '—'], ['PHP', report.php || '—'], ['Общий статус', badge(report.status || 'down')]])), card(h('h2', {}, 'Системный отчёт'), h('pre', {}, JSON.stringify(report, null, 2)), button('Скопировать отчёт', () => void copy(JSON.stringify(report, null, 2))))); return root; }
-async function settings() { return h('div', {}, heading('Настройки', 'Настройки учётной записи и интерфейса.'), card(h('h2', {}, 'Профиль'), table(['Поле', 'Значение'], [['Email', state.user.email], ['Роль', roles[state.user.role]], ['UUID', state.user.id]]), h('div', { class: 'actions' }, themeButton())), card(h('h2', {}, 'Сменить пароль'), h('p', { class: 'muted' }, 'После смены пароля все сессии будут отозваны.'), form('Сменить пароль', [field('Текущий пароль', input('current_password', { type: 'password', required: true, autocomplete: 'current-password', maxlength: 1024 })), field('Новый пароль', input('password', { type: 'password', required: true, minlength: 12, maxlength: 1024, autocomplete: 'new-password' })), field('Повторите новый пароль', input('repeat', { type: 'password', required: true, minlength: 12, maxlength: 1024, autocomplete: 'new-password' }))], async (d) => { if (d.get('password') !== d.get('repeat'))
+function twoFactorCard() {
+    const pw=()=>field('Текущий пароль',input('password',{type:'password',required:true,autocomplete:'current-password',maxlength:1024}));
+    const otp=()=>field('Код приложения или recovery-код',input('otp',{required:true,autocomplete:'one-time-code',maxlength:32}));
+    const section=card(h('h2',{},'Двухфакторная аутентификация'),h('p',{},state.user.two_factor_enabled?'TOTP включён.':'TOTP не включён.'));
+    if (state.user.two_factor_enabled) {
+        section.append(form('Отключить 2FA',[pw(),otp()],async d=>{await write('/auth/2fa/disable','POST',{password:String(d.get('password')),otp:String(d.get('otp')).trim()});clearSession('2FA отключена. Войдите снова.');}));
+    } else {
+        section.append(form('Настроить 2FA',[pw()],async (d,f)=>{
+            const data=await write('/auth/2fa/setup','POST',{password:String(d.get('password'))}); f.reset();
+            modal('Настройка TOTP',h('div',{},h('p',{},'Добавьте ключ вручную в приложение-аутентификатор. SHA-1, 6 цифр, 30 секунд. Ключ действителен 10 минут.'),h('pre',{},data.secret),form('Подтвердить',[field('6-значный код',input('otp',{required:true,inputmode:'numeric',autocomplete:'one-time-code',maxlength:6,pattern:'[0-9]{6}'}))],async d=>{
+                const result=await write('/auth/2fa/enable','POST',{otp:String(d.get('otp'))});
+                await startSession(result);
+                modal('Сохраните recovery-коды',h('div',{},h('p',{},'Каждый код действует один раз. Сохраните их в защищённом месте. Они больше не будут показаны.'),h('pre',{},result.recovery_codes.join('\n')),button('Сохранено',()=>clearModal())));
+            })));
+        }));
+    }
+    return section;
+}
+async function settings() { if (state.enrollmentRequired) return h('div',{},heading('Настройка 2FA','Для администратора необходим второй фактор.'),twoFactorCard()); return h('div', {}, heading('Настройки', 'Настройки учётной записи и интерфейса.'),twoFactorCard(), card(h('h2', {}, 'Профиль'), table(['Поле', 'Значение'], [['Email', state.user.email], ['Роль', roles[state.user.role]], ['UUID', state.user.id]]), h('div', { class: 'actions' }, themeButton())), card(h('h2', {}, 'Сменить пароль'), h('p', { class: 'muted' }, 'После смены пароля все сессии будут отозваны.'), form('Сменить пароль', [field('Текущий пароль', input('current_password', { type: 'password', required: true, autocomplete: 'current-password', maxlength: 1024 })), field('Новый пароль', input('password', { type: 'password', required: true, minlength: 12, maxlength: 1024, autocomplete: 'new-password' })), field('Повторите новый пароль', input('repeat', { type: 'password', required: true, minlength: 12, maxlength: 1024, autocomplete: 'new-password' }))], async (d) => { if (d.get('password') !== d.get('repeat'))
     throw new Error('Пароли не совпадают.'); await write('/auth/password', 'POST', { current_password: String(d.get('current_password')), password: String(d.get('password')) }); clearSession('Пароль изменён. Войдите снова.'); })), card(h('h2', {}, 'Сессии'), h('p', {}, 'Завершить все сессии этой учётной записи, включая текущую.'), button('Выйти на всех устройствах', () => confirmAction('Отозвать все сессии', 'Все активные сессии будут завершены.', async () => { await write('/auth/logout-all', 'POST'); clearSession('Все сессии завершены.'); }), 'danger'))); }
 const pages = { overview, logs, projects, tokens, users, system, settings };
 void bootstrap();

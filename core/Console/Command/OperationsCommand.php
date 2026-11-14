@@ -1,0 +1,47 @@
+<?php
+declare(strict_types=1);
+namespace Cajeer\Logs\Console\Command;
+use Cajeer\Logs\Database\DatabaseException;
+use Cajeer\Logs\Kernel\Application;
+use Cajeer\Logs\Operations\BackupManager;
+final class OperationsCommand
+{
+    public function __construct(private readonly Application $app) {}
+    public function handle(string $command,array $args): int
+    {
+        $backup=new BackupManager($this->app);
+        $n=count($args);
+        $result=match($command) {
+            'backup:create'=>$n===0?$backup->create():throw new DatabaseException('Usage: backup:create'),
+            'backup:list'=>$n===0?$backup->list():throw new DatabaseException('Usage: backup:list'),
+            'backup:verify'=>$n===1?$backup->verify($args[0]):throw new DatabaseException('Usage: backup:verify BACKUP_ID'),
+            'backup:restore'=>$n===2?$backup->restore($args[0],$args[1]):throw new DatabaseException('Usage: backup:restore BACKUP_ID EMPTY_TARGET_DATABASE'),
+            'auth:2fa-reset'=>$n===2 && $args[1]==='--confirm'?$this->reset($args[0]):throw new DatabaseException('Usage: auth:2fa-reset EMAIL --confirm'),
+            'update:check'=>$n===1?$this->update($args[0]):throw new DatabaseException('Usage: update:check TRUSTED_RELEASE_JSON'),
+            default=>throw new DatabaseException('Unknown operations command.'),
+        };
+        echo json_encode($result,JSON_THROW_ON_ERROR|JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES).PHP_EOL;
+        return 0;
+    }
+    private function reset(string $email): array
+    {
+        $pdo=$this->app->container()->get(\PDO::class);
+        $pdo->beginTransaction();
+        try {
+            $identity=new \Cajeer\Logs\Security\Identity($pdo,true,''); $identity->lock();
+            $user=(new \Cajeer\Logs\Database\Repository\UserRepository($pdo))->findByEmail($email);
+            if (!$user) { throw new DatabaseException('User not found.'); }
+            (new \Cajeer\Logs\Security\TwoFactorManager($pdo,''))->disable($user['id']);
+            $identity->sql('DELETE FROM auth_sessions WHERE user_id=:id',['id'=>$user['id']]);
+            (new \Cajeer\Logs\Audit\AuditLogger($pdo))->record('auth.totp_reset_cli',[],null,$user['id']);
+            $pdo->commit(); return ['user_id'=>$user['id'],'two_factor_enabled'=>false,'sessions_revoked'=>true];
+        } catch (\Throwable $e) { if ($pdo->inTransaction()) { $pdo->rollBack(); } throw $e; }
+    }
+    private function update(string $path): array
+    {
+        if (!is_file($path)||!is_readable($path)||filesize($path)>65536) { throw new DatabaseException('Release metadata file unavailable.'); }
+        $data=json_decode(file_get_contents($path),true,16,JSON_THROW_ON_ERROR); $version=$data['version']??null;
+        if (($data['name']??null)!=='CajeerLogs'||!is_string($version)||!preg_match('/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/D',$version)) { throw new DatabaseException('Invalid CajeerLogs release metadata.'); }
+        return ['current'=>$this->app->version(),'candidate'=>$version,'update_available'=>version_compare($version,$this->app->version(),'>'),'source'=>'local_release_metadata'];
+    }
+}

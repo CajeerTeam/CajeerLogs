@@ -1,0 +1,15 @@
+[Unit]
+Description=CajeerLogs PostgreSQL logical backup
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=cajeerlogs
+Group=cajeerlogs
+WorkingDirectory=/var/www/cajeerlogs
+ExecStart=/usr/bin/php bin/cajeer backup:create
+UMask=0077
+TimeoutStartSec=2h
+NoNewPrivileges=true
+PrivateTmp=true
