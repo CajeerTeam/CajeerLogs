@@ -72,7 +72,7 @@ class Fixture:
         self.user = None; self.totp_enabled=False; self.require_totp=False; self.role = 'administrator'; self.projects=[{'id':P1,'name':'Production','slug':'production','revision':'1','status':'active','description':'','metadata':{},'max_body_bytes':1048576,'max_batch_events':100,'created_at':'2026-01-01T00:00:00Z'}]
         self.sources=[{'id':S1,'project_id':P1,'name':'Application','slug':'app','created_at':'2026-01-01T00:00:00Z','status':'active','revision':'1','source_type':'application','metadata':{}}]
         self.users=[{'id':U1,'email':'admin@example.test','role':'administrator','blocked_at':None}]
-        self.members=[]; self.tokens=[]; self.calls=[]; self.fail_next=False
+        self.members=[]; self.tokens=[]; self.accounts=[]; self.calls=[]; self.fail_next=False
         self.event={'id':E1,'project_id':P1,'source_id':S1,'source':'app','service':'api','host':'host-1','level':'error','message':'<img src=x onerror="window.pwned=1"> database error','context':{'secret':'[redacted]','html':'<script>window.pwned=1</script>'},'trace_id':'trace-1','request_id':'req-1','tags':['prod'],'timestamp':'2026-11-14T00:00:00Z','received_at':'2026-11-14T00:00:01Z'}
     def route(self,r):
         req=r.request; path=urlsplit(req.url).path.removeprefix('/api/v1'); method=req.method; q={k:v[0] for k,v in parse_qs(urlsplit(req.url).query).items()}; body=req.post_data_json if req.post_data else None
@@ -86,7 +86,7 @@ class Fixture:
             if body['password']=='bad' or (self.totp_enabled and body.get('otp')!='123456'): return err(401,'unauthorized')
             self.user={'id':U1 if self.role=='administrator' else U2,'email':body['email'],'role':self.role,'two_factor_enabled':self.totp_enabled}
             return send({'user':self.user,'csrf_token':CSRF,'expires_in':28800,'enrollment_required':self.require_totp and not self.totp_enabled},headers={'Set-Cookie':'cajeerlogs_session='+'b'*64+'; Path=/; HttpOnly; SameSite=Strict'})
-        if path=='/health': return send({'status':'ok','version':'0.1.7'})
+        if path=='/health': return send({'status':'ok','version':'0.1.8'})
         if self.user is None: return err(401,'unauthorized')
         if method!='GET': assert req.headers.get('x-csrf-token')==CSRF, (method,path,req.headers)
         if path=='/auth/me': return send({'user':self.user,'csrf_token':CSRF,'enrollment_required':self.require_totp and not self.totp_enabled})
@@ -133,10 +133,26 @@ class Fixture:
             return listing(self.users)
         if path=='/users/'+U2:
             self.users[-1].update(email=body['email'],role=body['role'],blocked_at='2026-01-01' if body['blocked'] else None);return send({'id':U2})
+        if path.endswith('/service-accounts'):
+            if method=='POST':
+                row={'id':'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','name':body['name'],'project_id':P1,'disabled_at':None}; self.accounts.append(row); return send(row,201)
+            return listing(self.accounts)
+        if '/service-accounts/' in path and path.endswith('/disable'):
+            self.accounts[0]['disabled_at']='2026-01-01'; selected=[row for row in self.tokens if row.get('service_account_id')==self.accounts[0]['id'] and not row.get('revoked_at')];
+            for row in selected: row['revoked_at']='2026-01-01'
+            return send(dict(self.accounts[0],revoked=len(selected)))
         if path.endswith('/tokens'):
-            if method=='POST': self.tokens.append({'id':T1,'name':body['name'],'scopes':body['scopes'],'source_id':body.get('source_id'),'expires_at':'2099-01-01T00:00:00Z','revoked_at':None});return send({'id':T1,'token':TOKEN},201)
+            if method=='POST': self.tokens.append({'id':T1,'name':body['name'],'scopes':body['scopes'],'source_id':body.get('source_id'),'expires_at':'2099-01-01T00:00:00Z','revoked_at':None,'revision':'1','description':body.get('description',''),'requests_per_minute':body.get('requests_per_minute'),'service_account_id':body.get('service_account_id')});return send({'id':T1,'token':TOKEN},201)
             return listing(self.tokens if path.startswith('/projects/') else [])
-        if path.endswith('/tokens/'+T1): self.tokens[0]['revoked_at']='2026-01-01';return send(status=204)
+        if path.endswith('/tokens/'+T1+'/rotate'):
+            old=self.tokens[0]; old['rotated_to_id']='99999999-9999-4999-8999-999999999999'; old['revision']=str(int(old['revision'])+1); old['expires_at']='2099-01-01T00:00:00Z'; new=dict(old,id=old['rotated_to_id'],scopes=body['scopes'],revision='1',rotated_to_id=None); self.tokens.append(new); return send(dict(new,token='cl_'+'b'*64,previous=old),201)
+        if path.endswith('/tokens/'+T1):
+            if method=='PATCH':
+                row=self.tokens[0]; row.update({k:v for k,v in body.items() if k!='revision'}); row['revision']=str(int(row['revision'])+1); return send(row)
+            self.tokens[0]['revoked_at']='2026-01-01';return send(status=204)
+        if path.endswith('/tokens/revoke-all'):
+            for row in self.tokens: row['revoked_at']='2026-01-01'
+            return send({'revoked':len(self.tokens)})
         if path=='/logs/stats': return send({'total':2,'by_level':{'error':2,'warning':0},'by_source':[{'source':'app','source_id':S1,'count':2}],'buckets':[{'timestamp':'2026-11-14T00:00:00Z','count':2}],'sources_truncated':False,'from':q.get('from'),'to':q.get('to')})
         if path=='/logs':
             if self.fail_next: self.fail_next=False;return err(503,'service_unavailable')
@@ -205,7 +221,7 @@ def run():
         browser=browser_for(p); ctx=browser.new_context(accept_downloads=True); page=ctx.new_page(); page.set_default_timeout(8000)
         errors=[]; page.on('pageerror',lambda e: errors.append(str(e)))
         # Actual PHP router, not intercepted, even in offline browser mode.
-        status,headers,body=http(url+'/admin');assert status==200 and b'0.1.7' in body
+        status,headers,body=http(url+'/admin');assert status==200 and b'0.1.8' in body
         assert "script-src 'self'" in {k.lower():v for k,v in headers.items()}['content-security-policy']
         assert http(url+'/api/v1/auth/me')[0]==401
         assert http(url+'/admin/assets/panel.js')[0]==200
@@ -255,9 +271,9 @@ def run():
         page.get_by_role('row').filter(has_text='viewer@example.test').get_by_role('button',name='Изменить').click();page.get_by_role('dialog').get_by_label('Роль',exact=True).select_option('operator');page.get_by_role('dialog').get_by_role('button',name='Сохранить').click();expect(page.get_by_role('row').filter(has_text='viewer@example.test')).to_contain_text('Оператор')
         nav(page,'projects');page.get_by_label('UUID пользователя').fill(U2);page.get_by_role('button',name='Добавить участника').click();expect(page.get_by_text('viewer@example.test',exact=True)).to_be_visible();page.get_by_role('button',name='Изменить роль').click();page.get_by_role('dialog').get_by_label('Роль в проекте').select_option('viewer');page.get_by_role('dialog').get_by_role('button',name='Сохранить роль').click();expect(page.get_by_role('row').filter(has_text='viewer@example.test')).to_contain_text('Наблюдатель');page.get_by_role('button',name='Убрать доступ').click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_text('viewer@example.test',exact=True)).to_have_count(0)
         print('PASS create project/source/user, role update, project membership')
-        nav(page,'tokens');form=page.locator('form').filter(has=page.get_by_label('logs:read'));form.get_by_label('Название').fill('Reader');form.get_by_role('button',name='Выпустить токен').click();expect(page.get_by_role('dialog')).to_contain_text(TOKEN);assert TOKEN not in page.evaluate('JSON.stringify(localStorage)+JSON.stringify(sessionStorage)');page.locator('#close-modal').click();expect(page.get_by_text(TOKEN,exact=True)).to_have_count(0);page.get_by_role('button',name='Отозвать').click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_text('Отозван',exact=True)).to_be_visible()
+        nav(page,'tokens');page.get_by_label('Название сервиса').fill('Backend service');page.get_by_role('button',name='Создать сервисную учётную запись').click();expect(page.get_by_role('row').filter(has_text='Backend service')).to_be_visible();form=page.locator('form').filter(has=page.get_by_label('logs:read'));form.get_by_label('Название').fill('Reader');form.get_by_label('Сервисная учётная запись (UUID, необязательно)').fill('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');form.get_by_role('button',name='Выпустить токен').click();expect(page.get_by_role('dialog')).to_contain_text(TOKEN);assert TOKEN not in page.evaluate('JSON.stringify(localStorage)+JSON.stringify(sessionStorage)');page.locator('#close-modal').click();expect(page.get_by_text(TOKEN,exact=True)).to_have_count(0);page.get_by_role('button',name='Изменить токен').click();dlg=page.get_by_role('dialog');dlg.get_by_label('Название',exact=True).fill('Renamed Reader');dlg.get_by_label('Запросов в минуту (необязательно)').fill('60');dlg.get_by_role('button',name='Сохранить токен').click();expect(page.get_by_role('row').filter(has_text='Renamed Reader')).to_be_visible();page.get_by_role('button',name='Ротация',exact=True).click();dlg=page.get_by_role('dialog');dlg.get_by_role('button',name='Выпустить замену').click();expect(dlg).to_contain_text('cl_'+'b'*64);page.locator('#close-modal').click();expect(page.get_by_text('Перекрытие',exact=True)).to_be_visible();page.get_by_role('button',name='Отозвать',exact=True).first.click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_text('Отозван',exact=True)).to_be_visible();page.get_by_role('button',name='Отключить сервис').click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_text('Отключена',exact=True)).to_be_visible()
         nav(page,'system');expect(page.get_by_role('heading',name='Системный отчёт')).to_be_visible();nav(page,'settings');page.get_by_role('button',name='Тёмная тема').first.click();assert page.locator('html').get_attribute('data-theme')=='dark';page.set_viewport_size({'width':390,'height':844});assert page.evaluate('document.documentElement.scrollWidth <= innerWidth');page.set_viewport_size({'width':1280,'height':720});
-        print('PASS token creation, secret lifecycle, revoke, system report, theme and mobile layout')
+        print('PASS service account, credential issue, metadata, rotation, revoke, system report, theme and mobile layout')
         if offline: offline_load(page,url,'settings')
         else: page.reload()
         expect(page.get_by_role('heading',name='Настройки',exact=True)).to_be_visible();f.user=None;page.locator('#nav a[href="#logs"]').click();expect(page.get_by_role('heading',name='Вход в CajeerLogs')).to_be_visible();expect(page.get_by_text('Сессия истекла.',exact=False)).to_be_visible()

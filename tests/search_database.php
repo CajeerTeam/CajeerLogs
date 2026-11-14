@@ -30,7 +30,8 @@ function ingest(array $event,string $secret):string {
     $events=(new \Cajeer\Logs\Log\IngestValidator())->parse(new Request('POST','/api/v1/ingest',['Content-Type'=>'application/json'],[],json_encode($event,JSON_THROW_ON_ERROR)));
     $repo=new \Cajeer\Logs\Log\LogRepository($pdo);
     return (new \Cajeer\Logs\Database\TransactionManager($pdo))->run(function () use ($pdo,$repo,$events,$secret) {
-        $token=(new TokenRepository($pdo))->findActive($secret);
+        $stmt=$pdo->prepare('SELECT id,project_id,source_id FROM api_tokens WHERE token_hash=:hash AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>now()) FOR UPDATE');
+        $stmt->execute(['hash'=>hash('sha256',$secret)]); $token=$stmt->fetch();
         if (!$token) throw new RuntimeException('Historical seed token unavailable');
         $sources=$repo->resolveSources($events,$token['project_id'],$token['source_id']);
         return $repo->storeBatch($events,$token['project_id'],$sources,$token['id'])[0];
@@ -59,7 +60,7 @@ try {
     $d=ingest(array_replace($common,['timestamp'=>'2026-01-03T00:00:00Z','level'=>'info','message'=>'=HYPERLINK("https://example.test")','trace_id'=>'trace-d','request_id'=>'req-d','tags'=>[],'context'=>(object)[]]),$writer);
     $hidden=ingest($common,$foreignWriter);
     $runner=$app->container()->get(MigrationRunner::class);
-    verify($runner->migrate()===['0005_log_search.sql','0006_sdk_integrations.sql','0007_queue_lifecycle.sql','0008_security_operations.sql','0009_project_management.sql','0010_source_management.sql']&&$runner->migrate()===[],'real 0.0.4 to 0.0.5 migration and repeat');
+    verify($runner->migrate()===['0005_log_search.sql','0006_sdk_integrations.sql','0007_queue_lifecycle.sql','0008_security_operations.sql','0009_project_management.sql','0010_source_management.sql','0011_token_management.sql']&&$runner->migrate()===[],'real 0.0.4 to 0.0.5 migration and repeat');
     verify((int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===6,'migration preserves stored and legacy events');
     verify($app->handle(new Request('GET','/ready'))->status===200,'readiness after migration');
     $query=['project_id'=>$project];

@@ -2,8 +2,8 @@
   "openapi": "3.1.1",
   "info": {
     "title": "CajeerLogs API",
-    "version": "0.1.7",
-    "description": "Identity & Access, synchronous and durable asynchronous PostgreSQL ingestion, job status, project-scoped search, statistics and export. Outgoing webhooks and lifecycle administration use the CLI. TOTP enrollment, recovery codes and administrator enrollment policy."
+    "version": "0.1.8",
+    "description": "Identity & Access, synchronous and durable asynchronous PostgreSQL ingestion, job status, project-scoped search, statistics and export. Outgoing webhooks and lifecycle administration use the CLI. TOTP enrollment, recovery codes and administrator enrollment policy. Token rotation, scoped service accounts, credential request quotas and bulk revocation."
   },
   "servers": [
     {
@@ -1972,7 +1972,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Page"
+                  "$ref": "#/components/schemas/TokenPage"
                 }
               }
             }
@@ -2038,6 +2038,36 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "active",
+                "expired",
+                "revoked"
+              ],
+              "default": "all"
+            }
+          },
+          {
+            "name": "source_id",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "service_account_id",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         ]
       },
@@ -2056,22 +2086,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "id": {
-                      "type": "string",
-                      "format": "uuid"
-                    },
-                    "token": {
-                      "type": "string",
-                      "description": "Returned once; store securely."
-                    }
-                  },
-                  "required": [
-                    "id",
-                    "token"
-                  ],
-                  "additionalProperties": false
+                  "$ref": "#/components/schemas/IssuedToken"
                 }
               }
             }
@@ -2137,6 +2152,7 @@
                     "type": "array",
                     "minItems": 1,
                     "maxItems": 2,
+                    "uniqueItems": true,
                     "items": {
                       "type": "string",
                       "enum": [
@@ -2157,6 +2173,25 @@
                     "minimum": 60,
                     "maximum": 31536000,
                     "default": 2592000
+                  },
+                  "description": {
+                    "type": "string",
+                    "maxLength": 2000
+                  },
+                  "requests_per_minute": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "minimum": 1,
+                    "maximum": 1000000
+                  },
+                  "service_account_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "uuid"
                   }
                 },
                 "required": [
@@ -2238,6 +2273,119 @@
             }
           }
         ]
+      },
+      "patch": {
+        "operationId": "updateToken",
+        "summary": "Update safe credential metadata",
+        "security": [
+          {
+            "session": [],
+            "csrf": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedToken"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMedia"
+          },
+          "422": {
+            "$ref": "#/components/responses/InvalidPayload"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "413": {
+            "$ref": "#/components/responses/TooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255
+                  },
+                  "description": {
+                    "type": "string",
+                    "maxLength": 2000
+                  },
+                  "requests_per_minute": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "minimum": 1,
+                    "maximum": 1000000
+                  },
+                  "revision": {
+                    "type": "string",
+                    "pattern": "^[1-9][0-9]{0,18}$"
+                  }
+                },
+                "required": [
+                  "revision"
+                ],
+                "additionalProperties": false,
+                "minProperties": 2
+              }
+            }
+          }
+        }
       }
     },
     "/system/tokens": {
@@ -2255,7 +2403,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Page"
+                  "$ref": "#/components/schemas/TokenPage"
                 }
               }
             }
@@ -2312,6 +2460,20 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "active",
+                "expired",
+                "revoked"
+              ],
+              "default": "all"
+            }
           }
         ]
       },
@@ -2330,22 +2492,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "id": {
-                      "type": "string",
-                      "format": "uuid"
-                    },
-                    "token": {
-                      "type": "string",
-                      "description": "Returned once; store securely."
-                    }
-                  },
-                  "required": [
-                    "id",
-                    "token"
-                  ],
-                  "additionalProperties": false
+                  "$ref": "#/components/schemas/IssuedToken"
                 }
               }
             }
@@ -2399,7 +2546,8 @@
                   "scopes": {
                     "type": "array",
                     "minItems": 1,
-                    "maxItems": 2,
+                    "maxItems": 1,
+                    "uniqueItems": true,
                     "items": {
                       "type": "string",
                       "enum": [
@@ -2412,6 +2560,18 @@
                     "minimum": 60,
                     "maximum": 31536000,
                     "default": 2592000
+                  },
+                  "description": {
+                    "type": "string",
+                    "maxLength": 2000
+                  },
+                  "requests_per_minute": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "minimum": 1,
+                    "maximum": 1000000
                   }
                 },
                 "required": [
@@ -2484,6 +2644,110 @@
             }
           }
         ]
+      },
+      "patch": {
+        "operationId": "updateSystemToken",
+        "summary": "Update safe credential metadata",
+        "security": [
+          {
+            "session": [],
+            "csrf": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedToken"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMedia"
+          },
+          "422": {
+            "$ref": "#/components/responses/InvalidPayload"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "413": {
+            "$ref": "#/components/responses/TooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255
+                  },
+                  "description": {
+                    "type": "string",
+                    "maxLength": 2000
+                  },
+                  "requests_per_minute": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "minimum": 1,
+                    "maximum": 1000000
+                  },
+                  "revision": {
+                    "type": "string",
+                    "pattern": "^[1-9][0-9]{0,18}$"
+                  }
+                },
+                "required": [
+                  "revision"
+                ],
+                "additionalProperties": false,
+                "minProperties": 2
+              }
+            }
+          }
+        }
       }
     },
     "/system/report": {
@@ -5064,6 +5328,747 @@
           }
         ]
       }
+    },
+    "/projects/{project}/tokens/{token}/rotate": {
+      "post": {
+        "operationId": "rotateToken",
+        "summary": "Rotate credential; scopes may only be narrowed",
+        "security": [
+          {
+            "session": [],
+            "csrf": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RotatedToken"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMedia"
+          },
+          "422": {
+            "$ref": "#/components/responses/InvalidPayload"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "413": {
+            "$ref": "#/components/responses/TooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "revision": {
+                    "type": "string",
+                    "pattern": "^[1-9][0-9]{0,18}$"
+                  },
+                  "expires_in": {
+                    "type": "integer",
+                    "minimum": 60,
+                    "maximum": 31536000,
+                    "default": 2592000
+                  },
+                  "overlap_seconds": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 604800,
+                    "default": 0
+                  },
+                  "scopes": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 2,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "logs:read",
+                        "logs:write"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "revision"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{project}/tokens/revoke-all": {
+      "post": {
+        "operationId": "revokeProjectTokens",
+        "summary": "Revoke credentials in selected scope",
+        "security": [
+          {
+            "session": [],
+            "csrf": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "revoked": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "revoked"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMedia"
+          },
+          "422": {
+            "$ref": "#/components/responses/InvalidPayload"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "413": {
+            "$ref": "#/components/responses/TooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "confirm": {
+                    "const": true
+                  },
+                  "source_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "service_account_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "confirm"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/system/tokens/{token}/rotate": {
+      "post": {
+        "operationId": "rotateSystemToken",
+        "summary": "Rotate credential; scopes may only be narrowed",
+        "security": [
+          {
+            "session": [],
+            "csrf": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RotatedToken"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMedia"
+          },
+          "422": {
+            "$ref": "#/components/responses/InvalidPayload"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "413": {
+            "$ref": "#/components/responses/TooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "revision": {
+                    "type": "string",
+                    "pattern": "^[1-9][0-9]{0,18}$"
+                  },
+                  "expires_in": {
+                    "type": "integer",
+                    "minimum": 60,
+                    "maximum": 31536000,
+                    "default": 2592000
+                  },
+                  "overlap_seconds": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 604800,
+                    "default": 0
+                  },
+                  "scopes": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 1,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "system:read"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "revision"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/system/tokens/revoke-all": {
+      "post": {
+        "operationId": "revokeAllSystemTokens",
+        "summary": "Revoke credentials in selected scope",
+        "security": [
+          {
+            "session": [],
+            "csrf": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "revoked": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "revoked"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMedia"
+          },
+          "422": {
+            "$ref": "#/components/responses/InvalidPayload"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "413": {
+            "$ref": "#/components/responses/TooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "confirm": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "confirm"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{project}/service-accounts": {
+      "get": {
+        "operationId": "serviceAccounts",
+        "summary": "List service accounts",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceAccountPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMedia"
+          },
+          "422": {
+            "$ref": "#/components/responses/InvalidPayload"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "413": {
+            "$ref": "#/components/responses/TooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "createServiceAccount",
+        "summary": "Create project service account",
+        "security": [
+          {
+            "session": [],
+            "csrf": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceAccount"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMedia"
+          },
+          "422": {
+            "$ref": "#/components/responses/InvalidPayload"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "413": {
+            "$ref": "#/components/responses/TooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{project}/service-accounts/{account}/disable": {
+      "post": {
+        "operationId": "disableServiceAccount",
+        "summary": "Permanently disable service account and revoke all credentials",
+        "security": [
+          {
+            "session": [],
+            "csrf": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "project_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 255
+                    },
+                    "created_by": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "uuid"
+                    },
+                    "created_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "disabled_at": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "date-time"
+                    },
+                    "revoked": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "project_id",
+                    "name",
+                    "created_by",
+                    "created_at",
+                    "disabled_at",
+                    "revoked"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMedia"
+          },
+          "422": {
+            "$ref": "#/components/responses/InvalidPayload"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "413": {
+            "$ref": "#/components/responses/TooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "account",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "confirm": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "confirm"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -5784,6 +6789,509 @@
           "accepted_events_total",
           "rejected_events_total"
         ]
+      },
+      "ManagedToken": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "logs:read",
+                "logs:write",
+                "system:read"
+              ]
+            }
+          },
+          "project_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "source_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "created_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "revoked_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "last_used_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "requests_per_minute": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 1000000
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "service_account_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "rotated_to_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "rotated_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "scopes",
+          "project_id",
+          "source_id",
+          "created_by",
+          "expires_at",
+          "revoked_at",
+          "last_used_at",
+          "created_at",
+          "description",
+          "requests_per_minute",
+          "revision",
+          "updated_at",
+          "service_account_id",
+          "rotated_to_id",
+          "rotated_at"
+        ],
+        "additionalProperties": false
+      },
+      "IssuedToken": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "logs:read",
+                "logs:write",
+                "system:read"
+              ]
+            }
+          },
+          "project_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "source_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "created_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "revoked_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "last_used_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "requests_per_minute": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 1000000
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "service_account_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "rotated_to_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "rotated_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "token": {
+            "type": "string",
+            "pattern": "^cl_[a-f0-9]{64}$",
+            "description": "Returned once; store securely."
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "scopes",
+          "project_id",
+          "source_id",
+          "created_by",
+          "expires_at",
+          "revoked_at",
+          "last_used_at",
+          "created_at",
+          "description",
+          "requests_per_minute",
+          "revision",
+          "updated_at",
+          "service_account_id",
+          "rotated_to_id",
+          "rotated_at",
+          "token"
+        ],
+        "additionalProperties": false
+      },
+      "RotatedToken": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "logs:read",
+                "logs:write",
+                "system:read"
+              ]
+            }
+          },
+          "project_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "source_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "created_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "revoked_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "last_used_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "requests_per_minute": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 1000000
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "service_account_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "rotated_to_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "rotated_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "token": {
+            "type": "string",
+            "pattern": "^cl_[a-f0-9]{64}$",
+            "description": "Returned once; store securely."
+          },
+          "previous": {
+            "$ref": "#/components/schemas/ManagedToken"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "scopes",
+          "project_id",
+          "source_id",
+          "created_by",
+          "expires_at",
+          "revoked_at",
+          "last_used_at",
+          "created_at",
+          "description",
+          "requests_per_minute",
+          "revision",
+          "updated_at",
+          "service_account_id",
+          "rotated_to_id",
+          "rotated_at",
+          "token",
+          "previous"
+        ],
+        "additionalProperties": false
+      },
+      "ServiceAccount": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "project_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "created_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "disabled_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "name",
+          "created_by",
+          "created_at",
+          "disabled_at"
+        ],
+        "additionalProperties": false
+      },
+      "TokenPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedToken"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "additionalProperties": false
+      },
+      "ServiceAccountPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ServiceAccount"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "additionalProperties": false
       }
     },
     "securitySchemes": {

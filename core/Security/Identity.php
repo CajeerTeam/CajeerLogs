@@ -92,14 +92,14 @@ final class Identity
         $this->sql("INSERT INTO auth_sessions(token_hash,user_id,csrf_token,expires_at) VALUES (:hash,:id,:csrf,now()+CAST(:ttl AS integer)*interval '1 second')",['hash'=>hash('sha256',$secret),'id'=>$user['id'],'csrf'=>$csrf,'ttl'=>$this->ttl]);
         return ['user'=>self::publicUser($user),'csrf_token'=>$csrf,'cookie'=>$this->cookie($secret),'expires_in'=>$this->ttl,'enrollment_required'=>$this->enrollmentRequired($user)];
     }
-    public function authenticate(Request $r, array $credential, bool $allowEnrollment = false): array
+    public function authenticate(Request $r, array $credential, bool $allowEnrollment = false, bool $chargeRate = true): array
     {
         if ($credential['kind'] === 'token') {
             $row = (new TokenRepository($this->pdo))->findActive($credential['secret']);
             if ($row === null) { self::unauthorized(); }
             // Legacy unscoped log tokens are fail-closed; system tokens must be global only.
-            if ($row['project_id'] === null && $row['scopes'] !== ['system:read']) { self::forbidden(); }
-            if ($row['project_id'] !== null && in_array('system:read',$row['scopes'],true)) { self::forbidden(); }
+            try { TokenRepository::scopes($row['scopes'],$row['project_id']); } catch (HttpException) { self::forbidden(); }
+            if ($chargeRate && $row['requests_per_minute']!==null) (new RateLimiter($this->pdo))->enforce('credential:'.$row['id'],$row['requests_per_minute'],60);
             return ['kind'=>'token','id'=>$row['id'],'token'=>$row];
         }
         $hash = hash('sha256',$credential['secret']);

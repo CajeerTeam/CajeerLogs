@@ -2,6 +2,13 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.1.8] — API Token Management
+
+- Ротация с новым UUID, ограниченным overlap и запретом расширения scopes.
+- Редактирование безопасных метаданных с revision, немедленный и пакетный отзыв.
+- Проектные сервисные учётные записи, ограничение запросов и throttled last_used_at.
+- Admin Panel, OpenAPI, миграция 0011, регрессии и интеграционные тесты.
+
 ## [0.1.7] — Source Management
 
 - SourceRepository: метаданные, типы, неизменяемый slug, revision и переходы active/disabled/archived; restore оставляет disabled.

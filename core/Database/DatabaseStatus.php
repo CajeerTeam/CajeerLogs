@@ -29,7 +29,7 @@ final class DatabaseStatus
             if ($status['pending'] !== [] || $status['integrity'] !== 'verified') { return ['status' => 'down', 'server_version' => $version, 'migrations' => $status]; }
             // Check every expected relation and its read/write privileges in one round trip.
             $relations = $pdo->prepare(<<<'SQL'
-                WITH expected(name) AS (VALUES ('users'), ('projects'), ('sources'), ('api_tokens'),
+                WITH expected(name) AS (VALUES ('users'), ('projects'), ('sources'), ('api_tokens'), ('service_accounts'),
                     ('project_members'), ('auth_sessions'), ('auth_rate_limits'), ('ingest_receipts'), ('ingest_nonces'), ('log_events'), ('audit_log'), ('jobs'), ('settings'), ('webhooks'), ('extensions'), ('integration_webhooks'), ('webhook_deliveries'), ('webhook_attempts'), ('job_attempts'), ('scheduler_runs'), ('user_totp'), ('user_recovery_codes')),
                 checked AS (
                     SELECT name, pg_catalog.to_regclass(pg_catalog.format('%I.%I', CAST(:schema AS text), name))::oid AS relation

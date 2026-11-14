@@ -93,8 +93,8 @@ final class IngestController
             $requestHash=hash_hmac('sha256',$r->body(),$credential['secret']);
             $result=(new TransactionManager($pdo))->run(function (TransactionManager $tx) use ($pdo,$identity,$r,$credential,$events,$signer,$key,$keyHash,$requestHash,$config,$async) {
                 // Flush the local WAL before acknowledging; normal PostgreSQL fsync settings are required.
-                // UPDATE ... RETURNING in authenticate takes the token row lock, serializing revocation and retries.
-                $p=$identity->authenticate($r,$credential);
+                // Transactional authentication locks the token even when usage telemetry is fresh.
+                $p=$identity->authenticate($r,$credential,false,false);
                 $project=$p['token']['project_id'];
                 if ($project===null) { Identity::forbidden(); }
                 if (!in_array('logs:write',$p['token']['scopes'],true)) { Identity::forbidden(); }

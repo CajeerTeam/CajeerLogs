@@ -32,7 +32,13 @@ final class IdentityController
         'POST /projects/{project}/sources/{source}/restore'=>'restoreSource', 'GET /projects/{project}/sources/{source}/stats'=>'sourceStats',
         'GET /projects/{project}/tokens'=>'tokens', 'POST /projects/{project}/tokens'=>'createToken',
         'DELETE /projects/{project}/tokens/{token}'=>'revokeToken',
+        'PATCH /projects/{project}/tokens/{token}'=>'updateToken', 'POST /projects/{project}/tokens/{token}/rotate'=>'rotateToken',
+        'POST /projects/{project}/tokens/revoke-all'=>'revokeProjectTokens',
+        'GET /projects/{project}/service-accounts'=>'serviceAccounts', 'POST /projects/{project}/service-accounts'=>'createServiceAccount',
+        'POST /projects/{project}/service-accounts/{account}/disable'=>'disableServiceAccount',
         'GET /system/tokens'=>'systemTokens', 'POST /system/tokens'=>'createSystemToken', 'DELETE /system/tokens/{token}'=>'revokeSystemToken',
+        'PATCH /system/tokens/{token}'=>'updateSystemToken', 'POST /system/tokens/{token}/rotate'=>'rotateSystemToken',
+        'POST /system/tokens/revoke-all'=>'revokeAllSystemTokens',
         'GET /system/report'=>'report',
     ];
     private Identity $identity;
@@ -78,7 +84,7 @@ final class IdentityController
         if (in_array($r->method,['GET','HEAD'],true)) { return $this->$action($r,$p); }
         return (new TransactionManager($this->pdo))->run(function () use ($r,$credential,$action) {
             $this->identity->lock();
-            $p=$this->identity->authenticate($r,$credential ?? [],in_array($action,['me','logout','logoutAll','totpSetup','totpEnable'],true));
+            $p=$this->identity->authenticate($r,$credential ?? [],in_array($action,['me','logout','logoutAll','totpSetup','totpEnable'],true),false);
             $response=$this->$action($r,$p);
             return $response;
         }, maxAttempts: 3);
@@ -134,7 +140,7 @@ final class IdentityController
         $rows=$this->sql($query." ORDER BY $id LIMIT ".($limit+1),$params)->fetchAll();
         $next=null;
         if (count($rows)>$limit) { array_pop($rows); $next=end($rows)['id']; }
-        foreach ($rows as &$row) { if ($projects) $row=ProjectRepository::decode($row); if ($sources) $row=SourceRepository::decode($row); if (isset($row['scopes']) && is_string($row['scopes'])) { $row['scopes']=json_decode($row['scopes'],true,32,JSON_THROW_ON_ERROR); } }
+        foreach ($rows as &$row) { if ($projects) $row=ProjectRepository::decode($row); if ($sources) $row=SourceRepository::decode($row); if (isset($row['scopes']) && is_string($row['scopes'])) { $row=TokenRepository::decode($row); } }
         unset($row);
         return new JsonResponse(['items'=>$rows,'next_cursor'=>$next]);
     }
@@ -359,32 +365,82 @@ final class IdentityController
     }
     private function tokenList(Request $r,?string $project): Response
     {
-        $query='SELECT id,name,scopes,project_id,source_id,created_by,expires_at,revoked_at,last_used_at,created_at FROM api_tokens WHERE ';
-        return $project===null?$this->page($r,$query.'project_id IS NULL'):$this->page($r,$query.'project_id=:project',['project'=>$project]);
+        $query='SELECT '.TokenRepository::FIELDS.' FROM api_tokens WHERE project_id IS NOT DISTINCT FROM CAST(:project AS uuid)'; $params=['project'=>$project];
+        $status=$r->query['status']??'all';
+        $query.=match($status){'all'=>'','active'=>" AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>clock_timestamp())",'revoked'=>' AND revoked_at IS NOT NULL','expired'=>' AND revoked_at IS NULL AND expires_at<=clock_timestamp()',default=>self::invalid('Invalid token status.')};
+        foreach (['source_id','service_account_id'] as $field) if(isset($r->query[$field])) { if($project===null||!is_string($r->query[$field])) self::invalid($field); $params[$field]=self::uuid($r->query[$field]); $query.=' AND '.$field.'=:'.$field; }
+        return $this->page($r,$query,$params);
     }
-    private function tokens(Request $r,array $p): Response { $this->session($p); $id=$this->id($r,'project'); $this->allow($p,'tokens:manage',$id); $this->one('SELECT id FROM projects WHERE id=:id',['id'=>$id]); return $this->tokenList($r,$id); }
-    private function systemTokens(Request $r,array $p): Response { $this->session($p); $this->allow($p,'users:manage'); return $this->tokenList($r,null); }
+    private function tokenProject(Request $r,array $p,bool $system=false): ?string
+    {
+        $this->session($p);
+        if($system) { $this->allow($p,'users:manage'); return null; }
+        $project=$this->id($r,'project'); $this->allow($p,'tokens:manage',$project); $this->one('SELECT id FROM projects WHERE id=:id',['id'=>$project]); return $project;
+    }
+    private function tokens(Request $r,array $p): Response { return $this->tokenList($r,$this->tokenProject($r,$p)); }
+    private function systemTokens(Request $r,array $p): Response { return $this->tokenList($r,$this->tokenProject($r,$p,true)); }
     private function issue(Request $r,array $p,?string $project): Response
     {
-        $d=$this->body($r,['name','scopes','source_id','expires_in']); $name=self::str($d,'name'); $scopes=$d['scopes']??null;
-        if (trim($name)==='' || !is_array($scopes)||!array_is_list($scopes)||$scopes===[]||count($scopes)>2) { self::invalid('Invalid token scopes or name.'); }
-        $allowed=$project===null?['system:read']:['logs:read','logs:write'];
-        foreach ($scopes as $s) { if (!is_string($s)||!in_array($s,$allowed,true)) { self::invalid('Invalid token scope.'); } }
-        $source=null; if (isset($d['source_id'])) { if ($project===null||!is_string($d['source_id'])) { self::invalid(); } $source=self::uuid($d['source_id']); $this->one('SELECT id FROM sources WHERE project_id=:project AND id=:id',['project'=>$project,'id'=>$source]); }
-        $ttl=$d['expires_in']??2592000; if (!is_int($ttl)||$ttl<60||$ttl>31536000) { self::invalid('expires_in must be 60..31536000 seconds.'); }
-        $result=(new TokenRepository($this->pdo))->create($name,$scopes,$project,$source,new \DateTimeImmutable('+'.$ttl.' seconds'));
-        $this->sql('UPDATE api_tokens SET created_by=:actor WHERE id=:id',['actor'=>$p['id'],'id'=>$result['id']]);
-        $this->audit($r,$p,'token.created',$result['id']); return new JsonResponse($result,201);
+        $d=$this->body($r,['name','scopes','source_id','expires_in','description','requests_per_minute','service_account_id']);
+        $name=self::str($d,'name'); $scopes=TokenRepository::scopes($d['scopes']??null,$project); $ttl=TokenRepository::ttl($d['expires_in']??2592000);
+        $source=null; if (isset($d['source_id'])) { if ($project===null||!is_string($d['source_id'])) self::invalid(); $source=self::uuid($d['source_id']); $this->one('SELECT id FROM sources WHERE project_id=:project AND id=:id',['project'=>$project,'id'=>$source]); }
+        $account=null; if(isset($d['service_account_id'])) { if($project===null||!is_string($d['service_account_id'])) self::invalid(); $account=self::uuid($d['service_account_id']); }
+        $meta=TokenRepository::changes(['name'=>$name,'description'=>array_key_exists('description',$d)?$d['description']:'','requests_per_minute'=>$d['requests_per_minute']??null]);
+        $result=(new TokenRepository($this->pdo))->issue($name,$scopes,$project,$source,$ttl,$p['id'],$account,$meta['description'],$meta['requests_per_minute']);
+        $this->audit($r,$p,'token.created',$result['id'],['project_id'=>$project,'service_account_id'=>$account,'scopes'=>$scopes]); return new JsonResponse($result,201);
     }
-    private function createToken(Request $r,array $p): Response { $this->session($p); $id=$this->id($r,'project'); $this->allow($p,'tokens:manage',$id); $this->one('SELECT id FROM projects WHERE id=:id',['id'=>$id]); return $this->issue($r,$p,$id); }
-    private function createSystemToken(Request $r,array $p): Response { $this->session($p); $this->allow($p,'users:manage'); return $this->issue($r,$p,null); }
+    private function createToken(Request $r,array $p): Response { return $this->issue($r,$p,$this->tokenProject($r,$p)); }
+    private function createSystemToken(Request $r,array $p): Response { return $this->issue($r,$p,$this->tokenProject($r,$p,true)); }
     private function revoke(Request $r,array $p,?string $project): Response
     {
-        $id=$this->id($r,'token'); $params=['id'=>$id]; $where='project_id IS NULL'; if ($project!==null) { $where='project_id=:project'; $params['project']=$project; }
-        $this->one('SELECT id FROM api_tokens WHERE id=:id AND '.$where,$params); (new TokenRepository($this->pdo))->revoke($id);
-        $this->audit($r,$p,'token.revoked',$id); return new Response('',204);
+        $id=$this->id($r,'token'); $this->one('SELECT id FROM api_tokens WHERE id=:id AND project_id IS NOT DISTINCT FROM CAST(:project AS uuid)',['id'=>$id,'project'=>$project]);
+        if((new TokenRepository($this->pdo))->revoke($id)) $this->audit($r,$p,'token.revoked',$id,['project_id'=>$project]); return new Response('',204);
     }
-    private function revokeToken(Request $r,array $p): Response { $this->session($p); $id=$this->id($r,'project'); $this->allow($p,'tokens:manage',$id); return $this->revoke($r,$p,$id); }
-    private function revokeSystemToken(Request $r,array $p): Response { $this->session($p); $this->allow($p,'users:manage'); return $this->revoke($r,$p,null); }
+    private function revokeToken(Request $r,array $p): Response { return $this->revoke($r,$p,$this->tokenProject($r,$p)); }
+    private function revokeSystemToken(Request $r,array $p): Response { return $this->revoke($r,$p,$this->tokenProject($r,$p,true)); }
+    private function changeToken(Request $r,array $p,?string $project): Response
+    {
+        $d=$this->body($r,['revision','name','description','requests_per_minute']); $revision=TokenRepository::revision($d['revision']??null); unset($d['revision']);
+        $id=$this->id($r,'token'); $result=(new TokenRepository($this->pdo))->update($project,$id,$revision,$d);
+        $this->audit($r,$p,'token.updated',$id,['project_id'=>$project,'fields'=>array_keys($d),'revision'=>$result['revision']]); return new JsonResponse($result);
+    }
+    private function updateToken(Request $r,array $p): Response { return $this->changeToken($r,$p,$this->tokenProject($r,$p)); }
+    private function updateSystemToken(Request $r,array $p): Response { return $this->changeToken($r,$p,$this->tokenProject($r,$p,true)); }
+    private function rotate(Request $r,array $p,?string $project): Response
+    {
+        $d=$this->body($r,['revision','expires_in','overlap_seconds','scopes']); $id=$this->id($r,'token');
+        $scopes=array_key_exists('scopes',$d)?TokenRepository::scopes($d['scopes'],$project):null;
+        $result=(new TokenRepository($this->pdo))->rotate($project,$id,TokenRepository::revision($d['revision']??null),TokenRepository::ttl($d['expires_in']??2592000),TokenRepository::grace($d['overlap_seconds']??0),$p['id'],$scopes);
+        $this->audit($r,$p,'token.rotated',$id,['project_id'=>$project,'successor_id'=>$result['id'],'overlap_seconds'=>$d['overlap_seconds']??0,'scopes'=>$result['scopes']]); return new JsonResponse($result,201);
+    }
+    private function rotateToken(Request $r,array $p): Response { return $this->rotate($r,$p,$this->tokenProject($r,$p)); }
+    private function rotateSystemToken(Request $r,array $p): Response { return $this->rotate($r,$p,$this->tokenProject($r,$p,true)); }
+    private function bulkRevoke(Request $r,array $p,?string $project): Response
+    {
+        $d=$this->body($r,['confirm','source_id','service_account_id']); if(($d['confirm']??null)!==true) self::invalid('Explicit confirmation required.');
+        $source=$account=null;
+        if(array_key_exists('source_id',$d)) { if($project===null||!is_string($d['source_id'])) self::invalid('source_id'); $source=self::uuid($d['source_id']); $this->one('SELECT id FROM sources WHERE project_id=:project AND id=:id',['project'=>$project,'id'=>$source]); }
+        if(array_key_exists('service_account_id',$d)) { if($project===null||$source!==null||!is_string($d['service_account_id'])) self::invalid('service_account_id'); $account=self::uuid($d['service_account_id']); $this->one('SELECT id FROM service_accounts WHERE project_id=:project AND id=:id',['project'=>$project,'id'=>$account]); }
+        $count=(new TokenRepository($this->pdo))->revokeAll($project,$source,$account);
+        $this->audit($r,$p,'token.bulk_revoked',$project,['source_id'=>$source,'service_account_id'=>$account,'count'=>$count]); return new JsonResponse(['revoked'=>$count]);
+    }
+    private function revokeProjectTokens(Request $r,array $p): Response { return $this->bulkRevoke($r,$p,$this->tokenProject($r,$p)); }
+    private function revokeAllSystemTokens(Request $r,array $p): Response { return $this->bulkRevoke($r,$p,$this->tokenProject($r,$p,true)); }
+    private function serviceAccounts(Request $r,array $p): Response
+    {
+        $project=$this->tokenProject($r,$p); return $this->page($r,'SELECT id,project_id,name,created_by,created_at,disabled_at FROM service_accounts WHERE project_id=:project',['project'=>$project]);
+    }
+    private function createServiceAccount(Request $r,array $p): Response
+    {
+        $project=$this->tokenProject($r,$p); $d=$this->body($r,['name']); $name=TokenRepository::changes(['name'=>self::str($d,'name')])['name'];
+        $row=$this->sql('INSERT INTO service_accounts(project_id,name,created_by) VALUES (:project,:name,:actor) RETURNING id,project_id,name,created_by,created_at,disabled_at',['project'=>$project,'name'=>$name,'actor'=>$p['id']])->fetch();
+        $this->audit($r,$p,'service_account.created',$row['id'],['project_id'=>$project]); return new JsonResponse($row,201);
+    }
+    private function disableServiceAccount(Request $r,array $p): Response
+    {
+        $project=$this->tokenProject($r,$p); $id=$this->id($r,'account'); $d=$this->body($r,['confirm']); if(($d['confirm']??null)!==true) self::invalid('Explicit confirmation required.');
+        $row=$this->one('UPDATE service_accounts SET disabled_at=COALESCE(disabled_at,clock_timestamp()) WHERE id=:id AND project_id=:project RETURNING id,project_id,name,created_by,created_at,disabled_at',['id'=>$id,'project'=>$project]);
+        $count=(new TokenRepository($this->pdo))->revokeAll($project,null,$id); $this->audit($r,$p,'service_account.disabled',$id,['project_id'=>$project,'revoked'=>$count]); return new JsonResponse($row+['revoked'=>$count]);
+    }
     private function report(Request $r,array $p): Response { $this->allow($p,'system:read'); return (new SystemController($this->app->container()->get(SystemReport::class)))->report(); }
 }
