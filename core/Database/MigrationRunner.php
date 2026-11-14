@@ -103,9 +103,15 @@ final class MigrationRunner
         $s=$this->status(false);
         if ($s['pending']!==[] || $s['integrity']!=='verified') throw new DatabaseException('Database schema is not current or verified; run migrate:plan and migrate:verify.');
     }
-    public function guard(): MigrationGuard {
+    public function guard(bool $integrityPreflight=false): MigrationGuard {
         $guard=new MigrationGuard($this->pdo,$this->key());
-        try { $this->assertCurrent(); return $guard; } catch (\Throwable $e) { $guard->release(); throw $e; }
+        try {
+            if ($integrityPreflight) {
+                $status=$this->status(false);
+                if ($status['integrity']!=='verified' || !in_array($status['pending'],[[],['0012_database_integrity.sql']],true)) throw new DatabaseException('Integrity preflight requires verified 0.1.8 or 0.1.9 schema.');
+            } else $this->assertCurrent();
+            return $guard;
+        } catch (\Throwable $e) { $guard->release(); throw $e; }
     }
     public function plan(): array {
         $status=$this->status(); $files=$this->files(); $plan=[];

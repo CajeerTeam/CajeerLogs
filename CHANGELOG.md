@@ -2,6 +2,15 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.1.9] — Database Integrity & Performance
+
+- Миграция 0012: проверяемые FK проекта токена и slug источника, состояния lease и завершения ingest jobs, индексы поиска и FK.
+- `db:integrity` проверяет логические связи и JSON-результаты, поддерживает read-only preflight 0.1.8; legacy и удалённые retention события не считаются повреждением.
+- Retention выбирает ограниченные наборы по индексам каждой политики, дедуплицирует кандидатов.
+- `db:performance`, `db:explain`: реальные размеры, статистика PostgreSQL и планы запросов.
+- HTTP benchmark с HMAC, параллельным ingest, повтором и сверкой UUID; PostgreSQL integration suite и production smoke с двумя workers.
+- Сохранены миграции 0001–0011, поддерживается восстановление backup 0.1.8.
+
 ## [0.1.8] — API Token Management
 
 - Ротация с новым UUID, ограниченным overlap и запретом расширения scopes.

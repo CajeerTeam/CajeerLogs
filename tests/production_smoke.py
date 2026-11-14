@@ -67,10 +67,10 @@ def main():
             compose('up','-d','--wait','--wait-timeout','180')
             for _ in range(60):
                 try:
-                    data,_=http('GET','/ready'); assert data['version']=='0.1.8' and data['status']=='ok'; break
+                    data,_=http('GET','/ready'); assert data['version']=='0.1.9' and data['status']=='ok'; break
                 except (OSError, AssertionError, urllib.error.URLError): time.sleep(1)
             else: raise AssertionError('HTTPS readiness did not become healthy')
-            panel,h=http('GET','/admin/'); assert b'0.1.8' in panel and 'frame-ancestors' in h['Content-Security-Policy']
+            panel,h=http('GET','/admin/'); assert b'0.1.9' in panel and 'frame-ancestors' in h['Content-Security-Policy']
             assert len(http('GET','/admin/assets/panel.js')[0])>1000
             http('GET','/.env',expected=404)
             http('GET','/metrics',expected=401)
@@ -123,6 +123,16 @@ def main():
                 except (OSError,AssertionError,urllib.error.URLError): time.sleep(1)
             else: raise AssertionError('Data unavailable after restart')
             print('PASS pg_dump/pg_restore, restored data and credential revocation, persistent restart',flush=True)
+            # Two live queue workers exercise SKIP LOCKED and concurrent completion.
+            compose('up','-d','--scale','queue=2','queue')
+            # Use the real PHP-FPM gateway and live queue workers, not a mock benchmark.
+            bench=subprocess.check_output(['python3',str(ROOT/'scripts/benchmark.py'),'--url',url,'--project',pid,'--source','app','--requests','12','--batch','5','--concurrency','4','--ca-file',str(tls/'fullchain.pem'),'--confirm'],env=dict(env,CAJEER_TOKEN=t['token']),text=True,timeout=150)
+            measured=json.loads(bench); assert measured['events_verified']==44 and measured['errors']==0
+            print(bench,flush=True)
+            assert json.loads(cli('db:integrity'))['status']=='ok'
+            assert json.loads(cli('db:performance'))['tables']
+            assert json.loads(cli('db:explain',pid,'--analyze'))['plans']['latest']
+
         except BaseException:
             compose('ps',check=False); compose('logs','--tail','80',check=False); raise
         finally:

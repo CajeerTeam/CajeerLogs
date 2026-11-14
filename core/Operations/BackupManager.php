@@ -89,7 +89,7 @@ final class BackupManager
     /** These explicit releases share SQL 0001–0008; restored history is checked separately. */
     public static function compatibleRelease(mixed $backup, string $current): bool
     {
-        return is_string($backup) && ($backup === $current || ($current === '0.1.0' && $backup === '0.0.9') || ($current === '0.1.1' && in_array($backup,['0.0.9','0.1.0'],true)) || ($current === '0.1.2' && in_array($backup,['0.0.9','0.1.0','0.1.1'],true)) || ($current === '0.1.3' && in_array($backup,['0.0.9','0.1.0','0.1.1','0.1.2'],true)) || ($current === '0.1.4' && in_array($backup,['0.0.9','0.1.0','0.1.1','0.1.2','0.1.3'],true)) || ($current === '0.1.5' && in_array($backup,['0.0.9','0.1.0','0.1.1','0.1.2','0.1.3','0.1.4'],true)) || ($current === '0.1.6' && in_array($backup,['0.0.9','0.1.0','0.1.1','0.1.2','0.1.3','0.1.4','0.1.5'],true)) || ($current === '0.1.8' && in_array($backup,['0.0.9','0.1.0','0.1.1','0.1.2','0.1.3','0.1.4','0.1.5','0.1.6','0.1.7'],true)) || ($current === '0.1.7' && in_array($backup,['0.0.9','0.1.0','0.1.1','0.1.2','0.1.3','0.1.4','0.1.5','0.1.6'],true)));
+        return is_string($backup) && (($current === '0.1.9' && in_array($backup,['0.0.9','0.1.0','0.1.1','0.1.2','0.1.3','0.1.4','0.1.5','0.1.6','0.1.7','0.1.8'],true)) || $backup === $current || ($current === '0.1.0' && $backup === '0.0.9') || ($current === '0.1.1' && in_array($backup,['0.0.9','0.1.0'],true)) || ($current === '0.1.2' && in_array($backup,['0.0.9','0.1.0','0.1.1'],true)) || ($current === '0.1.3' && in_array($backup,['0.0.9','0.1.0','0.1.1','0.1.2'],true)) || ($current === '0.1.4' && in_array($backup,['0.0.9','0.1.0','0.1.1','0.1.2','0.1.3'],true)) || ($current === '0.1.5' && in_array($backup,['0.0.9','0.1.0','0.1.1','0.1.2','0.1.3','0.1.4'],true)) || ($current === '0.1.6' && in_array($backup,['0.0.9','0.1.0','0.1.1','0.1.2','0.1.3','0.1.4','0.1.5'],true)) || ($current === '0.1.8' && in_array($backup,['0.0.9','0.1.0','0.1.1','0.1.2','0.1.3','0.1.4','0.1.5','0.1.6','0.1.7'],true)) || ($current === '0.1.7' && in_array($backup,['0.0.9','0.1.0','0.1.1','0.1.2','0.1.3','0.1.4','0.1.5','0.1.6'],true)));
     }
     public function restore(string $id,string $target): array
     {
@@ -111,9 +111,9 @@ final class BackupManager
         // A compatible snapshot must contain all migrations of its declared release.
         $pending=$runner->status()['pending'];
         $expected=match($m['version']) {
-            '0.1.8'=>[], '0.1.7'=>['0011_token_management.sql'],
-            '0.1.6'=>['0010_source_management.sql','0011_token_management.sql'],
-            default=>['0009_project_management.sql','0010_source_management.sql','0011_token_management.sql'],
+            '0.1.9'=>[], '0.1.8'=>['0012_database_integrity.sql'], '0.1.7'=>['0011_token_management.sql','0012_database_integrity.sql'],
+            '0.1.6'=>['0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql'],
+            default=>['0009_project_management.sql','0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql'],
         };
         if ($pending!==$expected) { throw new DatabaseException('Restored migration history incomplete or inconsistent with backup release; do not switch production to this database.'); }
         $runner->migrate(); // Validate and adopt legacy schema without trusting a stale catalog.

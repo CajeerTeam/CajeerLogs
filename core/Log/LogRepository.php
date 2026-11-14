@@ -34,14 +34,20 @@ final class LogRepository
         }
         return [implode(' AND ',$parts),$params];
     }
-    public function page(LogQuery $query): array
+    /** The same query is used for runtime reads and read-only EXPLAIN diagnostics. */
+    public static function pageStatement(LogQuery $query): array
     {
         [$where,$params]=self::predicate($query);
         if (($pos=$query->position())!==null) {
             $where.=' AND (occurred_at,id) < (CAST(:cursor_time AS timestamptz),CAST(:cursor_id AS uuid))';
             $params+=['cursor_time'=>$pos['t'],'cursor_id'=>$pos['id']];
         }
-        $rows=$this->sql('SELECT '.self::COLUMNS.' FROM log_events WHERE '.$where.' ORDER BY occurred_at DESC,id DESC LIMIT '.($query->limit+1),$params)->fetchAll();
+        return ['SELECT '.self::COLUMNS.' FROM log_events WHERE '.$where.' ORDER BY occurred_at DESC,id DESC LIMIT '.($query->limit+1),$params];
+    }
+    public function page(LogQuery $query): array
+    {
+        [$sql,$params]=self::pageStatement($query);
+        $rows=$this->sql($sql,$params)->fetchAll();
         $more=count($rows)>$query->limit;
         if ($more) { array_pop($rows); }
         $last=$more?end($rows):null;

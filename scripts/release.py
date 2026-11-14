@@ -38,7 +38,11 @@ REQUIRED = {'release.json', 'core/bootstrap.php', 'bin/cajeer', 'public/index.ph
             'docs/Migration-Engine.md', 'tests/migration_engine.php', 'tests/migration_engine_database.php',
             'core/Installer/AdministratorPassword.php', 'core/Installer/InstallPreflight.php',
             'core/Installer/InstallationStatus.php', 'core/Installer/SchemaPreparation.php',
-            'docs/Installer-Administrator.md', 'tests/installer.php'}
+            'docs/Installer-Administrator.md', 'tests/installer.php',
+            'core/Database/IntegrityInspector.php', 'core/Database/PerformanceInspector.php',
+            'core/Console/Command/DatabaseMaintenanceCommand.php', 'migrations/pgsql/0012_database_integrity.sql',
+            'docs/Database-Integrity-Performance.md', 'scripts/benchmark.py', 'tests/benchmark.py',
+            'tests/integrity.php', 'tests/integrity_database.php'}
 
 
 def digest(data):

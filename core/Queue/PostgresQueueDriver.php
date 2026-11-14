@@ -40,7 +40,7 @@ final class PostgresQueueDriver implements QueueDriverInterface
         if ((int)$this->pdo->query("SELECT count(*) FROM jobs WHERE queue='ingest-v1' AND status IN ('pending','running','dead')")->fetchColumn()>=$this->maxJobs) {
             throw new HttpException(503,'queue_full','Ingest queue capacity reached.',['Retry-After'=>'5']);
         }
-        $body=json_encode(['events'=>$p['events'],'sources'=>$p['sources']],JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+        $body=json_encode(['events'=>$p['events'],'sources'=>(object)$p['sources']],JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
         // Bound stored normalized data, including JSON encoding overhead.
         if (strlen($body)>2097152) { throw new HttpException(413,'payload_too_large','Normalized job exceeds 2 MiB.'); }
         return (string)$this->sql("INSERT INTO jobs(queue,name,payload,token_id,project_id,key_hash,request_hash) VALUES ('ingest-v1','ingest',CAST(:payload AS jsonb),:token,:project,:key,:hash) RETURNING id",['payload'=>$body,'token'=>$p['token'],'project'=>$p['project'],'key'=>$p['key'],'hash'=>$p['hash']])->fetchColumn();

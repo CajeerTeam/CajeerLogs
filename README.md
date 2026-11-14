@@ -2,6 +2,10 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.1.9 — Database Integrity & Performance
+
+Миграция 0012 проверяет связи логов, источников, токенов и очереди; добавлены индексируемый retention, логический аудит данных, диагностика PostgreSQL и конкурентный HTTP benchmark со сверкой UUID. [Инструкция](docs/Database-Integrity-Performance.md).
+
 ## 0.1.8 — API Token Management
 
 Ротация API-токенов с ограниченным перекрытием, отзыв, сервисные учётные записи, лимиты запросов, неизменяемая область доступа и управление в Admin Panel. Миграция 0011. [Инструкция](docs/API-Token-Management.md).

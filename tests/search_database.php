@@ -60,7 +60,7 @@ try {
     $d=ingest(array_replace($common,['timestamp'=>'2026-01-03T00:00:00Z','level'=>'info','message'=>'=HYPERLINK("https://example.test")','trace_id'=>'trace-d','request_id'=>'req-d','tags'=>[],'context'=>(object)[]]),$writer);
     $hidden=ingest($common,$foreignWriter);
     $runner=$app->container()->get(MigrationRunner::class);
-    verify($runner->migrate()===['0005_log_search.sql','0006_sdk_integrations.sql','0007_queue_lifecycle.sql','0008_security_operations.sql','0009_project_management.sql','0010_source_management.sql','0011_token_management.sql']&&$runner->migrate()===[],'real 0.0.4 to 0.0.5 migration and repeat');
+    verify($runner->migrate()===['0005_log_search.sql','0006_sdk_integrations.sql','0007_queue_lifecycle.sql','0008_security_operations.sql','0009_project_management.sql','0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql']&&$runner->migrate()===[],'real 0.0.4 to 0.0.5 migration and repeat');
     verify((int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===6,'migration preserves stored and legacy events');
     verify($app->handle(new Request('GET','/ready'))->status===200,'readiness after migration');
     $query=['project_id'=>$project];
