@@ -18,8 +18,8 @@
     "ext-pdo_pgsql": "*"
   },
   "suggest": {
-    "ext-pdo_mysql": "Future support; not implemented in 0.0.5",
-    "ext-pdo_sqlite": "Future support; not implemented in 0.0.5",
+    "ext-pdo_mysql": "Future support; not implemented in 0.0.6",
+    "ext-pdo_sqlite": "Future support; not implemented in 0.0.6",
     "ext-redis": "Redis cache and queue driver",
     "ext-curl": "ClickHouse, webhooks, OpenTelemetry OTLP export"
   },

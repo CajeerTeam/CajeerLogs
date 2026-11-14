@@ -2,6 +2,14 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.0.6] — Admin Panel
+
+- Реальная same-origin SPA `/admin/`: cookie-сессии, CSRF, роли, dashboard, фильтры, пагинация, детали, CSV/JSON.
+- Создание проектов и источников, участники, выпуск/отзыв токенов, пользователи, профиль и диагностика.
+- Безопасный вывод недоверенных логов через DOM text nodes, CSP, адаптивный UI и две темы.
+- Поставка готовых статических assets, без npm-зависимостей на сервере. Миграции 0001–0005 неизменны.
+- Browser tests для UI и HTTP; PostgreSQL E2E проверяется отдельно.
+
 ## [0.0.5] — Log Search & Explorer
 
 - PostgreSQL FTS, project/source-scoped list and detail, filters, deterministic cursor pagination.

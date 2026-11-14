@@ -2,7 +2,7 @@
   "openapi": "3.1.1",
   "info": {
     "title": "CajeerLogs API",
-    "version": "0.0.5",
+    "version": "0.0.6",
     "description": "Implemented Identity & Access, synchronous PostgreSQL ingestion and project-scoped log search, statistics and export. Webhooks are not implemented."
   },
   "servers": [

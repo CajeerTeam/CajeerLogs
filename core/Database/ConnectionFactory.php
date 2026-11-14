@@ -22,7 +22,7 @@ final class ConnectionFactory implements ConnectionFactoryInterface
     public function make(string $connection): PDO
     {
         if ($connection !== 'pgsql' || $this->config->get('database.default') !== 'pgsql') {
-            throw new DatabaseException('Only PostgreSQL is supported in 0.0.5.');
+            throw new DatabaseException('Only PostgreSQL is supported in 0.0.6.');
         }
         $schema = $this->schema();
         $host = $this->field('host');

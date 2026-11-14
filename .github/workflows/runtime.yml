@@ -69,3 +69,17 @@ jobs:
       - run: php bin/cajeer openapi:lint
       - run: python3 tests/http_runtime.py
       - run: python3 tests/python_ingest.py
+      - name: Admin asset verification
+        run: npm --prefix admin run build
+      - name: Install browser test runner
+        if: matrix.php == '8.4'
+        run: |
+          python3 -m venv /tmp/cajeer-browser-venv
+          /tmp/cajeer-browser-venv/bin/pip install 'playwright==1.52.0'
+          /tmp/cajeer-browser-venv/bin/python -m playwright install --with-deps chromium
+      - name: Admin browser interaction tests
+        if: matrix.php == '8.4'
+        run: /tmp/cajeer-browser-venv/bin/python tests/admin_browser.py
+      - name: Admin browser PostgreSQL E2E
+        if: matrix.php == '8.4'
+        run: /tmp/cajeer-browser-venv/bin/python tests/admin_browser_database.py

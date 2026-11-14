@@ -119,7 +119,10 @@ final class Application
                 throw new \RuntimeException("Invalid route configuration: $key");
             }
         }
-        if (in_array($config->get('observability.prometheus_path'), ['/health', '/ready'], true) || str_starts_with($config->get('observability.prometheus_path'), $config->get('api.prefix') . '/')) {
+        if ($config->get('api.prefix') === '/admin' || str_starts_with($config->get('api.prefix'), '/admin/')) {
+            throw new \RuntimeException('API prefix conflicts with the admin panel.');
+        }
+        if (in_array($config->get('observability.prometheus_path'), ['/health', '/ready', '/admin'], true) || str_starts_with($config->get('observability.prometheus_path'), '/admin/') || str_starts_with($config->get('observability.prometheus_path'), $config->get('api.prefix') . '/')) {
             throw new \RuntimeException('Metrics path conflicts with API or health routes.');
         }
     }
@@ -147,6 +150,7 @@ final class Application
                 ['Content-Type' => 'text/plain; version=0.0.4; charset=utf-8']
             ));
         }
+        \Cajeer\Logs\Http\AdminPanel::register($router, $this);
         IdentityController::register($router, $this, $config->get('api.prefix'));
         IngestController::register($router, $this, $config->get('api.prefix'));
         LogsController::register($router, $this, $config->get('api.prefix'));

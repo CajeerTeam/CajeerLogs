@@ -1,17 +1,11 @@
 {
   "name": "@cajeer/logs-admin",
+  "version": "0.0.6",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "nuxt dev",
-    "build": "nuxt build",
-    "generate": "nuxt generate"
-  },
-  "dependencies": {
-    "nuxt": "^4.0.0",
-    "vue": "^3.5.0"
-  },
-  "devDependencies": {
-    "typescript": "^5.0.0"
+    "dev": "php -S 127.0.0.1:8080 -t ../public ../public/router.php",
+    "build": "node --check ../public/admin/assets/panel.js && node verify.mjs",
+    "generate": "npm run build"
   }
 }

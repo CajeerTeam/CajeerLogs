@@ -4,6 +4,7 @@ Options -Indexes
   RewriteEngine On
   RewriteRule ^(?:\.|.*/\.) - [F,L]
   RewriteRule ^index\.php$ - [L]
+  RewriteRule ^admin/?$ index.php [QSA,L]
   RewriteRule \.php(?:/|$) - [R=404,L,NC]
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteRule ^ index.php [QSA,L]

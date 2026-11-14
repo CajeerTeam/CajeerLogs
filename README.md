@@ -2,9 +2,9 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
-## 0.0.5 — Log Search & Explorer
+## 0.0.6 — Admin Panel
 
-Рабочий PHP-runtime, PostgreSQL 17+, CLI-установка, Identity & Access, синхронный приём логов и **поиск сохранённых событий** через `/api/v1/logs`, фильтры, cursor pagination, просмотр события, статистика и JSON/CSV-экспорт. См. [Log Search & Explorer](docs/Log-Search.md), [Log Ingestion](docs/Log-Ingestion.md) и [Identity & Access](docs/Identity-Access.md). Для обновления 0.0.4 сделайте backup, наложите файлы и выполните `php bin/cajeer migrate`. Графическая Admin UI, TOTP и очередь ещё не реализованы.
+Рабочая административная панель по `/admin/`: вход, dashboard, Log Explorer, экспорт, проекты, источники, участники, API-токены, пользователи, диагностика, настройки профиля. См. [Admin Panel](docs/Admin-Panel.md). PHP 8.4+, PostgreSQL 17+, существующий API v1; Node.js не требуется на сервере. Для обновления 0.0.5 сделайте backup и наложите файлы. Новых миграций нет. TOTP, очереди и инциденты ещё не реализованы.
 
 ### Быстрый запуск
 
@@ -28,9 +28,10 @@ php -S 127.0.0.1:8080 -t public public/router.php
 # В другом терминале:
 curl -i http://127.0.0.1:8080/api/v1/health
 curl -i http://127.0.0.1:8080/ready
+# Откройте http://127.0.0.1:8080/admin/
 ```
 
-`/health` — состояние PHP runtime. `/ready` — состояние runtime, соединения PostgreSQL, миграций и таблиц; при недоступной БД возвращает 503. Встроенный PHP-сервер предназначен только для разработки. Для production используйте PHP-FPM, Nginx/Apache, DocumentRoot `public/`, TLS и непривилегированного системного пользователя. Для локального HTTP задайте `APP_ENV=local`; для production `APP_ENV=production`, `APP_URL=https://ваш-домен` и HTTPS server variable. Запланируйте `auth:cleanup` через cron.
+`/health` — состояние PHP runtime. `/ready` — состояние runtime, соединения PostgreSQL, миграций и таблиц; при недоступной БД возвращает 503. Встроенный PHP-сервер предназначен только для разработки. Для production используйте PHP-FPM, Nginx/Apache, DocumentRoot `public/`, TLS и непривилегированного системного пользователя. Для локального HTTP задайте `APP_ENV=local` и `APP_URL=http://127.0.0.1:8080` (origin должен совпадать с адресом браузера); для production `APP_ENV=production`, `APP_URL=https://ваш-домен` и HTTPS server variable. Запланируйте `auth:cleanup` через cron.
 
 ### Проверки
 

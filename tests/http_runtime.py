@@ -67,7 +67,7 @@ with server() as port:
     for path in ("/", "/health", "/api/v1/health?probe=1"):
         status, headers, body = request(port, "GET", path)
         data = json.loads(body)
-        check(status == 200 and data["version"] == "0.0.5" and data["scope"] == "runtime", f"GET {path}")
+        check(status == 200 and data["version"] == "0.0.6" and data["scope"] == "runtime", f"GET {path}")
         check(len(headers["x-request-id"]) == 32 and headers["cache-control"] == "no-store" and headers["x-content-type-options"] == "nosniff", f"headers {path}")
     status, headers, body = request(port, "POST", "/health")
     check(status == 405 and headers["allow"] == "GET, HEAD, OPTIONS" and json.loads(body)["request_id"] == headers["x-request-id"], "405 + Allow + correlation")
@@ -93,6 +93,18 @@ with server() as port:
     check(request(port, "GET", "/api/v1/auth/login")[0] == 405, "login method rejected")
     status, headers, body = request(port, "GET", "/metrics")
     check(status == 200 and headers["content-type"].startswith("text/plain") and b"cajeerlogs_up 1" in body and b"cajeerlogs_php_memory_bytes " in body, "Prometheus metrics")
+    status, headers, body = request(port, "GET", "/admin")
+    check(status == 308 and headers["location"] == "/admin/", "admin canonical redirect")
+    status, headers, body = request(port, "GET", "/admin/")
+    check(status == 200 and headers["content-type"].startswith("text/html") and b'content="0.0.6"' in body and b'content="/api/v1"' in body, "admin HTML runtime version and API prefix")
+    check("script-src 'self'" in headers["content-security-policy"] and "frame-ancestors 'none'" in headers["content-security-policy"] and headers["cache-control"] == "no-store", "admin CSP and no-store")
+    check(request(port, "HEAD", "/admin/")[2] == b"", "admin HEAD without body")
+    check(request(port, "POST", "/admin/")[0] == 405, "admin unsupported method")
+    for path, mime in [("/admin/assets/panel.js", "javascript"), ("/admin/assets/panel.css", "text/css")]:
+        st, hdr, content = request(port, "GET", path)
+        check(st == 200 and mime in hdr["content-type"] and len(content) > 100, "admin asset " + path)
+    check(request(port, "GET", "/admin/index.html")[0] == 404, "private admin template not directly served")
+    check(request(port, "GET", "/admin/not-a-route")[0] == 404, "no generic admin PHP fallback")
     status, _, body = request(port, "GET", "/assets/css/app.css")
     check(status == 200 and len(body) > 0, "static asset delivery")
     status, _, body = request(port, "GET", "/bad%ZZ")
@@ -105,6 +117,7 @@ with server(APP_MAX_BODY_BYTES="16", PROMETHEUS_ENABLED="false", API_PREFIX="/cu
     check(status == 413 and json.loads(body)["error"] == "payload_too_large", "oversized body rejected")
     check(request(port, "GET", "/metrics")[0] == 404, "metrics disabled by config")
     check(request(port, "GET", "/custom/v1/health")[0] == 200 and request(port, "GET", "/api/v1/health")[0] == 404, "configurable API prefix")
+    check(b'content="/custom/v1"' in request(port, "GET", "/admin/")[2], "admin uses configured API prefix")
 
 with server(APP_ENV="production", APP_DEBUG="true") as port:
     status, headers, body = request(port, "GET", "/health")
@@ -124,6 +137,8 @@ with tempfile.TemporaryDirectory() as temp:
         check(status == 200 and json.loads(body)["service"] == "FromFile", "dotenv loaded at HTTP bootstrap")
 
 with server(APP_ENV="production", APP_URL="https://logs.example.test") as port:
+    check(request(port, "GET", "/admin/")[0] == 403, "production admin refuses insecure login page")
+    check(request(port, "GET", "/admin/", headers={"X-Forwarded-Proto":"https"})[0] == 403, "admin rejects spoofed HTTPS")
     check(request(port, "POST", "/api/v1/ingest", b'{}', {"Authorization":"Bearer cl_"+"a"*64,"X-Forwarded-Proto":"https"})[0] == 403, "ingest rejects insecure production request")
     check(request(port, "POST", "/api/v1/auth/login", b'{}', {"Content-Type":"application/json", "X-Forwarded-Proto":"https"})[0] == 403, "production rejects HTTP and spoofed forwarded proto")
 

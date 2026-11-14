@@ -24,8 +24,14 @@ function throws(callable $action, string $class, ?int $status = null): bool {
     return false;
 }
 $app->boot();
-check($app->version() === '0.0.5', 'release version');
+check($app->version() === '0.0.6', 'release version');
 check($app->config()->get('app.version') === $app->version(), 'config version');
+$oldEnv = $app->config()->get('app.env'); $oldUrl = $app->config()->get('app.url');
+$app->config()->set('app.env', 'production'); $app->config()->set('app.url', 'https://logs.example.test');
+$panel = $app->handle(new Request('GET', '/admin/', secureTransport: true));
+check($panel->status === 200 && str_contains($panel->body, 'cajeer-version') && str_contains($panel->header('Content-Security-Policy') ?? '', "script-src 'self'"), 'production admin over trusted HTTPS');
+check($app->handle(new Request('GET', '/admin/'))->status === 403, 'production admin fails closed without HTTPS');
+$app->config()->set('app.env', $oldEnv); $app->config()->set('app.url', $oldUrl);
 $c = new ConfigRepository(['a' => ['b' => 1, 'c' => 2]]);
 $c->set('a.b', 3); $c->set('a.d.e', null);
 check($c->get('a.b') === 3 && $c->get('a.c') === 2 && $c->has('a.d.e') && !$c->has('a.no'), 'nested config and null');

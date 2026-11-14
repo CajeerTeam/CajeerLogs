@@ -7,6 +7,8 @@
 .phpunit.result.cache
 /public/admin/assets/*
 !/public/admin/assets/.gitkeep
+!/public/admin/assets/panel.js
+!/public/admin/assets/panel.css
 /storage/cache/*
 !/storage/cache/.gitkeep
 /storage/logs/*
@@ -20,3 +22,6 @@
 
 /storage/.install.lock
 /.env-install-*
+
+/.browser-venv/
+/tests/__pycache__/

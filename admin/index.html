@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="ru" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="cajeer-api" content="{{API_PREFIX}}">
+  <meta name="cajeer-version" content="{{VERSION}}">
+  <title>CajeerLogs — панель управления</title>
+  <link rel="stylesheet" href="/admin/assets/panel.css?v={{VERSION}}">
+  <script type="module" src="/admin/assets/panel.js?v={{VERSION}}"></script>
+</head>
+<body>
+  <a class="skip" href="#main">К содержимому</a>
+  <header id="header" class="topbar"><a class="brand" href="#overview">Cajeer<span>Logs</span></a><span class="muted">Панель управления</span><div id="account" class="account"></div></header>
+  <div class="shell">
+    <aside id="sidebar" hidden><nav id="nav" aria-label="Разделы панели"></nav></aside>
+    <main id="main" tabindex="-1"><p role="status">Проверяем сессию…</p></main>
+  </div>
+  <div id="notice" role="status" aria-live="polite" hidden></div>
+  <dialog id="modal" aria-labelledby="modal-title"><header class="dialog-head"><h2 id="modal-title"></h2><button id="close-modal" type="button" aria-label="Закрыть">Закрыть</button></header><div id="modal-body"></div></dialog>
+  <noscript>Для работы панели необходимо включить JavaScript.</noscript>
+</body>
+</html>

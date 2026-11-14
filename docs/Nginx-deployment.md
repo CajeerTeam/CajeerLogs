@@ -13,3 +13,7 @@ curl -i https://logs.example.com/api/v1/health
 Health относится только к PHP runtime. `/ready` проверяет PostgreSQL и миграции. Запустите CLI-установщик по [инструкции](Database-Installer.md), настройте cron `auth:cleanup`; workers и scheduler пока не включайте. HTTP-авторизация реализована, см. [Identity & Access](Identity-Access.md). Ingest реализован, см. [Log Ingestion](Log-Ingestion.md).
 
 Для выделенного PHP-FPM pool см. `examples/php-fpm/cajeerlogs.conf`. Создайте системного пользователя `cajeerlogs`, настройте права кода, `.env` и `storage/logs/`, скорректируйте владельца сокета Nginx и поместите pool в конфигурацию PHP-FPM. Пример ограничений процессов требует настройки под память и нагрузку сервера.
+
+## Admin Panel (0.0.6)
+
+Обновите пример Nginx: `/admin` перенаправляется на `/admin/`, `/admin/` передаётся в `index.php`, `/admin/assets/` раздаёт готовые JS/CSS. Не используйте `try_files $uri /index.php` для самого каталога `/admin/`: существующая директория может привести к 403/неверному index. Шаблон `admin/index.html` находится вне DocumentRoot. См. [Admin Panel](Admin-Panel.md).

@@ -24,6 +24,6 @@ final class ErrorHandler
             ->withHeader('X-Frame-Options', 'DENY')
             ->withHeader('Referrer-Policy', 'no-referrer')
             ->withHeader('Cache-Control', 'no-store')
-            ->withHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'");
+            ->withHeader('Content-Security-Policy', $response->header('Content-Security-Policy') ?? "default-src 'none'; frame-ancestors 'none'");
     }
 }
