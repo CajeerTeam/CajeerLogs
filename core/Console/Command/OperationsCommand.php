@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 namespace Cajeer\Logs\Console\Command;
+
+use Cajeer\Logs\Database\TransactionManager;
 use Cajeer\Logs\Database\DatabaseException;
 use Cajeer\Logs\Kernel\Application;
 use Cajeer\Logs\Operations\BackupManager;
@@ -26,16 +28,15 @@ final class OperationsCommand
     private function reset(string $email): array
     {
         $pdo=$this->app->container()->get(\PDO::class);
-        $pdo->beginTransaction();
-        try {
+        return (new TransactionManager($pdo))->run(function () use ($pdo,$email) {
             $identity=new \Cajeer\Logs\Security\Identity($pdo,true,''); $identity->lock();
             $user=(new \Cajeer\Logs\Database\Repository\UserRepository($pdo))->findByEmail($email);
             if (!$user) { throw new DatabaseException('User not found.'); }
             (new \Cajeer\Logs\Security\TwoFactorManager($pdo,''))->disable($user['id']);
             $identity->sql('DELETE FROM auth_sessions WHERE user_id=:id',['id'=>$user['id']]);
             (new \Cajeer\Logs\Audit\AuditLogger($pdo))->record('auth.totp_reset_cli',[],null,$user['id']);
-            $pdo->commit(); return ['user_id'=>$user['id'],'two_factor_enabled'=>false,'sessions_revoked'=>true];
-        } catch (\Throwable $e) { if ($pdo->inTransaction()) { $pdo->rollBack(); } throw $e; }
+            return ['user_id'=>$user['id'],'two_factor_enabled'=>false,'sessions_revoked'=>true];
+        }, maxAttempts: 3);
     }
     private function update(string $path): array
     {

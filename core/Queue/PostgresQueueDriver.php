@@ -2,6 +2,8 @@
 declare(strict_types=1);
 namespace Cajeer\Logs\Queue;
 
+use Cajeer\Logs\Database\TransactionManager;
+
 use PDO;
 use Cajeer\Logs\Database\DatabaseFailure;
 use Cajeer\Logs\Http\HttpException;
@@ -53,60 +55,55 @@ final class PostgresQueueDriver implements QueueDriverInterface
     }
     /** Claim one job, including an expired lease. Claim/attempt history commit before processing. */
     public function claim(): ?array {
-        $this->pdo->beginTransaction();
-        try {
+        return (new TransactionManager($this->pdo))->run(function () {
             $row=$this->pdo->query("SELECT id,status,attempts,max_attempts FROM jobs WHERE queue='ingest-v1' AND ((status='pending' AND available_at<=statement_timestamp()) OR (status='running' AND lease_until<=statement_timestamp())) ORDER BY available_at,id LIMIT 1 FOR UPDATE SKIP LOCKED")->fetch();
-            if (!$row) { $this->pdo->commit();return null; }
+            if (!$row) { return null; }
             if ($row['status']==='running') {
                 $this->sql("UPDATE job_attempts SET outcome='expired',finished_at=clock_timestamp(),error='lease_expired' WHERE job_id=:id AND attempt=:attempt AND outcome='running'",['id'=>$row['id'],'attempt'=>$row['attempts']]);
             }
             if ((int)$row['attempts'] >= (int)$row['max_attempts']) {
                 $this->sql("UPDATE jobs SET status='dead',lease_id=NULL,lease_until=NULL,reserved_at=NULL,completed_at=clock_timestamp(),last_error='attempts_exhausted' WHERE id=:id",['id'=>$row['id']]);
-                $this->pdo->commit();return ['skipped'=>true];
+                return ['skipped'=>true];
             }
             $claimed=$this->sql("UPDATE jobs SET status='running',attempts=attempts+1,reserved_at=clock_timestamp(),lease_until=clock_timestamp()+interval '2 minutes',lease_id=gen_random_uuid() WHERE id=:id RETURNING id,lease_id,attempts",['id'=>$row['id']])->fetch();
             $this->sql('INSERT INTO job_attempts(job_id,attempt) VALUES (:id,:attempt)',['id'=>$claimed['id'],'attempt'=>$claimed['attempts']]);
-            $this->pdo->commit();return $claimed;
-        } catch (\Throwable $e) { try { if ($this->pdo->inTransaction()) $this->pdo->rollBack(); } catch (\Throwable) {} throw $e; }
+            return $claimed;
+        }, maxAttempts: 3);
     }
     /** Row lock fences stale workers; handler and completion share a single transaction. */
     public function process(array $claim): string {
-        $this->pdo->beginTransaction();
         try {
-            $this->pdo->exec('SET LOCAL synchronous_commit=on');
-            $row=$this->sql("SELECT * FROM jobs WHERE id=:id AND queue='ingest-v1' AND status='running' AND lease_id=:lease AND lease_until>clock_timestamp() FOR UPDATE",['id'=>$claim['id'],'lease'=>$claim['lease_id']])->fetch();
-            if (!$row) { $this->pdo->commit();return 'stale'; }
-            $payload=json_decode($row['payload'],false,64,JSON_THROW_ON_ERROR);
-            $events=self::decodeEvents($payload->events);
-            $ids=(new \Cajeer\Logs\Log\LogRepository($this->pdo))->storeBatch($events,$row['project_id'],(array)$payload->sources,$row['token_id']);
-            (new \Cajeer\Logs\Integration\EventApiDispatcher($this->pdo))->publishCommittedLogs($row['project_id'],$ids);
-            $this->sql("UPDATE jobs SET status='completed',payload='{}'::jsonb,result=CAST(:result AS jsonb),completed_at=clock_timestamp(),lease_id=NULL,lease_until=NULL,reserved_at=NULL,last_error=NULL WHERE id=:id",['id'=>$row['id'],'result'=>json_encode(['event_ids'=>$ids,'stored'=>count($ids)],JSON_THROW_ON_ERROR)]);
-            $this->sql("UPDATE job_attempts SET outcome='completed',finished_at=clock_timestamp() WHERE job_id=:id AND attempt=:attempt",['id'=>$row['id'],'attempt'=>$row['attempts']]);
-            $this->pdo->commit();return 'completed';
+            return (new TransactionManager($this->pdo))->run(function () use ($claim) {
+                $row=$this->sql("SELECT * FROM jobs WHERE id=:id AND queue='ingest-v1' AND status='running' AND lease_id=:lease AND lease_until>clock_timestamp() FOR UPDATE",['id'=>$claim['id'],'lease'=>$claim['lease_id']])->fetch();
+                if (!$row) { return 'stale'; }
+                $payload=json_decode($row['payload'],false,64,JSON_THROW_ON_ERROR);
+                $events=self::decodeEvents($payload->events);
+                $ids=(new \Cajeer\Logs\Log\LogRepository($this->pdo))->storeBatch($events,$row['project_id'],(array)$payload->sources,$row['token_id']);
+                (new \Cajeer\Logs\Integration\EventApiDispatcher($this->pdo))->publishCommittedLogs($row['project_id'],$ids);
+                $this->sql("UPDATE jobs SET status='completed',payload='{}'::jsonb,result=CAST(:result AS jsonb),completed_at=clock_timestamp(),lease_id=NULL,lease_until=NULL,reserved_at=NULL,last_error=NULL WHERE id=:id",['id'=>$row['id'],'result'=>json_encode(['event_ids'=>$ids,'stored'=>count($ids)],JSON_THROW_ON_ERROR)]);
+                $this->sql("UPDATE job_attempts SET outcome='completed',finished_at=clock_timestamp() WHERE job_id=:id AND attempt=:attempt",['id'=>$row['id'],'attempt'=>$row['attempts']]);
+                return 'completed';
+            }, maxAttempts: 3);
         } catch (\Throwable $e) {
             // A broken session or uncertain COMMIT must not be converted into an ordinary retry.
             // A fresh worker observes the committed state or recovers the lease after timeout.
-            if (DatabaseFailure::reconnectable($e)) {
-                try { if ($this->pdo->inTransaction()) $this->pdo->rollBack(); } catch (\Throwable) {}
+            if (DatabaseFailure::reconnectable($e) || !TransactionManager::usable($this->pdo)) {
                 throw $e;
             }
-            try { if ($this->pdo->inTransaction()) $this->pdo->rollBack(); }
-            catch (\Throwable $rollback) { throw $rollback; }
             // Do not persist exception messages, which may contain raw event fields or secrets.
             return $this->fail($claim,$e instanceof \PDOException?'database_error':'processing_error');
         }
     }
     public static function backoff(int $attempt): int { return min(3600, 5 * (2 ** min(10,max(0,$attempt-1)))); }
     private function fail(array $claim,string $error): string {
-        $this->pdo->beginTransaction();
-        try {
+        return (new TransactionManager($this->pdo))->run(function () use ($claim,$error) {
             $row=$this->sql("SELECT attempts,max_attempts FROM jobs WHERE id=:id AND status='running' AND lease_id=:lease FOR UPDATE",['id'=>$claim['id'],'lease'=>$claim['lease_id']])->fetch();
-            if (!$row) { $this->pdo->commit();return 'stale'; }
+            if (!$row) { return 'stale'; }
             $dead=(int)$row['attempts'] >= (int)$row['max_attempts'];$outcome=$dead?'dead':'retry';
             $this->sql("UPDATE jobs SET status=:status,available_at=clock_timestamp()+CAST(:delay AS integer)*interval '1 second',completed_at=CASE WHEN CAST(:dead AS boolean) THEN clock_timestamp() ELSE NULL END,lease_id=NULL,lease_until=NULL,reserved_at=NULL,last_error=:error WHERE id=:id",['status'=>$dead?'dead':'pending','delay'=>self::backoff((int)$row['attempts']),'dead'=>$dead?'true':'false','error'=>$error,'id'=>$claim['id']]);
             $this->sql('UPDATE job_attempts SET outcome=:outcome,error=:error,finished_at=clock_timestamp() WHERE job_id=:id AND attempt=:attempt',['outcome'=>$outcome,'error'=>$error,'id'=>$claim['id'],'attempt'=>$row['attempts']]);
-            $this->pdo->commit();return $outcome;
-        } catch (\Throwable $e) { try { if ($this->pdo->inTransaction()) $this->pdo->rollBack(); } catch (\Throwable) {} throw $e; }
+            return $outcome;
+        }, maxAttempts: 3);
     }
     public function retry(string $id): bool {
         return $this->sql("UPDATE jobs SET status='pending',available_at=clock_timestamp(),completed_at=NULL,max_attempts=LEAST(attempts+8,100),last_error=NULL WHERE id=:id AND queue='ingest-v1' AND status='dead' AND attempts<100",['id'=>$id])->rowCount()===1;

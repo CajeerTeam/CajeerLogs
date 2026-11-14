@@ -85,9 +85,7 @@ final class MigrationRunner
     /** Read-only consistent catalog/history snapshot, refuses to observe a partially applied migration. */
     public function status(bool $withJournal=true): array {
         if ($this->pdo->inTransaction()) throw new DatabaseException('Migration status requires its own transaction.');
-        $this->pdo->beginTransaction();
-        try {
-            $this->pdo->exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
+        return (new TransactionManager($this->pdo))->run(function () use ($withJournal) {
             $lock=$this->pdo->prepare('SELECT pg_try_advisory_xact_lock_shared(hashtextextended(:key,0))'); $lock->execute(['key'=>$this->key()]); $held=$lock->fetchColumn()===true; $lock->closeCursor();
             if (!$held) throw new DatabaseException('Migration or backup currently holds the schema lock.');
             $files=$this->files(); $history=$this->history(); $pending=$this->compare($files,$history);
@@ -98,8 +96,8 @@ final class MigrationRunner
                 $result['runs']=$this->pdo->query('SELECT version,mode,status,attempts,started_at,finished_at,duration_ms,last_error,batches FROM '.$this->table('schema_migration_runs').' ORDER BY version')->fetchAll();
             } else { $result['runs']=[]; }
             $result['attempts']=$withJournal && !$journalDrift && $this->exists('schema_migration_attempts')?$this->pdo->query('SELECT version,attempt,status,started_at,finished_at,duration_ms,error_category FROM '.$this->table('schema_migration_attempts').' ORDER BY version,attempt')->fetchAll():[];
-            $this->pdo->commit(); return $result;
-        } catch (\Throwable $e) { $this->rollback(); throw $e; }
+            return $result;
+        }, isolation: 'REPEATABLE READ', readOnly: true);
     }
     public function assertCurrent(): void {
         $s=$this->status(false);
@@ -118,9 +116,10 @@ final class MigrationRunner
     }
     private function rollback(): void { try { if ($this->pdo->inTransaction()) $this->pdo->rollBack(); } catch (\Throwable) {} }
     private function transaction(callable $callback): mixed {
-        $this->pdo->beginTransaction();
-        try { $this->pdo->exec('SET LOCAL synchronous_commit=on; SET LOCAL statement_timeout = '.$this->statementTimeoutMs); $value=$callback(); $this->pdo->commit(); return $value; }
-        catch (\Throwable $e) { $this->rollback(); throw $e; }
+        return (new TransactionManager($this->pdo))->run(function () use ($callback) {
+            $this->pdo->exec('SET LOCAL statement_timeout = '.$this->statementTimeoutMs);
+            return $callback();
+        });
     }
     private function createTables(?string $schema=null): void {
         $h=$this->table('schema_migrations',$schema); $s=$this->table('schema_migration_state',$schema); $r=$this->table('schema_migration_runs',$schema); $a=$this->table('schema_migration_attempts',$schema);
@@ -263,7 +262,7 @@ final class MigrationRunner
                     $applied[]=$current;
                 } catch (\Throwable $e) {
                     // Failure journal is independent of the rolled-back migration. Never mask a lost COMMIT.
-                    try { if (!$this->pdo->inTransaction() && !isset($this->history()[$current])) $this->transaction(fn()=> $this->finish($current,'failed',DatabaseFailure::category($e))); } catch (\Throwable) {}
+                    try { if (TransactionManager::usable($this->pdo) && !$this->pdo->inTransaction() && !isset($this->history()[$current])) $this->transaction(fn()=> $this->finish($current,'failed',DatabaseFailure::category($e))); } catch (\Throwable) {}
                     if ($e instanceof DatabaseException) throw $e;
                     throw new DatabaseException('Migration failed at '.$current.'; earlier applied migrations remain committed. Inspect migrate:plan and retry.',0,$e);
                 }

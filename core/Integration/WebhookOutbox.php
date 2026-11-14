@@ -2,6 +2,8 @@
 declare(strict_types=1);
 namespace Cajeer\Logs\Integration;
 
+use Cajeer\Logs\Database\TransactionManager;
+
 use PDO;
 
 final class WebhookOutbox
@@ -13,22 +15,20 @@ final class WebhookOutbox
     {
         WebhookDispatcher::host($url);
         if (!preg_match('/^CAJEER_WEBHOOK_[A-Z0-9_]{1,100}$/D',$secretEnv) || strlen(env_raw($secretEnv))<32) { throw new \InvalidArgumentException('Set a CAJEER_WEBHOOK_* secret of at least 32 bytes.'); }
-        $this->pdo->beginTransaction();
-        try {
+        return (new TransactionManager($this->pdo))->run(function () use ($project,$url,$secretEnv) {
             $this->sql('SELECT id FROM projects WHERE id=:id FOR UPDATE',['id'=>$project]);
             if ((int)$this->sql('SELECT count(*) FROM integration_webhooks WHERE project_id=:project AND enabled',['project'=>$project])->fetchColumn()>=20) { throw new \RuntimeException('Maximum 20 active webhooks per project.'); }
             $id=$this->sql('INSERT INTO integration_webhooks(project_id,url,secret_env) VALUES (:project,:url,:secret) RETURNING id',['project'=>$project,'url'=>$url,'secret'=>$secretEnv])->fetchColumn();
-            $this->pdo->commit(); return (string)$id;
-        } catch (\Throwable $e) { $this->pdo->rollBack();throw $e; }
+            return (string)$id;
+        }, maxAttempts: 3);
     }
     public function disable(string $id): bool
     {
-        $this->pdo->beginTransaction();
-        try {
+        return (new TransactionManager($this->pdo))->run(function () use ($id) {
             $changed=$this->sql('UPDATE integration_webhooks SET enabled=false WHERE id=:id AND enabled',['id'=>$id])->rowCount()===1;
             $this->sql("UPDATE webhook_deliveries SET status='cancelled',completed_at=now() WHERE webhook_id=:id AND status='pending'",['id'=>$id]);
-            $this->pdo->commit();return $changed;
-        } catch (\Throwable $e) { $this->pdo->rollBack();throw $e; }
+            return $changed;
+        }, maxAttempts: 3);
     }
     public function list(): array { return $this->sql('SELECT id,project_id,url,secret_env,enabled,created_at FROM integration_webhooks ORDER BY created_at DESC LIMIT 1000')->fetchAll(); }
     public function history(string $id): array { return $this->sql('SELECT a.*,d.status FROM webhook_attempts a JOIN webhook_deliveries d ON d.id=a.delivery_id WHERE d.webhook_id=:id ORDER BY a.started_at DESC,a.attempt DESC LIMIT 100',['id'=>$id])->fetchAll(); }
@@ -39,22 +39,21 @@ final class WebhookOutbox
     }
     public function claim(): ?array
     {
-        $this->pdo->beginTransaction();
-        try {
+        return (new TransactionManager($this->pdo))->run(function () {
             // Lock delivery before attempt history, in the same order as finish().
             $row=$this->sql("SELECT d.id,d.payload,d.attempts,d.retry_limit,d.status,h.url,h.secret_env,h.enabled FROM webhook_deliveries d JOIN integration_webhooks h ON h.id=d.webhook_id WHERE (d.status='pending' AND d.next_attempt_at<=now()) OR (d.status='sending' AND d.lease_until<=now()) ORDER BY d.next_attempt_at,d.id LIMIT 1 FOR UPDATE OF d SKIP LOCKED")->fetch();
-            if (!$row) { $this->pdo->commit();return null; }
+            if (!$row) { return null; }
             if ($row['status']==='sending') {
                 $this->sql("UPDATE webhook_attempts SET outcome='unknown',finished_at=now() WHERE delivery_id=:id AND attempt=:attempt AND outcome='sending'",['id'=>$row['id'],'attempt'=>$row['attempts']]);
             }
             if (!$row['enabled'] || ($row['status']==='sending' && (int)$row['attempts']>=(int)$row['retry_limit'])) {
                 $this->sql("UPDATE webhook_deliveries SET status=:status,completed_at=now(),lease_id=NULL,lease_until=NULL WHERE id=:id",['status'=>$row['enabled']?'failed':'cancelled','id'=>$row['id']]);
-                $this->pdo->commit();return ['skipped'=>true];
+               return ['skipped'=>true];
             }
             $lease=$this->sql("UPDATE webhook_deliveries SET status='sending',attempts=attempts+1,lease_until=now()+interval '2 minutes',lease_id=gen_random_uuid() WHERE id=:id RETURNING lease_id,attempts",['id'=>$row['id']])->fetch();
             $this->sql('INSERT INTO webhook_attempts(delivery_id,attempt) VALUES (:id,:attempt)',['id'=>$row['id'],'attempt'=>$lease['attempts']]);
-            $this->pdo->commit();return array_replace($row,$lease);
-        } catch (\Throwable $e) { $this->pdo->rollBack();throw $e; }
+            return array_replace($row,$lease);
+        }, maxAttempts: 3);
     }
     public function finish(array $row,?int $status): string
     {
@@ -62,12 +61,11 @@ final class WebhookOutbox
         $retry=($status===null || in_array($status,[408,425,429,500,502,503,504],true)) && (int)$row['attempts']<(int)$row['retry_limit'];
         $result=$success?'delivered':($retry?'retry':'failed');
         $delay=min(3600,30*(2**(max(0, (int)$row['attempts']-((int)$row['retry_limit']-self::MAX_ATTEMPTS)-1))));
-        $this->pdo->beginTransaction();
-        try {
+        return (new TransactionManager($this->pdo))->run(function () use ($row,$status,$retry,$result,$delay) {
             $changed=$this->sql("UPDATE webhook_deliveries SET status=:status,next_attempt_at=now()+CAST(:delay AS integer)*interval '1 second',lease_id=NULL,lease_until=NULL,completed_at=CASE WHEN CAST(:terminal AS boolean) THEN now() ELSE NULL END WHERE id=:id AND lease_id=:lease AND status='sending'",['status'=>$retry?'pending':$result,'delay'=>$delay,'terminal'=>$retry?'false':'true','id'=>$row['id'],'lease'=>$row['lease_id']])->rowCount();
             if ($changed===1) { $this->sql('UPDATE webhook_attempts SET outcome=:outcome,http_status=:status,finished_at=now() WHERE delivery_id=:id AND attempt=:attempt',['outcome'=>$result,'status'=>$status,'id'=>$row['id'],'attempt'=>$row['attempts']]); }
-            $this->pdo->commit();return $changed===1?$result:'unknown';
-        } catch (\Throwable $e) { $this->pdo->rollBack();throw $e; }
+            return $changed===1?$result:'unknown';
+        }, maxAttempts: 3);
     }
     public function cleanup(): int
     {

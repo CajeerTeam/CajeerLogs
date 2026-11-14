@@ -2,6 +2,8 @@
 declare(strict_types=1);
 namespace Cajeer\Logs\Api\Controller;
 
+use Cajeer\Logs\Database\TransactionManager;
+
 use Cajeer\Logs\Database\DatabaseException;
 use Cajeer\Logs\Http\{Request,Response,JsonResponse,HttpException,Router};
 use Cajeer\Logs\Kernel\Application;
@@ -69,10 +71,8 @@ final class IngestController
             $events=(new IngestValidator())->parse($r);
             $keyHash=$key===null ? null : hash('sha256',$key);
             $requestHash=hash_hmac('sha256',$r->body(),$credential['secret']);
-            $pdo->beginTransaction();
-            try {
+            return (new TransactionManager($pdo))->run(function () use ($pdo,$identity,$r,$credential,$events,$signer,$key,$keyHash,$requestHash,$config,$async) {
                 // Flush the local WAL before acknowledging; normal PostgreSQL fsync settings are required.
-                $pdo->exec('SET LOCAL synchronous_commit = on');
                 // UPDATE ... RETURNING in authenticate takes the token row lock, serializing revocation and retries.
                 $p=$identity->authenticate($r,$credential);
                 $project=$p['token']['project_id'];
@@ -95,7 +95,6 @@ final class IngestController
                     $queue=$this->app->container()->get(\Cajeer\Logs\Queue\PostgresQueueDriver::class);
                     $job=$queue->enqueue($p['id'],$project,$keyHash,$requestHash,$events,$sources);
                     $response=new JsonResponse(['accepted'=>true,'received'=>count($events)]+$job,$job['replayed']?200:202,['Location'=>$config->get('api.prefix').'/ingest/jobs/'.$job['job_id']]);
-                    $pdo->commit();
                     return $response;
                 }
                 if ($keyHash!==null && $this->app->container()->get(\Cajeer\Logs\Queue\PostgresQueueDriver::class)->hasKey($p['id'],$keyHash)) { throw new HttpException(409,'idempotency_conflict','Idempotency-Key already used for asynchronous ingest.'); }
@@ -107,12 +106,8 @@ final class IngestController
                     if ($keyHash!==null) { $repo->saveReceipt($p['id'],$keyHash,$requestHash,$ids); }
                 }
                 $response=new JsonResponse(['accepted'=>true,'received'=>count($events),'stored'=>$replayed?0:count($ids),'rejected'=>0,'event_ids'=>$ids,'replayed'=>$replayed],$replayed?200:201);
-                $pdo->commit();
                 return $response;
-            } catch (\Throwable $e) {
-                try { if ($pdo->inTransaction()) { $pdo->rollBack(); } } catch (\Throwable) {}
-                throw $e;
-            }
+            }, maxAttempts: 3);
         } catch (DatabaseException $e) {
             throw new HttpException(503,'database_unavailable','Log storage unavailable.');
         } catch (PDOException $e) {

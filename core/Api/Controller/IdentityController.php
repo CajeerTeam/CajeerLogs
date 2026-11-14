@@ -2,6 +2,8 @@
 declare(strict_types=1);
 namespace Cajeer\Logs\Api\Controller;
 
+use Cajeer\Logs\Database\TransactionManager;
+
 use Cajeer\Logs\Audit\AuditLogger;
 use Cajeer\Logs\Database\DatabaseException;
 use Cajeer\Logs\Database\Repository\{UserRepository,ProjectRepository,SourceRepository,TokenRepository};
@@ -54,7 +56,7 @@ final class IdentityController
                 catch (PDOException $e) {
                     $code=(string)$e->getCode();
                     if (in_array($code,['23505','23503','23514'],true)) { throw new HttpException(409,'conflict','The operation conflicts with existing data.'); }
-                    if (str_starts_with($code,'08') || in_array($code,['42P01','42703','55P03','57014','57P01','40001','40P01'],true)) { throw new HttpException(503,'database_unavailable','Identity storage unavailable.'); }
+                    if (\Cajeer\Logs\Database\DatabaseFailure::unavailable($e) || str_starts_with($code,'08') || in_array($code,['42P01','42703','55P03','57014','57P01','40001','40P01'],true)) { throw new HttpException(503,'database_unavailable','Identity storage unavailable.'); }
                     throw $e;
                 }
             });
@@ -70,14 +72,12 @@ final class IdentityController
         if (in_array($action,['password','totpSetup','totpEnable','totpDisable'],true)) { $rate->enforce('password:'.$p['id'],5,300); }
         // Serialize authorization changes with administrative writes. Recheck after lock.
         if (in_array($r->method,['GET','HEAD'],true)) { return $this->$action($r,$p); }
-        $this->pdo->beginTransaction();
-        try {
+        return (new TransactionManager($this->pdo))->run(function () use ($r,$credential,$action) {
             $this->identity->lock();
             $p=$this->identity->authenticate($r,$credential ?? [],in_array($action,['me','logout','logoutAll','totpSetup','totpEnable'],true));
             $response=$this->$action($r,$p);
-            $this->pdo->commit();
             return $response;
-        } catch (\Throwable $e) { if ($this->pdo->inTransaction()) { $this->pdo->rollBack(); } throw $e; }
+        }, maxAttempts: 3);
     }
     private static function invalid(string $message='Invalid request fields.'): never { throw new HttpException(422,'invalid_payload',$message); }
     private static function missing(): never { throw new HttpException(404,'not_found','Resource not found.'); }

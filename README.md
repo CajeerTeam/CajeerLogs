@@ -2,6 +2,10 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.1.3 — Transaction Management
+
+Единый TransactionManager, savepoints, уровни изоляции, ограниченный retry конфликтов PostgreSQL и атомарные операции ingest, очереди и аудита. [Инструкция](docs/Transaction-Management.md).
+
 ## 0.1.2 — Migration Engine
 
 Отдельные транзакции миграций, реальный контроль PostgreSQL catalog, read-only plan/verify, журнал попыток, безопасное восстановление concurrent indexes и batch backfill. При обновлении с 0.1.1 обязательно выполнить `php bin/cajeer migrate` даже при отсутствии pending SQL. [Инструкция](docs/Migration-Engine.md).

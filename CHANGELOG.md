@@ -2,6 +2,13 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.1.3] — Transaction Management
+
+- Единое владение транзакциями, savepoints, isolation и ограниченные retry SQLSTATE 40001/40P01.
+- Интеграция в ingest, identity, очередь, outbox, scheduler, retention, installer, migrations и restore.
+- Защита от неопределённого COMMIT и повторного использования повреждённого PDO; локальные метрики транзакций.
+- SQL 0001–0008 без изменений; совместимость backup 0.1.2.
+
 ## [0.1.2] — Migration Engine
 
 - Последовательные per-file транзакции под общей session advisory lock; история SHA-256, durable attempts и безопасные ошибки.

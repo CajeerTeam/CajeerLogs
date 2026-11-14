@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 namespace Cajeer\Logs\Lifecycle;
+
+use Cajeer\Logs\Database\TransactionManager;
 use PDO;
 
 final class Retention
@@ -12,12 +14,11 @@ final class Retention
     }
     public function set(string $project,?int $days): bool {
         if ($days!==null && ($days<1 || $days>3650)) { throw new \InvalidArgumentException('Retention days must be 1..3650.'); }
-        $this->pdo->beginTransaction();
-        try {
+        return (new TransactionManager($this->pdo))->run(function () use ($project,$days) {
             $this->lock();
             $s=$this->pdo->prepare('UPDATE projects SET retention_days=:days WHERE id=:id');$s->execute(['days'=>$days,'id'=>$project]);
-            $changed=$s->rowCount()===1;$this->pdo->commit();return $changed;
-        } catch (\Throwable $e) { if ($this->pdo->inTransaction()) $this->pdo->rollBack();throw $e; }
+            $changed=$s->rowCount()===1;return $changed;
+        }, maxAttempts: 3);
     }
     public function policies(): array { return $this->pdo->query('SELECT id,name,slug,retention_days FROM projects ORDER BY id LIMIT 1000')->fetchAll(); }
     /** Bounded deletion. Caller owns transaction, policy changes serialize with deletion. */
@@ -28,8 +29,6 @@ final class Retention
         $s->bindValue(':limit',$limit,PDO::PARAM_INT);$s->execute();return $s->rowCount();
     }
     public function run(int $limit=1000): int {
-        $this->pdo->beginTransaction();
-        try { $n=$this->prune($limit);$this->pdo->commit();return $n; }
-        catch (\Throwable $e) { if ($this->pdo->inTransaction()) $this->pdo->rollBack();throw $e; }
+        return (new TransactionManager($this->pdo))->run(fn()=> $this->prune($limit), maxAttempts: 3);
     }
 }

@@ -2,6 +2,8 @@
 declare(strict_types=1);
 namespace Cajeer\Logs\Database\Repository;
 
+use Cajeer\Logs\Database\TransactionManager;
+
 use Cajeer\Logs\Database\DatabaseException;
 use PDO;
 
@@ -38,24 +40,19 @@ final class UserRepository
     public function ensureFirstAdministrator(string $email, string $password, string $schema): bool
     {
         $email = self::email($email);
-        $this->pdo->beginTransaction();
-        try {
+        return (new TransactionManager($this->pdo))->run(function () use ($email,$password,$schema) {
             $lock = $this->pdo->prepare('SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))');
             $lock->execute(['key' => 'cajeerlogs:installer:' . $schema]);
-            $this->pdo->query("SELECT pg_advisory_xact_lock(hashtextextended('cajeerlogs:identity:' || current_schema(),0))");
+            $lock->closeCursor();
+            $this->pdo->query("SELECT pg_advisory_xact_lock(hashtextextended('cajeerlogs:identity:' || current_schema(),0))")->closeCursor();
             $existing = $this->findByEmail($email);
             if ($existing !== null) {
                 if ($existing['role'] !== 'administrator' || $existing['blocked_at'] !== null || !password_verify($password, $existing['password_hash'])) { throw new DatabaseException('Existing user does not match the requested administrator; no password was changed.'); }
-                $this->pdo->commit();
                 return false;
             }
             if ($this->pdo->query("SELECT EXISTS (SELECT 1 FROM users WHERE role = 'administrator')")->fetchColumn()) { throw new DatabaseException('An administrator already exists; installation will not create another.'); }
             $this->create($email, $password, 'administrator');
-            $this->pdo->commit();
             return true;
-        } catch (\Throwable $e) {
-            if ($this->pdo->inTransaction()) { $this->pdo->rollBack(); }
-            throw $e;
-        }
+        }, maxAttempts: 3);
     }
 }

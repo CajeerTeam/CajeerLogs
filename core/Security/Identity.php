@@ -2,6 +2,8 @@
 declare(strict_types=1);
 namespace Cajeer\Logs\Security;
 
+use Cajeer\Logs\Database\TransactionManager;
+
 use PDO;
 use Cajeer\Logs\Http\HttpException;
 use Cajeer\Logs\Http\Request;
@@ -58,15 +60,14 @@ final class Identity
         }
         $newHash = password_needs_rehash($user['password_hash'],PASSWORD_ARGON2ID) ? password_hash($password,PASSWORD_ARGON2ID) : null;
         // Recheck after taking the write lock; expensive verification is outside the lock.
-        $this->pdo->beginTransaction();
-        try {
+        $result=(new TransactionManager($this->pdo))->run(function () use ($users,$email,$user,$otp,$newHash,$r) {
             $this->lock();
             $current = $users->findByEmail($email);
             if ($current === null || $current['id'] !== $user['id'] || $current['password_hash'] !== $user['password_hash'] || $current['blocked_at'] !== null) { self::unauthorized(); }
             $user = $current;
             if ($user['two_factor_enabled'] && !(new TwoFactorManager($this->pdo,$this->totpKey))->verify($user['id'],$otp)) {
                 (new AuditLogger($this->pdo))->record('auth.login_failed',['request_id'=>$r->requestId],$user['id']);
-                $this->pdo->commit(); self::unauthorized();
+                return null;
             }
             if ($newHash !== null) {
                 $this->sql('UPDATE users SET password_hash=:hash,updated_at=now() WHERE id=:id',['hash'=>$newHash,'id'=>$user['id']]);
@@ -78,9 +79,10 @@ final class Identity
             }
             $result=$this->issueSession($user);
             (new AuditLogger($this->pdo))->record('auth.login',['request_id'=>$r->requestId],$user['id']);
-            $this->pdo->commit();
             return $result;
-        } catch (\Throwable $e) { if ($this->pdo->inTransaction()) { $this->pdo->rollBack(); } throw $e; }
+        }, maxAttempts: 3);
+        if ($result===null) self::unauthorized();
+        return $result;
     }
     public function enrollmentRequired(array $user): bool { return $this->requireAdminTotp && $user['role']==='administrator' && !$user['two_factor_enabled']; }
     public function issueSession(array $user): array
@@ -122,7 +124,7 @@ final class Identity
         if (!(new Rbac())->roleAllows($role,$permission)) { self::forbidden(); }
         if ($project !== null && $role !== 'administrator' && !$this->sql('SELECT 1 FROM project_members WHERE project_id=:project AND user_id=:user',['project'=>$project,'user'=>$p['id']])->fetchColumn()) { self::forbidden(); }
     }
-    public function lock(): void { $this->pdo->query("SELECT pg_advisory_xact_lock(hashtextextended('cajeerlogs:identity:' || current_schema(),0))"); }
+    public function lock(): void { $this->pdo->query("SELECT pg_advisory_xact_lock(hashtextextended('cajeerlogs:identity:' || current_schema(),0))")->closeCursor(); }
     public function sql(string $sql,array $params=[]): \PDOStatement { $s=$this->pdo->prepare($sql); $s->execute($params); return $s; }
     public static function publicUser(array $u): array { return array_intersect_key($u,array_flip(['id','email','role','blocked_at','two_factor_enabled','created_at','updated_at'])); }
 }

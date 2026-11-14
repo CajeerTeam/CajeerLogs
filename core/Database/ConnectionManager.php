@@ -18,6 +18,7 @@ final class ConnectionManager
 
     public function connection(): PDO
     {
+        if ($this->pdo!==null && !TransactionManager::usable($this->pdo)) { $this->invalidate(); }
         if ($this->pdo!==null) {
             try {
                 if ($this->pdo->inTransaction()) { throw new \LogicException('Cannot acquire a session at a transaction boundary while a transaction is active.'); }
@@ -38,7 +39,7 @@ final class ConnectionManager
 
     public function probe(): float
     {
-        if ($this->pdo===null) { $this->connection(); }
+        if ($this->pdo===null || !TransactionManager::usable($this->pdo)) { $this->connection(); }
         if ($this->pdo->inTransaction()) { throw new \LogicException('Cannot probe inside a transaction.'); }
         $start=hrtime(true);
         try {

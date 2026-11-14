@@ -34,6 +34,7 @@ final class SystemReport
             'database' => $db,
             'queue' => $queue,
             'operations' => $operations,
+            'transaction_metrics_local' => \Cajeer\Logs\Database\TransactionManager::metrics(),
             'storage_free_bytes' => is_dir($this->app->basePath('storage')) ? (disk_free_space($this->app->basePath('storage')) ?: null) : null,
             'security' => ['admin_totp_required'=>$this->app->config()->get('security.require_admin_totp'), 'totp_key_ready'=>\Cajeer\Logs\Security\TwoFactorManager::keyValid($this->app->config()->get('security.totp_key')), 'metrics_protected'=>$this->app->config()->get('operations.metrics_token')!==''],
         ];

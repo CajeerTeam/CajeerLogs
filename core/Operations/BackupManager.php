@@ -2,6 +2,8 @@
 declare(strict_types=1);
 namespace Cajeer\Logs\Operations;
 
+use Cajeer\Logs\Database\TransactionManager;
+
 use Cajeer\Logs\Database\{ConnectionFactory,DatabaseException,MigrationRunner};
 use Cajeer\Logs\Kernel\Application;
 use PDO;
@@ -87,7 +89,7 @@ final class BackupManager
     /** These explicit releases share SQL 0001–0008; restored history is checked separately. */
     public static function compatibleRelease(mixed $backup, string $current): bool
     {
-        return is_string($backup) && ($backup === $current || ($current === '0.1.0' && $backup === '0.0.9') || ($current === '0.1.1' && in_array($backup,['0.0.9','0.1.0'],true)) || ($current === '0.1.2' && in_array($backup,['0.0.9','0.1.0','0.1.1'],true)));
+        return is_string($backup) && ($backup === $current || ($current === '0.1.0' && $backup === '0.0.9') || ($current === '0.1.1' && in_array($backup,['0.0.9','0.1.0'],true)) || ($current === '0.1.2' && in_array($backup,['0.0.9','0.1.0','0.1.1'],true)) || ($current === '0.1.3' && in_array($backup,['0.0.9','0.1.0','0.1.1','0.1.2'],true)));
     }
     public function restore(string $id,string $target): array
     {
@@ -110,9 +112,7 @@ final class BackupManager
         $runner->migrate(); // Validate and adopt legacy schema without trusting a stale catalog.
         $runner->assertCurrent();
         // Old snapshots must not resurrect revoked credentials. Reconcile external deliveries before starting workers.
-        $restored->beginTransaction();
-        try { $restored->exec('DELETE FROM auth_sessions; DELETE FROM user_recovery_codes; UPDATE api_tokens SET revoked_at=now() WHERE revoked_at IS NULL'); $restored->commit(); }
-        catch (\Throwable $e) { if ($restored->inTransaction()) { $restored->rollBack(); } throw $e; }
+        (new TransactionManager($restored))->run(fn()=> $restored->exec('DELETE FROM auth_sessions; DELETE FROM user_recovery_codes; UPDATE api_tokens SET revoked_at=now() WHERE revoked_at IS NULL'), maxAttempts: 3);
         return ['id'=>$id,'database'=>$target,'schema'=>$m['schema'],'status'=>'restored','sessions_revoked'=>true,'api_tokens_revoked'=>true,'recovery_codes_invalidated'=>true];
     }
     public function list(): array
