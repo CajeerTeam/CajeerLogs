@@ -2,6 +2,10 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.2.8 — Log Search
+
+Расширенные фильтры PostgreSQL FTS/JSONB, списки источников, уровней, сервисов, trace/request ID и тегов; точные JSON-пути, read-only SQL-бюджет, метрики и EXPLAIN для реальных фильтров. Без новой миграции. См. [Log Search](docs/Log-Search.md).
+
 ## 0.2.7 — Idempotency & Delivery Guarantees
 
 Единая область доставки для цепочки ротации credential, согласованные sync/async ключи, настраиваемое окно хранения, повтор после потери ответа и строгие SDK receipts. Миграция 0014. См. [Idempotency & Delivery Guarantees](docs/Idempotency-Delivery-Guarantees.md).

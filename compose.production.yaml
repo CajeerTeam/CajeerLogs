@@ -1,7 +1,7 @@
 # Run with --env-file .env.production. See docs/First-Public-Release.md.
 name: cajeerlogs
 x-runtime: &runtime
-  image: cajeerlogs:0.2.7
+  image: cajeerlogs:0.2.8
   build:
     context: .
     dockerfile: deploy/production/Dockerfile
@@ -19,6 +19,7 @@ x-runtime: &runtime
     DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
     DB_SCHEMA: public
     DB_SSLMODE: disable
+    SEARCH_TIMEOUT_MS: ${SEARCH_TIMEOUT_MS:-5000}
     INGEST_MAX_INFLIGHT: ${INGEST_MAX_INFLIGHT:-16}
     INGEST_BUDGET_MS: ${INGEST_BUDGET_MS:-25000}
     INGEST_IDEMPOTENCY_SECONDS: ${INGEST_IDEMPOTENCY_SECONDS:-604800}
@@ -97,7 +98,7 @@ services:
       app:
         condition: service_healthy
   gateway:
-    image: cajeerlogs-gateway:0.2.7
+    image: cajeerlogs-gateway:0.2.8
     build:
       context: .
       dockerfile: deploy/production/Dockerfile

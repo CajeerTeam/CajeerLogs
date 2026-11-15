@@ -79,7 +79,27 @@ final class Request
             throw new HttpException(413, 'payload_too_large', 'Request body exceeds the configured limit.');
         }
         if ($ingest && isset($headers['CONTENT-LENGTH']) && (int)$headers['CONTENT-LENGTH'] !== strlen($body)) throw new HttpException(400,'invalid_body','Content-Length does not match body.');
-        return new self((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'), $path, $headers, $_GET, $body, (string) ($_SERVER['REMOTE_ADDR'] ?? 'unknown'), in_array(strtolower((string) ($_SERVER['HTTPS'] ?? '')), ['on','1'], true));
+        $query=$_GET;
+        if ($ingestPrefix!==null && in_array($_SERVER['REQUEST_METHOD']??'', ['GET','HEAD'],true) && preg_match('~^'.preg_quote($ingestPrefix,'~').'/logs(?:/[^/]+)?$~D',$path)) {
+            $query=self::searchQuery(explode('?', $uri, 2)[1]??'');
+        }
+        return new self((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'), $path, $headers, $query, $body, (string) ($_SERVER['REMOTE_ADDR'] ?? 'unknown'), in_array(strtolower((string) ($_SERVER['HTTPS'] ?? '')), ['on','1'], true));
+    }
+
+    /** Parse raw search parameters before PHP normalizes names or overwrites duplicates. */
+    public static function searchQuery(string $raw): array
+    {
+        if ($raw==='') return [];
+        if (strlen($raw)>65536) throw new HttpException(422,'invalid_query','Query string exceeds limit.');
+        $result=[];
+        foreach (explode('&',$raw) as $pair) {
+            if (count($result)>=40 || preg_match('/%(?![0-9a-f]{2})/i',$pair)) throw new HttpException(422,'invalid_query','Malformed query string.');
+            $parts=explode('=',$pair,2);
+            $key=urldecode($parts[0]);
+            if (count($parts)!==2 || !preg_match('/^[a-z][a-z0-9_]*$/D',$key) || array_key_exists($key,$result)) throw new HttpException(422,'invalid_query','Invalid or duplicate query parameter.');
+            $result[$key]=urldecode($parts[1]);
+        }
+        return $result;
     }
 
     public function header(string $name, ?string $default = null): ?string

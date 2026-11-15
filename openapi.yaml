@@ -2,7 +2,7 @@
   "openapi": "3.1.1",
   "info": {
     "title": "CajeerLogs API",
-    "version": "0.2.7",
+    "version": "0.2.8",
     "description": "Identity & Access, synchronous and durable asynchronous PostgreSQL ingestion, job status, project-scoped search, statistics and export. Outgoing webhooks and lifecycle administration use the CLI. TOTP enrollment, recovery codes and administrator enrollment policy. Token rotation, scoped service accounts, credential request quotas and bulk revocation. Mandatory project/token HMAC and separately encrypted rotating signing keys."
   },
   "servers": [
@@ -2993,7 +2993,7 @@
       "get": {
         "operationId": "searchLogs",
         "summary": "Search logs",
-        "description": "Requires logs:read; session membership or token project/source scope is enforced. Results are scoped to the requested project.",
+        "description": "Requires logs:read; session membership or token project/source scope is enforced. Results are scoped to the requested project. All filter groups are ANDed; list values match any except tags_all. JSON lists are scalar URL-encoded strings (1–16 entries each, 64 total). Search without an indexable FTS term requires a time range of at most 31 days. PostgreSQL search timeout returns 503 search_timeout.",
         "security": [
           {
             "session": []
@@ -3163,6 +3163,142 @@
               "type": "string",
               "maxLength": 1024
             }
+          },
+          {
+            "name": "q_mode",
+            "in": "query",
+            "required": false,
+            "description": "Full-text mode. web (default): websearch syntax; plain: all terms; phrase: adjacent terms. Requires q.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "web",
+                "plain",
+                "phrase"
+              ],
+              "default": "web"
+            }
+          },
+          {
+            "name": "levels",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of PSR-3 levels; any match. 1..16 strings.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"error\",\"warning\"]"
+            }
+          },
+          {
+            "name": "sources",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of registered source slugs; any match, within the requested project and effective source scope.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"app\",\"worker\"]"
+            }
+          },
+          {
+            "name": "source_ids",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of source UUIDs; any match, intersected with effective source scope.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"22222222-2222-4222-8222-222222222222\"]"
+            }
+          },
+          {
+            "name": "services",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of exact service strings; any match.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"api\",\"worker\"]"
+            }
+          },
+          {
+            "name": "hosts",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of exact host strings; any match.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"host1\",\"host2\"]"
+            }
+          },
+          {
+            "name": "trace_ids",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of exact trace IDs; any match.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"trace-1\",\"trace-2\"]"
+            }
+          },
+          {
+            "name": "request_ids",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of exact request IDs; any match.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"req-1\",\"req-2\"]"
+            }
+          },
+          {
+            "name": "tags_all",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of exact tags; all must be present.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"db\",\"prod\"]"
+            }
+          },
+          {
+            "name": "tags_any",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of exact tags; at least one must be present.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"db\",\"queue\"]"
+            }
+          },
+          {
+            "name": "context_path",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of 1..8 nonblank string path segments. Requires from/to spanning at most 31 days. Without context_equals, checks path existence, including JSON null.",
+            "schema": {
+              "type": "string",
+              "maxLength": 2048,
+              "example": "[\"nested\",\"region\"]"
+            }
+          },
+          {
+            "name": "context_equals",
+            "in": "query",
+            "required": false,
+            "description": "Exact JSON scalar at context_path (string, number, boolean or null); type-sensitive. Raw JSON numeric precision is preserved.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "\"eu\""
+            }
           }
         ],
         "responses": {
@@ -3237,7 +3373,7 @@
             }
           },
           "503": {
-            "description": "Database unavailable or timeout",
+            "description": "Storage unavailable or search processing budget exceeded (search_timeout; Retry-After: 5).",
             "content": {
               "application/json": {
                 "schema": {
@@ -3253,7 +3389,7 @@
       "get": {
         "operationId": "logStatistics",
         "summary": "Aggregate filtered logs",
-        "description": "Requires logs:read; session membership or token project/source scope is enforced. Statistics require a time range of at most 31 days.",
+        "description": "Requires logs:read; session membership or token project/source scope is enforced. Statistics require a time range of at most 31 days. All filter groups are ANDed; list values match any except tags_all. JSON lists are scalar URL-encoded strings (1–16 entries each, 64 total). Search without an indexable FTS term requires a time range of at most 31 days. PostgreSQL search timeout returns 503 search_timeout.",
         "security": [
           {
             "session": []
@@ -3415,6 +3551,142 @@
               ],
               "default": "hour"
             }
+          },
+          {
+            "name": "q_mode",
+            "in": "query",
+            "required": false,
+            "description": "Full-text mode. web (default): websearch syntax; plain: all terms; phrase: adjacent terms. Requires q.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "web",
+                "plain",
+                "phrase"
+              ],
+              "default": "web"
+            }
+          },
+          {
+            "name": "levels",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of PSR-3 levels; any match. 1..16 strings.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"error\",\"warning\"]"
+            }
+          },
+          {
+            "name": "sources",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of registered source slugs; any match, within the requested project and effective source scope.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"app\",\"worker\"]"
+            }
+          },
+          {
+            "name": "source_ids",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of source UUIDs; any match, intersected with effective source scope.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"22222222-2222-4222-8222-222222222222\"]"
+            }
+          },
+          {
+            "name": "services",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of exact service strings; any match.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"api\",\"worker\"]"
+            }
+          },
+          {
+            "name": "hosts",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of exact host strings; any match.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"host1\",\"host2\"]"
+            }
+          },
+          {
+            "name": "trace_ids",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of exact trace IDs; any match.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"trace-1\",\"trace-2\"]"
+            }
+          },
+          {
+            "name": "request_ids",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of exact request IDs; any match.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"req-1\",\"req-2\"]"
+            }
+          },
+          {
+            "name": "tags_all",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of exact tags; all must be present.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"db\",\"prod\"]"
+            }
+          },
+          {
+            "name": "tags_any",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of exact tags; at least one must be present.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"db\",\"queue\"]"
+            }
+          },
+          {
+            "name": "context_path",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of 1..8 nonblank string path segments. Requires from/to spanning at most 31 days. Without context_equals, checks path existence, including JSON null.",
+            "schema": {
+              "type": "string",
+              "maxLength": 2048,
+              "example": "[\"nested\",\"region\"]"
+            }
+          },
+          {
+            "name": "context_equals",
+            "in": "query",
+            "required": false,
+            "description": "Exact JSON scalar at context_path (string, number, boolean or null); type-sensitive. Raw JSON numeric precision is preserved.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "\"eu\""
+            }
           }
         ],
         "responses": {
@@ -3489,7 +3761,7 @@
             }
           },
           "503": {
-            "description": "Database unavailable or timeout",
+            "description": "Storage unavailable or search processing budget exceeded (search_timeout; Retry-After: 5).",
             "content": {
               "application/json": {
                 "schema": {
@@ -3505,7 +3777,7 @@
       "get": {
         "operationId": "exportLogs",
         "summary": "Export one filtered page",
-        "description": "Requires logs:read; session membership or token project/source scope is enforced. Results are scoped to the requested project.",
+        "description": "Requires logs:read; session membership or token project/source scope is enforced. Results are scoped to the requested project. All filter groups are ANDed; list values match any except tags_all. JSON lists are scalar URL-encoded strings (1–16 entries each, 64 total). Search without an indexable FTS term requires a time range of at most 31 days. PostgreSQL search timeout returns 503 search_timeout.",
         "security": [
           {
             "session": []
@@ -3689,6 +3961,142 @@
               ],
               "default": "json"
             }
+          },
+          {
+            "name": "q_mode",
+            "in": "query",
+            "required": false,
+            "description": "Full-text mode. web (default): websearch syntax; plain: all terms; phrase: adjacent terms. Requires q.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "web",
+                "plain",
+                "phrase"
+              ],
+              "default": "web"
+            }
+          },
+          {
+            "name": "levels",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of PSR-3 levels; any match. 1..16 strings.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"error\",\"warning\"]"
+            }
+          },
+          {
+            "name": "sources",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of registered source slugs; any match, within the requested project and effective source scope.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"app\",\"worker\"]"
+            }
+          },
+          {
+            "name": "source_ids",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of source UUIDs; any match, intersected with effective source scope.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"22222222-2222-4222-8222-222222222222\"]"
+            }
+          },
+          {
+            "name": "services",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of exact service strings; any match.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"api\",\"worker\"]"
+            }
+          },
+          {
+            "name": "hosts",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of exact host strings; any match.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"host1\",\"host2\"]"
+            }
+          },
+          {
+            "name": "trace_ids",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of exact trace IDs; any match.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"trace-1\",\"trace-2\"]"
+            }
+          },
+          {
+            "name": "request_ids",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of exact request IDs; any match.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"req-1\",\"req-2\"]"
+            }
+          },
+          {
+            "name": "tags_all",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of exact tags; all must be present.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"db\",\"prod\"]"
+            }
+          },
+          {
+            "name": "tags_any",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of exact tags; at least one must be present.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"db\",\"queue\"]"
+            }
+          },
+          {
+            "name": "context_path",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of 1..8 nonblank string path segments. Requires from/to spanning at most 31 days. Without context_equals, checks path existence, including JSON null.",
+            "schema": {
+              "type": "string",
+              "maxLength": 2048,
+              "example": "[\"nested\",\"region\"]"
+            }
+          },
+          {
+            "name": "context_equals",
+            "in": "query",
+            "required": false,
+            "description": "Exact JSON scalar at context_path (string, number, boolean or null); type-sensitive. Raw JSON numeric precision is preserved.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "\"eu\""
+            }
           }
         ],
         "responses": {
@@ -3781,7 +4189,7 @@
             }
           },
           "503": {
-            "description": "Database unavailable or timeout",
+            "description": "Storage unavailable or search processing budget exceeded (search_timeout; Retry-After: 5).",
             "content": {
               "application/json": {
                 "schema": {

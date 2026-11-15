@@ -86,7 +86,7 @@ class Fixture:
             if body['password']=='bad' or (self.totp_enabled and body.get('otp')!='123456'): return err(401,'unauthorized')
             self.user={'id':U1 if self.role=='administrator' else U2,'email':body['email'],'role':self.role,'two_factor_enabled':self.totp_enabled}
             return send({'user':self.user,'csrf_token':CSRF,'expires_in':28800,'enrollment_required':self.require_totp and not self.totp_enabled},headers={'Set-Cookie':'cajeerlogs_session='+'b'*64+'; Path=/; HttpOnly; SameSite=Strict'})
-        if path=='/health': return send({'status':'ok','version':'0.2.7'})
+        if path=='/health': return send({'status':'ok','version':'0.2.8'})
         if self.user is None: return err(401,'unauthorized')
         if method!='GET': assert req.headers.get('x-csrf-token')==CSRF, (method,path,req.headers)
         if path=='/auth/me': return send({'user':self.user,'csrf_token':CSRF,'enrollment_required':self.require_totp and not self.totp_enabled})
@@ -231,7 +231,7 @@ def run():
         browser=browser_for(p); ctx=browser.new_context(accept_downloads=True); page=ctx.new_page(); page.set_default_timeout(8000)
         errors=[]; page.on('pageerror',lambda e: errors.append(str(e)))
         # Actual PHP router, not intercepted, even in offline browser mode.
-        status,headers,body=http(url+'/admin');assert status==200 and b'0.2.7' in body
+        status,headers,body=http(url+'/admin');assert status==200 and b'0.2.8' in body
         assert "script-src 'self'" in {k.lower():v for k,v in headers.items()}['content-security-policy']
         assert http(url+'/api/v1/auth/me')[0]==401
         assert http(url+'/admin/assets/panel.js')[0]==200
@@ -257,6 +257,9 @@ def run():
         nav(page,'logs');expect(page.get_by_role('heading',name='Логи',exact=True)).to_be_visible();expect(page.get_by_text('database error',exact=False)).to_be_visible()
         page.get_by_label('Поиск',exact=True).fill('database');page.get_by_label('Уровень',exact=True).select_option('error');page.get_by_role('button',name='Найти').click()
         expect(page.get_by_text('database error',exact=False)).to_be_visible();assert any(c[1]=='/logs' and c[2].get('q')=='database' and c[2].get('level')=='error' for c in f.calls)
+        page.get_by_text('Дополнительные фильтры',exact=True).click();page.get_by_label('Режим поиска',exact=True).select_option('phrase');page.get_by_label('Уровни (JSON-массив)',exact=True).fill('["error","warning"]');page.get_by_label('Любой тег (JSON-массив)',exact=True).fill('["db","queue"]');page.get_by_role('button',name='Найти').click()
+        expect(page.get_by_text('database error',exact=False)).to_be_visible();assert any(c[1]=='/logs' and c[2].get('q_mode')=='phrase' and c[2].get('levels')=='["error","warning"]' and c[2].get('tags_any')=='["db","queue"]' for c in f.calls)
+        print('PASS expanded search filters fixture')
         page.get_by_role('button',name='Подробнее').click();expect(page.get_by_role('dialog')).to_be_visible();expect(page.get_by_role('heading',name='JSON context',exact=True)).to_be_visible();assert page.evaluate('window.pwned') is None;assert page.locator('#modal img, #modal script').count()==0
         page.locator('#close-modal').click();page.get_by_role('button',name='Далее',exact=True).click();expect(page.get_by_text('second page event')).to_be_visible();page.get_by_role('button',name='Назад',exact=True).click();expect(page.get_by_text('database error',exact=False)).to_be_visible()
         if offline:

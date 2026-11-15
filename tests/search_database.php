@@ -87,6 +87,39 @@ try {
     verify(array_column(data(get('/logs',$query+['from'=>'2026-01-02T00:00:00.123456Z','to'=>'2026-01-02T01:00:00Z'],$readerHeaders))['items'],'id')===$ties,'inclusive lower and exclusive upper bounds');
     verify(data(get('/logs',$query+['service'=>"api' OR 1=1 --"],$readerHeaders))['items']===[],'SQL injection string treated as value');
     $range=$query+['from'=>'2026-01-02T00:00:00Z','to'=>'2026-01-03T00:00:00Z'];
+    // Real SQL execution of the expanded filters, including typed JSONB values.
+    $multi=$range+['levels'=>'["error","warning"]','sources'=>'["app","worker"]','services'=>'["api","other"]','hosts'=>'["host1"]','trace_ids'=>'["trace-a","trace-b","trace-c"]','request_ids'=>'["req-a","req-b","req-c"]','tags_any'=>'["db","queue"]'];
+    verify(array_column(data(get('/logs',$multi,$readerHeaders))['items'],'id')===[$c,...$ties],'compound multi-value filters execute with correct AND/OR semantics');
+    verify(array_column(data(get('/logs',$multi+['tags_all'=>'["db","prod"]'],$readerHeaders))['items'],'id')===$ties,'all tags containment');
+    verify(array_column(data(get('/logs',$multi,$sourceHeaders))['items'],'id')===$ties,'multi-source cannot broaden bound credential');
+    verify(data(get('/logs',$query+['source_ids'=>json_encode([$foreignSource])],$readerHeaders))['items']===[],'foreign UUID list cannot leak rows');
+    verify(array_column(data(get('/logs',$query+['source_ids'=>json_encode([$other,$source,$foreignSource])],$sourceHeaders))['items'],'id')===[$d,...$ties],'source UUID list intersected with credential');
+    verify(array_column(data(get('/logs',$query+['q'=>'database connection','q_mode'=>'phrase'],$readerHeaders))['items'],'id')===[$a],'phrase mode SQL');
+    verify(array_column(data(get('/logs',$query+['q'=>'database failed','q_mode'=>'plain'],$readerHeaders))['items'],'id')===$ties,'plain all-words mode');
+    get('/logs',$query+['q'=>'-database'],$readerHeaders,422);
+    verify(array_column(data(get('/logs',$range+['q'=>'-database'],$readerHeaders))['items'],'id')===[$c],'bounded negative FTS');
+    $path=$range+['context_path'=>'["nested","region"]','context_equals'=>'"eu"'];
+    verify(array_column(data(get('/logs',$path,$readerHeaders))['items'],'id')===$ties,'exact nested JSONB scalar comparison');
+    $patch=$pdo->prepare('UPDATE log_events SET context=context || CAST(:patch AS jsonb) WHERE id=:id');
+    $patch->execute(['patch'=>'{"exact":12345678901234567890,"nullable":null,"list":[{"region":"eu"}]}','id'=>$a]);
+    verify(array_column(data(get('/logs',$range+['context_path'=>'["exact"]','context_equals'=>'12345678901234567890'],$readerHeaders))['items'],'id')===[$a],'exact high precision JSONB number');
+    verify(data(get('/logs',$range+['context_path'=>'["exact"]','context_equals'=>'"12345678901234567890"'],$readerHeaders))['items']===[],'JSON number differs from JSON string');
+    verify(array_column(data(get('/logs',$range+['context_path'=>'["nullable"]','context_equals'=>'null'],$readerHeaders))['items'],'id')===[$a],'JSON null differs from missing path');
+    verify(array_column(data(get('/logs',$range+['context_path'=>'["nullable"]'],$readerHeaders))['items'],'id')===[$a],'path existence includes JSON null');
+    verify(array_column(data(get('/logs',$range+['context_path'=>'["list","0","region"]','context_equals'=>'"eu"'],$readerHeaders))['items'],'id')===[$a],'array index traversal');
+    verify(data(get('/logs/stats',$path,$readerHeaders))['total']===2,'expanded statistics predicate');
+    verify(array_column(data(get('/logs/export',$path,$readerHeaders))['items'],'id')===$ties,'expanded export predicate');
+    $filteredPage=data(get('/logs',$multi+['limit'=>'1'],$readerHeaders));
+    verify(array_column(data(get('/logs',$multi+['cursor'=>$filteredPage['next_cursor'],'limit'=>'2'],$readerHeaders))['items'],'id')===$ties,'expanded keyset continuation');
+    $plan=(new \Cajeer\Logs\Database\PerformanceInspector($pdo))->explain($project,null,true,['levels'=>'["error","warning"]','sources'=>'["app","worker"]','q'=>'database']);
+    verify(isset($plan['plans']['filtered'][0]['Plan']['Actual Rows']),'real EXPLAIN ANALYZE for expanded query');
+    $beforeTimeout=$pdo->query('SHOW statement_timeout')->fetchColumn();
+    try {
+        (new \Cajeer\Logs\Log\SearchRuntime($pdo,100))->run(\Cajeer\Logs\Log\LogQuery::parse($query),function () use ($pdo) { $pdo->query('SELECT pg_sleep(0.5)')->closeCursor(); });
+        throw new RuntimeException('Expected statement timeout');
+    } catch (\Cajeer\Logs\Http\HttpException $e) { verify($e->status===503&&$e->error==='search_timeout','real PostgreSQL statement cancellation'); }
+    verify(!$pdo->inTransaction()&&$pdo->query('SHOW statement_timeout')->fetchColumn()===$beforeTimeout,'read timeout rollback restores session setting');
+    verify(count(data(get('/logs',$query,$readerHeaders))['items'])===4,'read works after timeout');
     $stats=data(get('/logs/stats',$range,$readerHeaders));
     verify($stats['total']===3&&$stats['by_level']['error']===2&&$stats['by_level']['warning']===1&&$stats['by_level']['info']===0&&$stats['by_source'][0]['source_id']===$source&&$stats['by_source'][0]['count']===2&&!$stats['sources_truncated'],'statistics total, levels and sources');
     verify($stats['buckets']===[['timestamp'=>'2026-01-02T00:00:00.000000Z','count'=>2],['timestamp'=>'2026-01-02T01:00:00.000000Z','count'=>1]],'hourly UTC aggregation');

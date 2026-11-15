@@ -13,6 +13,7 @@ final class ErrorHandler
         // Do not log request bodies, headers, exception messages or traces containing credentials.
         error_log(sprintf('CajeerLogs request_id=%s exception=%s at %s:%d', $requestId, $error::class, basename($error->getFile()), $error->getLine()));
         $status = $error instanceof HttpException ? $error->status : (\Cajeer\Logs\Database\DatabaseFailure::unavailable($error) ? 503 : 500);
+        if ($status === 503 && $error instanceof HttpException && $error->error === 'search_timeout') { return new JsonResponse(['error'=>'search_timeout','message'=>'Search exceeded its processing budget. Narrow the query.','request_id'=>$requestId],503,['Retry-After'=>'5']); }
         if ($status === 503 && $error instanceof HttpException && $error->error === 'queue_full') {
             return new JsonResponse(['error'=>'queue_full','message'=>'Ingest queue capacity reached.','request_id'=>$requestId],503,['Retry-After'=>'5']);
         }

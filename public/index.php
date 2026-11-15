@@ -39,6 +39,8 @@ try {
     if (isset($app)) {
         try {
             $mode=\Cajeer\Logs\Observability\IngestMetrics::mode((string)($_SERVER['REQUEST_METHOD']??''),explode('?',(string)($_SERVER['REQUEST_URI']??'/'),2)[0],$app->config()->get('api.prefix'));
+            $searchMode=\Cajeer\Logs\Observability\IngestMetrics::searchMode((string)($_SERVER['REQUEST_METHOD']??''),explode('?',(string)($_SERVER['REQUEST_URI']??'/'),2)[0],$app->config()->get('api.prefix'));
+            if ($searchMode!==null) (new \Cajeer\Logs\Observability\IngestMetrics($app->basePath('storage/cache'),'search'))->record($searchMode,$response,(hrtime(true)-$started)/1e9);
             if ($mode!==null) (new \Cajeer\Logs\Observability\IngestMetrics($app->basePath('storage/cache')))->record($mode,$response,(hrtime(true)-$started)/1e9);
         } catch (Throwable) { /* Never mask the original request failure. */ }
     }

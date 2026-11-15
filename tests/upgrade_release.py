@@ -1,4 +1,4 @@
-"""Real 0.1.0 or 0.2.6 -> 0.2.7 upgrade using the previous source tree and PostgreSQL.
+"""Real 0.1.0 or 0.2.7 -> 0.2.8 upgrade using the previous source tree and PostgreSQL.
 
 Usage: CAJEER_TEST_DATABASE=1 python3 tests/upgrade_release.py /path/to/previous
 Requires a disposable DB_* database and a separate empty CAJEER_TEST_UPGRADE_RESTORE_DB.
@@ -16,6 +16,7 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -28,10 +29,10 @@ def main(previous):
     target=os.environ.get('CAJEER_TEST_UPGRADE_RESTORE_DB')
     if not target or target==os.environ.get('DB_DATABASE'): raise SystemExit('Provision a separate empty restore database.')
     old_version=json.loads((previous/'release.json').read_text())['version']
-    if old_version not in ('0.1.0','0.2.6'): raise SystemExit('Expected actual 0.1.0 or 0.2.6 source tree.')
+    if old_version not in ('0.1.0','0.2.7'): raise SystemExit('Expected actual 0.1.0 or 0.2.7 source tree.')
     old_migrations={p.name:p.read_bytes() for p in (previous/'migrations/pgsql').glob('*.sql')}
     new_migrations={p.name:p.read_bytes() for p in (ROOT/'migrations/pgsql').glob('*.sql')}
-    expected={'0009_project_management.sql','0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql','0013_ingest_signing.sql','0014_delivery_idempotency.sql'} if old_version=='0.1.0' else {'0014_delivery_idempotency.sql'}
+    expected={'0009_project_management.sql','0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql','0013_ingest_signing.sql','0014_delivery_idempotency.sql'} if old_version=='0.1.0' else set()
     assert all(new_migrations.get(k)==v for k,v in old_migrations.items()) and set(new_migrations)-set(old_migrations)==expected,'previous migration history changed'
     schema='cl_upgrade_'+secrets.token_hex(8)
     with tempfile.TemporaryDirectory() as tmp:
@@ -84,16 +85,18 @@ def main(previous):
             package=p/'release.zip'; release.build(ROOT,package); extracted=p/'new'; release.verify(package,extracted)
             shutil.copytree(extracted,tree,dirs_exist_ok=True)
             assert (tree/'.env').read_bytes()==before
-            assert cli('version').strip()=='0.2.7'; cli('migrate'); cli('doctor')
+            assert cli('version').strip()=='0.2.8'; cli('migrate'); cli('doctor')
             cli('queue:work','10'); assert json.loads(cli('db:verify'))['status']=='ok'
             with server():
-                assert call('GET','/ready')[0]['version']=='0.2.7'
+                assert call('GET','/ready')[0]['version']=='0.2.8'
                 assert call('GET','/api/v1/auth/me',headers=auth)[0]['user']['email']=='upgrade@example.test'
                 assert call('GET',f'/api/v1/logs/{eid}?project_id={pid}',headers=bearer)[0]['data']['message']=='previous release proof'
                 assert call('GET',f'/api/v1/ingest/jobs/{jid}',headers=bearer)[0]['status']=='completed'
                 assert call('POST','/api/v1/ingest',event,bearer|{'Idempotency-Key':'before-upgrade-sync'},200)[0]['event_ids']==[eid]
                 assert call('POST','/api/v1/ingest/async',event|{'message':'queued before upgrade'},bearer|{'Idempotency-Key':'before-upgrade'},200)[0]['job_id']==jid
                 assert len(call('GET',f'/api/v1/logs?project_id={pid}',headers=bearer)[0]['items'])==2
+                filters=urllib.parse.urlencode({'project_id':pid,'sources':'["app"]','levels':'["info","error"]','q':'previous release','q_mode':'phrase'})
+                assert [row['id'] for row in call('GET','/api/v1/logs?'+filters,headers=bearer)[0]['items']]==[eid]
             result=json.loads(cli('backup:restore',backup['id'],target)); assert result['status']=='restored' and result['integrity_verified']
             assert sql(f'SELECT count(*) FROM "{schema}".log_events',target)=='1'
             assert sql(f'SELECT count(*) FROM "{schema}".api_tokens WHERE revoked_at IS NULL',target)=='0'

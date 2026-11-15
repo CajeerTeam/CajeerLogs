@@ -20,17 +20,45 @@ final class LogRepository
     {
         $parts=['source_id IS NOT NULL']; $params=[];
         foreach ($query->filters as $key=>$value) {
+            if ($key==='q_mode'||$key==='context_equals') continue;
+            if (isset(LogQuery::LIST_FILTERS[$key])) {
+                $values=json_decode($value,true,16,JSON_THROW_ON_ERROR);
+                $column=match($key) {'levels'=>'level','sources'=>'source','source_ids'=>'source_id','services'=>'service','hosts'=>'host','trace_ids'=>'trace_id','request_ids'=>'request_id','tags_all','tags_any'=>'tags'};
+                $placeholders=[];
+                foreach ($values as $i=>$item) {
+                    $name=$key.'_'.$i; $params[$name]=$item;
+                    $placeholders[]=$key==='source_ids'?'CAST(:'.$name.' AS uuid)':'CAST(:'.$name.' AS text)';
+                }
+                $list=implode(',',$placeholders);
+                if ($key==='sources') {
+                    // Resolve slugs through the project/source registry and use the
+                    // existing (project_id,source_id,occurred_at,id) index.
+                    $parts[]='source_id IN (SELECT id FROM sources WHERE project_id=CAST(:sources_project AS uuid) AND slug IN ('.$list.'))';
+                    $params['sources_project']=$query->filters['project_id'];
+                } elseif ($column==='tags') $parts[]='tags '.($key==='tags_all'?'@>':'&&').' ARRAY['.$list.']';
+                else $parts[]=$column.' IN ('.$list.')';
+                continue;
+            }
+            if ($key==='context_path') {
+                $path='(context #> ARRAY(SELECT jsonb_array_elements_text(CAST(:context_path AS jsonb))))';
+                $parts[]=isset($query->filters['context_equals'])?$path.' = CAST(:context_equals AS jsonb)':$path.' IS NOT NULL';
+                $params[$key]=$value;
+                if (isset($query->filters['context_equals'])) $params['context_equals']=$query->filters['context_equals'];
+                continue;
+            }
             $parts[]=match($key) {
                 'project_id','source_id'=>"$key = CAST(:$key AS uuid)",
-                'source','level','service','host','trace_id','request_id'=>"$key = :$key",
+                'source'=>'source_id IN (SELECT id FROM sources WHERE project_id=CAST(:source_project AS uuid) AND slug=:source)',
+                'level','service','host','trace_id','request_id'=>"$key = :$key",
                 'from'=>'occurred_at >= CAST(:from AS timestamptz)',
                 'to'=>'occurred_at < CAST(:to AS timestamptz)',
-                'q'=>"search_vector @@ websearch_to_tsquery('simple', :q)",
+                'q'=>"search_vector @@ {$query->textFunction()}('simple', :q)",
                 'tag'=>'tags @> ARRAY[CAST(:tag AS text)]',
                 'context'=>'context @> CAST(:context AS jsonb)',
                 default=>throw new \LogicException('Unexpected filter.'),
             };
             $params[$key]=$value;
+            if ($key==='source') $params['source_project']=$query->filters['project_id'];
         }
         return [implode(' AND ',$parts),$params];
     }

@@ -67,7 +67,7 @@ with server() as port:
     for path in ("/", "/health", "/api/v1/health?probe=1"):
         status, headers, body = request(port, "GET", path)
         data = json.loads(body)
-        check(status == 200 and data["version"] == "0.2.7" and data["scope"] == "runtime", f"GET {path}")
+        check(status == 200 and data["version"] == "0.2.8" and data["scope"] == "runtime", f"GET {path}")
         check(len(headers["x-request-id"]) == 32 and headers["cache-control"] == "no-store" and headers["x-content-type-options"] == "nosniff", f"headers {path}")
     status, headers, body = request(port, "POST", "/health")
     check(status == 405 and headers["allow"] == "GET, HEAD, OPTIONS" and json.loads(body)["request_id"] == headers["x-request-id"], "405 + Allow + correlation")
@@ -82,6 +82,13 @@ with server() as port:
         check(request(port, "GET", path)[0] == 401, f"protected {path}")
     check(request(port, "POST", "/api/v1/logs")[0] == 405, "search method restricted")
     check(request(port, "GET", "/api/v1/logs?project_id=bad", headers={"Authorization":"Bearer cl_"+"a"*64})[0] == 422, "invalid project query")
+    auth={"Authorization":"Bearer cl_"+"a"*64}
+    project="11111111-1111-4111-8111-111111111111"
+    for suffix in ("&q=a&q=b", "&q=a&%71=b", "&q%5B%5D=a", "&q.x=a", "&q=%GG", "&q", "&levels=%5B%22fatal%22%5D", "&q_mode=phrase", "&context_path=%5B%22x%22%5D"):
+        status, headers, raw = request(port,"GET","/api/v1/logs?project_id="+project+suffix,headers=auth)
+        check(status==422 and json.loads(raw)["error"]=="invalid_query", "strict search query "+suffix)
+    status, _, raw = request(port,"GET","/metrics")
+    check(status==200 and b'cajeerlogs_search_requests_total{mode="list",status="422"}' in raw and b'cajeerlogs_search_rejections_total{mode="list",reason="invalid_query"}' in raw, "search HTTP metrics include early query failures")
     check(request(port, "GET", "/api/v1/ingest")[0] == 405, "ingest method restricted")
     check(request(port, "POST", "/api/v1/ingest", b'{}', {"Content-Type":"application/json"})[0] == 401, "ingest requires bearer")
     check(request(port, "OPTIONS", "/api/v1/ingest")[0] == 204, "ingest OPTIONS")
@@ -103,7 +110,7 @@ with server() as port:
     status, headers, body = request(port, "GET", "/admin")
     check(status == 308 and headers["location"] == "/admin/", "admin canonical redirect")
     status, headers, body = request(port, "GET", "/admin/")
-    check(status == 200 and headers["content-type"].startswith("text/html") and b'content="0.2.7"' in body and b'content="/api/v1"' in body, "admin HTML runtime version and API prefix")
+    check(status == 200 and headers["content-type"].startswith("text/html") and b'content="0.2.8"' in body and b'content="/api/v1"' in body, "admin HTML runtime version and API prefix")
     check("script-src 'self'" in headers["content-security-policy"] and "frame-ancestors 'none'" in headers["content-security-policy"] and headers["cache-control"] == "no-store", "admin CSP and no-store")
     check(request(port, "HEAD", "/admin/")[2] == b"", "admin HEAD without body")
     check(request(port, "POST", "/admin/")[0] == 405, "admin unsupported method")

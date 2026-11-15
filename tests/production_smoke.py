@@ -67,10 +67,10 @@ def main():
             compose('up','-d','--wait','--wait-timeout','180')
             for _ in range(60):
                 try:
-                    data,_=http('GET','/ready'); assert data['version']=='0.2.7' and data['status']=='ok'; break
+                    data,_=http('GET','/ready'); assert data['version']=='0.2.8' and data['status']=='ok'; break
                 except (OSError, AssertionError, urllib.error.URLError): time.sleep(1)
             else: raise AssertionError('HTTPS readiness did not become healthy')
-            panel,h=http('GET','/admin/'); assert b'0.2.7' in panel and 'frame-ancestors' in h['Content-Security-Policy']
+            panel,h=http('GET','/admin/'); assert b'0.2.8' in panel and 'frame-ancestors' in h['Content-Security-Policy']
             assert len(http('GET','/admin/assets/panel.js')[0])>1000
             http('GET','/.env',expected=404)
             http('GET','/metrics',expected=401)
@@ -105,6 +105,9 @@ def main():
             else: raise AssertionError('Queue did not complete real job')
             query=urllib.parse.urlencode({'project_id':pid,'q':'release','level':'error'})
             d,_=http('GET','/api/v1/logs?'+query,headers=bearer); assert len(d['items'])==2
+            expanded=urllib.parse.urlencode({'project_id':pid,'q':'release error','q_mode':'plain','levels':'["error","warning"]','sources':'["app"]','context':'{"proof":"release"}'})
+            d,_=http('GET','/api/v1/logs?'+expanded,headers=bearer); assert len(d['items'])==2
+            m,_=http('GET','/metrics',headers={'Authorization':'Bearer '+metrics}); assert b'cajeerlogs_search_requests_total{mode="list",status="200"}' in m
             d,_=http('GET',f'/api/v1/logs/{eventid}?project_id={pid}',headers=bearer); assert d['data']['context']['password']=='[redacted]'
             csv,_=http('GET','/api/v1/logs/export?'+query+'&format=csv',headers=bearer); assert eventid.encode() in csv
             print('PASS real TOTP, recovery, token, synchronous and async ingest, worker, search and export',flush=True)

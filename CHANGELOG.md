@@ -2,6 +2,13 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.2.8] — Log Search
+
+- Составные списочные фильтры, три режима FTS, точные JSONB-пути и теги all/any; общие predicates для list/stats/export.
+- Строгий разбор query string, ограничение сложности и read-only SQL timeout, отдельные Prometheus search metrics.
+- Admin Panel с расширенными фильтрами; `db:explain --filters` использует фактический SQL runtime.
+- Миграции 0001–0014 неизменны; Public Preview до PostgreSQL release gate.
+
 ## [0.2.7] — Idempotency & Delivery Guarantees
 
 - Единый транзакционный поиск sync receipts и async jobs в пределах цепочки ротации credential; точные байты тела и запрет смены режима.

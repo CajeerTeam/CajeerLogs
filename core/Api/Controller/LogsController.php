@@ -5,7 +5,7 @@ namespace Cajeer\Logs\Api\Controller;
 use Cajeer\Logs\Database\DatabaseException;
 use Cajeer\Logs\Http\{HttpException,JsonResponse,Request,Response,Router};
 use Cajeer\Logs\Kernel\Application;
-use Cajeer\Logs\Log\{LogQuery,LogExport,LogRepository};
+use Cajeer\Logs\Log\{LogQuery,LogExport,LogRepository,SearchRuntime};
 use Cajeer\Logs\Security\{Identity,RateLimiter};
 use PDO;
 use PDOException;
@@ -32,7 +32,7 @@ final class LogsController
             $pdo=$this->app->container()->get(PDO::class);
             $schemaGuard=$this->app->container()->get(\Cajeer\Logs\Database\MigrationRunner::class)->guard();
             $rate=new RateLimiter($pdo);
-            $rate->enforce('logs-ip:'.$r->remoteAddress,$config->get('api.rate_limit'),60);
+            $rate->enforce('logs-ip:'.\Cajeer\Logs\Security\IngestAuthorization::peerKey($r),$config->get('api.rate_limit'),60);
             $identity=new Identity($pdo,true,'',28800,'',$config->get('security.require_admin_totp'));
             $p=$identity->authenticate($r,$credential);
             $rate->enforce('logs-'.$p['kind'].':'.$p['id'],$config->get('api.rate_limit'),60);
@@ -43,25 +43,27 @@ final class LogsController
             }
             $identity->permission($p,'logs:read',$project,$source);
             $query=$query->scoped($source);
-            $engine=new LogRepository($pdo);
-            if ($mode==='detail') {
-                $row=$engine->find($query,$event);
-                if ($row===null) { throw new HttpException(404,'not_found','Log event not found.'); }
-                return new JsonResponse(['data'=>$row]);
-            }
-            if ($mode==='stats') { return new JsonResponse($engine->statistics($query)); }
-            $page=$engine->page($query);
-            if ($mode==='export') {
-                $headers=['Content-Disposition'=>'attachment; filename="cajeerlogs.'.$query->format.'"'];
-                if ($page['next_cursor']!==null) { $headers['X-Next-Cursor']=$page['next_cursor']; }
-                if ($query->format==='csv') { return new Response(LogExport::csv($page['items']),200,['Content-Type'=>'text/csv; charset=utf-8']+$headers); }
-                return new JsonResponse($page,200,$headers);
-            }
-            return new JsonResponse($page);
+            $budget=min($config->get('api.search_timeout_ms'),(int)$config->get('database.statement_timeout_ms'));
+            return (new SearchRuntime($pdo,$budget))->run($query,function (LogRepository $engine) use ($mode,$query,$event): Response {
+                if ($mode==='detail') {
+                    $row=$engine->find($query,$event);
+                    if ($row===null) { throw new HttpException(404,'not_found','Log event not found.'); }
+                    return new JsonResponse(['data'=>$row]);
+                }
+                if ($mode==='stats') { return new JsonResponse($engine->statistics($query)); }
+                $page=$engine->page($query);
+                if ($mode==='export') {
+                    $headers=['Content-Disposition'=>'attachment; filename="cajeerlogs.'.$query->format.'"'];
+                    if ($page['next_cursor']!==null) { $headers['X-Next-Cursor']=$page['next_cursor']; }
+                    if ($query->format==='csv') { return new Response(LogExport::csv($page['items']),200,['Content-Type'=>'text/csv; charset=utf-8']+$headers); }
+                    return new JsonResponse($page,200,$headers);
+                }
+                return new JsonResponse($page);
+            });
         } catch (DatabaseException $e) {
             throw new HttpException(503,'database_unavailable','Log storage unavailable.');
         } catch (PDOException $e) {
-            $state=(string)$e->getCode();
+            $state=(string)($e->errorInfo[0]??$e->getCode());
             if (str_starts_with($state,'08')||str_starts_with($state,'53')||in_array($state,['42P01','42703','55P03','57014','57P01','57P02','57P03','40001','40P01','25006'],true)) { throw new HttpException(503,'database_unavailable','Log storage unavailable.'); }
             if (str_starts_with($state,'22')) { throw new HttpException(422,'invalid_query','Invalid query value.'); }
             throw $e;
