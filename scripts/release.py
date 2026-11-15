@@ -33,6 +33,7 @@ REQUIRED = {'release.json', 'core/bootstrap.php', 'bin/cajeer', 'public/index.ph
             'tests/release_runtime.php', 'tests/production_smoke.py', 'tests/upgrade_release.py',
             'core/Security/IngestPrincipal.php', 'core/Security/IngestAuthorization.php', 'tests/ingest_authorization.php', 'docs/Ingest-Authorization.md',
             'core/Log/PageCursor.php', 'tests/pagination.php', 'docs/Pagination-Log-Explorer.md',
+            'core/Log/StoredLogJson.php', 'tests/release_pipeline.php', 'tests/pipeline_scenario.py', 'tests/pipeline_database.py', 'docs/Log-Ingestion-Search-Release.md',
             'core/Log/SearchRuntime.php', 'tests/search_runtime.php', 'docs/Log-Search.md',
             'core/Log/DeliveryRepository.php', 'migrations/pgsql/0014_delivery_idempotency.sql', 'tests/delivery.php', 'tests/delivery_database.php', 'docs/Idempotency-Delivery-Guarantees.md',
             'core/Log/RedactionPolicy.php', 'core/Log/RedactionPolicies.php', 'tests/redaction.php', 'tests/redaction_database.php', 'docs/Redaction-Data-Privacy.md',

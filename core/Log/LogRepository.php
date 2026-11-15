@@ -135,7 +135,7 @@ final class LogRepository
         foreach ($rows as $row) {
             if ($row['payload']===null || count($items)>=$query->limit) { $more=true; break; }
             // Preserve historical response types (including large integer strings).
-            $item=json_decode($row['payload'],false,64,JSON_THROW_ON_ERROR|JSON_BIGINT_AS_STRING);
+            $item=StoredLogJson::decode($row['payload']);
             $item=(array)$item;
             $size=strlen(json_encode($item,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES))+1;
             if ($bytes+$size>self::PAGE_BYTES) { $more=true; break; }
@@ -156,8 +156,18 @@ final class LogRepository
     public function find(LogQuery $query,string $id): ?array
     {
         [$where,$params]=self::predicate($query);
-        $row=$this->sql('SELECT '.self::COLUMNS.' FROM log_events WHERE '.$where.' AND id=CAST(:event_id AS uuid)',$params+['event_id'=>$id])->fetch();
-        return $row?self::decode($row):null;
+        // Limit historical oversized rows before transferring them to PHP. A single
+        // materialized candidate preserves a consistent result and distinguishes
+        // oversized from absent/unauthorized events without another query.
+        $sql='WITH candidate AS MATERIALIZED (SELECT '.self::COLUMNS.' FROM log_events WHERE '.$where.' AND id=CAST(:event_id AS uuid)), '
+            .'encoded AS MATERIALIZED (SELECT to_jsonb(c)::text AS payload FROM candidate c) '
+            .'SELECT CASE WHEN octet_length(payload)<='.StoredLogJson::DETAIL_BYTES.' THEN payload END AS payload FROM encoded';
+        $row=$this->sql($sql,$params+['event_id'=>$id])->fetch(PDO::FETCH_ASSOC);
+        if (!$row) return null;
+        if ($row['payload']===null) StoredLogJson::tooLarge();
+        $item=(array)StoredLogJson::decode($row['payload']);
+        if (strlen(json_encode($item,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES))>StoredLogJson::DETAIL_BYTES) StoredLogJson::tooLarge();
+        return $item;
     }
     public function statistics(LogQuery $query): array
     {
@@ -191,9 +201,9 @@ final class LogRepository
         }
         return $result;
     }
-    private static function decode(array $row): array
+    private static function decode(array $row,bool $historicalRewrite=false): array
     {
-        $row['context']=json_decode($row['context'],false,64,JSON_THROW_ON_ERROR|JSON_BIGINT_AS_STRING);
+        $row['context']=$historicalRewrite?json_decode($row['context'],false,64,JSON_THROW_ON_ERROR|JSON_BIGINT_AS_STRING):StoredLogJson::decode($row['context']);
         $row['tags']=json_decode($row['tags'],true,32,JSON_THROW_ON_ERROR);
         return $row;
     }
@@ -392,7 +402,7 @@ final class LogRepository
         foreach ($rows as $row) {
             $last=$row['id'];
             if ($row['context']===null || $row['message']===null) throw new DatabaseException('Historical event exceeds safe redaction size.');
-            $r=self::decode($row);
+            $r=self::decode($row,true);
             $event=new IngestEvent($r['source'],$r['level'],$r['message'],$r['context'],$r['timestamp'],$r['service'],$r['host'],$r['trace_id'],$r['request_id'],$r['tags']);
             $masked=$policies->apply([$event],$project,[$r['source']=>$r['source_id']],1)[0];
             if (json_encode($event,JSON_THROW_ON_ERROR)===json_encode($masked,JSON_THROW_ON_ERROR)) continue;

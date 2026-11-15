@@ -1,4 +1,4 @@
-# CajeerLogs Python SDK (0.2.9)
+# CajeerLogs Python SDK (0.3.0)
 
 Python 3.10+, без runtime-зависимостей. Из корня репозитория `python3 -m pip install ./clients/python` либо добавьте `clients/python` в PYTHONPATH. Для коллектора требуется Unix/Linux, SQLite и `fcntl`.
 
@@ -26,3 +26,5 @@ cajeer-logs-collector --file /var/log/myapp/app.jsonl --state /var/lib/cajeer-co
 ```
 
 Протокол HMAC, восстановление коллектора, ротация, ограничения и webhook-интеграция: [SDK & Integrations](../../docs/SDK-Integrations.md).
+
+For a self-hosted HTTPS server using a private certificate authority, pass `ca_file="/path/to/ca.pem"` to `CajeerLogsClient`. Certificate and hostname verification remain enabled.

@@ -2,7 +2,7 @@
 declare(strict_types=1);
 namespace Cajeer\Logs\Api\Controller;
 
-use Cajeer\Logs\Database\DatabaseException;
+use Cajeer\Logs\Database\{DatabaseException,DatabaseFailure};
 use Cajeer\Logs\Http\{HttpException,JsonResponse,Request,Response,Router};
 use Cajeer\Logs\Kernel\Application;
 use Cajeer\Logs\Log\{LogQuery,LogExport,LogRepository,SearchRuntime,PageCursor};
@@ -50,9 +50,9 @@ final class LogsController
                 if ($mode==='detail') {
                     $row=$engine->find($query,$event);
                     if ($row===null) { throw new HttpException(404,'not_found','Log event not found.'); }
-                    return new JsonResponse(['data'=>$row]);
+                    return new JsonResponse(['data'=>$row],200,['Cache-Control'=>'no-store']);
                 }
-                if ($mode==='stats') { return new JsonResponse($engine->statistics($query)); }
+                if ($mode==='stats') { return new JsonResponse($engine->statistics($query),200,['Cache-Control'=>'no-store']); }
                 $page=$engine->explore($query,$signer,$state,$limit);
                 if ($mode==='export') {
                     if (($match=$r->header('If-Match'))!==null && !hash_equals('"'.$page['page_digest'].'"',$match)) {
@@ -71,10 +71,10 @@ final class LogsController
                 return new JsonResponse($page,200,['Cache-Control'=>'no-store']);
             });
         } catch (DatabaseException $e) {
-            throw new HttpException(503,'database_unavailable','Log storage unavailable.');
+            throw new HttpException(503,'database_unavailable','Log storage unavailable.',['Retry-After'=>'5']);
         } catch (PDOException $e) {
             $state=(string)($e->errorInfo[0]??$e->getCode());
-            if (str_starts_with($state,'08')||str_starts_with($state,'53')||in_array($state,['42P01','42703','55P03','57014','57P01','57P02','57P03','40001','40P01','25006'],true)) { throw new HttpException(503,'database_unavailable','Log storage unavailable.'); }
+            if (DatabaseFailure::unavailable($e)||str_starts_with($state,'08')||str_starts_with($state,'53')||in_array($state,['42P01','42703','55P03','57014','57P01','57P02','57P03','40001','40P01','25006'],true)) { throw new HttpException(503,'database_unavailable','Log storage unavailable.',['Retry-After'=>'5']); }
             if (str_starts_with($state,'22')) { throw new HttpException(422,'invalid_query','Invalid query value.'); }
             throw $e;
         }

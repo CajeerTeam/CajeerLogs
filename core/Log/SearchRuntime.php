@@ -24,7 +24,7 @@ final class SearchRuntime
             $this->pdo->exec('SET LOCAL statement_timeout = '.$remaining);
         };
         try {
-            return (new TransactionManager($this->pdo))->run(function () use ($query,$read,$limit) {
+            return (new TransactionManager($this->pdo))->run(function () use ($query,$read,$limit,$end) {
                 $limit();
                 if (isset($query->filters['q'])) {
                     // querytree identifies expressions with no positive indexable
@@ -36,7 +36,10 @@ final class SearchRuntime
                     self::validateText((int)$row['nodes'],(string)$row['tree'],$query);
                     $limit();
                 }
-                return $read(new LogRepository($this->pdo),$limit);
+                $result=$read(new LogRepository($this->pdo),$limit);
+                // A read-only operation may be abandoned safely after decoding/encoding.
+                if (hrtime(true)>=$end) throw self::timeout();
+                return $result;
             },readOnly:true);
         } catch (PDOException $e) {
             if ((string)($e->errorInfo[0]??$e->getCode())==='57014') throw self::timeout();

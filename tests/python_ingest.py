@@ -3,13 +3,16 @@ import hashlib
 import hmac
 import json
 import sys
+import ssl
+import subprocess
+import tempfile
 import threading
 import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "clients" / "python"))
-from cajeer_logs_client import CajeerLogsClient
+from cajeer_logs_client import CajeerLogsClient, DeliveryError
 
 TOKEN = "cl_" + "a" * 64
 received = []
@@ -72,7 +75,29 @@ try:
     except urllib.error.HTTPError as exc:
         assert exc.code == 307 and received[-1][0] == "/redirect/api/v1/ingest"
         print("PASS credentials not forwarded on redirect")
-    print("Python SDK: 7 checks passed")
+    with tempfile.TemporaryDirectory() as temp:
+        cert, keyfile = Path(temp)/"cert.pem", Path(temp)/"key.pem"
+        subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=127.0.0.1", "-addext", "subjectAltName=IP:127.0.0.1", "-keyout", str(keyfile), "-out", str(cert)], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        tls = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(cert, keyfile)
+        tls.socket = context.wrap_socket(tls.socket, server_side=True)
+        thread = threading.Thread(target=tls.serve_forever, daemon=True); thread.start()
+        try:
+            https = f"https://127.0.0.1:{tls.server_port}"
+            before = len(received)
+            for address, ca in ((https, None), (f"https://localhost:{tls.server_port}", str(cert))):
+                try:
+                    CajeerLogsClient(address, TOKEN, ca_file=ca, attempts=1).ingest(event)
+                    raise AssertionError("untrusted TLS accepted")
+                except DeliveryError:
+                    assert len(received)==before
+                    print("PASS TLS rejects untrusted CA or wrong hostname")
+            assert CajeerLogsClient(https, TOKEN, ca_file=str(cert), attempts=1).ingest(event)["accepted"]
+            print("PASS custom CA verified HTTPS")
+        finally:
+            tls.shutdown(); tls.server_close(); thread.join(timeout=5)
+    print("Python SDK: 10 checks passed")
 finally:
     server.shutdown()
     server.server_close()

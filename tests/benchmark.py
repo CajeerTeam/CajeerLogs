@@ -12,18 +12,21 @@ import unittest
 
 spec=importlib.util.spec_from_file_location('benchmark',Path(__file__).resolve().parents[1]/'scripts/benchmark.py')
 bench=importlib.util.module_from_spec(spec);spec.loader.exec_module(bench)
-TOKEN='fixture-only-token'; PROJECT='11111111-1111-4111-8111-111111111111'
+TOKEN='fixture-only-token'; PROJECT='11111111-1111-4111-8111-111111111111'; KEY='22222222-2222-4222-8222-222222222222'; SECRET='sk_'+'a'*64
 
 class Fixture(BaseHTTPRequestHandler):
-    lock=threading.Lock(); receipts={}; jobs={}; events=[]; nonces=set(); corrupt=False
+    lock=threading.Lock(); receipts={}; jobs={}; events=[]; nonces=set(); corrupt=False; corrupt_export=False
     def log_message(self,*args): pass
-    def reply(self,status,value):
-        body=json.dumps(value).encode();self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
+    def reply(self,status,value,headers=None):
+        body=json.dumps(value).encode();self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(body)))
+        for k,v in (headers or {}).items():self.send_header(k,v)
+        self.end_headers();self.wfile.write(body)
     def do_POST(self):
         raw=self.rfile.read(int(self.headers['Content-Length']));key=self.headers['Idempotency-Key'];nonce=self.headers['X-Log-Nonce'];ts=self.headers['X-Log-Timestamp']
-        mac=hmac.new(TOKEN.encode(),'\n'.join(['cajeerlogs-ingest-v1','POST',self.path,ts,nonce,key,hashlib.sha256(raw).hexdigest()]).encode(),hashlib.sha256).hexdigest()
+        key_id=self.headers.get('X-Log-Key-Id'); prefix=['cajeerlogs-ingest-v1'] if not key_id else ['cajeerlogs-ingest-v2',KEY]
+        mac=hmac.new((SECRET if key_id else TOKEN).encode(),'\n'.join([*prefix,'POST',self.path,ts,nonce,key,hashlib.sha256(raw).hexdigest()]).encode(),hashlib.sha256).hexdigest()
         with self.lock:
-            if self.headers['Authorization']!='Bearer '+TOKEN or mac!=self.headers['X-Log-Signature'] or nonce in self.nonces: return self.reply(401,{})
+            if key_id not in (None,KEY) or self.headers['Authorization']!='Bearer '+TOKEN or mac!=self.headers['X-Log-Signature'] or nonce in self.nonces: return self.reply(401,{})
             self.nonces.add(nonce)
             if key in self.receipts:
                 old,stored=self.receipts[key]
@@ -41,9 +44,16 @@ class Fixture(BaseHTTPRequestHandler):
         with self.lock:
             if self.path.startswith('/api/v1/ingest/jobs/'):return self.reply(200,self.jobs[self.path.split('/')[-1]])
             q=urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query);items=sorted([x for x in self.events if x['request_id']==q['request_id'][0]],key=lambda x:x['id'],reverse=True)
-            if 'cursor' in q:items=[x for x in items if x['id']<q['cursor'][0]]
-            if self.corrupt: items=[]
-            self.reply(200,{'items':items[:100],'next_cursor':items[99]['id'] if len(items)>100 else None})
+            limit=int(q.get('limit',['100'])[0]); start=int(q.get('cursor',['0'])[0]); total=len(items)
+            if self.corrupt: items=[]; total=0
+            page=items[start:start+limit]; digest=hashlib.sha256(json.dumps(page,sort_keys=True).encode()).hexdigest()
+            result={'items':page,'next_cursor':str(start+limit) if start+limit<total else None,'prev_cursor':str(max(0,start-limit)) if start else None,
+                    'page_cursor':str(start),'page_digest':digest,'snapshot_at':'2026-01-01T00:00:00Z','consistency':q.get('consistency',['live'])[0]}
+            if '/export?' in self.path:
+                if self.headers.get('If-Match')!='"'+digest+'"':return self.reply(412,{})
+                if self.corrupt_export:result['items']=[]
+                return self.reply(200,result,{'X-Page-Digest':digest})
+            self.reply(200,result)
 
 class BenchmarkTest(unittest.TestCase):
     def test_percentiles(self):
@@ -61,5 +71,17 @@ class BenchmarkTest(unittest.TestCase):
             Fixture.corrupt=True
             with self.assertRaisesRegex(RuntimeError,'Stored event set differs'):bench.run(url,TOKEN,PROJECT,'app',requests=3,batch=2,concurrency=2)
         finally:Fixture.corrupt=False;server.shutdown();server.server_close();thread.join()
+
+    def test_v2_snapshot_reverse_and_export(self):
+        server=ThreadingHTTPServer(('127.0.0.1',0),Fixture);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+        try:
+            url=f'http://127.0.0.1:{server.server_port}'
+            result=bench.run(url,TOKEN,PROJECT,'app',requests=6,batch=12,concurrency=3,signing_key_id=KEY,signing_secret=SECRET,verify_explorer=True)
+            self.assertEqual(result['events_verified'],50);self.assertTrue(result['explorer_verified']);self.assertEqual(result['signing_version'],2)
+            Fixture.corrupt_export=True
+            with self.assertRaisesRegex(RuntimeError,'Verified export differs'):bench.run(url,TOKEN,PROJECT,'app',requests=3,batch=2,verify_explorer=True)
+        finally:Fixture.corrupt_export=False;server.shutdown();server.server_close();thread.join()
+    def test_incomplete_signing_config(self):
+        with self.assertRaises(ValueError):bench.run('http://localhost',TOKEN,PROJECT,'app',signing_key_id=KEY)
 
 if __name__=='__main__':unittest.main()

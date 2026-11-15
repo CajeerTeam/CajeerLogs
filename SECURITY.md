@@ -4,7 +4,8 @@
 
 | Версия | Статус |
 |---|---|
-| 0.2.9 | Pagination & Log Explorer; текущая версия (Public Preview до CI) |
+| 0.3.0 | Log Ingestion & Search Release; текущая версия (Public Preview до CI) |
+| 0.2.9 | Pagination & Log Explorer |
 | 0.2.5 | HMAC & Replay Protection |
 
 ## Сообщение об уязвимости

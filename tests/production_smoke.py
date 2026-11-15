@@ -20,6 +20,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from pipeline_scenario import exercise
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -45,7 +46,7 @@ def main():
         def cli(*args): return compose('exec','-T','app','php','bin/cajeer',*args,capture=True)
         context=ssl.create_default_context(cafile=str(tls/'fullchain.pem'))
         def http(method,path,body=None,headers=None,expected=200):
-            raw=None if body is None else json.dumps(body,separators=(',',':')).encode()
+            raw=body if isinstance(body,bytes) else (None if body is None else json.dumps(body,separators=(',',':')).encode())
             hs={'Accept':'application/json'}; hs.update(headers or {})
             if raw is not None: hs['Content-Type']='application/json'
             req=urllib.request.Request(url+path,data=raw,headers=hs,method=method)
@@ -67,10 +68,10 @@ def main():
             compose('up','-d','--wait','--wait-timeout','180')
             for _ in range(60):
                 try:
-                    data,_=http('GET','/ready'); assert data['version']=='0.2.9' and data['status']=='ok'; break
+                    data,_=http('GET','/ready'); assert data['version']=='0.3.0' and data['status']=='ok'; break
                 except (OSError, AssertionError, urllib.error.URLError): time.sleep(1)
             else: raise AssertionError('HTTPS readiness did not become healthy')
-            panel,h=http('GET','/admin/'); assert b'0.2.9' in panel and 'frame-ancestors' in h['Content-Security-Policy']
+            panel,h=http('GET','/admin/'); assert b'0.3.0' in panel and 'frame-ancestors' in h['Content-Security-Policy']
             assert len(http('GET','/admin/assets/panel.js')[0])>1000
             http('GET','/.env',expected=404)
             http('GET','/metrics',expected=401)
@@ -134,6 +135,13 @@ def main():
             bench=subprocess.check_output(['python3',str(ROOT/'scripts/benchmark.py'),'--url',url,'--project',pid,'--source','app','--requests','12','--batch','5','--concurrency','4','--ca-file',str(tls/'fullchain.pem'),'--confirm'],env=dict(env,CAJEER_TOKEN=t['token']),text=True,timeout=150)
             measured=json.loads(bench); assert measured['events_verified']==44 and measured['errors']==0
             print(bench,flush=True)
+            # Exercise the exact production HTTPS runtime with a separate v2 credential,
+            # rotated bearer, inherited policies, worker, snapshot and verified export.
+            integrated=exercise(http,url,auth,lambda:None,str(tls/'fullchain.pem'))
+            signing=integrated['token']['signing']
+            bench_v2=subprocess.check_output(['python3',str(ROOT/'scripts/benchmark.py'),'--url',url,'--project',integrated['project_id'],'--source','app','--requests','12','--batch','5','--concurrency','4','--ca-file',str(tls/'fullchain.pem'),'--verify-explorer','--confirm'],env=dict(env,CAJEER_TOKEN=integrated['token']['token'],CAJEER_SIGNING_KEY_ID=signing['current_key_id'],CAJEER_SIGNING_SECRET=signing['signing_secret']),text=True,timeout=150)
+            measured_v2=json.loads(bench_v2); assert measured_v2['events_verified']==44 and measured_v2['errors']==0 and measured_v2['explorer_verified'] and measured_v2['signing_version']==2
+            print(bench_v2,flush=True)
             assert json.loads(cli('db:verify'))['status']=='ok'
             assert json.loads(cli('db:performance'))['tables']
             assert json.loads(cli('db:explain',pid,'--analyze'))['plans']['latest']

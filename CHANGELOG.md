@@ -2,6 +2,13 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.3.0] — Log Ingestion & Search Release
+
+- Согласованное чтение исторических JSONB-чисел в list/detail/export, точный page digest, 4 МиБ detail budget и завершение search budget после сериализации.
+- Benchmark поддерживает HMAC v2, snapshot, обратную навигацию и условный экспорт; Python SDK принимает доверенный CA.
+- Сквозной HTTP/PostgreSQL pipeline с SDK, политиками, ротацией, async jobs, snapshot и экспортом; обязательный в release gate, также запускается через production TLS.
+- Обновления с 0.1.0, 0.2.0 и 0.2.9, совместимость backup, миграции 0001–0014 неизменны. Public Preview до фактической сертификации.
+
 ## [0.2.9] — Pagination & Log Explorer
 
 - Подписанные курсоры v2 (HMAC-SHA256, область доступа, фильтры, направление, TTL); старые HTTP cursors требуют нового поиска.

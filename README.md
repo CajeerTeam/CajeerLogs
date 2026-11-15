@@ -2,6 +2,10 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.3.0 — Log Ingestion & Search Release
+
+Завершение цикла 0.2.x: production pipeline ingest → PostgreSQL → search, безопасное чтение исторических JSONB, ограничение detail, HMAC v2 benchmark с проверкой snapshot и экспорта, сквозной release gate и обновление 0.1.0/0.2.0/0.2.9. Public Preview до фактического CI. См. [Log Ingestion & Search Release](docs/Log-Ingestion-Search-Release.md).
+
 ## 0.2.9 — Pagination & Log Explorer
 
 Подписанные курсоры v2 с привязкой к области доступа, двусторонний keyset, ограниченный snapshot по received_at, байтовый бюджет страниц, проверяемый экспорт и восстановление позиции Log Explorer. Без новой миграции. См. [Pagination & Log Explorer](docs/Pagination-Log-Explorer.md).

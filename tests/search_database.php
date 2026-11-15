@@ -104,6 +104,15 @@ try {
     $patch->execute(['patch'=>'{"exact":12345678901234567890,"nullable":null,"list":[{"region":"eu"}]}','id'=>$a]);
     verify(array_column(data(get('/logs',$range+['context_path'=>'["exact"]','context_equals'=>'12345678901234567890'],$readerHeaders))['items'],'id')===[$a],'exact high precision JSONB number');
     verify(data(get('/logs',$range+['context_path'=>'["exact"]','context_equals'=>'"12345678901234567890"'],$readerHeaders))['items']===[],'JSON number differs from JSON string');
+    $decimal='12345678901234567890.12345678901234567890';
+    $patch->execute(['patch'=>'{"decimal":'.$decimal.'}','id'=>$a]);
+    $precisePage=data(get('/logs',$range+['context_path'=>'["decimal"]','context_equals'=>$decimal],$readerHeaders));
+    verify(count($precisePage['items'])===1&&$precisePage['items'][0]['context']['decimal']===$decimal,'SQL exact decimal and list serialization agree');
+    $detailResponse=get('/logs/'.$a,$query,$readerHeaders);
+    verify(data($detailResponse)['data']['context']['decimal']===$decimal&&$detailResponse->header('Cache-Control')==='no-store','detail keeps precision and privacy headers');
+    $preciseExport=get('/logs/export',$range+['context_path'=>'["decimal"]','context_equals'=>$decimal,'format'=>'csv'],$readerHeaders);
+    verify(str_contains($preciseExport->body,$decimal),'CSV retains exact historical decimal');
+
     verify(array_column(data(get('/logs',$range+['context_path'=>'["nullable"]','context_equals'=>'null'],$readerHeaders))['items'],'id')===[$a],'JSON null differs from missing path');
     verify(array_column(data(get('/logs',$range+['context_path'=>'["nullable"]'],$readerHeaders))['items'],'id')===[$a],'path existence includes JSON null');
     verify(array_column(data(get('/logs',$range+['context_path'=>'["list","0","region"]','context_equals'=>'"eu"'],$readerHeaders))['items'],'id')===[$a],'array index traversal');
@@ -181,6 +190,11 @@ try {
     verify($after['items'][0]['id']===$c,'byte-limited continuation starts at first omitted event');
     $pdo->prepare("UPDATE log_events SET context=jsonb_build_object('large',repeat('x',2200000)) WHERE id=:id")->execute(['id'=>$d]);
     get('/logs',$query+['limit'=>'100'],$readerHeaders,413);
+    verify(strlen(data(get('/logs/'.$d,$query,$readerHeaders))['data']['context']['large'])===2200000,'detail can read event larger than page budget');
+    $pdo->prepare("UPDATE log_events SET context=jsonb_build_object('large',repeat('x',4300000)) WHERE id=:id")->execute(['id'=>$d]);
+    get('/logs/'.$d,$query,$readerHeaders,413);
+    get('/logs/'.$d,$query,bearer($foreignReader['token']),403);
+
     $pdo->prepare("UPDATE log_events SET context='{}'::jsonb WHERE id IN (CAST(:a AS uuid),CAST(:b AS uuid))")->execute(['a'=>$d,'b'=>$c]);
     $pdo->prepare('DELETE FROM log_events WHERE id=:id')->execute(['id'=>$c]);
     verify(array_column(data(get('/logs',$snapshot+['cursor'=>$first['next_cursor']],$readerHeaders))['items'],'id')===$ties,'deleting the anchor does not break keyset continuation');

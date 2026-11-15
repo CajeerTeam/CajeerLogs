@@ -9,6 +9,7 @@ import logging
 import math
 import re
 import secrets
+import ssl
 import time
 import urllib.error
 import urllib.parse
@@ -125,6 +126,7 @@ class CajeerLogsClient:
     attempts: int = 3
     allow_insecure_http: bool = False
     signing_key_id: str | None = None
+    ca_file: str | None = None
 
     def __post_init__(self):
         parsed = urllib.parse.urlsplit(self.base_url)
@@ -160,7 +162,7 @@ class CajeerLogsClient:
         count = len(events)
         url = f"{self.base_url.rstrip('/')}{self.api_prefix}/ingest"
         path = urllib.parse.urlsplit(url).path
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect(), urllib.request.HTTPSHandler(context=ssl.create_default_context(cafile=self.ca_file)))
         for attempt in range(self.attempts):
             headers = {"Content-Type": "application/json", "Authorization": f"Bearer {self.token}", "Idempotency-Key": key}
             if self.signed or self.hmac_secret is not None:

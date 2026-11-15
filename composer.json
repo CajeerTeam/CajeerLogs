@@ -19,8 +19,8 @@
     "ext-sodium": "*"
   },
   "suggest": {
-    "ext-pdo_mysql": "Future support; not implemented in 0.2.9",
-    "ext-pdo_sqlite": "Future support; not implemented in 0.2.9",
+    "ext-pdo_mysql": "Future support; not implemented in 0.3.0",
+    "ext-pdo_sqlite": "Future support; not implemented in 0.3.0",
     "ext-redis": "Reserved for future optional Redis support",
     "ext-curl": "Required for outgoing webhook worker; future ClickHouse and OTLP support",
     "ext-pcntl": "Required for continuous queue worker signal handling"
@@ -62,6 +62,7 @@
     "test:search": "@php tests/search.php",
     "test:search-runtime": "@php tests/search_runtime.php",
     "test:pagination": "@php tests/pagination.php",
+    "test:release-pipeline": "@php tests/release_pipeline.php",
     "test:search-database": "@php tests/search_database.php",
     "test:webhooks": "@php tests/webhooks.php",
     "test:webhook-database": "@php tests/webhook_database.php",

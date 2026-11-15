@@ -8,6 +8,7 @@ import hmac
 import json
 import math
 import os
+import re
 import secrets
 import ssl
 import time
@@ -30,7 +31,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None  # Never forward bearer credentials to a redirected destination.
 
 
-def run(url, token, project, source, requests=20, batch=10, concurrency=4, timeout=120, cafile=None):
+def run(url, token, project, source, requests=20, batch=10, concurrency=4, timeout=120, cafile=None, signing_key_id=None, signing_secret=None, verify_explorer=False):
     parsed = urllib.parse.urlsplit(url)
     if (parsed.scheme not in ('https', 'http') or not parsed.hostname or parsed.username or parsed.password
             or parsed.path not in ('', '/') or parsed.query or parsed.fragment
@@ -41,31 +42,39 @@ def run(url, token, project, source, requests=20, batch=10, concurrency=4, timeo
         raise ValueError('Invalid benchmark bounds.')
     if not source or not token:
         raise ValueError('Source and CAJEER_TOKEN are required.')
+    if (signing_key_id is None)!=(signing_secret is None) or (signing_key_id is not None and
+            (not re.fullmatch(r'[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}',signing_key_id)
+             or not re.fullmatch(r'sk_[a-f0-9]{64}',signing_secret))):
+        raise ValueError('Invalid separate signing configuration.')
     url = url.rstrip('/')
     marker = 'bench-' + secrets.token_hex(12)
     stamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
     deadline = time.monotonic() + timeout
     context = ssl.create_default_context(cafile=cafile)
     # No ambient proxies: the benchmark is explicitly targeted to this origin.
-    def call(method, path, body=None, key=None):
+    def call(method, path, body=None, key=None, extra_headers=None):
         remaining = deadline-time.monotonic()
         if remaining <= 0:
             raise RuntimeError('Benchmark deadline exceeded')
-        headers = {'Authorization': 'Bearer '+token, 'Accept': 'application/json'}
+        headers = {'Authorization': 'Bearer '+token, 'Accept': 'application/json'} | (extra_headers or {})
         if body is not None:
             ts = str(int(time.time())); nonce = secrets.token_hex(16)
-            signature = hmac.new(token.encode(), '\n'.join(['cajeerlogs-ingest-v1',method,path,ts,nonce,key,hashlib.sha256(body).hexdigest()]).encode(),hashlib.sha256).hexdigest()
+            prefix=['cajeerlogs-ingest-v1'] if signing_key_id is None else ['cajeerlogs-ingest-v2',signing_key_id]
+            if signing_key_id is not None: headers['X-Log-Key-Id']=signing_key_id
+            signature = hmac.new((signing_secret or token).encode(), '\n'.join([*prefix,method,path,ts,nonce,key,hashlib.sha256(body).hexdigest()]).encode(),hashlib.sha256).hexdigest()
             headers.update({'Content-Type':'application/json','Idempotency-Key':key,'X-Log-Timestamp':ts,'X-Log-Nonce':nonce,'X-Log-Signature':signature})
         opener = urllib.request.build_opener(NoRedirect(), urllib.request.ProxyHandler({}), urllib.request.HTTPSHandler(context=context))
         start = time.perf_counter()
         try:
             with opener.open(urllib.request.Request(url+path, data=body, headers=headers, method=method),timeout=min(20,remaining)) as response:
-                data=json.loads(response.read(4*1024*1024+1)); status=response.status
+                raw=response.read(4*1024*1024+1)
+                if len(raw)>4*1024*1024: raise ValueError('Response exceeds benchmark limit')
+                data=json.loads(raw); status=response.status; response_headers=response.headers
         except urllib.error.HTTPError as error:
             status=error.code; error.close(); raise RuntimeError(f'{method} {path.split("?")[0]} returned HTTP {status}') from None
         except (OSError, ValueError):
             raise RuntimeError(f'{method} {path.split("?")[0]} transport/response failure') from None
-        return status,data,time.perf_counter()-start
+        return status,data,time.perf_counter()-start,response_headers
 
     def writer(i):
         n=1 if i%3==0 else batch
@@ -74,12 +83,12 @@ def run(url, token, project, source, requests=20, batch=10, concurrency=4, timeo
         raw=json.dumps(events[0] if n==1 else {'events':events},separators=(',',':')).encode()
         path='/api/v1/ingest'+('/async' if asynchronous else '')
         key=f'{marker}-{i}'
-        status,data,latency=call('POST',path,raw,key)
+        status,data,latency,_=call('POST',path,raw,key)
         expected=202 if asynchronous else 201
         if status!=expected or data.get('received')!=n:
             raise RuntimeError('Ingest response mismatch')
         # Replay the same bytes/key with a fresh HMAC nonce. No double count is permitted.
-        replay,again,_=call('POST',path,raw,key)
+        replay,again,_,_=call('POST',path,raw,key)
         if replay!=200 or not again.get('replayed'):
             raise RuntimeError('Idempotency replay failed')
         if asynchronous:
@@ -89,20 +98,34 @@ def run(url, token, project, source, requests=20, batch=10, concurrency=4, timeo
         if len(ids)!=n or again.get('event_ids')!=ids: raise RuntimeError('Receipt mismatch')
         return ('single' if n==1 else 'batch',n,ids,latency)
 
-    def search():
-        ids=set(); cursor=None; durations=[]
+    def search(snapshot=False):
+        ids=set(); cursor=None; cursors=set(); durations=[]; first=None; second=None; watermark=None
+        filters={'project_id':project,'request_id':marker,'limit':20 if snapshot else 100}
+        if snapshot: filters['consistency']='snapshot'
         while True:
-            q={'project_id':project,'request_id':marker,'limit':100}
-            if cursor is not None: q['cursor']=cursor
-            status,d,elapsed=call('GET','/api/v1/logs?'+urllib.parse.urlencode(q));durations.append(elapsed)
+            q=filters | ({'cursor':cursor} if cursor is not None else {})
+            status,d,elapsed,_=call('GET','/api/v1/logs?'+urllib.parse.urlencode(q));durations.append(elapsed)
             if status!=200: raise RuntimeError('Search failed')
+            if snapshot:
+                if first is None: first=d; watermark=d.get('snapshot_at')
+                elif second is None: second=d
+                if not watermark or d.get('snapshot_at')!=watermark or d.get('consistency')!='snapshot' or not d.get('page_cursor') or not re.fullmatch(r'[a-f0-9]{64}',d.get('page_digest','')):
+                    raise RuntimeError('Invalid snapshot page metadata')
             for item in d['items']:
                 if item['request_id']!=marker or item['id'] in ids: raise RuntimeError('Invalid/duplicate search event')
                 ids.add(item['id'])
             next_cursor=d.get('next_cursor')
-            if not next_cursor: return ids,durations
-            if next_cursor==cursor: raise RuntimeError('Cursor did not advance')
-            cursor=next_cursor
+            if not next_cursor: break
+            if next_cursor in cursors or not d['items']: raise RuntimeError('Cursor did not advance')
+            cursors.add(next_cursor); cursor=next_cursor
+        if snapshot and first is not None:
+            if second is not None:
+                if not second.get('prev_cursor'): raise RuntimeError('Missing reverse cursor')
+                _,back,elapsed,_=call('GET','/api/v1/logs?'+urllib.parse.urlencode(filters|{'cursor':second['prev_cursor']})); durations.append(elapsed)
+                if back['items']!=first['items'] or back.get('page_digest')!=first['page_digest'] or back.get('snapshot_at')!=watermark: raise RuntimeError('Reverse page differs')
+            _,export,elapsed,headers=call('GET','/api/v1/logs/export?'+urllib.parse.urlencode(filters|{'cursor':first['page_cursor'],'format':'json'}),extra_headers={'If-Match':'"'+first['page_digest']+'"'});durations.append(elapsed)
+            if export['items']!=first['items'] or export.get('page_digest')!=first['page_digest'] or headers.get('X-Page-Digest')!=first['page_digest']: raise RuntimeError('Verified export differs')
+        return ids,durations
 
     started=time.perf_counter(); samples={k:[] for k in ('single','batch','async','search')}; expected_ids=set(); jobs=[]; event_count=0
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
@@ -120,7 +143,7 @@ def run(url, token, project, source, requests=20, batch=10, concurrency=4, timeo
     while jobs:
         remaining=[]
         for jid,n in jobs:
-            _,data,_=call('GET','/api/v1/ingest/jobs/'+jid)
+            _,data,_,_=call('GET','/api/v1/ingest/jobs/'+jid)
             if data['status']=='completed':
                 ids=data['result']['event_ids']
                 if len(ids)!=n or len(set(ids))!=n or expected_ids.intersection(ids): raise RuntimeError('Duplicate/incomplete async result')
@@ -129,23 +152,23 @@ def run(url, token, project, source, requests=20, batch=10, concurrency=4, timeo
             else: raise RuntimeError('Async job did not complete successfully')
         jobs=remaining
         if jobs: time.sleep(.2)
-    found,latencies=search(); samples['search'].extend(latencies)
+    found,latencies=search(verify_explorer); samples['search'].extend(latencies)
     if len(expected_ids)!=event_count or found!=expected_ids: raise RuntimeError('Stored event set differs from durable acknowledgements')
     seconds=time.perf_counter()-started
     return {'run_id':marker,'requests':requests,'events_verified':event_count,'concurrency':concurrency,
             'elapsed_seconds':round(seconds,3),'admission_seconds':round(admission_seconds,3),
             'events_per_second_end_to_end':round(event_count/seconds,3),'latency':{k:percentiles(v) for k,v in samples.items()},
-            'idempotent_replays_verified':requests,'errors':0}
+            'idempotent_replays_verified':requests,'explorer_verified':verify_explorer,'signing_version':2 if signing_key_id else 1,'errors':0}
 
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--url',required=True);p.add_argument('--project',required=True);p.add_argument('--source',required=True)
     p.add_argument('--requests',type=int,default=20);p.add_argument('--batch',type=int,default=10);p.add_argument('--concurrency',type=int,default=4)
-    p.add_argument('--timeout',type=int,default=120);p.add_argument('--ca-file');p.add_argument('--confirm',action='store_true')
+    p.add_argument('--timeout',type=int,default=120);p.add_argument('--ca-file');p.add_argument('--confirm',action='store_true');p.add_argument('--verify-explorer',action='store_true',help='Verify snapshot, reverse navigation and conditional JSON export')
     a=p.parse_args()
     if not a.confirm: p.error('Writes real logs: use a disposable project and pass --confirm.')
-    try: print(json.dumps(run(a.url,os.environ.get('CAJEER_TOKEN',''),a.project,a.source,a.requests,a.batch,a.concurrency,a.timeout,a.ca_file),indent=2))
+    try: print(json.dumps(run(a.url,os.environ.get('CAJEER_TOKEN',''),a.project,a.source,a.requests,a.batch,a.concurrency,a.timeout,a.ca_file,os.environ.get('CAJEER_SIGNING_KEY_ID'),os.environ.get('CAJEER_SIGNING_SECRET'),a.verify_explorer),indent=2))
     except (RuntimeError,ValueError,KeyError,TypeError) as exc:
         # Avoid printing raw HTTP bodies or credentials on error.
         p.exit(1, 'Benchmark failed: '+(str(exc) if isinstance(exc,(RuntimeError,ValueError)) else type(exc).__name__)+'\n')

@@ -2,7 +2,7 @@
   "openapi": "3.1.1",
   "info": {
     "title": "CajeerLogs API",
-    "version": "0.2.9",
+    "version": "0.3.0",
     "description": "Identity & Access, synchronous and durable asynchronous PostgreSQL ingestion, job status, project-scoped search, statistics and export. Outgoing webhooks and lifecycle administration use the CLI. TOTP enrollment, recovery codes and administrator enrollment policy. Token rotation, scoped service accounts, credential request quotas and bulk revocation. Mandatory project/token HMAC and separately encrypted rotating signing keys."
   },
   "servers": [
@@ -4382,6 +4382,16 @@
               }
             }
           },
+          "413": {
+            "description": "Stored event exceeds the 4 MiB detail payload budget",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "422": {
             "description": "Invalid query",
             "content": {
@@ -8443,7 +8453,8 @@
           },
           "context": {
             "type": "object",
-            "additionalProperties": true
+            "additionalProperties": true,
+            "description": "Stored context. Legacy integers outside signed 64-bit and decimal values beyond 15 significant digits or finite binary64 range are returned as exact strings. JSONB filters compare the stored JSON type and value."
           },
           "trace_id": {
             "type": [
