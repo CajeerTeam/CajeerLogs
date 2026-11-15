@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Admin UI Foundation 0.3.1 database release gate. Executes real tests on a verified distribution.
+"""Authentication & Sessions 0.3.2 database release gate. Executes real tests on a verified distribution.
 
 Database: explicit disposable PostgreSQL credentials and two empty restore targets.
 Release: four trusted CI database reports for this exact archive, then real Docker smoke.
@@ -19,7 +19,7 @@ import time
 
 import release
 
-VERSION = '0.3.1'
+VERSION = '0.3.2'
 DATABASE_TESTS = (
     'database', 'migration_engine_database', 'transaction_database',
     'identity_database', 'ingest_database', 'delivery_database', 'hmac_database', 'redaction_database', 'search_database',
@@ -34,7 +34,7 @@ MATRIX = {(php, pg) for php in ('8.4', '8.5') for pg in ('17', '18')}
 def archive_info(path):
     meta = release.verify(path)
     if meta['version'] != VERSION:
-        raise ValueError('Expected the 0.3.1 release archive')
+        raise ValueError('Expected the 0.3.2 release archive')
     return {'version': VERSION, 'archive_sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
 
 

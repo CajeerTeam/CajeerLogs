@@ -65,6 +65,9 @@ final class Identity
             $current = $users->findByEmail($email);
             if ($current === null || $current['id'] !== $user['id'] || $current['password_hash'] !== $user['password_hash'] || $current['blocked_at'] !== null) { self::unauthorized(); }
             $user = $current;
+            if ($user['two_factor_enabled'] && $otp === null) {
+                throw new HttpException(401,'second_factor_required','Enter a TOTP or recovery code.', ['WWW-Authenticate'=>'Bearer realm="CajeerLogs"']);
+            }
             if ($user['two_factor_enabled'] && !(new TwoFactorManager($this->pdo,$this->totpKey))->verify($user['id'],$otp)) {
                 (new AuditLogger($this->pdo))->record('auth.login_failed',['request_id'=>$r->requestId],$user['id']);
                 return null;
@@ -77,7 +80,9 @@ final class Identity
             if (preg_match('/(?:^|;\s*)cajeerlogs_session=([a-f0-9]{64})(?:;|$)/D',$old,$m)) {
                 $this->sql('DELETE FROM auth_sessions WHERE token_hash=:hash',['hash'=>hash('sha256',$m[1])]);
             }
-            $result=$this->issueSession($user);
+            $this->sql('UPDATE users SET last_login_at=now() WHERE id=:id',['id'=>$user['id']]);
+            $user=$users->findByEmail($email);
+            $result=$this->issueSession($user,$r);
             (new AuditLogger($this->pdo))->record('auth.login',['request_id'=>$r->requestId],$user['id']);
             return $result;
         }, maxAttempts: 3);
@@ -85,12 +90,19 @@ final class Identity
         return $result;
     }
     public function enrollmentRequired(array $user): bool { return $this->requireAdminTotp && $user['role']==='administrator' && !$user['two_factor_enabled']; }
-    public function issueSession(array $user): array
+    public function issueSession(array $user, ?Request $request = null): array
     {
         if (!$this->pdo->inTransaction()) { throw new \LogicException('Session creation requires transaction.'); }
         $secret=bin2hex(random_bytes(32)); $csrf=(new CsrfProtection())->token();
-        $this->sql("INSERT INTO auth_sessions(token_hash,user_id,csrf_token,expires_at) VALUES (:hash,:id,:csrf,now()+CAST(:ttl AS integer)*interval '1 second')",['hash'=>hash('sha256',$secret),'id'=>$user['id'],'csrf'=>$csrf,'ttl'=>$this->ttl]);
+        $this->sql("INSERT INTO auth_sessions(token_hash,user_id,csrf_token,expires_at,user_agent,remote_address) VALUES (:hash,:id,:csrf,now()+CAST(:ttl AS integer)*interval '1 second',:agent,:address)",['hash'=>hash('sha256',$secret),'id'=>$user['id'],'csrf'=>$csrf,'ttl'=>$this->ttl,'agent'=>self::sessionAgent($request),'address'=>$request !== null && filter_var($request->remoteAddress,FILTER_VALIDATE_IP) ? $request->remoteAddress : null]);
         return ['user'=>self::publicUser($user),'csrf_token'=>$csrf,'cookie'=>$this->cookie($secret),'expires_in'=>$this->ttl,'enrollment_required'=>$this->enrollmentRequired($user)];
+    }
+    private static function sessionAgent(?Request $request): ?string
+    {
+        $agent=$request?->header('User-Agent');
+        if ($agent===null || !preg_match('//u',$agent)) return null;
+        // Retain at most 512 Unicode characters, not a truncated UTF-8 byte sequence.
+        return preg_match('/^.{0,512}/us',$agent,$m) ? $m[0] : null;
     }
     public function authenticate(Request $r, array $credential, bool $allowEnrollment = false, bool $chargeRate = true, bool $touchToken = true): array
     {
@@ -103,7 +115,7 @@ final class Identity
             return ['kind'=>'token','id'=>$row['id'],'token'=>$row];
         }
         $hash = hash('sha256',$credential['secret']);
-        $row = $this->sql('SELECT u.id,u.email,u.role,u.blocked_at,u.two_factor_enabled,u.created_at,u.updated_at,s.csrf_token FROM auth_sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=:hash AND s.expires_at>now() AND u.blocked_at IS NULL',['hash'=>$hash])->fetch();
+        $row = $this->sql('SELECT u.id,u.email,u.role,u.blocked_at,u.two_factor_enabled,u.created_at,u.updated_at,u.display_name,u.last_login_at,s.csrf_token,s.id AS session_id,s.expires_at FROM auth_sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=:hash AND s.expires_at>now() AND u.blocked_at IS NULL',['hash'=>$hash])->fetch();
         if (!$row) { self::unauthorized(); }
         if (!$allowEnrollment && $this->enrollmentRequired($row)) { throw new HttpException(403,'totp_enrollment_required','Enroll in two-factor authentication first.'); }
         if (!in_array($r->method,['GET','HEAD','OPTIONS'],true)) {
@@ -111,7 +123,7 @@ final class Identity
             if (!(new CsrfProtection())->verify($row['csrf_token'],$r->header('X-CSRF-Token'))) { throw new HttpException(403,'csrf_failed','Invalid CSRF token.'); }
         }
         $this->sql("UPDATE auth_sessions SET last_seen_at=now() WHERE token_hash=:hash AND last_seen_at<now()-interval '5 minutes'",['hash'=>$hash]);
-        return ['kind'=>'session','id'=>$row['id'],'user'=>self::publicUser($row),'hash'=>$hash,'csrf'=>$row['csrf_token']];
+        return ['kind'=>'session','id'=>$row['id'],'user'=>self::publicUser($row),'hash'=>$hash,'csrf'=>$row['csrf_token'],'session_id'=>$row['session_id'],'expires_at'=>$row['expires_at']];
     }
     /** A project role can restrict, never elevate, the global role. Administrators retain global access. */
     public function projectRole(array $p,string $project): string
@@ -134,5 +146,5 @@ final class Identity
     }
     public function lock(): void { $this->pdo->query("SELECT pg_advisory_xact_lock(hashtextextended('cajeerlogs:identity:' || current_schema(),0))")->closeCursor(); }
     public function sql(string $sql,array $params=[]): \PDOStatement { $s=$this->pdo->prepare($sql); $s->execute($params); return $s; }
-    public static function publicUser(array $u): array { return array_intersect_key($u,array_flip(['id','email','role','blocked_at','two_factor_enabled','created_at','updated_at'])); }
+    public static function publicUser(array $u): array { return array_intersect_key($u,array_flip(['id','email','role','blocked_at','two_factor_enabled','created_at','updated_at','display_name','last_login_at'])); }
 }

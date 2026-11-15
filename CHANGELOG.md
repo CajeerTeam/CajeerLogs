@@ -2,6 +2,13 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## 0.3.2 — Authentication & Sessions
+
+- Двухэтапный вход, пароль и TOTP/recovery, локальный QR-код и безопасная замена recovery-кодов.
+- PostgreSQL 0015: публичные UUID сессий, метаданные подключения, профиль и время последнего входа; сохранение старых сессий.
+- Список сессий, индивидуальный отзыв, отзыв остальных, администраторское управление, аудит и синхронизация вкладок.
+- Реальные API, обновлённые браузерные и PostgreSQL-тесты, OpenAPI и совместимость backup. Public Preview до полного CI.
+
 ## 0.3.1 — Admin UI Foundation
 
 - Production SPA разбита на ES Modules: семь действующих страниц, состояние, маршруты, сессии, API-клиент и компоненты.

@@ -39,8 +39,17 @@ try {
     (new MigrationRunner($pdo,$tmp,$schema))->migrate();
     $stmt=$pdo->prepare("INSERT INTO users(email,password_hash,role) VALUES ('admin@example.test',:hash,'administrator')"); $stmt->execute(['hash'=>password_hash('admin-password-12345',PASSWORD_ARGON2ID)]);
     $adminId=$pdo->query('SELECT id FROM users')->fetchColumn();
+    foreach (glob($root.'/migrations/pgsql/*.sql') as $file) { if (basename($file)!=='0015_authentication_sessions.sql') copy($file,$tmp.'/'.basename($file)); }
+    (new MigrationRunner($pdo,$tmp,$schema))->migrate();
+    $legacySecret=bin2hex(random_bytes(32)); $legacyCsrf=bin2hex(random_bytes(32));
+    $stmt=$pdo->prepare("INSERT INTO auth_sessions(token_hash,user_id,csrf_token,expires_at) VALUES (:hash,:user,:csrf,now()+interval '1 hour')");
+    $stmt->execute(['hash'=>hash('sha256',$legacySecret),'user'=>$adminId,'csrf'=>$legacyCsrf]);
     $runner=$app->container()->get(MigrationRunner::class);
-    verify($runner->migrate()===['0003_identity_access.sql','0004_log_ingestion.sql','0005_log_search.sql','0006_sdk_integrations.sql','0007_queue_lifecycle.sql','0008_security_operations.sql','0009_project_management.sql','0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql','0013_ingest_signing.sql','0014_delivery_idempotency.sql']&&$runner->migrate()===[],'0.0.2 upgrade to current schema and idempotent migration');
+    verify($runner->migrate()===['0015_authentication_sessions.sql']&&$runner->migrate()===[],'0.3.1 session migration and idempotent replay');
+    $legacy=['Cookie'=>'cajeerlogs_session='.$legacySecret,'X-CSRF-Token'=>$legacyCsrf];
+    $legacyPage=data(ok('GET','/auth/sessions',null,$legacy));
+    verify(count($legacyPage['items'])===1&&$legacyPage['items'][0]['current']===true&&$legacyPage['items'][0]['user_agent']===null&&!str_contains(json_encode($legacyPage),$legacySecret)&&!str_contains(json_encode($legacyPage),$legacyCsrf),'legacy session survives, public UUID, no credentials');
+    ok('POST','/auth/logout',null,$legacy,204);
     verify($pdo->query('SELECT id FROM users')->fetchColumn()===$adminId,'upgrade preserves administrator');
     verify($app->handle(new Request('GET','/ready'))->status===200,'identity schema readiness');
     ok('POST','/auth/login',['email'=>'admin@example.test','password'=>'wrong'],[],401);
@@ -65,6 +74,37 @@ try {
     ok('PUT','/projects/'.$p1.'/members/'.$viewer,null,$admin,204);
     verify(count(data(ok('GET','/projects/'.$p1.'/members',null,$admin))['items'])===2,'membership listing');
     $operator=login('operator@example.test','operator-password-123'); $view=login('viewer@example.test','viewer-password-123');
+    $device=login('operator@example.test','operator-password-123',['User-Agent'=>'Test Browser 123']);
+    $own=data(ok('GET','/auth/sessions',null,$operator));
+    verify(count($own['items'])===2&&count(array_filter($own['items'],fn($s)=>$s['current']))===1,'own sessions and unique current marker');
+    $other=array_values(array_filter($own['items'],fn($s)=>!$s['current']))[0];
+    verify($other['user_agent']==='Test Browser 123'&&$other['remote_address']==='127.0.0.1'&&!isset($other['token_hash'])&&!isset($other['csrf_token']),'session device metadata safe');
+    $foreign=data(ok('GET','/auth/sessions',null,$view))['items'][0]['id'];
+    ok('DELETE','/auth/sessions/'.$foreign,null,$operator,404);
+    ok('GET','/users/'.$viewer.'/sessions',null,$operator,403);
+    ok('DELETE','/auth/sessions/'.$other['id'],null,['Cookie'=>$operator['Cookie']],403);
+    ok('DELETE','/auth/sessions/'.$other['id'],null,$operator,204);
+    ok('GET','/auth/me',null,$device,401); ok('GET','/auth/me',null,$operator);
+    $device=login('operator@example.test','operator-password-123');
+    ok('POST','/auth/logout-others',null,$operator,204); ok('GET','/auth/me',null,$device,401);
+    $profile=data(ok('PATCH','/auth/profile',['display_name'=>'Operator <test>'],$operator));
+    verify($profile['user']['display_name']==='Operator <test>'&&$profile['user']['last_login_at']!==null,'profile persisted and login timestamp');
+    verify(data(ok('GET','/auth/me',null,$operator))['user']['display_name']==='Operator <test>','profile survives request');
+    ok('PATCH','/auth/profile',['role'=>'administrator'],$operator,422);
+    ok('PATCH','/auth/profile',['display_name'=>str_repeat('x',121)],$operator,422);
+    $device=login('operator@example.test','operator-password-123');
+    $adminPage=data(ok('GET','/users/'.$op.'/sessions',null,$admin));
+    verify(count($adminPage['items'])===2&&!array_filter($adminPage['items'],fn($s)=>$s['current']),'admin scoped list');
+    $deviceId=data(ok('GET','/auth/sessions',null,$device))['items'];
+    $deviceId=array_values(array_filter($deviceId,fn($s)=>$s['current']))[0]['id'];
+    ok('DELETE','/users/'.$viewer.'/sessions/'.$deviceId,null,$admin,404);
+    ok('DELETE','/users/'.$op.'/sessions/'.$deviceId,null,$admin,204); ok('GET','/auth/me',null,$device,401);
+    $device=login('operator@example.test','operator-password-123');
+    ok('POST','/users/'.$op.'/sessions/revoke-all',null,$admin,204); ok('GET','/auth/me',null,$operator,401); ok('GET','/auth/me',null,$device,401);
+    // Reset the isolated rate bucket before the remaining existing scenarios.
+    $pdo->exec('DELETE FROM auth_rate_limits');
+    $operator=login('operator@example.test','operator-password-123');
+
     verify(count(data(ok('GET','/projects',null,$operator))['items'])===1,'project list scoped');
     $page=data(callApi('GET','/projects',null,$admin,['limit'=>'1']));
     verify(count($page['items'])===1&&$page['next_cursor']!==null,'project cursor pagination first page');

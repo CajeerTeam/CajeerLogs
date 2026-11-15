@@ -72,7 +72,7 @@ class Fixture:
         self.user = None; self.totp_enabled=False; self.require_totp=False; self.role = 'administrator'; self.projects=[{'id':P1,'name':'Production','slug':'production','revision':'1','status':'active','description':'','metadata':{},'max_body_bytes':1048576,'max_batch_events':100,'created_at':'2026-01-01T00:00:00Z'}]
         self.sources=[{'id':S1,'project_id':P1,'name':'Application','slug':'app','created_at':'2026-01-01T00:00:00Z','status':'active','revision':'1','source_type':'application','metadata':{}}]
         self.users=[{'id':U1,'email':'admin@example.test','role':'administrator','blocked_at':None}]
-        self.members=[]; self.tokens=[]; self.accounts=[]; self.calls=[]; self.fail_next=False; self.change_export=False; self.redaction={}
+        self.sessions=[{'id':U1,'current':True,'user_agent':'Current browser','remote_address':'127.0.0.1','created_at':'2026-01-01T00:00:00Z','last_seen_at':'2026-01-01T00:00:00Z','expires_at':'2026-01-02T00:00:00Z'},{'id':U2,'current':False,'user_agent':'Other device','remote_address':'192.0.2.3','created_at':'2026-01-01T00:00:00Z','last_seen_at':'2026-01-01T00:00:00Z','expires_at':'2026-01-02T00:00:00Z'}]; self.members=[]; self.tokens=[]; self.accounts=[]; self.calls=[]; self.fail_next=False; self.change_export=False; self.redaction={}
         self.event={'id':E1,'project_id':P1,'source_id':S1,'source':'app','service':'api','host':'host-1','level':'error','message':'<img src=x onerror="window.pwned=1"> database error','context':{'secret':'[redacted]','html':'<script>window.pwned=1</script>'},'trace_id':'trace-1','request_id':'req-1','tags':['prod'],'timestamp':'2026-11-14T00:00:00Z','received_at':'2026-11-14T00:00:01Z'}
     def route(self,r):
         req=r.request; path=urlsplit(req.url).path.removeprefix('/api/v1'); method=req.method; q={k:v[0] for k,v in parse_qs(urlsplit(req.url).query).items()}; body=req.post_data_json if req.post_data else None
@@ -83,15 +83,25 @@ class Fixture:
         def err(status,code): send({'error':code,'request_id':'test'},status)
         def listing(items,next_cursor=None): send({'items':items,'next_cursor':next_cursor})
         if path=='/auth/login':
-            if body['password']=='bad' or (self.totp_enabled and body.get('otp')!='123456'): return err(401,'unauthorized')
+            if body['password']=='bad': return err(401,'unauthorized')
+            if self.totp_enabled and not body.get('otp'): return err(401,'second_factor_required')
+            if self.totp_enabled and body.get('otp')!='123456': return err(401,'unauthorized')
             self.user={'id':U1 if self.role=='administrator' else U2,'email':body['email'],'role':self.role,'two_factor_enabled':self.totp_enabled}
             return send({'user':self.user,'csrf_token':CSRF,'expires_in':28800,'enrollment_required':self.require_totp and not self.totp_enabled},headers={'Set-Cookie':'cajeerlogs_session='+'b'*64+'; Path=/; HttpOnly; SameSite=Strict'})
-        if path=='/health': return send({'status':'ok','version':'0.3.1'})
+        if path=='/health': return send({'status':'ok','version':'0.3.2'})
         if self.user is None: return err(401,'unauthorized')
         if method!='GET': assert req.headers.get('x-csrf-token')==CSRF, (method,path,req.headers)
         if path=='/auth/me': return send({'user':self.user,'csrf_token':CSRF,'enrollment_required':self.require_totp and not self.totp_enabled})
+        if path=='/auth/profile' and method=='PATCH':
+            self.user['display_name']=body['display_name']; return send({'user':self.user})
+        if path=='/auth/sessions': return listing(self.sessions)
+        if path.startswith('/auth/sessions/') and method=='DELETE':
+            sid=path.split('/')[-1]; self.sessions=[x for x in self.sessions if x['id']!=sid]; return send(status=204)
+        if path=='/auth/logout-others':
+            self.sessions=[x for x in self.sessions if x['current']]; return send(status=204)
+        if path=='/auth/2fa/recovery-codes': return send({'recovery_codes':['d'*32,'e'*32]})
         if path=='/auth/2fa/setup':
-            assert body['password']=='admin-password-12345'; return send({'secret':'JBSWY3DPEHPK3PXP','otpauth_uri':'otpauth://totp/test','expires_in':600})
+            assert body['password']=='admin-password-12345'; return send({'secret':'JBSWY3DPEHPK3PXP','otpauth_uri':'otpauth://totp/CajeerLogs%3Aadmin%40example.test?secret=JBSWY3DPEHPK3PXP&issuer=CajeerLogs&algorithm=SHA1&digits=6&period=30','expires_in':600})
         if path=='/auth/2fa/enable':
             assert body['otp']=='123456'; self.totp_enabled=True; self.user['two_factor_enabled']=True
             return send({'user':self.user,'csrf_token':CSRF,'expires_in':28800,'enrollment_required':False,'recovery_codes':['a'*32,'b'*32]})
@@ -248,7 +258,7 @@ def run():
         browser=browser_for(p); ctx=browser.new_context(accept_downloads=True); page=ctx.new_page(); page.set_default_timeout(8000)
         errors=[]; page.on('pageerror',lambda e: errors.append(str(e)))
         # Actual PHP router, not intercepted, even in offline browser mode.
-        status,headers,body=http(url+'/admin');assert status==200 and b'0.3.1' in body
+        status,headers,body=http(url+'/admin');assert status==200 and b'0.3.2' in body
         assert "script-src 'self'" in {k.lower():v for k,v in headers.items()}['content-security-policy']
         assert http(url+'/api/v1/auth/me')[0]==401
         assert http(url+'/admin/assets/panel.js')[0]==200
@@ -317,6 +327,9 @@ def run():
         print('PASS create project/source/user, role update, project membership')
         nav(page,'tokens');page.get_by_label('Название сервиса').fill('Backend service');page.get_by_role('button',name='Создать сервисную учётную запись').click();expect(page.get_by_role('row').filter(has_text='Backend service')).to_be_visible();form=page.locator('form').filter(has=page.get_by_label('logs:read'));form.get_by_label('Название').fill('Reader');form.get_by_label('Сервисная учётная запись (UUID, необязательно)').fill('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');form.get_by_role('button',name='Выпустить токен').click();expect(page.get_by_role('dialog')).to_contain_text(TOKEN);assert TOKEN not in page.evaluate('JSON.stringify(localStorage)+JSON.stringify(sessionStorage)');page.locator('#close-modal').click();expect(page.get_by_text(TOKEN,exact=True)).to_have_count(0);page.get_by_role('button',name='Изменить токен').click();dlg=page.get_by_role('dialog');dlg.get_by_label('Название',exact=True).fill('Renamed Reader');dlg.get_by_label('Запросов в минуту (необязательно)').fill('60');dlg.get_by_role('button',name='Сохранить токен').click();expect(page.get_by_role('row').filter(has_text='Renamed Reader')).to_be_visible();page.get_by_role('button',name='Ротация',exact=True).click();dlg=page.get_by_role('dialog');dlg.get_by_role('button',name='Выпустить замену').click();expect(dlg).to_contain_text('cl_'+'b'*64);page.locator('#close-modal').click();expect(page.get_by_text('Перекрытие',exact=True)).to_be_visible();page.get_by_role('button',name='Отозвать',exact=True).first.click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_text('Отозван',exact=True)).to_be_visible();page.get_by_role('button',name='Отключить сервис').click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_text('Отключена',exact=True)).to_be_visible()
         nav(page,'system');expect(page.get_by_role('heading',name='Системный отчёт')).to_be_visible();nav(page,'settings');page.get_by_role('button',name='Тёмная тема').first.click();assert page.locator('html').get_attribute('data-theme')=='dark';page.get_by_label('Цветовая тема',exact=True).select_option('system');page.emulate_media(color_scheme='dark');expect(page.locator('html')).to_have_attribute('data-theme','dark');page.emulate_media(color_scheme='light');expect(page.locator('html')).to_have_attribute('data-theme','light');page.get_by_label('Цветовая тема',exact=True).select_option('dark');expect(page.locator('html')).to_have_attribute('data-theme','dark');page.set_viewport_size({'width':390,'height':844});assert page.evaluate('document.documentElement.scrollWidth <= innerWidth');expect(page.locator('#sidebar')).not_to_be_visible();page.get_by_role('button',name='Меню').click();expect(page.locator('#sidebar')).to_be_visible();page.keyboard.press('Escape');expect(page.locator('#sidebar')).not_to_be_visible();page.get_by_role('button',name='Меню').click();nav(page,'logs');expect(page.locator('#sidebar')).not_to_be_visible();expect(page.get_by_role('heading',name='Логи',exact=True)).to_be_visible();page.set_viewport_size({'width':1280,'height':720});nav(page,'settings');
+        page.get_by_label('Отображаемое имя').fill('Admin <test>');page.get_by_role('button',name='Сохранить профиль').click();expect(page.locator('#account')).to_contain_text('Admin <test>')
+        expect(page.get_by_text('Текущая сессия',exact=True)).to_be_visible();page.get_by_role('row').filter(has_text='Other device').get_by_role('button',name='Завершить',exact=True).click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_text('Other device',exact=True)).to_have_count(0)
+        print('PASS profile, current session and individual revoke')
         print('PASS service account, credential issue, metadata, rotation, revoke, system report, theme and mobile layout')
         if offline: offline_load(page,url,f,'settings')
         else: page.reload()
@@ -327,10 +340,11 @@ def run():
         f.role='administrator'; f.require_totp=True; login(page)
         expect(page.get_by_role('heading',name='Настройка 2FA',exact=True)).to_be_visible();expect(page.locator('#nav a[href="#logs"]')).to_have_count(0)
         setup=page.locator('form').filter(has=page.get_by_role('button',name='Настроить 2FA',exact=True));setup.get_by_label('Текущий пароль').fill('admin-password-12345');setup.get_by_role('button',name='Настроить 2FA').click()
-        expect(page.get_by_role('dialog')).to_contain_text('JBSWY3DPEHPK3PXP');page.get_by_role('dialog').get_by_label('6-значный код').fill('123456');page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_role('dialog')).to_contain_text('a'*32)
+        expect(page.get_by_role('dialog')).to_contain_text('JBSWY3DPEHPK3PXP');expect(page.get_by_role('img',name='QR-код настройки TOTP')).to_be_visible();page.get_by_role('dialog').get_by_label('6-значный код').fill('123456');page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_role('dialog')).to_contain_text('a'*32)
         assert 'a'*32 not in page.evaluate('JSON.stringify(localStorage)+JSON.stringify(sessionStorage)');page.get_by_role('button',name='Сохранено').click();expect(page.get_by_text('a'*32,exact=True)).to_have_count(0)
-        page.get_by_role('button',name='Выйти',exact=True).click();expect(page.get_by_role('heading',name='Вход в CajeerLogs')).to_be_visible();login(page);expect(page.get_by_role('alert')).to_contain_text('Неверные')
-        page.get_by_label('Код 2FA / recovery (если включено)').fill('123456');login(page);expect(page.get_by_role('heading',name='Настройки',exact=True)).to_be_visible();f.require_totp=False
+        page.get_by_role('button',name='Выйти',exact=True).click();expect(page.get_by_role('heading',name='Вход в CajeerLogs')).to_be_visible();login(page);expect(page.get_by_role('heading',name='Подтверждение 2FA')).to_be_visible()
+        page.get_by_label('Код 2FA / recovery (если включено)').fill('000000');page.get_by_role('button',name='Подтвердить вход').click();expect(page.get_by_role('alert')).to_contain_text('Неверные')
+        page.get_by_label('Код 2FA / recovery (если включено)').fill('123456');page.get_by_role('button',name='Подтвердить вход').click();expect(page.get_by_role('heading',name='Настройки',exact=True)).to_be_visible();f.require_totp=False
         disable=page.locator('form').filter(has=page.get_by_role('button',name='Отключить 2FA',exact=True));disable.get_by_label('Текущий пароль').fill('admin-password-12345');disable.get_by_label('Код приложения или recovery-код').fill('123456');disable.get_by_role('button',name='Отключить 2FA').click();expect(page.get_by_role('heading',name='Вход в CajeerLogs')).to_be_visible();assert not errors,errors
         print('PASS mandatory enrollment, TOTP setup/enable, recovery code lifecycle, login factor and disable (fixture)')
         browser.close()

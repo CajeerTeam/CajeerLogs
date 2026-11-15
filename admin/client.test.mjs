@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createApiClient, ApiError } from '../public/admin/assets/api/client.js?v=0.3.1';
-import { state, advanceSession, resetWorkspace } from '../public/admin/assets/app/store.js?v=0.3.1';
+import { createApiClient, ApiError } from '../public/admin/assets/api/client.js?v=0.3.2';
+import { state, advanceSession, resetWorkspace } from '../public/admin/assets/app/store.js?v=0.3.2';
 const json = (data, status=200, headers={}) => new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json',...headers}});
 function fixture(fetcher) { let invalidated=0; const session={csrf:'csrf-value',authEpoch:0,sessionController:new AbortController()}; const client=createApiClient({origin:'https://logs.test',prefix:'/api/v1',fetcher,session,onUnauthorized:()=>invalidated++}); return {client,session,invalidated:()=>invalidated}; }
 test('same-origin URL, query, credentials, CSRF, JSON, If-Match',async()=>{ const {client}=fixture(async (url,opts)=>{assert.equal(url.href,'https://logs.test/api/v1/logs?q=a%26b&limit=0');assert.equal(opts.credentials,'same-origin');assert.equal(opts.headers['X-CSRF-Token'],'csrf-value');assert.equal(opts.headers['If-Match'],'"hash"');assert.equal(opts.body,'{"x":1}');assert.equal(opts.redirect,'error');return json({ok:true});});assert.deepEqual(await client.request('/logs',{method:'POST',query:{q:'a&b',limit:0,skip:''},body:{x:1},ifMatch:'"hash"'}),{ok:true});await assert.rejects(client.get('/../secret'),/Недопустимый/);await assert.rejects(client.get('//evil.test'),/Недопустимый/); });
@@ -10,3 +10,13 @@ test('structured errors, raw response, 204 and readiness',async()=>{const {clien
 test('stale session and route responses cannot update state or logout',async()=>{let resolve;const {client,session,invalidated}=fixture(()=>new Promise(r=>resolve=r));const old=client.get('/logs');session.authEpoch++;session.sessionController.abort();session.sessionController=new AbortController();resolve(json({},401));await assert.rejects(old,{name:'AbortError'});assert.equal(invalidated(),0);const controller=new AbortController();const request=client.get('/logs',{},controller.signal);controller.abort();resolve(json({items:[]}));await assert.rejects(request,{name:'AbortError'});});
 test('invalid JSON and network failure are actionable; no automatic write retry',async()=>{let count=0;const {client}=fixture(async()=>{count++;if(count===1)return new Response('html');throw new TypeError('network');});await assert.rejects(client.get('/logs'),/некорректный JSON/);await assert.rejects(client.write('/users','POST',{}),/соединение/);assert.equal(count,2);});
 test('session advance aborts old requests and workspace reset clears private state',()=>{const old=state.sessionController;state.filters={q:'private'};state.project='project';advanceSession();resetWorkspace();assert.equal(old.signal.aborted,true);assert.equal(state.sessionController.signal.aborted,false);assert.equal(state.filters,null);assert.equal(state.project,null);});
+
+import { qrMatrix } from '../public/admin/assets/components/qr-encoder.js?v=0.3.2';
+test('local TOTP QR encodes URI without browser network or external services', () => {
+    const uri='otpauth://totp/CajeerLogs%3Atest%40example.com?secret=JBSWY3DPEHPK3PXP&issuer=CajeerLogs&algorithm=SHA1&digits=6&period=30';
+    const matrix=qrMatrix(uri);
+    assert.ok(matrix.length>=21 && matrix.length<=177 && matrix.every(row=>row.length===matrix.length && row.every(v=>typeof v==='boolean')));
+    assert.deepEqual(matrix,qrMatrix(uri));
+    assert.notDeepEqual(matrix,qrMatrix(uri.replace('JBSWY3DPEHPK3PXP','AAAAAAAAAAAAAAAA')));
+    assert.throws(()=>qrMatrix('https://example.com'),/Invalid TOTP URI/);
+});

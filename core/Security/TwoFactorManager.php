@@ -68,6 +68,12 @@ final class TwoFactorManager
         if ($step===null) { throw new HttpException(422,'invalid_otp','Invalid or expired TOTP enrollment.'); }
         $this->sql('UPDATE user_totp SET pending_session=NULL,pending_until=NULL,last_step=:step WHERE user_id=:id',['step'=>$step,'id'=>$id]);
         $this->sql('UPDATE users SET two_factor_enabled=true,updated_at=now() WHERE id=:id',['id'=>$id]);
+        return $this->regenerateRecoveryCodes($id);
+    }
+    /** Caller must verify password and a fresh second factor (or finish enrollment). */
+    public function regenerateRecoveryCodes(string $id): array
+    {
+        $this->transaction();
         $this->sql('DELETE FROM user_recovery_codes WHERE user_id=:id',['id'=>$id]); $codes=[];
         for($i=0;$i<10;$i++) { $code=bin2hex(random_bytes(16)); $codes[]=$code; $this->sql('INSERT INTO user_recovery_codes(user_id,code_hash) VALUES (:id,:hash)',['id'=>$id,'hash'=>hash('sha256',$code)]); }
         return $codes;

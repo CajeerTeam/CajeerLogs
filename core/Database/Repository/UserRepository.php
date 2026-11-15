@@ -20,7 +20,7 @@ final class UserRepository
 
     public function findByEmail(string $email): ?array
     {
-        $query = $this->pdo->prepare('SELECT id, email, password_hash, role, blocked_at, two_factor_enabled, created_at, updated_at FROM users WHERE lower(email) = :email');
+        $query = $this->pdo->prepare('SELECT id, email, password_hash, role, blocked_at, two_factor_enabled, created_at, updated_at, display_name, last_login_at FROM users WHERE lower(email) = :email');
         $query->execute(['email' => self::email($email)]);
         return $query->fetch() ?: null;
     }

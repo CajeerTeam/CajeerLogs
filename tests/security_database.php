@@ -23,7 +23,7 @@ try {
     foreach (glob($root.'/migrations/pgsql/000[1-7]_*.sql') as $f) copy($f,$tmp.'/migrations/'.basename($f));
     (new MigrationRunner($pdo,$tmp.'/migrations',$schema))->migrate();
     $id=(new UserRepository($pdo))->create('security@example.test','admin-sec-password-123','administrator');
-    $runner=$app->container()->get(MigrationRunner::class); verify($runner->migrate()===['0008_security_operations.sql','0009_project_management.sql','0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql','0013_ingest_signing.sql','0014_delivery_idempotency.sql']&&$runner->migrate()===[],'0.0.8 upgrade and migration replay');
+    $runner=$app->container()->get(MigrationRunner::class); verify($runner->migrate()===['0008_security_operations.sql','0009_project_management.sql','0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql','0013_ingest_signing.sql','0014_delivery_idempotency.sql','0015_authentication_sessions.sql']&&$runner->migrate()===[],'0.0.8 upgrade and migration replay');
     $password=['email'=>'security@example.test','password'=>'admin-sec-password-123'];
     $login=call('POST','/auth/login',$password); $session=credentials($login); verify(json_decode($login->body,true)['enrollment_required']===true,'mandatory administrator restricted login');
     data(call('GET','/projects',null,$session),403); data(call('GET','/auth/me',null,$session));
@@ -36,14 +36,22 @@ try {
     verify($app->handle(new Request('GET','/ready'))->status===503,'wrong but valid TOTP key fails readiness');
     $cfg->set('security.totp_key',$correctKey); verify($app->handle(new Request('GET','/ready'))->status===200,'original TOTP key restores readiness');
     data(call('GET','/auth/me',null,$session),401); data(call('GET','/projects',null,$session2));
-    data(call('POST','/auth/login',$password),401); data(call('POST','/auth/login',$password+['otp'=>$code]),401);
+    
+    $challenge=call('POST','/auth/login',$password); verify(data($challenge,401)['error']==='second_factor_required'&&$challenge->header('Set-Cookie')===null,'password step requests factor without session');
+    data(call('POST','/auth/login',$password+['otp'=>$code]),401);
     $new=credentials(call('POST','/auth/login',$password+['otp'=>T::code($secret,$step+1)]));
     data(call('GET','/auth/me',null,$new)); data(call('POST','/auth/login',$password+['otp'=>T::code($secret,$step+1)]),401);
     $rec=credentials(call('POST','/auth/login',$password+['otp'=>$codes[0]])); data(call('POST','/auth/login',$password+['otp'=>$codes[0]]),401);
     verify((int)$pdo->query('SELECT count(*) FROM user_recovery_codes')->fetchColumn()===9,'recovery code consumed atomically');
     data(call('POST','/auth/2fa/disable',['password'=>$password['password'],'otp'=>$codes[1]],$rec),403);
+    $replacement=data(call('POST','/auth/2fa/recovery-codes',['password'=>$password['password'],'otp'=>$codes[1]],$rec))['recovery_codes'];
+    verify(count($replacement)===10&&!array_intersect($replacement,$codes),'recovery regeneration returns fresh codes');
+    verify((int)$pdo->query('SELECT count(*) FROM user_recovery_codes')->fetchColumn()===10,'old recovery set replaced');
+    data(call('POST','/auth/login',$password+['otp'=>$codes[2]]),401);
     $cfg->set('security.require_admin_totp',false);
-    data(call('POST','/auth/2fa/disable',['password'=>$password['password'],'otp'=>$codes[1]],$rec),204); data(call('GET','/auth/me',null,$rec),401);
+    // Separate password rate window for testing the following disable operation.
+    $pdo->exec('DELETE FROM auth_rate_limits');
+    data(call('POST','/auth/2fa/disable',['password'=>$password['password'],'otp'=>$replacement[0]],$rec),204); data(call('GET','/auth/me',null,$rec),401);
     verify((int)$pdo->query('SELECT count(*) FROM user_totp')->fetchColumn()===0&&(int)$pdo->query('SELECT count(*) FROM user_recovery_codes')->fetchColumn()===0,'disable removes secret and codes');
     $new=credentials(call('POST','/auth/login',$password));
     $p=(new ProjectRepository($pdo))->create('Backup project','backup-project'); $source=(new SourceRepository($pdo))->create($p,'App','app'); $token=(new TokenRepository($pdo))->create('backup writer',['logs:write'],$p,$source);
