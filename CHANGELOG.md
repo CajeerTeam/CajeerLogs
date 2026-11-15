@@ -2,6 +2,12 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## 0.3.4 — Log Explorer & Table
+
+- Настраиваемые колонки, ширина, порядок, плотность, перенос текста и часовой пояс; безопасная подсветка и копирование полей.
+- Навигация по событиям и страницам, восстановление позиции, обновление текущего курсора, ручная/автоматическая проверка первой страницы без скачка.
+- Сохранены snapshot/live, RBAC, page_digest и If-Match; без новых миграций. Добавлены frontend и upgrade-тесты.
+
 ## 0.3.3 — Dashboard & Analytics
 
 - PostgreSQL: UTC интервалы minute/5min/hour/day, errors в bucket, точное количество групп источников, топ сервисов и хостов.

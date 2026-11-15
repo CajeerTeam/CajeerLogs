@@ -14,7 +14,7 @@ final class ApplicationTest extends TestCase
     public function testVersionAndBoot(): void
     {
         $app = new Application(dirname(__DIR__, 2));
-        self::assertSame('0.3.3', $app->version());
+        self::assertSame('0.3.4', $app->version());
         $app->boot();
         $router = $app->container()->get(Router::class);
         $app->boot();

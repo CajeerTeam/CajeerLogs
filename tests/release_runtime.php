@@ -37,7 +37,7 @@ try {
     check(BackupManager::compatibleRelease('0.1.6','0.3.0'),'0.1.6 backup accepted');
     check(BackupManager::compatibleRelease('0.1.7','0.3.0'),'0.1.7 backup accepted');
     check(BackupManager::compatibleRelease('0.1.8','0.3.0')&&BackupManager::compatibleRelease('0.1.9','0.3.0')&&BackupManager::compatibleRelease('0.2.0','0.3.0')&&BackupManager::compatibleRelease('0.2.1','0.3.0')&&BackupManager::compatibleRelease('0.2.2','0.3.0')&&BackupManager::compatibleRelease('0.2.3','0.3.0')&&BackupManager::compatibleRelease('0.2.4','0.3.0')&&BackupManager::compatibleRelease('0.2.5','0.3.0')&&BackupManager::compatibleRelease('0.2.6','0.3.0')&&BackupManager::compatibleRelease('0.2.7','0.3.0')&&BackupManager::compatibleRelease('0.2.8','0.3.0')&&BackupManager::compatibleRelease('0.2.9','0.3.0')&&BackupManager::compatibleRelease('0.3.0','0.3.0')&&BackupManager::compatibleRelease('0.3.0','0.3.1')&&BackupManager::compatibleRelease('0.3.1','0.3.1'),'previous and same release restore');
-    check(BackupManager::compatibleRelease('0.3.2','0.3.3')&&BackupManager::compatibleRelease('0.3.3','0.3.3'),'0.3.3 backup compatibility');
+    check(BackupManager::compatibleRelease('0.3.2','0.3.4')&&BackupManager::compatibleRelease('0.3.3','0.3.4')&&BackupManager::compatibleRelease('0.3.4','0.3.4'),'0.3.4 backup compatibility');
     check(!BackupManager::compatibleRelease('0.0.8','0.3.0')&&!BackupManager::compatibleRelease('0.3.3','0.3.2')&&!BackupManager::compatibleRelease(null,'0.3.0'),'incompatible restore rejected');
 } finally {
     foreach (['CAJEER_ENV_FILE'=>$old,'APP_ENV'=>$env,'APP_URL'=>$url] as $name=>$value) putenv($value===false?$name:$name.'='.$value);

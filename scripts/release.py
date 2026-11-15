@@ -64,6 +64,8 @@ REQUIRED.update({
     'docs/Authentication-Sessions.md',
     'public/admin/assets/api/client.js',
     'public/admin/assets/app/analytics.js',
+    'public/admin/assets/app/explorer.js',
+    'docs/Log-Explorer.md',
     'docs/Dashboard-Analytics.md',
     'public/admin/assets/app/projects.js',
     'public/admin/assets/app/router.js',

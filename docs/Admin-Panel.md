@@ -1,4 +1,4 @@
-# Admin Panel — 0.3.3
+# Admin Panel — 0.3.4
 
 Новый Dashboard: [Dashboard & Analytics](Dashboard-Analytics.md).
 
@@ -94,3 +94,5 @@ CAJEER_TEST_DATABASE=1 .browser-venv/bin/python tests/admin_browser_database.py
 ```
 
 `tests/admin_browser.py` проверяет настоящую HTTP-раздачу и UI с контролируемыми API-ответами; это не тест PostgreSQL. Для ограниченной браузерной среды `CAJEER_BROWSER_OFFLINE=1` запускает реальный Chromium DOM с HTML/CSS/JS, полученными по HTTP, но подменяет transport/origin и проверяет CSV Blob без настоящей загрузки. Этот режим не подтверждает фактическое применение cookie/CSP браузером. `tests/admin_browser_database.py` использует настоящую HTTP-сессию, миграции и временную случайную PostgreSQL-схему; после теста удаляет её. Запускать только против отдельной тестовой БД, не production. CI запускает полные сетевые тесты с PostgreSQL 17 и Chromium; release gate также проверяет upgrade с исходной 0.3.0 в полной матрице. Offline-режим не заменяет сетевой E2E и проверку PostgreSQL.
+
+- [Log Explorer & Table 0.3.4](Log-Explorer.md) — колонки, навигация, обновление и экспорт.

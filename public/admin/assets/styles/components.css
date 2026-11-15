@@ -333,3 +333,26 @@ details .form-grid {
 .analytics-tick { height:22px; white-space:nowrap; color:var(--muted); font-size:.7rem; }
 .analytics-legend span:not(.muted)::before { content:''; display:inline-block; width:12px; height:12px; background:var(--accent); margin-right:6px; border-radius:2px; }
 .analytics-legend span:nth-child(2)::before { background:var(--danger); }
+
+/* Explorer: fixed-width configurable columns, bounded scroll, sticky headers. */
+.explorer { min-width:0; }
+.explorer-config { border:1px solid var(--line); border-radius:var(--radius-sm); padding:12px; }
+.explorer-config-body { display:grid; gap:12px; margin-top:12px; }
+.explorer-columns { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr)); gap:6px; }
+.explorer-column-setting { display:grid; grid-template-columns:minmax(0,1fr) 78px 40px 40px; gap:4px; align-items:center; }
+.explorer-column-setting label { overflow-wrap:anywhere; }
+.explorer-column-setting input[type=number] { padding:4px; }
+.explorer-toolbar { margin-bottom:12px; }
+.explorer-notice { display:flex; flex-wrap:wrap; align-items:center; gap:10px; border:1px solid var(--line); background:var(--soft); padding:10px; border-radius:var(--radius-sm); margin-bottom:10px; }
+.explorer-scroll { max-height:65vh; overscroll-behavior:contain; }
+.explorer-table { table-layout:fixed; min-width:100%; border-collapse:separate; border-spacing:0; }
+.explorer-table th { position:sticky; top:0; z-index:2; background:var(--bg); white-space:normal; }
+.explorer-table td { max-width:none; min-width:0; }
+.explorer-table.compact td,.explorer-table.compact th { padding:4px 7px; }
+.explorer-table .explorer-value { overflow:hidden; overflow-wrap:anywhere; }
+.explorer-table.wrap .explorer-value { white-space:pre-wrap; }
+.explorer-table.nowrap .explorer-value { white-space:nowrap; text-overflow:ellipsis; }
+.explorer-table .explorer-copy { font-size:.72rem; min-height:25px; padding:2px 5px; margin-top:3px; }
+.explorer-table tr:focus-within td { background:var(--soft); }
+.explorer-table mark { background:var(--warning-bg); color:var(--warning); text-decoration:underline; }
+.explorer-detail-nav { margin:0 0 12px; }
