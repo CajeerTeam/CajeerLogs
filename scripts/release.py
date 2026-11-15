@@ -56,6 +56,39 @@ REQUIRED = {'release.json', 'core/bootstrap.php', 'bin/cajeer', 'public/index.ph
             'tests/restore_fence.php', 'docs/Database-Core-Release.md'}
 
 
+# Runtime module graph is required even for an unstaged changed-files overlay.
+REQUIRED.update({
+    'public/admin/assets/api/client.js',
+    'public/admin/assets/app/projects.js',
+    'public/admin/assets/app/router.js',
+    'public/admin/assets/app/routes.js',
+    'public/admin/assets/app/session.js',
+    'public/admin/assets/app/shell.js',
+    'public/admin/assets/app/store.js',
+    'public/admin/assets/app/theme.js',
+    'public/admin/assets/components/log-table.js',
+    'public/admin/assets/components/mutations.js',
+    'public/admin/assets/components/pagination.js',
+    'public/admin/assets/components/ui.js',
+    'public/admin/assets/pages/logs.js',
+    'public/admin/assets/pages/overview.js',
+    'public/admin/assets/pages/projects.js',
+    'public/admin/assets/pages/settings.js',
+    'public/admin/assets/pages/system.js',
+    'public/admin/assets/pages/tokens.js',
+    'public/admin/assets/pages/users.js',
+    'public/admin/assets/panel.css',
+    'public/admin/assets/panel.js',
+    'public/admin/assets/styles/base.css',
+    'public/admin/assets/styles/components.css',
+    'public/admin/assets/styles/layout.css',
+    'public/admin/assets/styles/tokens.css',
+    'admin/verify.mjs',
+    'admin/client.test.mjs',
+    'tests/admin_browser.py',
+})
+
+
 def digest(data):
     return hashlib.sha256(data).hexdigest()
 

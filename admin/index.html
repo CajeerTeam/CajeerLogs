@@ -11,10 +11,10 @@
 </head>
 <body>
   <a class="skip" href="#main">К содержимому</a>
-  <header id="header" class="topbar"><a class="brand" href="#overview">Cajeer<span>Logs</span></a><span class="muted">Панель управления</span><div id="account" class="account"></div></header>
+  <header id="header" class="topbar"><a class="brand" href="#overview">Cajeer<span>Logs</span></a><span class="muted">Панель управления</span><button id="menu-toggle" type="button" aria-controls="sidebar" aria-expanded="false" hidden>Меню</button><div id="account" class="account"></div></header>
   <div class="shell">
     <aside id="sidebar" hidden><nav id="nav" aria-label="Разделы панели"></nav></aside>
-    <main id="main" tabindex="-1"><p role="status">Проверяем сессию…</p></main>
+    <div class="workspace"><div id="breadcrumbs" class="breadcrumbs" aria-label="Текущий раздел" hidden></div><main id="main" tabindex="-1"><p role="status">Проверяем сессию…</p></main></div>
   </div>
   <div id="notice" role="status" aria-live="polite" hidden></div>
   <dialog id="modal" aria-labelledby="modal-title"><header class="dialog-head"><h2 id="modal-title"></h2><button id="close-modal" type="button" aria-label="Закрыть">Закрыть</button></header><div id="modal-body"></div></dialog>

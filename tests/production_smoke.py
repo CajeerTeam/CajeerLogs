@@ -68,11 +68,12 @@ def main():
             compose('up','-d','--wait','--wait-timeout','180')
             for _ in range(60):
                 try:
-                    data,_=http('GET','/ready'); assert data['version']=='0.3.0' and data['status']=='ok'; break
+                    data,_=http('GET','/ready'); assert data['version']=='0.3.1' and data['status']=='ok'; break
                 except (OSError, AssertionError, urllib.error.URLError): time.sleep(1)
             else: raise AssertionError('HTTPS readiness did not become healthy')
-            panel,h=http('GET','/admin/'); assert b'0.3.0' in panel and 'frame-ancestors' in h['Content-Security-Policy']
-            assert len(http('GET','/admin/assets/panel.js')[0])>1000
+            panel,h=http('GET','/admin/'); assert b'0.3.1' in panel and 'frame-ancestors' in h['Content-Security-Policy']
+            assert b'app/router.js' in http('GET','/admin/assets/panel.js')[0]
+            assert b'createApiClient' in http('GET','/admin/assets/api/client.js')[0]
             http('GET','/.env',expected=404)
             http('GET','/metrics',expected=401)
             assert b'cajeerlogs_operations_available 1' in http('GET','/metrics',headers={'Authorization':'Bearer '+metrics})[0]

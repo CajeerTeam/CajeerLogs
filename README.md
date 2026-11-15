@@ -2,6 +2,10 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.3.1 — Admin UI Foundation
+
+Рабочая административная SPA на ES Modules: отдельные страницы, API-клиент, управление состоянием и сессиями, маршрутизация с RBAC, адаптивная дизайн-система с системной/светлой/тёмной темой. Без миграций и новых runtime-зависимостей. [Документация панели](docs/Admin-Panel.md). Public Preview до CI.
+
 ## 0.3.0 — Log Ingestion & Search Release
 
 Завершение цикла 0.2.x: production pipeline ingest → PostgreSQL → search, безопасное чтение исторических JSONB, ограничение detail, HMAC v2 benchmark с проверкой snapshot и экспорта, сквозной release gate и обновление 0.1.0/0.2.0/0.2.9. Public Preview до фактического CI. См. [Log Ingestion & Search Release](docs/Log-Ingestion-Search-Release.md).

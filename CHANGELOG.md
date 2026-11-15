@@ -2,6 +2,14 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## 0.3.1 — Admin UI Foundation
+
+- Production SPA разбита на ES Modules: семь действующих страниц, состояние, маршруты, сессии, API-клиент и компоненты.
+- Единый same-origin клиент с CSRF, request ID, отменой запросов при смене маршрута/сессии и отдельным Bearer-режимом проверки источника.
+- Дизайн-токены, системная/светлая/тёмная темы, адаптивное меню, breadcrumbs, фокус, индикаторы загрузки и клавиатурный доступ к таблицам.
+- Проверка всех транзитивных assets, тесты API-клиента и браузерные регрессии. Схема PostgreSQL, API v1 и SDK wire-контракты без изменений.
+- Public Preview до полного CI.
+
 ## [0.3.0] — Log Ingestion & Search Release
 
 - Согласованное чтение исторических JSONB-чисел в list/detail/export, точный page digest, 4 МиБ detail budget и завершение search budget после сериализации.

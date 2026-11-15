@@ -1,11 +1,12 @@
 {
   "name": "@cajeer/logs-admin",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "php -S 127.0.0.1:8080 -t ../public ../public/router.php",
-    "build": "node --check ../public/admin/assets/panel.js && node verify.mjs",
-    "generate": "npm run build"
+    "build": "node verify.mjs && node --test client.test.mjs",
+    "generate": "npm run build",
+    "test": "node --test client.test.mjs"
   }
 }

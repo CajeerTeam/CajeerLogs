@@ -86,7 +86,7 @@ class Fixture:
             if body['password']=='bad' or (self.totp_enabled and body.get('otp')!='123456'): return err(401,'unauthorized')
             self.user={'id':U1 if self.role=='administrator' else U2,'email':body['email'],'role':self.role,'two_factor_enabled':self.totp_enabled}
             return send({'user':self.user,'csrf_token':CSRF,'expires_in':28800,'enrollment_required':self.require_totp and not self.totp_enabled},headers={'Set-Cookie':'cajeerlogs_session='+'b'*64+'; Path=/; HttpOnly; SameSite=Strict'})
-        if path=='/health': return send({'status':'ok','version':'0.3.0'})
+        if path=='/health': return send({'status':'ok','version':'0.3.1'})
         if self.user is None: return err(401,'unauthorized')
         if method!='GET': assert req.headers.get('x-csrf-token')==CSRF, (method,path,req.headers)
         if path=='/auth/me': return send({'user':self.user,'csrf_token':CSRF,'enrollment_required':self.require_totp and not self.totp_enabled})
@@ -193,7 +193,7 @@ def offline_adapter(fixture, url):
     # Browser still executes the shipped JS and DOM APIs, but no navigation or network
     # is attempted. Only the fetch transport and document origin are injected for tests.
     def fetch(target, options):
-        if target=='/ready': return {'status':503,'body':'{"status":"down"}','headers':{'Content-Type':'application/json'}}
+        if urlsplit(target).path=='/ready': return {'status':503,'body':'{"status":"down"}','headers':{'Content-Type':'application/json'}}
         path=urlsplit(target).path
         if not path.startswith('/api/v1/'): raise AssertionError('Unexpected URL '+target)
         data=options.get('body'); req=SimpleNamespace(url=target,method=options.get('method','GET'),headers={k.lower():v for k,v in options.get('headers',{}).items()},post_data=data,post_data_json=json.loads(data) if data else None)
@@ -204,28 +204,42 @@ def offline_adapter(fixture, url):
     return fetch
 
 
-def offline_load(page, url, route=''):
-    # Use a real Chromium document, with actual HTML/CSS/JS served by PHP.
-    # This mode cannot verify cookie handling, CSP enforcement, or real downloads.
+def offline_load(page, url, fixture, route=''):
+    # Chromium can run the actual module graph without network access. Only import
+    # specifiers and browser transport are adapted; production module bodies are unchanged.
     page.goto('about:blank')
-    html=http(url+'/admin/')[2].decode(); css=http(url+'/admin/assets/panel.css')[2].decode(); js=http(url+'/admin/assets/panel.js')[2].decode()
+    html=http(url+'/admin/')[2].decode()
     html=re.sub(r'<script[^>]*src="[^"]*"[^>]*></script>', '', html)
     html=re.sub(r'<link[^>]*rel="stylesheet"[^>]*>', '', html)
-    page.set_content(html); page.add_style_tag(content=css)
-    page.evaluate("""([origin,hash,source])=>{
+    page.set_content(html)
+    root=ROOT/'public/admin/assets'
+    css='\n'.join(http(url+'/admin/assets/styles/'+name+'.css')[2].decode() for name in ['tokens','base','layout','components'])
+    page.add_style_tag(content=css)
+    modules={}
+    for file in root.rglob('*.js'):
+        name=file.relative_to(root).as_posix()
+        source=http(url+'/admin/assets/'+name)[2].decode()
+        def rewrite(m):
+            target=(file.parent/m.group(2).split('?')[0]).resolve().relative_to(root).as_posix()
+            return m.group(1)+'cl/'+target+m.group(3)
+        source=re.sub(r"(from\s+['\"]|^import\s+['\"])(\.{1,2}/[^'\"]+)(['\"])",rewrite,source,flags=re.M)
+        modules['cl/'+name]='const location=window.testLocation;\n'+source
+    page.evaluate("""([origin,hash,modules])=>{
         if(hash) window.location.hash=hash;
         const memory=()=>{const data={};Object.defineProperties(data,{getItem:{value:k=>data[k]??null},setItem:{value:(k,v)=>{data[k]=String(v);}}});return data;};
         Object.defineProperty(window,'localStorage',{value:memory(),configurable:true});
         Object.defineProperty(window,'sessionStorage',{value:memory(),configurable:true});
         window.testDownload=null;
-        const urls=new Map();let n=0;
-        URL.createObjectURL=blob=>{const u='blob:test-'+(++n);urls.set(u,blob);return u;};
-        URL.revokeObjectURL=u=>urls.delete(u);
+        const urls=new Map();const nativeCreate=URL.createObjectURL.bind(URL);const nativeRevoke=URL.revokeObjectURL.bind(URL);
+        URL.createObjectURL=blob=>{const u=nativeCreate(blob);urls.set(u,blob);return u;};
+        URL.revokeObjectURL=u=>{urls.delete(u);nativeRevoke(u);};
         HTMLAnchorElement.prototype.click=function(){const blob=urls.get(this.getAttribute('href'));if(blob)blob.text().then(body=>window.testDownload={name:this.download,body});};
-        const location={origin,get hash(){return window.location.hash;},set hash(v){window.location.hash=v;}};
-        const fetch=async (target,options={})=>{const result=await window.fixtureFetch(String(target),options);if(options.signal?.aborted)throw new DOMException('Aborted','AbortError');return new Response(result.body??null,{status:result.status,headers:result.headers});};
-        new Function('location','fetch',source)(location,fetch);
-    }""",[url,route,js])
+        window.testLocation={origin,get hash(){return window.location.hash;},set hash(v){window.location.hash=v;}};
+        window.fetch=async (target,options={})=>{const result=await window.fixtureFetch(String(target),options);if(options.signal?.aborted)throw new DOMException('Aborted','AbortError');return new Response(result.body??null,{status:result.status,headers:result.headers});};
+        const imports=Object.fromEntries(Object.entries(modules).map(([key,source])=>[key,URL.createObjectURL(new Blob([source],{type:'text/javascript'}))]));
+        const map=document.createElement('script');map.type='importmap';map.textContent=JSON.stringify({imports});document.head.append(map);
+        return import('cl/panel.js');
+    }""",[url,route,modules])
 
 
 def run():
@@ -234,7 +248,7 @@ def run():
         browser=browser_for(p); ctx=browser.new_context(accept_downloads=True); page=ctx.new_page(); page.set_default_timeout(8000)
         errors=[]; page.on('pageerror',lambda e: errors.append(str(e)))
         # Actual PHP router, not intercepted, even in offline browser mode.
-        status,headers,body=http(url+'/admin');assert status==200 and b'0.3.0' in body
+        status,headers,body=http(url+'/admin');assert status==200 and b'0.3.1' in body
         assert "script-src 'self'" in {k.lower():v for k,v in headers.items()}['content-security-policy']
         assert http(url+'/api/v1/auth/me')[0]==401
         assert http(url+'/admin/assets/panel.js')[0]==200
@@ -248,7 +262,7 @@ def run():
         print('PASS real PHP delivery, CSP header, unauthenticated API and unavailable database')
         f=Fixture()
         if offline:
-            page.expose_function('fixtureFetch',offline_adapter(f,url));offline_load(page,url)
+            page.expose_function('fixtureFetch',offline_adapter(f,url));offline_load(page,url,f)
         else:
             page.route('**/api/v1/**',f.route);page.reload()
         expect(page.get_by_role('heading',name='Вход в CajeerLogs')).to_be_visible()
@@ -256,7 +270,9 @@ def run():
         expect(page.get_by_role('heading',name='Обзор',exact=True)).to_be_visible();expect(page.get_by_text('Всего событий')).to_be_visible()
         if not offline:
             assert ctx.cookies()[0]['httpOnly'];assert page.evaluate('document.cookie')==''
-        print('PASS login and dashboard fixture')
+        expect(page.locator('#breadcrumbs')).to_contain_text('Обзор')
+        page.locator('.skip').focus();page.keyboard.press('Enter');assert page.evaluate('document.activeElement.id')=='main'
+        print('PASS login, dashboard, breadcrumbs and skip-link fixture')
         nav(page,'logs');expect(page.get_by_role('heading',name='Логи',exact=True)).to_be_visible();expect(page.get_by_text('database error',exact=False)).to_be_visible()
         page.get_by_label('Поиск',exact=True).fill('database');page.get_by_label('Уровень',exact=True).select_option('error');page.get_by_label('Режим страницы',exact=True).select_option('snapshot');page.get_by_role('button',name='Найти').click()
         expect(page.get_by_text('database error',exact=False)).to_be_visible();assert any(c[1]=='/logs' and c[2].get('q')=='database' and c[2].get('level')=='error' for c in f.calls)
@@ -271,7 +287,7 @@ def run():
             with page.expect_download() as dl: page.get_by_role('button',name='CSV',exact=True).click()
             assert dl.value.suggested_filename=='cajeerlogs.csv' and 'database error' in Path(dl.value.path()).read_text()
         f.change_export=True;page.get_by_role('button',name='CSV',exact=True).click();expect(page.locator('#notice')).to_contain_text('Страница изменилась');f.change_export=False
-        print('PASS filters, safe detail rendering, pagination and CSV '+('blob' if offline else 'download'))
+        print('PASS filters, safe detail rendering, pagination and CSV download')
         nav(page,'projects');expect(page.get_by_role('heading',name='Создать проект')).to_be_visible();form=page.locator('form').filter(has=page.get_by_role('button',name='Создать проект',exact=True));form.get_by_label('Название').fill('New project');form.get_by_label('Slug').fill('new-project');form.get_by_role('button',name='Создать проект').click();expect(page.get_by_role('heading',name='New project')).to_be_visible()
         page.get_by_label('Название проекта',exact=True).fill('Renamed project');page.get_by_label('Описание проекта').fill('Project details');page.get_by_label('Метаданные JSON').fill('{"environment":"test"}');page.get_by_label('Событий в минуту (пусто = без квоты)').fill('50');page.get_by_role('button',name='Сохранить проект').click();expect(page.get_by_role('heading',name='Renamed project')).to_be_visible()
         page.get_by_role('button',name='Архивировать проект').click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_role('button',name='Восстановить проект')).to_be_visible()
@@ -300,12 +316,12 @@ def run():
         nav(page,'projects');page.get_by_label('UUID пользователя').fill(U2);page.get_by_role('button',name='Добавить участника').click();expect(page.get_by_text('viewer@example.test',exact=True)).to_be_visible();page.get_by_role('button',name='Изменить роль').click();page.get_by_role('dialog').get_by_label('Роль в проекте').select_option('viewer');page.get_by_role('dialog').get_by_role('button',name='Сохранить роль').click();expect(page.get_by_role('row').filter(has_text='viewer@example.test')).to_contain_text('Наблюдатель');page.get_by_role('button',name='Убрать доступ').click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_text('viewer@example.test',exact=True)).to_have_count(0)
         print('PASS create project/source/user, role update, project membership')
         nav(page,'tokens');page.get_by_label('Название сервиса').fill('Backend service');page.get_by_role('button',name='Создать сервисную учётную запись').click();expect(page.get_by_role('row').filter(has_text='Backend service')).to_be_visible();form=page.locator('form').filter(has=page.get_by_label('logs:read'));form.get_by_label('Название').fill('Reader');form.get_by_label('Сервисная учётная запись (UUID, необязательно)').fill('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');form.get_by_role('button',name='Выпустить токен').click();expect(page.get_by_role('dialog')).to_contain_text(TOKEN);assert TOKEN not in page.evaluate('JSON.stringify(localStorage)+JSON.stringify(sessionStorage)');page.locator('#close-modal').click();expect(page.get_by_text(TOKEN,exact=True)).to_have_count(0);page.get_by_role('button',name='Изменить токен').click();dlg=page.get_by_role('dialog');dlg.get_by_label('Название',exact=True).fill('Renamed Reader');dlg.get_by_label('Запросов в минуту (необязательно)').fill('60');dlg.get_by_role('button',name='Сохранить токен').click();expect(page.get_by_role('row').filter(has_text='Renamed Reader')).to_be_visible();page.get_by_role('button',name='Ротация',exact=True).click();dlg=page.get_by_role('dialog');dlg.get_by_role('button',name='Выпустить замену').click();expect(dlg).to_contain_text('cl_'+'b'*64);page.locator('#close-modal').click();expect(page.get_by_text('Перекрытие',exact=True)).to_be_visible();page.get_by_role('button',name='Отозвать',exact=True).first.click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_text('Отозван',exact=True)).to_be_visible();page.get_by_role('button',name='Отключить сервис').click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_text('Отключена',exact=True)).to_be_visible()
-        nav(page,'system');expect(page.get_by_role('heading',name='Системный отчёт')).to_be_visible();nav(page,'settings');page.get_by_role('button',name='Тёмная тема').first.click();assert page.locator('html').get_attribute('data-theme')=='dark';page.set_viewport_size({'width':390,'height':844});assert page.evaluate('document.documentElement.scrollWidth <= innerWidth');page.set_viewport_size({'width':1280,'height':720});
+        nav(page,'system');expect(page.get_by_role('heading',name='Системный отчёт')).to_be_visible();nav(page,'settings');page.get_by_role('button',name='Тёмная тема').first.click();assert page.locator('html').get_attribute('data-theme')=='dark';page.get_by_label('Цветовая тема',exact=True).select_option('system');page.emulate_media(color_scheme='dark');expect(page.locator('html')).to_have_attribute('data-theme','dark');page.emulate_media(color_scheme='light');expect(page.locator('html')).to_have_attribute('data-theme','light');page.get_by_label('Цветовая тема',exact=True).select_option('dark');expect(page.locator('html')).to_have_attribute('data-theme','dark');page.set_viewport_size({'width':390,'height':844});assert page.evaluate('document.documentElement.scrollWidth <= innerWidth');expect(page.locator('#sidebar')).not_to_be_visible();page.get_by_role('button',name='Меню').click();expect(page.locator('#sidebar')).to_be_visible();page.keyboard.press('Escape');expect(page.locator('#sidebar')).not_to_be_visible();page.get_by_role('button',name='Меню').click();nav(page,'logs');expect(page.locator('#sidebar')).not_to_be_visible();expect(page.get_by_role('heading',name='Логи',exact=True)).to_be_visible();page.set_viewport_size({'width':1280,'height':720});nav(page,'settings');
         print('PASS service account, credential issue, metadata, rotation, revoke, system report, theme and mobile layout')
-        if offline: offline_load(page,url,'settings')
+        if offline: offline_load(page,url,f,'settings')
         else: page.reload()
         expect(page.get_by_role('heading',name='Настройки',exact=True)).to_be_visible();f.user=None;page.locator('#nav a[href="#logs"]').click();expect(page.get_by_role('heading',name='Вход в CajeerLogs')).to_be_visible();expect(page.get_by_text('Сессия истекла.',exact=False)).to_be_visible()
-        f.role='viewer';login(page,email='viewer@example.test');expect(page.get_by_role('heading',name='Логи',exact=True)).to_be_visible();expect(page.locator('#nav a[href="#tokens"]')).to_have_count(0);expect(page.locator('#nav a[href="#users"]')).to_have_count(0);nav(page,'projects');expect(page.get_by_role('button',name='Создать проект')).to_have_count(0);expect(page.get_by_role('button',name='Добавить источник')).to_have_count(0)
+        f.role='viewer';login(page,email='viewer@example.test');expect(page.get_by_role('heading',name='Логи',exact=True)).to_be_visible();expect(page.locator('#nav a[href="#tokens"]')).to_have_count(0);expect(page.locator('#nav a[href="#users"]')).to_have_count(0);page.evaluate("location.hash='users'");expect(page.get_by_role('heading',name='Обзор',exact=True)).to_be_visible();nav(page,'projects');expect(page.get_by_role('button',name='Создать проект')).to_have_count(0);expect(page.get_by_role('button',name='Добавить источник')).to_have_count(0)
         page.get_by_role('button',name='Выйти',exact=True).click();expect(page.get_by_role('heading',name='Вход в CajeerLogs')).to_be_visible();assert not errors, errors
         print('PASS session restore, expiry, viewer restrictions, logout; no uncaught browser errors')
         f.role='administrator'; f.require_totp=True; login(page)

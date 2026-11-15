@@ -4,7 +4,8 @@
 
 | Версия | Статус |
 |---|---|
-| 0.3.0 | Log Ingestion & Search Release; текущая версия (Public Preview до CI) |
+| 0.3.1 | Admin UI Foundation; текущая версия (Public Preview до CI) |
+| 0.3.0 | Log Ingestion & Search Release; предыдущая версия |
 | 0.2.9 | Pagination & Log Explorer |
 | 0.2.5 | HMAC & Replay Protection |
 
