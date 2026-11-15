@@ -2,6 +2,10 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.3.7 — User & Access Management
+
+Каталог пользователей с фильтрами, карточка аккаунта, эффективные права и членство в проектах, поиск участников, аудит и административный сброс 2FA. [Документация](docs/User-Access-Management.md). Без новых миграций. Public Preview до CI.
+
 ## 0.3.6 — Event Details & JSON Viewer
 
 Инспектор событий, ленивое JSON-дерево, поиск по ключам и значениям, копирование путей и исходного JSON, связанные логи по Trace/Request ID. Без миграций. [Документация](docs/Event-Details-JSON-Viewer.md). Public Preview до CI.

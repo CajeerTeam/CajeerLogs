@@ -1,4 +1,4 @@
-# Admin Panel — 0.3.6
+# Admin Panel — 0.3.7
 
 Новый Dashboard: [Dashboard & Analytics](Dashboard-Analytics.md).
 
@@ -100,3 +100,5 @@ CAJEER_TEST_DATABASE=1 .browser-venv/bin/python tests/admin_browser_database.py
 - [Advanced Filters & Search 0.3.5](Advanced-Filters-Search.md) — конструктор, поиск и личные представления.
 
 - [Event Details & JSON Viewer 0.3.6](Event-Details-JSON-Viewer.md) — инспектор событий и связанные логи.
+
+- [User & Access Management 0.3.7](User-Access-Management.md) — каталог, карточка, роли, членство и аудит.

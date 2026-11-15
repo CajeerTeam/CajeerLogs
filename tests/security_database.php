@@ -48,6 +48,24 @@ try {
     verify(count($replacement)===10&&!array_intersect($replacement,$codes),'recovery regeneration returns fresh codes');
     verify((int)$pdo->query('SELECT count(*) FROM user_recovery_codes')->fetchColumn()===10,'old recovery set replaced');
     data(call('POST','/auth/login',$password+['otp'=>$codes[2]]),401);
+    // Administrator reauthentication must not bypass the second factor, and reset clears a real enrolled target.
+    $targetUser=(new UserRepository($pdo))->create('reset-target@example.test','reset-target-password-123','viewer');
+    $targetPassword=['email'=>'reset-target@example.test','password'=>'reset-target-password-123'];
+    $targetSession=credentials(call('POST','/auth/login',$targetPassword));
+    data(call('POST','/auth/2fa/setup',['password'=>$targetPassword['password']],$targetSession));
+    $stmt=$pdo->prepare('SELECT secret_ciphertext FROM user_totp WHERE user_id=:id'); $stmt->execute(['id'=>$targetUser]);
+    $targetSecret=$t->open($targetUser,$stmt->fetchColumn());
+    $targetEnabled=call('POST','/auth/2fa/enable',['otp'=>T::code($targetSecret,intdiv(time(),30))],$targetSession);
+    $targetSession=credentials($targetEnabled); $targetCodes=json_decode($targetEnabled->body,true)['recovery_codes'];
+    $pdo->exec('DELETE FROM auth_rate_limits');
+    data(call('POST','/users/'.$targetUser.'/2fa/reset',['password'=>$password['password'],'otp'=>'invalid'],$rec),403);
+    data(call('GET','/auth/me',null,$targetSession));
+    data(call('POST','/users/'.$targetUser.'/2fa/reset',['password'=>$password['password'],'otp'=>$replacement[1]],$rec),204);
+    data(call('GET','/auth/me',null,$targetSession),401);
+    $stmt=$pdo->prepare('SELECT count(*) FROM user_recovery_codes WHERE user_id=:id'); $stmt->execute(['id'=>$targetUser]); verify((int)$stmt->fetchColumn()===0,'admin reset removes enrolled target recovery codes');
+    $stmt=$pdo->prepare('SELECT count(*) FROM user_totp WHERE user_id=:id'); $stmt->execute(['id'=>$targetUser]); verify((int)$stmt->fetchColumn()===0,'admin reset removes enrolled target secret');
+    $targetSession=credentials(call('POST','/auth/login',$targetPassword)); data(call('POST','/auth/logout',null,$targetSession),204);
+    $stmt=$pdo->prepare('DELETE FROM users WHERE id=:id'); $stmt->execute(['id'=>$targetUser]);
     $cfg->set('security.require_admin_totp',false);
     // Separate password rate window for testing the following disable operation.
     $pdo->exec('DELETE FROM auth_rate_limits');

@@ -74,6 +74,36 @@ try {
     ok('PUT','/projects/'.$p1.'/members/'.$viewer,null,$admin,204);
     verify(count(data(ok('GET','/projects/'.$p1.'/members',null,$admin))['items'])===2,'membership listing');
     $operator=login('operator@example.test','operator-password-123'); $view=login('viewer@example.test','viewer-password-123');
+    // User directory and effective access are real PostgreSQL queries, not frontend filtering.
+    $dir=data(callApi('GET','/users',null,$admin,['q'=>'operator@','role'=>'operator','status'=>'active','two_factor'=>'disabled']));
+    verify(count($dir['items'])===1&&$dir['items'][0]['id']===$op&&isset($dir['items'][0]['display_name']),'directory filters and public metadata');
+    verify(callApi('GET','/users',null,$admin,['role'=>'invalid'])->status===422,'invalid directory role rejected');
+    $sorted=data(callApi('GET','/users',null,$admin,['sort'=>'email_asc','limit'=>'1'])); verify($sorted['items'][0]['email']==='admin@example.test'&&$sorted['next_cursor']!==null,'user email sort first page');
+    $sortedNext=data(callApi('GET','/users',null,$admin,['sort'=>'email_asc','limit'=>'1','cursor'=>$sorted['next_cursor']])); verify($sortedNext['items'][0]['id']===$op,'user email keyset next page');
+    verify(callApi('GET','/users',null,$admin,['sort'=>'invalid'])->status===422,'invalid user sort rejected');
+    $detail=data(ok('GET','/users/'.$op,null,$admin))['user']; verify($detail['id']===$op&&!isset($detail['password_hash']),'admin user detail excludes credentials');
+    ok('GET','/users/'.$op,null,$operator,403); ok('GET','/users/'.$op.'/projects',null,$view,403); ok('GET','/users/'.$op.'/audit',null,$view,403);
+    $access=data(ok('GET','/users/'.$op.'/projects',null,$admin))['items']; verify(count($access)===1&&$access[0]['member']===true&&$access[0]['effective_role']==='operator','explicit operator access');
+    $adminAccess=data(ok('GET','/users/'.$adminId.'/projects',null,$admin))['items']; verify(count($adminAccess)===2&&$adminAccess[0]['effective_role']==='administrator','implicit administrator access');
+    ok('PUT','/projects/'.$p1.'/members/'.$op,['role'=>'viewer'],$admin,204);
+    verify(data(ok('GET','/users/'.$op.'/projects',null,$admin))['items'][0]['effective_role']==='viewer','project role narrows global operator');
+    ok('POST','/projects/'.$p1.'/sources',['name'=>'Denied','slug'=>'denied'],$operator,403);
+    ok('PUT','/projects/'.$p1.'/members/'.$op,['role'=>null],$admin,204);
+    ok('PUT','/projects/'.$p1.'/members/'.$viewer,['role'=>'operator'],$admin,204);
+    verify(data(ok('GET','/users/'.$viewer.'/projects',null,$admin))['items'][0]['effective_role']==='viewer','project role cannot elevate viewer');
+    $audit=data(callApi('GET','/users/'.$op.'/audit',null,$admin,['limit'=>'1'])); verify(count($audit['items'])===1&&$audit['next_cursor']!==null&&!isset($audit['items'][0]['context']),'audit first page excludes arbitrary context');
+    $auditNext=data(callApi('GET','/users/'.$op.'/audit',null,$admin,['limit'=>'1','cursor'=>$audit['next_cursor']])); verify($auditNext['items'][0]['id']!==$audit['items'][0]['id'],'audit chronological cursor');
+    ok('PATCH','/users/'.$op,['role'=>'viewer','expected_updated_at'=>'stale'],$admin,409);
+    ok('POST','/users/'.$op.'/2fa/reset',['password'=>'wrong'],$admin,403);
+    ok('POST','/users/'.$op.'/2fa/reset',['password'=>'admin-password-12345'],$operator,403);
+    ok('POST','/users/'.$adminId.'/2fa/reset',['password'=>'admin-password-12345'],$admin,422);
+    // Reset another account (even without enrollment) must revoke its live sessions.
+    $resetUser=data(ok('POST','/users',['email'=>'reset@example.test','password'=>'reset-password-12345','role'=>'viewer'],$admin,201))['id'];
+    $resetSession=login('reset@example.test','reset-password-12345');
+    ok('POST','/users/'.$resetUser.'/2fa/reset',['password'=>'admin-password-12345'],['Cookie'=>$admin['Cookie']],403);
+    ok('POST','/users/'.$resetUser.'/2fa/reset',['password'=>'admin-password-12345'],$admin,204); ok('GET','/auth/me',null,$resetSession,401);
+    verify(data(ok('GET','/users/'.$resetUser,null,$admin))['user']['two_factor_enabled']===false,'reset disables second factor');
+    $pdo->exec('DELETE FROM auth_rate_limits');
     $views='/projects/'.$p1.'/saved-views';
     $layout=['order'=>\Cajeer\Logs\Log\SavedView::COLUMNS,'visible'=>['timestamp','message'],'widths'=>(object)['message'=>500],'density'=>'compact','wrap'=>true,'zone'=>'utc'];
     $payload=['name'=>'Errors','filters'=>['levels'=>'["error","warning"]','limit'=>'25','consistency'=>'snapshot'],'layout'=>$layout];

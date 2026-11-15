@@ -89,7 +89,7 @@ class Fixture:
             if self.totp_enabled and body.get('otp')!='123456': return err(401,'unauthorized')
             self.user={'id':U1 if self.role=='administrator' else U2,'email':body['email'],'role':self.role,'two_factor_enabled':self.totp_enabled}
             return send({'user':self.user,'csrf_token':CSRF,'expires_in':28800,'enrollment_required':self.require_totp and not self.totp_enabled},headers={'Set-Cookie':'cajeerlogs_session='+'b'*64+'; Path=/; HttpOnly; SameSite=Strict'})
-        if path=='/health': return send({'status':'ok','version':'0.3.6'})
+        if path=='/health': return send({'status':'ok','version':'0.3.7'})
         if self.user is None: return err(401,'unauthorized')
         if method!='GET': assert req.headers.get('x-csrf-token')==CSRF, (method,path,req.headers)
         if path=='/auth/me': return send({'user':self.user,'csrf_token':CSRF,'enrollment_required':self.require_totp and not self.totp_enabled})
@@ -163,8 +163,15 @@ class Fixture:
             return send(status=204)
         if path=='/users':
             if method=='POST': self.users.append({'id':U2,'email':body['email'],'role':body['role'],'blocked_at':None});return send({'id':U2},201)
-            return listing(self.users)
+            return listing([u for u in self.users if q.get('q','').lower() in (u['email']+' '+u['id']).lower() and (q.get('role','all')=='all' or u['role']==q['role'])])
+        if path=='/users/'+U2+'/projects':
+            return listing([dict(self.projects[0],member=True,project_role=self.members[0].get('project_role'),effective_role='viewer') for _ in self.members])
+        if path=='/users/'+U2+'/audit':
+            return listing([{'id':U2,'action':'user.created','actor_id':U1,'target':U2,'created_at':'2026-01-01T00:00:00Z','request_id':'test-request'}])
+        if path=='/users/'+U2+'/2fa/reset':
+            self.users[-1]['two_factor_enabled']=False;return send(status=204)
         if path=='/users/'+U2:
+            if method=='GET': return send({'user':self.users[-1]})
             self.users[-1].update(email=body['email'],role=body['role'],blocked_at='2026-01-01' if body['blocked'] else None);return send({'id':U2})
         if path.endswith('/service-accounts'):
             if method=='POST':
@@ -275,7 +282,7 @@ def run():
         browser=browser_for(p); ctx=browser.new_context(accept_downloads=True); page=ctx.new_page(); page.set_default_timeout(8000)
         errors=[]; page.on('pageerror',lambda e: errors.append(str(e)))
         # Actual PHP router, not intercepted, even in offline browser mode.
-        status,headers,body=http(url+'/admin');assert status==200 and b'0.3.6' in body
+        status,headers,body=http(url+'/admin');assert status==200 and b'0.3.7' in body
         assert "script-src 'self'" in {k.lower():v for k,v in headers.items()}['content-security-policy']
         assert http(url+'/api/v1/auth/me')[0]==401
         assert http(url+'/admin/assets/panel.js')[0]==200
@@ -413,6 +420,12 @@ def run():
         nav(page,'users');form=page.locator('form').filter(has=page.get_by_role('button',name='Создать пользователя'));form.get_by_label('Email').fill('viewer@example.test');form.get_by_label('Пароль').fill('viewer-password-12345');form.get_by_role('button',name='Создать пользователя').click();expect(page.get_by_text('viewer@example.test',exact=True)).to_be_visible()
         page.get_by_role('row').filter(has_text='viewer@example.test').get_by_role('button',name='Изменить').click();page.get_by_role('dialog').get_by_label('Роль',exact=True).select_option('operator');page.get_by_role('dialog').get_by_role('button',name='Сохранить').click();expect(page.get_by_role('row').filter(has_text='viewer@example.test')).to_contain_text('Оператор')
         nav(page,'projects');page.get_by_label('UUID пользователя').fill(U2);page.get_by_role('button',name='Добавить участника').click();expect(page.get_by_text('viewer@example.test',exact=True)).to_be_visible();page.get_by_role('button',name='Изменить роль').click();page.get_by_role('dialog').get_by_label('Роль в проекте').select_option('viewer');page.get_by_role('dialog').get_by_role('button',name='Сохранить роль').click();expect(page.get_by_role('row').filter(has_text='viewer@example.test')).to_contain_text('Наблюдатель');page.get_by_role('button',name='Убрать доступ').click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_text('viewer@example.test',exact=True)).to_have_count(0)
+        nav(page,'users');page.get_by_label('Поиск пользователей').fill('viewer@');page.get_by_role('button',name='Найти пользователей').click();expect(page.get_by_role('row').filter(has_text='viewer@example.test')).to_be_visible();expect(page.get_by_role('row').filter(has_text='admin@example.test')).to_have_count(0)
+        page.get_by_role('button',name='Карточка',exact=True).click();expect(page.get_by_role('heading',name='Карточка пользователя')).to_be_visible();expect(page.get_by_text('user.created',exact=True)).to_be_visible()
+        page.get_by_label('Поиск проектов для доступа').fill('');page.get_by_role('button',name='Найти',exact=True).click();page.get_by_role('button',name='Выбрать',exact=True).first.click();page.get_by_role('dialog').get_by_label('Роль в проекте').select_option('viewer');page.get_by_role('button',name='Сохранить доступ').click();expect(page.get_by_role('button',name='Убрать членство')).to_be_visible()
+        page.get_by_role('button',name='Убрать членство').click();page.get_by_role('button',name='Подтвердить').click();expect(page.get_by_role('button',name='Убрать членство')).to_have_count(0)
+        page.get_by_role('button',name='Сбросить 2FA',exact=True).click();dlg=page.get_by_role('dialog');dlg.get_by_label('Ваш текущий пароль').fill('admin-password-12345');dlg.get_by_text('Подтверждаю сброс 2FA другого пользователя').click();dlg.get_by_role('button',name='Сбросить 2FA').click();expect(dlg).not_to_be_visible();expect(page.get_by_role('heading',name='Карточка пользователя')).to_be_visible()
+        print('PASS user directory, account detail, audit, membership picker, 2FA reset fixture')
         print('PASS create project/source/user, role update, project membership')
         nav(page,'tokens');page.get_by_label('Название сервиса').fill('Backend service');page.get_by_role('button',name='Создать сервисную учётную запись').click();expect(page.get_by_role('row').filter(has_text='Backend service')).to_be_visible();form=page.locator('form').filter(has=page.get_by_label('logs:read'));form.get_by_label('Название').fill('Reader');form.get_by_label('Сервисная учётная запись (UUID, необязательно)').fill('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');form.get_by_role('button',name='Выпустить токен').click();expect(page.get_by_role('dialog')).to_contain_text(TOKEN);assert TOKEN not in page.evaluate('JSON.stringify(localStorage)+JSON.stringify(sessionStorage)');page.locator('#close-modal').click();expect(page.get_by_text(TOKEN,exact=True)).to_have_count(0);page.get_by_role('button',name='Изменить токен').click();dlg=page.get_by_role('dialog');dlg.get_by_label('Название',exact=True).fill('Renamed Reader');dlg.get_by_label('Запросов в минуту (необязательно)').fill('60');dlg.get_by_role('button',name='Сохранить токен').click();expect(page.get_by_role('row').filter(has_text='Renamed Reader')).to_be_visible();page.get_by_role('button',name='Ротация',exact=True).click();dlg=page.get_by_role('dialog');dlg.get_by_role('button',name='Выпустить замену').click();expect(dlg).to_contain_text('cl_'+'b'*64);page.locator('#close-modal').click();expect(page.get_by_text('Перекрытие',exact=True)).to_be_visible();page.get_by_role('button',name='Отозвать',exact=True).first.click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_text('Отозван',exact=True)).to_be_visible();page.get_by_role('button',name='Отключить сервис').click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_text('Отключена',exact=True)).to_be_visible()
         nav(page,'system');expect(page.get_by_role('heading',name='Системный отчёт')).to_be_visible();nav(page,'settings');page.get_by_role('button',name='Тёмная тема').first.click();assert page.locator('html').get_attribute('data-theme')=='dark';page.get_by_label('Цветовая тема',exact=True).select_option('system');page.emulate_media(color_scheme='dark');expect(page.locator('html')).to_have_attribute('data-theme','dark');page.emulate_media(color_scheme='light');expect(page.locator('html')).to_have_attribute('data-theme','light');page.get_by_label('Цветовая тема',exact=True).select_option('dark');expect(page.locator('html')).to_have_attribute('data-theme','dark');page.set_viewport_size({'width':390,'height':844});assert page.evaluate('document.documentElement.scrollWidth <= innerWidth');expect(page.locator('#sidebar')).not_to_be_visible();page.get_by_role('button',name='Меню').click();expect(page.locator('#sidebar')).to_be_visible();page.keyboard.press('Escape');expect(page.locator('#sidebar')).not_to_be_visible();page.get_by_role('button',name='Меню').click();nav(page,'logs');expect(page.locator('#sidebar')).not_to_be_visible();expect(page.get_by_role('heading',name='Логи',exact=True)).to_be_visible();page.set_viewport_size({'width':1280,'height':720});nav(page,'settings');

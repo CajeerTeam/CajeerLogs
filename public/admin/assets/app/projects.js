@@ -1,6 +1,6 @@
-import { state, render } from './store.js?v=0.3.6';
-import { h, button, select, notify } from '../components/ui.js?v=0.3.6';
-import { get } from '../api/client.js?v=0.3.6';
+import { state, render } from './store.js?v=0.3.7';
+import { h, button, select, notify } from '../components/ui.js?v=0.3.7';
+import { get } from '../api/client.js?v=0.3.7';
 
 async function loadProjects(signal, more = false) { const result = await get('/projects', { ...state.projectQuery, limit: 100, cursor: more ? state.projectCursor : null }, signal); if (signal?.aborted)
     return; state.projects = more ? [...state.projects, ...result.items.filter(p => !state.projects.some(x => x.id === p.id))] : result.items; state.projectCursor = result.next_cursor; if (!state.project || !state.projects.some(p => p.id === state.project)) {

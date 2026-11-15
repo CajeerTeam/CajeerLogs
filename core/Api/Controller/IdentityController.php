@@ -23,7 +23,8 @@ final class IdentityController
         'PATCH /auth/profile'=>'profile', 'POST /auth/2fa/recovery-codes'=>'recoveryCodes',
         'GET /users/{user}/sessions'=>'userSessions', 'DELETE /users/{user}/sessions/{session}'=>'revokeUserSession', 'POST /users/{user}/sessions/revoke-all'=>'revokeUserSessions',
         'POST /auth/logout'=>'logout', 'POST /auth/logout-all'=>'logoutAll', 'POST /auth/password'=>'password',
-        'GET /users'=>'users', 'POST /users'=>'createUser', 'PATCH /users/{user}'=>'updateUser',
+        'GET /users'=>'users', 'POST /users'=>'createUser', 'GET /users/{user}'=>'user', 'PATCH /users/{user}'=>'updateUser',
+        'GET /users/{user}/projects'=>'userProjects', 'GET /users/{user}/audit'=>'userAudit', 'POST /users/{user}/2fa/reset'=>'resetUserTotp',
         'GET /projects'=>'projects', 'POST /projects'=>'createProject', 'GET /projects/{project}'=>'project',
         'PATCH /projects/{project}'=>'updateProject', 'POST /projects/{project}/archive'=>'archiveProject', 'POST /projects/{project}/restore'=>'restoreProject', 'GET /projects/{project}/stats'=>'projectStats',
         'GET /projects/{project}/members'=>'members', 'PUT /projects/{project}/members/{user}'=>'addMember',
@@ -89,7 +90,7 @@ final class IdentityController
         if ($action==='login') { return $this->login($r); }
         $p=$this->identity->authenticate($r,$credential ?? [],in_array($action,['me','logout','logoutAll','totpSetup','totpEnable'],true));
         $rate->enforce('identity-'.$p['kind'].':'.$p['id'],300,60);
-        if (in_array($action,['password','totpSetup','totpEnable','totpDisable','recoveryCodes'],true)) { $rate->enforce('password:'.$p['id'],5,300); }
+        if (in_array($action,['password','totpSetup','totpEnable','totpDisable','recoveryCodes','resetUserTotp'],true)) { $rate->enforce('password:'.$p['id'],5,300); }
         // Serialize authorization changes with administrative writes. Recheck after lock.
         if (in_array($r->method,['GET','HEAD'],true)) { return $this->$action($r,$p); }
         return (new TransactionManager($this->pdo))->run(function () use ($r,$credential,$action) {
@@ -276,7 +277,83 @@ final class IdentityController
         $this->audit($r,$p,'auth.recovery_codes_regenerated',$p['id']);
         return new JsonResponse(['recovery_codes'=>$codes]);
     }
-    private function users(Request $r,array $p): Response { $this->session($p); $this->allow($p,'users:manage'); return $this->page($r,'SELECT id,email,role,blocked_at,two_factor_enabled,created_at,updated_at FROM users WHERE true'); }
+    private const USER_FIELDS='id,email,role,blocked_at,two_factor_enabled,created_at,updated_at,display_name,last_login_at';
+    private function managedUser(Request $r,array $p): array
+    {
+        $this->session($p); $this->allow($p,'users:manage');
+        return $this->one('SELECT '.self::USER_FIELDS.' FROM users WHERE id=:id',['id'=>$this->id($r,'user')]);
+    }
+    private function users(Request $r,array $p): Response
+    {
+        $this->session($p); $this->allow($p,'users:manage');
+        $query='SELECT '.self::USER_FIELDS.' FROM users WHERE true'; $params=[];
+        $q=$r->query['q']??null;
+        if ($q!==null) {
+            if (!is_string($q)||strlen($q)>255||str_contains($q,"\0")) self::invalid('Invalid user search.');
+            if ($q!=='') { $query.=' AND (strpos(lower(email),lower(:email_q))>0 OR strpos(lower(display_name),lower(:name_q))>0 OR strpos(CAST(id AS text),lower(:id_q))>0)'; $params=['email_q'=>$q,'name_q'=>$q,'id_q'=>$q]; }
+        }
+        $role=$r->query['role']??'all'; $status=$r->query['status']??'all'; $two=$r->query['two_factor']??'all';
+        if (!in_array($role,['all','administrator','operator','viewer'],true)||!in_array($status,['all','active','blocked'],true)||!in_array($two,['all','enabled','disabled'],true)) self::invalid('Invalid user filter.');
+        if ($role!=='all') { $query.=' AND role=:role'; $params['role']=$role; }
+        if ($status!=='all') $query.=' AND blocked_at IS '.($status==='active'?'NULL':'NOT NULL');
+        if ($two!=='all') $query.=' AND two_factor_enabled IS '.($two==='enabled'?'TRUE':'FALSE');
+        $sort=$r->query['sort']??'id';
+        if (!in_array($sort,['id','email_asc','email_desc','newest'],true)) self::invalid('Invalid user sort.');
+        if ($sort==='id') return $this->page($r,$query,$params);
+        // A UUID identifies the anchor; the selected sort and filters determine its position.
+        $column=$sort==='newest'?'created_at':'email'; $descending=$sort!=='email_asc';
+        $limit=filter_var($r->query['limit']??50,FILTER_VALIDATE_INT,['options'=>['min_range'=>1,'max_range'=>100]]);
+        if ($limit===false) self::invalid('limit must be 1..100.');
+        if (isset($r->query['cursor'])) {
+            $cursor=$r->query['cursor']; if (!is_string($cursor)) self::invalid();
+            $anchor=$this->one('SELECT id,'.$column.' FROM ('.$query.') visible WHERE id=:cursor',$params+['cursor'=>self::uuid($cursor)]);
+            $cast=$column==='created_at'?'timestamptz':'text';
+            $query.=' AND ('.$column.',id)'.($descending?'<':'>').'(CAST(:sort_value AS '.$cast.'),CAST(:sort_id AS uuid))';
+            $params+=['sort_value'=>$anchor[$column],'sort_id'=>$anchor['id']];
+        }
+        $direction=$descending?' DESC':' ASC';
+        $rows=$this->sql($query.' ORDER BY '.$column.$direction.',id'.$direction.' LIMIT '.($limit+1),$params)->fetchAll();
+        $next=null; if (count($rows)>$limit) { array_pop($rows); $next=end($rows)['id']; }
+        return new JsonResponse(['items'=>$rows,'next_cursor'=>$next]);
+    }
+    private function user(Request $r,array $p): Response
+    { return new JsonResponse(['user'=>$this->managedUser($r,$p)]); }
+    private function userProjects(Request $r,array $p): Response
+    {
+        $u=$this->managedUser($r,$p);
+        // Explicit memberships and effective access are distinct. Administrators have implicit access.
+        $query="SELECT p.id,p.name,p.slug,p.archived_at,m.project_role,(m.user_id IS NOT NULL) AS member, CASE WHEN u.blocked_at IS NOT NULL THEN NULL WHEN u.role='administrator' THEN 'administrator' WHEN m.user_id IS NULL THEN NULL WHEN u.role='viewer' OR m.project_role='viewer' THEN 'viewer' ELSE u.role END AS effective_role FROM projects p CROSS JOIN users u LEFT JOIN project_members m ON m.project_id=p.id AND m.user_id=u.id WHERE u.id=:user AND (u.role='administrator' OR m.user_id IS NOT NULL)";
+        return $this->page($r,$query,['user'=>$u['id']],'p.id');
+    }
+    private function userAudit(Request $r,array $p): Response
+    {
+        $u=$this->managedUser($r,$p); $id=$u['id'];
+        // Never expose arbitrary audit context (it may contain operational data).
+        $query="SELECT a.id,a.actor_id,a.action,a.target,a.created_at,a.context->>'request_id' AS request_id, CASE WHEN a.action='user.updated' THEN a.context->>'role_before' END AS role_before, CASE WHEN a.action='user.updated' THEN a.context->>'role_after' END AS role_after, CASE WHEN a.action='user.updated' THEN a.context->>'blocked_before' END AS blocked_before, CASE WHEN a.action='user.updated' THEN a.context->>'blocked_after' END AS blocked_after, CASE WHEN a.action='user.updated' THEN a.context->>'password_reset' END AS password_reset, CASE WHEN a.action='project.member_role_set' THEN a.context->>'project_role' END AS project_role FROM audit_log a WHERE ((a.action LIKE 'user.%' AND a.target=:target) OR (a.action LIKE 'auth.%' AND (a.actor_id=:actor OR a.target=:auth_target)) OR (a.action IN ('project.member_added','project.member_role_set','project.member_removed') AND right(a.target,37)=:suffix))";
+        $params=['target'=>$id,'actor'=>$id,'auth_target'=>$id,'suffix'=>':'.$id];
+        $limit=filter_var($r->query['limit']??25,FILTER_VALIDATE_INT,['options'=>['min_range'=>1,'max_range'=>100]]);
+        if ($limit===false) self::invalid('limit must be 1..100.');
+        if (isset($r->query['cursor'])) {
+            $cursor=$r->query['cursor']; if (!is_string($cursor)) self::invalid();
+            $anchor=$this->one('SELECT * FROM ('.$query.') visible WHERE id=:cursor',$params+['cursor'=>self::uuid($cursor)]);
+            $query.=' AND (a.created_at,a.id)<(CAST(:anchor_time AS timestamptz),CAST(:anchor_id AS uuid))';
+            $params+=['anchor_time'=>$anchor['created_at'],'anchor_id'=>$anchor['id']];
+        }
+        $rows=$this->sql($query.' ORDER BY a.created_at DESC,a.id DESC LIMIT '.($limit+1),$params)->fetchAll();
+        $next=null; if (count($rows)>$limit) { array_pop($rows); $next=end($rows)['id']; }
+        return new JsonResponse(['items'=>$rows,'next_cursor'=>$next]);
+    }
+    private function resetUserTotp(Request $r,array $p): Response
+    {
+        $u=$this->managedUser($r,$p); $d=$this->body($r,['password','otp']);
+        if ($u['id']===$p['id']) self::invalid('Use account security settings to change your own second factor.');
+        $this->confirmPassword($p,$d);
+        if ($p['user']['two_factor_enabled'] && !$this->totp()->verify($p['id'],self::str($d,'otp',32))) throw new HttpException(403,'invalid_otp','Invalid second factor.');
+        $this->totp()->disable($u['id']);
+        $this->sql('DELETE FROM auth_sessions WHERE user_id=:id',['id'=>$u['id']]);
+        $this->audit($r,$p,'user.totp_reset',$u['id']);
+        return new Response('',204);
+    }
     private function createUser(Request $r,array $p): Response
     {
         $this->session($p); $this->allow($p,'users:manage'); $d=$this->body($r,['email','password','role']);
@@ -285,9 +362,10 @@ final class IdentityController
     }
     private function updateUser(Request $r,array $p): Response
     {
-        $this->session($p); $this->allow($p,'users:manage'); $id=$this->id($r,'user'); $d=$this->body($r,['email','role','blocked','password']);
+        $this->session($p); $this->allow($p,'users:manage'); $id=$this->id($r,'user'); $d=$this->body($r,['email','role','blocked','password','expected_updated_at']);
         if ($d===[]) { self::invalid(); }
-        $u=$this->one('SELECT id,email,role,blocked_at,two_factor_enabled FROM users WHERE id=:id FOR UPDATE',['id'=>$id]);
+        $u=$this->one('SELECT id,email,role,blocked_at,two_factor_enabled,updated_at FROM users WHERE id=:id FOR UPDATE',['id'=>$id]);
+        if (array_key_exists('expected_updated_at',$d) && self::str($d,'expected_updated_at',64)!==$u['updated_at']) throw new HttpException(409,'user_changed','User changed. Reload before editing.');
         $role=array_key_exists('role',$d)?self::role($d):$u['role'];
         $blocked=array_key_exists('blocked',$d)?$d['blocked']:$u['blocked_at']!==null;
         if (!is_bool($blocked)) { self::invalid('blocked must be boolean.'); }
@@ -296,7 +374,7 @@ final class IdentityController
         $extra=''; if (array_key_exists('password',$d)) { $params['hash']=password_hash(self::passwordValue($d),PASSWORD_ARGON2ID); $extra=',password_hash=:hash'; }
         $this->sql('UPDATE users SET email=:email,role=:role,blocked_at=CASE WHEN CAST(:blocked AS boolean) THEN COALESCE(blocked_at,now()) ELSE NULL END,updated_at=now()'.$extra.' WHERE id=:id',$params);
         $this->sql('DELETE FROM auth_sessions WHERE user_id=:id',['id'=>$id]);
-        $this->audit($r,$p,'user.updated',$id); return new JsonResponse(['id'=>$id]);
+        $this->audit($r,$p,'user.updated',$id,['role_before'=>$u['role'],'role_after'=>$role,'blocked_before'=>$u['blocked_at']!==null,'blocked_after'=>$blocked,'password_reset'=>array_key_exists('password',$d)]); return new JsonResponse(['id'=>$id]);
     }
     private function projects(Request $r,array $p): Response
     {

@@ -1,8 +1,8 @@
-import { state, active, render } from '../app/store.js?v=0.3.6';
-import { $, h, button, badge, text, date, enc, message, modalEpoch, modal, table, copy, notify } from './ui.js?v=0.3.6';
-import { get, request } from '../api/client.js?v=0.3.6';
-import { jsonDocument, pointer, searchJson, prettyJson } from '../app/event-json.js?v=0.3.6';
-import { validateFilters, defaultFilters } from '../app/filters.js?v=0.3.6';
+import { state, active, render } from '../app/store.js?v=0.3.7';
+import { $, h, button, badge, text, date, enc, message, modalEpoch, modal, table, copy, notify } from './ui.js?v=0.3.7';
+import { get, request } from '../api/client.js?v=0.3.7';
+import { jsonDocument, pointer, searchJson, prettyJson } from '../app/event-json.js?v=0.3.7';
+import { validateFilters, defaultFilters } from '../app/filters.js?v=0.3.7';
 
 let pending;
 const branch=n=>n.type==='object'||n.type==='array';
