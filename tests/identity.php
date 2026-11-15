@@ -41,6 +41,15 @@ test($rbac->roleAllows('administrator','users:manage')&&!$rbac->roleAllows('oper
 test($rbac->roleAllows('operator','tokens:manage')&&!$rbac->roleAllows('viewer','tokens:manage'),'operator token management');
 test($rbac->roleAllows('viewer','logs:read')&&!$rbac->roleAllows('viewer','logs:write'),'viewer read only');
 test(!$rbac->roleAllows('unknown','projects:read'),'unknown role denied');
+test(Rbac::validate(['logs:read','projects:read'])===['projects:read','logs:read'],'custom role canonical grants');
+test(denied(fn()=>Rbac::validate(['projects:read','roles:manage']),422),'custom role cannot grant administration');
+test(denied(fn()=>Rbac::validate(['projects:read','logs:export']),422),'export requires read');
+test(denied(fn()=>Rbac::validate(['projects:read','tokens:create']),422),'token mutation requires read');
+test(denied(fn()=>Rbac::validate(['projects:read','projects:read']),422),'duplicate permission refused');
+test(Rbac::restrict(Rbac::permissions('viewer'),'id','global','["projects:read","logs:write","logs:read"]','global')===['projects:read','logs:read'],'viewer ceiling prevents escalation');
+test(Rbac::restrict(Rbac::permissions('operator'),'id','project','["projects:read"]','global')===[],'wrong scope fails closed');
+test(Rbac::restrict(Rbac::permissions('operator'),'id','global','broken','global')===[],'malformed role fails closed');
+test(Rbac::restrict(Rbac::permissions('operator'),null,null,null,'global')===Rbac::permissions('operator'),'legacy user grants preserved');
 foreach (IdentityController::ROUTES as $route=>$action) {
     if ($action==='login') { continue; }
     [$method,$path]=explode(' ',$route,2);

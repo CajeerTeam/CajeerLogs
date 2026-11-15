@@ -95,7 +95,7 @@ final class Identity
         if (!$this->pdo->inTransaction()) { throw new \LogicException('Session creation requires transaction.'); }
         $secret=bin2hex(random_bytes(32)); $csrf=(new CsrfProtection())->token();
         $this->sql("INSERT INTO auth_sessions(token_hash,user_id,csrf_token,expires_at,user_agent,remote_address) VALUES (:hash,:id,:csrf,now()+CAST(:ttl AS integer)*interval '1 second',:agent,:address)",['hash'=>hash('sha256',$secret),'id'=>$user['id'],'csrf'=>$csrf,'ttl'=>$this->ttl,'agent'=>self::sessionAgent($request),'address'=>$request !== null && filter_var($request->remoteAddress,FILTER_VALIDATE_IP) ? $request->remoteAddress : null]);
-        return ['user'=>self::publicUser($user),'csrf_token'=>$csrf,'cookie'=>$this->cookie($secret),'expires_in'=>$this->ttl,'enrollment_required'=>$this->enrollmentRequired($user)];
+        return ['user'=>self::publicUser($user)+['permissions'=>$this->effectivePermissions(['kind'=>'session','id'=>$user['id']])],'csrf_token'=>$csrf,'cookie'=>$this->cookie($secret),'expires_in'=>$this->ttl,'enrollment_required'=>$this->enrollmentRequired($user)];
     }
     private static function sessionAgent(?Request $request): ?string
     {
@@ -141,8 +141,28 @@ final class Identity
             if (!in_array($permission,$scopes,true) || $t['project_id'] !== $project || ($t['source_id'] !== null && $t['source_id'] !== $source)) { self::forbidden(); }
             return;
         }
-        $role = $project===null?$p['user']['role']:$this->projectRole($p,$project);
-        if (!(new Rbac())->roleAllows($role,$permission)) { self::forbidden(); }
+        if (!in_array($permission,$this->effectivePermissions($p,$project),true)) self::forbidden();
+    }
+    /** Query current grants on each protected request; no cached permission snapshots in cookies. */
+    public function effectivePermissions(array $p, ?string $project=null): array
+    {
+        if ($p['kind']!=='session') self::forbidden();
+        // One statement: both role assignments and both definitions come from the same snapshot.
+        $sql='SELECT u.role,u.rbac_role_id AS global_id,g.scope AS global_scope,g.permissions AS global_permissions';
+        $params=['id'=>$p['id']];
+        if ($project!==null) {
+            $sql.=',m.user_id AS member,m.project_role,m.rbac_role_id AS project_id,r.scope AS project_scope,r.permissions AS project_permissions';
+            $params['project']=$project;
+        }
+        $sql.=' FROM users u LEFT JOIN rbac_roles g ON g.id=u.rbac_role_id';
+        if ($project!==null) $sql.=' LEFT JOIN project_members m ON m.user_id=u.id AND m.project_id=:project LEFT JOIN rbac_roles r ON r.id=m.rbac_role_id';
+        $row=$this->sql($sql.' WHERE u.id=:id AND u.blocked_at IS NULL',$params)->fetch();
+        if (!$row) self::forbidden();
+        $grants=Rbac::restrict(Rbac::permissions($row['role']),$row['global_id'],$row['global_scope'],$row['global_permissions'],'global');
+        if ($project===null || $row['role']==='administrator') return $grants;
+        if ($row['member']===null) self::forbidden();
+        if ($row['project_role']!==null) $grants=array_values(array_intersect($grants,Rbac::permissions($row['project_role'])));
+        return Rbac::restrict($grants,$row['project_id'],$row['project_scope'],$row['project_permissions'],'project');
     }
     public function lock(): void { $this->pdo->query("SELECT pg_advisory_xact_lock(hashtextextended('cajeerlogs:identity:' || current_schema(),0))")->closeCursor(); }
     public function sql(string $sql,array $params=[]): \PDOStatement { $s=$this->pdo->prepare($sql); $s->execute($params); return $s; }

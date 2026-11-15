@@ -1,10 +1,10 @@
-import { levels, state, render } from '../app/store.js?v=0.4.1';
-import { h, button, card, empty, date, heading, needProject, table, field, select, input, form, checkbox, message } from '../components/ui.js?v=0.4.1';
-import { projectSelector } from '../app/projects.js?v=0.4.1';
-import { navigate } from '../app/routes.js?v=0.4.1';
-import { logTable } from '../components/log-table.js?v=0.4.1';
-import { get } from '../api/client.js?v=0.4.1';
-import { rangeFor, previousRange, denseBuckets, sourceHealth, delta, explorerFilters, utcInput, errorLevels } from '../app/analytics.js?v=0.4.1';
+import { levels, state, render, hasPermission } from '../app/store.js?v=0.4.2';
+import { h, button, card, empty, date, heading, needProject, table, field, select, input, form, checkbox, message } from '../components/ui.js?v=0.4.2';
+import { projectSelector } from '../app/projects.js?v=0.4.2';
+import { navigate } from '../app/routes.js?v=0.4.2';
+import { logTable } from '../components/log-table.js?v=0.4.2';
+import { get } from '../api/client.js?v=0.4.2';
+import { rangeFor, previousRange, denseBuckets, sourceHealth, delta, explorerFilters, utcInput, errorLevels } from '../app/analytics.js?v=0.4.2';
 
 const format = n => Number(n).toLocaleString('ru-RU',{maximumFractionDigits:2});
 const labels = {'15m':'15 минут','1h':'1 час','6h':'6 часов','24h':'24 часа','7d':'7 дней','30d':'30 дней','custom':'Свой период'};
@@ -78,6 +78,7 @@ async function overview(signal) {
     const project=state.project;
     const root=h('div',{},heading('Обзор','Аналитика событий и состояние источников.',button('Обновить',()=>void render())),projectSelector());
     if(!project){root.append(needProject());return root;}
+    if(!hasPermission('logs:read')){root.append(card(empty('Нет разрешения logs:read в этом проекте. Выберите другой проект.')));return root;}
     const config=state.dashboard?.project===project?state.dashboard:(state.dashboard=newConfig(project));
     const now=Date.now(),range=rangeFor(config,now),query={project_id:project,source_id:config.source||null,from:range.from,to:range.to};
     const results=await Promise.allSettled([get('/logs/stats',{...query,interval:range.interval},signal),get('/logs',{...query,limit:10,levels:config.critical?JSON.stringify(errorLevels.slice(1)):null},signal),get(`/projects/${encodeURIComponent(project)}/sources`,{limit:50,cursor:config.cursor,q:config.sourceQuery,status:config.sourceStatus},signal),config.compare?get('/logs/stats',{...query,...previousRange(range)},signal):Promise.resolve(null)]);

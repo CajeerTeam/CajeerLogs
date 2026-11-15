@@ -1,11 +1,11 @@
-import { roles, state, render, active } from '../app/store.js?v=0.4.1';
-import { h, button, card, field, input, clearModal, modal, form, heading, table, date, copy, notify } from '../components/ui.js?v=0.4.1';
-import { clearSession, startSession, sessionChanged } from '../app/session.js?v=0.4.1';
-import { confirmAction } from '../components/mutations.js?v=0.4.1';
-import { themeSelector } from '../app/theme.js?v=0.4.1';
-import { sessionList } from '../components/session-list.js?v=0.4.1';
-import { qrMatrix } from '../components/qr-encoder.js?v=0.4.1';
-import { write } from '../api/client.js?v=0.4.1';
+import { roles, state, render, active } from '../app/store.js?v=0.4.2';
+import { h, button, card, field, input, clearModal, modal, form, heading, table, date, copy, notify } from '../components/ui.js?v=0.4.2';
+import { clearSession, startSession, sessionChanged } from '../app/session.js?v=0.4.2';
+import { confirmAction } from '../components/mutations.js?v=0.4.2';
+import { themeSelector } from '../app/theme.js?v=0.4.2';
+import { sessionList } from '../components/session-list.js?v=0.4.2';
+import { qrMatrix } from '../components/qr-encoder.js?v=0.4.2';
+import { write } from '../api/client.js?v=0.4.2';
 
 function recoveryDialog(codes) {
     modal('Сохраните recovery-коды',h('div',{},h('p',{},'Каждый код действует один раз. Сохраните их в защищённом месте. Они больше не будут показаны.'),h('pre',{},codes.join('\n')),button('Копировать коды',()=>void copy(codes.join('\n'))),button('Сохранено',clearModal)));
@@ -44,7 +44,7 @@ async function settings(signal, epoch) {
     return h('div',{},heading('Настройки','Настройки учётной записи и интерфейса.'),
         card(h('h2',{},'Профиль'),table(['Поле','Значение'],[['Email',state.user.email],['Роль',roles[state.user.role]],['UUID',state.user.id],['Создан',date(state.user.created_at)],['Последний вход',date(state.user.last_login_at)]]),
             form('Сохранить профиль',[field('Отображаемое имя',input('display_name',{value:state.user.display_name||'',maxlength:120,autocomplete:'name'}))],async(d)=>{
-                const result=await write('/auth/profile','PATCH',{display_name:String(d.get('display_name'))});state.user=result.user;notify('Профиль обновлён.');if(active(epoch))await render();
+                const result=await write('/auth/profile','PATCH',{display_name:String(d.get('display_name'))});state.user={...state.user,...result.user};notify('Профиль обновлён.');if(active(epoch))await render();
             }),h('div',{class:'actions'},field('Цветовая тема',themeSelector()))),twoFactorCard(),
         card(h('h2',{},'Сменить пароль'),h('p',{class:'muted'},'После смены пароля все сессии будут отозваны.'),form('Сменить пароль',[
             field('Текущий пароль',input('current_password',{type:'password',required:true,autocomplete:'current-password',maxlength:1024})),

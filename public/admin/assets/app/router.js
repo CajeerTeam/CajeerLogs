@@ -1,17 +1,18 @@
-import { state, names, active, render, installRenderer } from './store.js?v=0.4.1';
-import { $, h, button, message, clearModal, heading } from '../components/ui.js?v=0.4.1';
-import { clearSession, bootstrap } from './session.js?v=0.4.1';
-import { loadProjects, refreshProject } from './projects.js?v=0.4.1';
-import { navigation } from './shell.js?v=0.4.1';
-import { currentRoute, permitted } from './routes.js?v=0.4.1';
-import { overview } from '../pages/overview.js?v=0.4.1';
-import { logs } from '../pages/logs.js?v=0.4.1';
-import { projects } from '../pages/projects.js?v=0.4.1';
-import { tokens } from '../pages/tokens.js?v=0.4.1';
-import { security } from '../pages/security.js?v=0.4.1';
-import { users } from '../pages/users.js?v=0.4.1';
-import { system } from '../pages/system.js?v=0.4.1';
-import { settings } from '../pages/settings.js?v=0.4.1';
+import { state, names, active, render, installRenderer } from './store.js?v=0.4.2';
+import { $, h, button, message, clearModal, heading } from '../components/ui.js?v=0.4.2';
+import { clearSession, bootstrap } from './session.js?v=0.4.2';
+import { loadProjects, refreshProject } from './projects.js?v=0.4.2';
+import { navigation } from './shell.js?v=0.4.2';
+import { currentRoute, permitted } from './routes.js?v=0.4.2';
+import { overview } from '../pages/overview.js?v=0.4.2';
+import { logs } from '../pages/logs.js?v=0.4.2';
+import { projects } from '../pages/projects.js?v=0.4.2';
+import { tokens } from '../pages/tokens.js?v=0.4.2';
+import { security } from '../pages/security.js?v=0.4.2';
+import { users } from '../pages/users.js?v=0.4.2';
+import { system } from '../pages/system.js?v=0.4.2';
+import { rbac } from '../pages/rbac.js?v=0.4.2';
+import { settings } from '../pages/settings.js?v=0.4.2';
 
 async function renderRoute({ focus = false } = {}) {
     if (!state.user)
@@ -25,7 +26,7 @@ async function renderRoute({ focus = false } = {}) {
     state.route = currentRoute();
     if (location.hash !== '#' + state.route && location.hash) history.replaceState(null, '', '#' + state.route);
     if (!permitted(state.route)) {
-        state.route = state.enrollmentRequired ? 'settings' : 'overview';
+        state.route = state.enrollmentRequired ? 'settings' : permitted('overview')?'overview':'projects';
         history.replaceState(null, '', '#'+state.route);
     }
     navigation();
@@ -38,7 +39,7 @@ async function renderRoute({ focus = false } = {}) {
         if (['overview', 'logs', 'projects', 'tokens', 'security'].includes(state.route)) {
             if(state.project) await refreshProject(signal);
             if(!active(epoch)||signal.aborted)return;
-            if(!state.projects.length) await loadProjects(signal);
+            if(!state.projects.length) { await loadProjects(signal); if(active(epoch)&&!signal.aborted&&state.project) await refreshProject(signal); }
         }
         if (!active(epoch) || signal.aborted)
             return;
@@ -63,7 +64,7 @@ window.addEventListener('pageshow', e => { if (e.persisted) {
     clearSession();
     void bootstrap();
 } });
-const pages = { overview, logs, projects, tokens, security, users, system, settings };
+const pages = { overview, logs, projects, tokens, security, users, rbac, system, settings };
 
 installRenderer(renderRoute);
 

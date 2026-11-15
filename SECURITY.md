@@ -4,13 +4,13 @@
 
 | Версия | Статус |
 |---|---|
-| 0.4.1 | Admin Panel Release; текущая версия (Public Preview до CI) |
-| 0.4.0 | Admin Panel Release; обновите до 0.4.1 |
-| 0.3.9 | Token Management & Security; обновите до 0.4.1 |
-| 0.3.8 | Project & Source Management; обновите до 0.4.1 |
-| 0.3.7 | User & Access Management; обновите до 0.4.1 |
-| 0.3.6 | Event Details & JSON Viewer; обновите до 0.4.1 |
-| 0.3.3 | Dashboard & Analytics; обновите до 0.4.1 |
+| 0.4.2 | RBAC & Authorization; текущая версия (Public Preview до CI) |
+| 0.4.0 | Admin Panel Release; обновите до 0.4.2 |
+| 0.3.9 | Token Management & Security; обновите до 0.4.2 |
+| 0.3.8 | Project & Source Management; обновите до 0.4.2 |
+| 0.3.7 | User & Access Management; обновите до 0.4.2 |
+| 0.3.6 | Event Details & JSON Viewer; обновите до 0.4.2 |
+| 0.3.3 | Dashboard & Analytics; обновите до 0.4.2 |
 | 0.3.1 | Admin UI Foundation; предыдущая версия |
 | 0.3.0 | Log Ingestion & Search Release; предыдущая версия |
 | 0.2.9 | Pagination & Log Explorer |

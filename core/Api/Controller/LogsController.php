@@ -42,6 +42,7 @@ final class LogsController
                 $source=$p['token']['source_id'];
             }
             $identity->permission($p,'logs:read',$project,$source);
+            if ($mode==='export' && $p['kind']==='session') $identity->permission($p,'logs:export',$project,$source);
             $query=$query->scoped($source);
             $signer=in_array($mode,['list','export'],true)?PageCursor::forPrincipal($pdo,(string)$config->get('security.totp_key'),$p):null;
             $state=$signer?->open($query);

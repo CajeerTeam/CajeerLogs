@@ -1,10 +1,11 @@
-import { roles, state, active } from '../app/store.js?v=0.4.1';
-import { h, button, card, field, input, select, roleSelect, checkbox, badge, enc, clearModal, modal, form, heading, date, table, message, text, notify } from '../components/ui.js?v=0.4.1';
-import { clearSession, sessionChanged } from '../app/session.js?v=0.4.1';
-import { pagedList } from '../components/pagination.js?v=0.4.1';
-import { mutationSuccess, confirmAction } from '../components/mutations.js?v=0.4.1';
-import { userSessionDialog } from '../components/session-list.js?v=0.4.1';
-import { get, write } from '../api/client.js?v=0.4.1';
+import { roles, state, active } from '../app/store.js?v=0.4.2';
+import { h, button, card, field, input, select, roleSelect, checkbox, badge, enc, clearModal, modal, form, heading, date, table, message, text, notify } from '../components/ui.js?v=0.4.2';
+import { clearSession, sessionChanged } from '../app/session.js?v=0.4.2';
+import { pagedList } from '../components/pagination.js?v=0.4.2';
+import { mutationSuccess, confirmAction } from '../components/mutations.js?v=0.4.2';
+import { userSessionDialog } from '../components/session-list.js?v=0.4.2';
+import { assignmentDialog, permissionsDialog } from './rbac.js?v=0.4.2';
+import { get, write } from '../api/client.js?v=0.4.2';
 
 const projectRoles = [['','Наследовать глобальную роль'],['operator','Оператор (не повышает глобальную роль)'],['viewer','Наблюдатель']];
 const boolLabel = v => v ? 'Включена' : 'Выключена';
@@ -45,8 +46,8 @@ function accessCard(user,signal,epoch,refresh) {
     const path='/users/'+enc(user.id);
     return card(h('h2',{},'Доступ к проектам'),h('p',{class:'muted'},user.role==='administrator'?'Администратор имеет доступ ко всем проектам независимо от членства.':'Доступ предоставляется членством; проектная роль может только ограничить глобальную.'),
         pagedList({path:path+'/projects',query:{limit:25},signal,epoch,headers:['Проект','Членство','Роль проекта','Эффективная роль',''],rows:p=>[
-            h('div',{},p.name,h('div',{class:'muted'},p.slug+(p.archived_at?' · Архивный':''))),p.member?'Явное':'Неявное',p.project_role?roles[p.project_role]:'Наследуется',p.effective_role?roles[p.effective_role]:'Нет доступа',
-            h('div',{class:'actions'},button('Изменить доступ',()=>membershipDialog(user,p,epoch,refresh)),p.member?button('Убрать членство',()=>confirmAction('Удалить членство',`Убрать ${user.email} из ${p.name}? ${user.role==='administrator'?'Глобальный доступ администратора сохранится.':''}`,async()=>{await write('/projects/'+enc(p.id)+'/members/'+enc(user.id),'DELETE');if(active(epoch)){notify('Членство удалено.');await refresh();}}),'danger'):null)]}),
+            h('div',{},p.name,h('div',{class:'muted'},p.slug+(p.archived_at?' · Архивный':''))),p.member?'Явное':'Неявное',h('div',{},p.project_role?roles[p.project_role]:'Наследуется',p.rbac_role_id?h('small',{class:'muted'},'Доп. роль: '+p.rbac_role_id):null),p.effective_role?roles[p.effective_role]:'Нет доступа',
+            h('div',{class:'actions'},button('Изменить доступ',()=>membershipDialog(user,p,epoch,refresh)),button('Эффективные разрешения',()=>permissionsDialog(user,p,signal,epoch)),p.member&&user.role!=='administrator'?button('Назначить пользовательскую роль',()=>assignmentDialog({scope:'project',user,project:p,signal,epoch,refresh})):null,p.member?button('Убрать членство',()=>confirmAction('Удалить членство',`Убрать ${user.email} из ${p.name}? ${user.role==='administrator'?'Глобальный доступ администратора сохранится.':''}`,async()=>{await write('/projects/'+enc(p.id)+'/members/'+enc(user.id),'DELETE');if(active(epoch)){notify('Членство удалено.');await refresh();}}),'danger'):null)]}),
         h('h3',{},'Добавить в проект'),directoryPicker({path:'/projects',label:'Поиск проектов для доступа',query:{status:'active'},signal,epoch,display:p=>p.name+' · '+p.slug,choose:p=>membershipDialog(user,p,epoch,refresh)}));
 }
 async function users(signal,epoch) {
@@ -61,8 +62,8 @@ async function users(signal,epoch) {
             if(!active(epoch)||signal.aborted||ticket!==serial)return;
             const reload=()=>refreshDetail(id);
             details.replaceChildren(card(h('div',{class:'page-head'},h('h2',{},'Карточка пользователя'),button('Закрыть карточку',()=>{serial++;details.replaceChildren();sessions.replaceChildren();})),
-                table(['Поле','Значение'],[['Email',u.email],['Имя',text(u.display_name)],['UUID',h('code',{},u.id)],['Глобальная роль',roles[u.role]],['Статус',u.blocked_at?'Заблокирован':'Активен'],['2FA',boolLabel(u.two_factor_enabled)],['Создан',date(u.created_at)],['Последний вход',date(u.last_login_at)],['Обновлён',date(u.updated_at)]]),
-                h('div',{class:'actions'},button('Редактировать аккаунт',()=>editUser(u,epoch)),button('Активные сессии',()=>{sessions.replaceChildren(userSessionDialog(u,signal,epoch));sessions.scrollIntoView({block:'nearest'});}),u.id!==state.user?.id?button('Сбросить 2FA',()=>resetTotp(u,epoch,reload),'danger'):null)),
+                table(['Поле','Значение'],[['Email',u.email],['Имя',text(u.display_name)],['UUID',h('code',{},u.id)],['Глобальная роль',roles[u.role]],['Пользовательская роль',text(u.rbac_role_id)],['Статус',u.blocked_at?'Заблокирован':'Активен'],['2FA',boolLabel(u.two_factor_enabled)],['Создан',date(u.created_at)],['Последний вход',date(u.last_login_at)],['Обновлён',date(u.updated_at)]]),
+                h('div',{class:'actions'},button('Редактировать аккаунт',()=>editUser(u,epoch)),u.role!=='administrator'?button('Назначить глобальную роль',()=>assignmentDialog({scope:'global',user:u,signal,epoch,refresh:reload})):null,button('Глобальные разрешения',()=>permissionsDialog(u,null,signal,epoch)),button('Активные сессии',()=>{sessions.replaceChildren(userSessionDialog(u,signal,epoch));sessions.scrollIntoView({block:'nearest'});}),u.id!==state.user?.id?button('Сбросить 2FA',()=>resetTotp(u,epoch,reload),'danger'):null)),
                 accessCard(u,signal,epoch,reload),card(h('h2',{},'История доступа и изменений'),pagedList({path:'/users/'+enc(id)+'/audit',query:{limit:25},signal,epoch,headers:['Время UTC','Действие','Кто','Цель','Изменения','Request ID'],rows:a=>[date(a.created_at),a.action,text(a.actor_id),text(a.target),[a.role_before&&a.role_after?`Роль: ${roles[a.role_before]||a.role_before} → ${roles[a.role_after]||a.role_after}`:null,a.blocked_before!=null&&a.blocked_after!=null?`Блокировка: ${a.blocked_before} → ${a.blocked_after}`:null,a.password_reset==='true'?'Пароль заменён':null,a.action==='project.member_role_set'?`Роль проекта: ${roles[a.project_role]||'Наследуется'}`:null].filter(Boolean).join('; ')||'—',text(a.request_id)]})));
             details.scrollIntoView({block:'nearest'});
         } catch(e) {if(active(epoch)&&ticket===serial&&e.name!=='AbortError')details.replaceChildren(message(e),button('Повторить',()=>refreshDetail(id)));}

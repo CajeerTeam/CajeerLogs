@@ -1,6 +1,6 @@
-import { state, render, selectProject } from './store.js?v=0.4.1';
-import { h, button, select, notify } from '../components/ui.js?v=0.4.1';
-import { get } from '../api/client.js?v=0.4.1';
+import { state, render, selectProject } from './store.js?v=0.4.2';
+import { h, button, select, notify } from '../components/ui.js?v=0.4.2';
+import { get } from '../api/client.js?v=0.4.2';
 
 async function loadProjects(signal, more = false) {
     const auth=state.authEpoch, selected=state.project;
@@ -68,7 +68,7 @@ async function fetchProject(signal) {
         const old=state.projects.find(p=>p.id===id);
         state.projects=[...state.projects.map(p=>p.id===id?row:p)];
         if(!old)state.projects.push(row);
-        return !old || old.effective_role!==row.effective_role || old.status!==row.status;
+        return !old || old.effective_role!==row.effective_role || old.status!==row.status || JSON.stringify(old.effective_permissions??null)!==JSON.stringify(row.effective_permissions??null);
     } catch(e) {
         if(!valid())return false;
         if(e.status!==403&&e.status!==404)throw e;

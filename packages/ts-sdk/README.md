@@ -1,4 +1,4 @@
-# CajeerLogs TypeScript SDK 0.4.1
+# CajeerLogs TypeScript SDK 0.4.2
 
 Node.js 20+ (рекомендуется 22 LTS), ESM, нативные fetch и Web Crypto, без runtime-зависимостей. Из корня репозитория:
 

@@ -60,6 +60,7 @@ REQUIRED = {'release.json', 'core/bootstrap.php', 'bin/cajeer', 'public/index.ph
 REQUIRED.update({
     'migrations/pgsql/0015_authentication_sessions.sql',
     'migrations/pgsql/0016_saved_log_views.sql',
+    'migrations/pgsql/0017_rbac_roles_permissions.sql', 'public/admin/assets/pages/rbac.js', 'tests/rbac_database.php', 'docs/RBAC.md',
     'core/Log/SavedView.php',
     'public/admin/assets/app/filters.js',
     'public/admin/assets/app/source-connection.js',

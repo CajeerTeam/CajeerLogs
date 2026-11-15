@@ -1,4 +1,4 @@
-"""Real 0.1.0, 0.2.0, 0.2.9, 0.3.0 or 0.3.1 or 0.3.2 or 0.3.3 or 0.3.4 or 0.3.5 or 0.3.6 or 0.3.7 or 0.3.8 or 0.3.9 or 0.4.0 -> 0.4.1 upgrade using the previous source tree and PostgreSQL.
+"""Real 0.1.0, 0.2.0, 0.2.9, 0.3.0 or 0.3.1 or 0.3.2 or 0.3.3 or 0.3.4 or 0.3.5 or 0.3.6 or 0.3.7 or 0.3.8 or 0.3.9 or 0.4.0 or 0.4.1 -> 0.4.2 upgrade using the previous source tree and PostgreSQL.
 
 Usage: CAJEER_TEST_DATABASE=1 python3 tests/upgrade_release.py /path/to/previous
 Requires a disposable DB_* database and a separate empty CAJEER_TEST_UPGRADE_RESTORE_DB.
@@ -29,12 +29,13 @@ def main(previous):
     target=os.environ.get('CAJEER_TEST_UPGRADE_RESTORE_DB')
     if not target or target==os.environ.get('DB_DATABASE'): raise SystemExit('Provision a separate empty restore database.')
     old_version=json.loads((previous/'release.json').read_text())['version']
-    if old_version not in ('0.1.0','0.2.0','0.2.9','0.3.0','0.3.1','0.3.2','0.3.3','0.3.4','0.3.5','0.3.6','0.3.7','0.3.8','0.3.9','0.4.0'): raise SystemExit('Expected actual 0.1.0, 0.2.0, 0.2.9, 0.3.0, 0.3.1, 0.3.2, 0.3.3, 0.3.4 0.3.5 0.3.6 or 0.3.7 or 0.3.8 or 0.3.9 or 0.4.0 source tree.')
+    if old_version not in ('0.1.0','0.2.0','0.2.9','0.3.0','0.3.1','0.3.2','0.3.3','0.3.4','0.3.5','0.3.6','0.3.7','0.3.8','0.3.9','0.4.0','0.4.1'): raise SystemExit('Expected actual 0.1.0, 0.2.0, 0.2.9, 0.3.0, 0.3.1, 0.3.2, 0.3.3, 0.3.4 0.3.5 0.3.6 or 0.3.7 or 0.3.8 or 0.3.9 or 0.4.0 source tree.')
     old_migrations={p.name:p.read_bytes() for p in (previous/'migrations/pgsql').glob('*.sql')}
     new_migrations={p.name:p.read_bytes() for p in (ROOT/'migrations/pgsql').glob('*.sql')}
     expected={'0009_project_management.sql','0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql','0013_ingest_signing.sql','0014_delivery_idempotency.sql'} if old_version=='0.1.0' else ({'0013_ingest_signing.sql','0014_delivery_idempotency.sql'} if old_version=='0.2.0' else set())
-    if old_version not in ('0.3.2','0.3.3','0.3.4','0.3.5','0.3.6','0.3.7','0.3.8','0.3.9','0.4.0'): expected.add('0015_authentication_sessions.sql')
-    if old_version not in ('0.3.5','0.3.6','0.3.7','0.3.8','0.3.9','0.4.0'): expected.add('0016_saved_log_views.sql')
+    if old_version not in ('0.3.2','0.3.3','0.3.4','0.3.5','0.3.6','0.3.7','0.3.8','0.3.9','0.4.0','0.4.1'): expected.add('0015_authentication_sessions.sql')
+    if old_version not in ('0.3.5','0.3.6','0.3.7','0.3.8','0.3.9','0.4.0','0.4.1'): expected.add('0016_saved_log_views.sql')
+    expected.add('0017_rbac_roles_permissions.sql')
     assert all(new_migrations.get(k)==v for k,v in old_migrations.items()) and set(new_migrations)-set(old_migrations)==expected,'previous migration history changed'
     schema='cl_upgrade_'+secrets.token_hex(8)
     with tempfile.TemporaryDirectory() as tmp:
@@ -87,10 +88,10 @@ def main(previous):
             package=p/'release.zip'; release.build(ROOT,package); extracted=p/'new'; release.verify(package,extracted)
             shutil.copytree(extracted,tree,dirs_exist_ok=True)
             assert (tree/'.env').read_bytes()==before
-            assert cli('version').strip()=='0.4.1'; cli('migrate'); cli('doctor')
+            assert cli('version').strip()=='0.4.2'; cli('migrate'); cli('doctor')
             cli('queue:work','10'); assert json.loads(cli('db:verify'))['status']=='ok'
             with server():
-                assert call('GET','/ready')[0]['version']=='0.4.1'
+                assert call('GET','/ready')[0]['version']=='0.4.2'
                 assert call('GET','/api/v1/auth/me',headers=auth)[0]['user']['email']=='upgrade@example.test'
                 assert call('GET',f'/api/v1/logs/{eid}?project_id={pid}',headers=bearer)[0]['data']['message']=='previous release proof'
                 assert call('GET',f'/api/v1/ingest/jobs/{jid}',headers=bearer)[0]['status']=='completed'

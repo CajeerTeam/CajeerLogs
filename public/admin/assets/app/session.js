@@ -1,8 +1,8 @@
-import { state, resetWorkspace, render, advanceSession } from './store.js?v=0.4.1';
-import { $, h, field, input, clearModal, form } from '../components/ui.js?v=0.4.1';
-import { refreshProject } from './projects.js?v=0.4.1';
-import { navigation } from './shell.js?v=0.4.1';
-import { request, get } from '../api/client.js?v=0.4.1';
+import { state, resetWorkspace, render, advanceSession } from './store.js?v=0.4.2';
+import { $, h, field, input, clearModal, form } from '../components/ui.js?v=0.4.2';
+import { refreshProject } from './projects.js?v=0.4.2';
+import { navigation } from './shell.js?v=0.4.2';
+import { request, get } from '../api/client.js?v=0.4.2';
 
 const version = document.querySelector('meta[name=cajeer-version]').content;
 let sessionChecking = false;
@@ -75,7 +75,9 @@ async function revalidateSession(force = false) {
         clearSession('Учётная запись изменилась. Войдите снова.');
         return;
     }
+    const permissionsChanged=JSON.stringify(state.user.permissions??null)!==JSON.stringify(res.user.permissions??null);
     state.user = res.user; state.csrf = res.csrf_token;
+    if (permissionsChanged) { state.enrollmentRequired=Boolean(res.enrollment_required); resetWorkspace(); void render(); return; }
     if (state.enrollmentRequired !== Boolean(res.enrollment_required)) { state.enrollmentRequired=Boolean(res.enrollment_required); void render(); return; }
     const signal=state.controller?.signal, epoch=state.epoch;
     if(state.project && signal && await refreshProject(signal) && authEpoch===state.authEpoch && epoch===state.epoch && !signal.aborted) {

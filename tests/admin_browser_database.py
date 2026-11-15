@@ -104,8 +104,17 @@ def run():
             assert api.put(membership,headers=headers,data={'role':'operator'}).status==204
             operator_ctx=browser.new_context();op=operator_ctx.new_page();op.goto(url+'/admin/');login(op,'operator@example.test','operator-password-12345');expect(op.get_by_role('heading',name='Обзор',exact=True)).to_be_visible()
             nav(op,'security');expect(op.get_by_text('token.created',exact=True).first).to_be_visible();assert op.locator('#nav a[href="#users"]').count()==0;assert op.get_by_text('Глобальный журнал безопасности',exact=True).count()==0
+            # Real UI role creation and assignment to an already logged-in operator.
+            nav(page,'rbac');page.get_by_role('button',name='Новая роль',exact=True).click();dlg=page.get_by_role('dialog');dlg.get_by_label('Название роли').fill('E2E restricted operator');dlg.get_by_role('button',name='Создать роль',exact=True).click()
+            role_row=page.get_by_role('row').filter(has_text='E2E restricted operator');expect(role_row).to_be_visible();custom_id=role_row.locator('code').inner_text()
+            nav(page,'users');page.get_by_label('Поиск пользователей').fill('operator@example.test');page.get_by_role('button',name='Найти пользователей',exact=True).click();page.get_by_role('row').filter(has_text='operator@example.test').get_by_role('button',name='Карточка',exact=True).click()
+            page.get_by_role('button',name='Назначить глобальную роль',exact=True).click();dlg.get_by_label('Пользовательская роль').select_option(custom_id);dlg.get_by_role('button',name='Сохранить назначение').click();expect(page.get_by_text(custom_id,exact=True).first).to_be_visible()
+            op.bring_to_front();op.evaluate("window.dispatchEvent(new Event('focus'))");expect(op.locator('#nav a[href="#tokens"]')).to_have_count(0);nav(op,'logs');expect(op.get_by_text('e2e database error',exact=False)).to_be_visible();expect(op.get_by_role('button',name='CSV',exact=True)).to_have_count(0)
+            assert operator_ctx.request.get(url+'/api/v1/logs/export?project_id='+project+'&format=json').status==403
+            assert api.put(url+'/api/v1/users/'+operator+'/role-assignment',headers=headers,data={'role_id':None,'expected_role_id':custom_id}).status==204
+            op.evaluate("window.dispatchEvent(new Event('focus'))");expect(op.locator('#nav a[href="#tokens"]')).to_have_count(1)
             assert api.put(membership,headers=headers,data={'role':'viewer'}).status==204
-            nav(op,'tokens');expect(op.get_by_text('У вас нет прав управления токенами в этом проекте.')).to_be_visible();assert operator_ctx.request.get(url+'/api/v1/projects/'+project+'/tokens').status==403
+            nav(op,'tokens');expect(op.get_by_text('Нет разрешений на токены или сервисные аккаунты в этом проекте.')).to_be_visible();assert operator_ctx.request.get(url+'/api/v1/projects/'+project+'/tokens').status==403
             nav(op,'logs');expect(op.get_by_text('e2e database error',exact=False)).to_be_visible();op.get_by_role('button',name='Подробнее').first.click();expect(op.get_by_role('dialog')).to_be_visible();assert api.delete(membership,headers=headers).status==204
             op.bring_to_front();op.evaluate("window.dispatchEvent(new Event('focus'))");expect(op.get_by_label('Активный проект')).to_be_disabled();expect(op.get_by_role('dialog')).not_to_be_visible();expect(op.get_by_text('e2e database error',exact=False)).to_have_count(0);assert operator_ctx.request.get(url+'/api/v1/logs?project_id='+project).status==403;operator_ctx.close()
             nav(page,'system');expect(page.get_by_role('heading',name='Системный отчёт')).to_be_visible();expect(page.get_by_role('row').filter(has_text='PostgreSQL readiness')).to_contain_text('ok')

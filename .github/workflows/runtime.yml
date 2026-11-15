@@ -10,11 +10,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: |
-          python3 scripts/release.py build release-out/CajeerLogs-0.4.1.zip
-          (cd release-out && sha256sum -c CajeerLogs-0.4.1.zip.sha256)
+          python3 scripts/release.py build release-out/CajeerLogs-0.4.2.zip
+          (cd release-out && sha256sum -c CajeerLogs-0.4.2.zip.sha256)
       - uses: actions/upload-artifact@v4
         with:
-          name: CajeerLogs-0.4.1-candidate-uncertified
+          name: CajeerLogs-0.4.2-candidate-uncertified
           path: release-out/
           if-no-files-found: error
   runtime:
@@ -57,7 +57,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
-          name: CajeerLogs-0.4.1-candidate-uncertified
+          name: CajeerLogs-0.4.2-candidate-uncertified
           path: release-out
       - uses: shivammathur/setup-php@v2
         with:
@@ -152,7 +152,7 @@ jobs:
           psql -h 127.0.0.1 -U postgres -d cajeer_logs -v ON_ERROR_STOP=1 -c 'DROP SCHEMA cl_split_role CASCADE' 
       - name: Database core certification of the exact release ZIP (including all twelve upgrades and the integrated pipeline)
         run: |
-          mkdir -p /tmp/cajeer-0.1.0 /tmp/cajeer-0.2.0 /tmp/cajeer-0.2.9 /tmp/cajeer-0.3.0 /tmp/cajeer-0.3.2 /tmp/cajeer-0.3.3 /tmp/cajeer-0.3.4 /tmp/cajeer-0.3.5 /tmp/cajeer-0.3.6 /tmp/cajeer-0.3.7 /tmp/cajeer-0.3.8 /tmp/cajeer-0.3.9 /tmp/cajeer-0.4.0
+          mkdir -p /tmp/cajeer-0.1.0 /tmp/cajeer-0.2.0 /tmp/cajeer-0.2.9 /tmp/cajeer-0.3.0 /tmp/cajeer-0.3.2 /tmp/cajeer-0.3.3 /tmp/cajeer-0.3.4 /tmp/cajeer-0.3.5 /tmp/cajeer-0.3.6 /tmp/cajeer-0.3.7 /tmp/cajeer-0.3.8 /tmp/cajeer-0.3.9 /tmp/cajeer-0.4.0 /tmp/cajeer-0.4.1
           git archive 9b2054b80044492311095538867ef774730dd8fb | tar -x -C /tmp/cajeer-0.1.0
           git archive a8b9c1529fdcefa280fa70ff7a2539e55f5426ec | tar -x -C /tmp/cajeer-0.2.0
           git archive 8df59aa458f6a93a4e5de3f67ca07c5898a6fa8f | tar -x -C /tmp/cajeer-0.2.9
@@ -221,7 +221,17 @@ jobs:
           PY040
           )
           git archive "$previous040" | tar -x -C /tmp/cajeer-0.4.0
-          python3 scripts/certify.py database release-out/CajeerLogs-0.4.1.zip --from-010 /tmp/cajeer-0.1.0 --from-020 /tmp/cajeer-0.2.0 --from-029 /tmp/cajeer-0.2.9 --from-030 /tmp/cajeer-0.3.0 --from-032 /tmp/cajeer-0.3.2 --from-033 /tmp/cajeer-0.3.3 --from-034 /tmp/cajeer-0.3.4 --from-035 /tmp/cajeer-0.3.5 --from-036 /tmp/cajeer-0.3.6 --from-037 /tmp/cajeer-0.3.7 --from-038 /tmp/cajeer-0.3.8 --from-039 /tmp/cajeer-0.3.9 --from-040 /tmp/cajeer-0.4.0 --output /tmp/database-certification.json
+          previous041=$(python3 - <<'PY041'
+          import json, subprocess
+          for commit in subprocess.check_output(['git','rev-list','HEAD'],text=True).splitlines():
+              data=subprocess.run(['git','show',commit+':release.json'],capture_output=True,text=True)
+              if data.returncode==0 and json.loads(data.stdout).get('version')=='0.4.1':
+                  print(commit); break
+          else: raise SystemExit('Missing actual 0.4.1 source history')
+          PY041
+          )
+          git archive "$previous041" | tar -x -C /tmp/cajeer-0.4.1
+          python3 scripts/certify.py database release-out/CajeerLogs-0.4.2.zip --from-010 /tmp/cajeer-0.1.0 --from-020 /tmp/cajeer-0.2.0 --from-029 /tmp/cajeer-0.2.9 --from-030 /tmp/cajeer-0.3.0 --from-032 /tmp/cajeer-0.3.2 --from-033 /tmp/cajeer-0.3.3 --from-034 /tmp/cajeer-0.3.4 --from-035 /tmp/cajeer-0.3.5 --from-036 /tmp/cajeer-0.3.6 --from-037 /tmp/cajeer-0.3.7 --from-038 /tmp/cajeer-0.3.8 --from-039 /tmp/cajeer-0.3.9 --from-040 /tmp/cajeer-0.4.0 --from-041 /tmp/cajeer-0.4.1 --output /tmp/database-certification.json
       - uses: actions/setup-java@v4
         if: matrix.php == '8.4' && matrix.postgres == '17'
         with:
@@ -249,7 +259,7 @@ jobs:
           /tmp/cajeer-browser-venv/bin/python -m playwright install --with-deps chromium firefox webkit
       - name: Admin panel E2E on the exact release archive (Chromium, Firefox, WebKit)
         if: matrix.php == '8.4' && matrix.postgres == '17'
-        run: /tmp/cajeer-browser-venv/bin/python scripts/certify.py admin release-out/CajeerLogs-0.4.1.zip --output /tmp/admin-certification.json
+        run: /tmp/cajeer-browser-venv/bin/python scripts/certify.py admin release-out/CajeerLogs-0.4.2.zip --output /tmp/admin-certification.json
       - name: Upload admin evidence only after all mandatory browser stages pass
         if: matrix.php == '8.4' && matrix.postgres == '17'
         uses: actions/upload-artifact@v4
@@ -272,7 +282,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: CajeerLogs-0.4.1-candidate-uncertified
+          name: CajeerLogs-0.4.2-candidate-uncertified
           path: release-out
       - uses: actions/download-artifact@v4
         with:
@@ -284,13 +294,13 @@ jobs:
           path: /tmp/admin-evidence
       - name: Verify full matrix, admin evidence and production smoke on the identical archive
         run: |
-          (cd release-out && sha256sum -c CajeerLogs-0.4.1.zip.sha256)
-          python3 scripts/certify.py release release-out/CajeerLogs-0.4.1.zip --reports /tmp/database-evidence --admin-report /tmp/admin-evidence/admin-certification.json --output release-out/database-certification.json
+          (cd release-out && sha256sum -c CajeerLogs-0.4.2.zip.sha256)
+          python3 scripts/certify.py release release-out/CajeerLogs-0.4.2.zip --reports /tmp/database-evidence --admin-report /tmp/admin-evidence/admin-certification.json --output release-out/database-certification.json
       - uses: actions/upload-artifact@v4
         with:
-          name: CajeerLogs-0.4.1-certified-ci
+          name: CajeerLogs-0.4.2-certified-ci
           path: |
-            release-out/CajeerLogs-0.4.1.zip
-            release-out/CajeerLogs-0.4.1.zip.sha256
+            release-out/CajeerLogs-0.4.2.zip
+            release-out/CajeerLogs-0.4.2.zip.sha256
             release-out/database-certification.json
           if-no-files-found: error

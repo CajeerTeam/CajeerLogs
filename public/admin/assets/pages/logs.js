@@ -1,13 +1,13 @@
-import { levels, state, projectPath, active, render } from '../app/store.js?v=0.4.1';
-import { h, button, card, field, input, select, date, message, notify, form, heading, needProject, clearModal } from '../components/ui.js?v=0.4.1';
-import { projectSelector } from '../app/projects.js?v=0.4.1';
-import { logTable } from '../components/log-table.js?v=0.4.1';
-import { columns, defaultLayout, normalizeLayout, moveColumn, pageChanged } from '../app/explorer.js?v=0.4.1';
-import { request, get } from '../api/client.js?v=0.4.1';
+import { levels, state, projectPath, active, render, hasPermission } from '../app/store.js?v=0.4.2';
+import { h, button, card, field, input, select, date, message, notify, form, heading, needProject, clearModal } from '../components/ui.js?v=0.4.2';
+import { projectSelector } from '../app/projects.js?v=0.4.2';
+import { logTable } from '../components/log-table.js?v=0.4.2';
+import { columns, defaultLayout, normalizeLayout, moveColumn, pageChanged } from '../app/explorer.js?v=0.4.2';
+import { request, get } from '../api/client.js?v=0.4.2';
 
-import { filterBuilder } from '../components/filter-builder.js?v=0.4.1';
-import { savedViews } from '../components/saved-views.js?v=0.4.1';
-import { queryFilters as buildQuery } from '../app/filters.js?v=0.4.1';
+import { filterBuilder } from '../components/filter-builder.js?v=0.4.2';
+import { savedViews } from '../components/saved-views.js?v=0.4.2';
+import { queryFilters as buildQuery } from '../app/filters.js?v=0.4.2';
 function queryFilters() { return buildQuery(state.filters,state.project); }
 function logPager(query, signal, epoch) {
     const signature = JSON.stringify(query), project = state.project;
@@ -52,7 +52,7 @@ function logPager(query, signal, epoch) {
     function drawPager(){if(!current){pager.replaceChildren();return;} const data=current;
         const prev=button('Назад',()=>void load(data.prev_cursor,index-1,{resetScroll:true}),'',{'data-available':String(!!data.prev_cursor)});
         const next=button('Далее',()=>void load(data.next_cursor,index+1,{resetScroll:true}),'',{'data-available':String(!!data.next_cursor)});
-        pager.replaceChildren(h('span',{class:'muted',role:'status'},`Страница ${index+1} · ${data.items.length} записей`),h('div',{class:'actions'},button('CSV',()=>void download('csv')),button('JSON',()=>void download('json'))),h('div',{class:'actions'},prev,next,button('Начать заново',()=>void load(null,0,{reset:true}))));syncControls();}
+        pager.replaceChildren(h('span',{class:'muted',role:'status'},`Страница ${index+1} · ${data.items.length} записей`),hasPermission('logs:export')?h('div',{class:'actions'},button('CSV',()=>void download('csv')),button('JSON',()=>void download('json'))):null,h('div',{class:'actions'},prev,next,button('Начать заново',()=>void load(null,0,{reset:true}))));syncControls();}
     function clearData(e){clearModal();current=null;headDigest=null;state.logPosition=null;viewport.replaceChildren();pager.replaceChildren();notice.hidden=true;status.textContent='Доступ к событиям недоступен.';error.replaceChildren(message(e));auto=false;autoInput.checked=false;clearTimeout(timer);}
     async function load(cursor=null,target=0,{reset=false,resetScroll=false}={}){
         if(busy||probing||exporting||!valid())return;
@@ -74,7 +74,7 @@ function logPager(query, signal, epoch) {
         else if(pageChanged(headDigest,data))notice.replaceChildren(h('span',{},'Первая страница изменилась: появились новые события или изменился состав выборки.'),button('Показать последние',()=>void load(null,0,{reset:true})));
         else notice.replaceChildren(h('span',{},'Первая страница не изменилась.'));
     }catch(e){if(e.name==='AbortError'||!valid())return;if(e.status===401||e.status===403)clearData(e);else{notice.hidden=false;notice.replaceChildren(message(e));if(e.status===429){auto=false;autoInput.checked=false;notice.append(h('p',{},'Автоматическая проверка остановлена из-за лимита запросов.'));}}}finally{probing=false;syncControls();}}
-    async function download(format){if(!current||busy||probing||exporting||!valid())return;const page=current;exporting=true;syncControls();try{
+    async function download(format){if(!hasPermission('logs:export')||!current||busy||probing||exporting||!valid())return;const page=current;exporting=true;syncControls();try{
         const r=await request('/logs/export',{query:{...query,cursor:page.page_cursor,format},signal,raw:true,ifMatch:'"'+page.page_digest+'"'});
         if(r.headers.get('X-Page-Digest')!==page.page_digest)throw new Error('Страница изменилась. Обновите поиск перед экспортом.');const blob=await r.blob();if(!valid()||current!==page)return;
         const url=URL.createObjectURL(blob),a=h('a',{href:url,download:'cajeerlogs.'+format});document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);notify('Экспорт текущей страницы подготовлен.');
@@ -84,6 +84,6 @@ function logPager(query, signal, epoch) {
 async function logs(signal, epoch) { const root = h('div', {}, heading('Логи', 'Поиск, фильтры и просмотр сохранённых событий.'), projectSelector()); if (!state.project) {
     root.append(needProject());
     return root;
-} const src = await get(projectPath() + '/sources', { limit: 100 }, signal); root.append(card(savedViews(signal,epoch), filterBuilder(src.items,signal,epoch)), card(h('h2', {}, 'События'), logPager(queryFilters(), signal, epoch))); return root; }
+} if(!hasPermission('logs:read')){root.append(card(h('p',{},'Нет разрешения logs:read в этом проекте. Выберите другой проект.')));return root;} const src = await get(projectPath() + '/sources', { limit: 100 }, signal); root.append(card(savedViews(signal,epoch), filterBuilder(src.items,signal,epoch)), card(h('h2', {}, 'События'), logPager(queryFilters(), signal, epoch))); return root; }
 
 export { logs };

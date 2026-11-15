@@ -76,7 +76,7 @@ def login(page, email='admin@example.test', password='admin-password-12345'):
 
 class Fixture:
     def __init__(self):
-        self.system_report_fails=False; self.user = None; self.project_roles={}; self.denied_projects=set(); self.totp_enabled=False; self.require_totp=False; self.role = 'administrator'; self.projects=[{'id':P1,'name':'Production','slug':'production','revision':'1','status':'active','description':'','metadata':{},'max_body_bytes':1048576,'max_batch_events':100,'created_at':'2026-01-01T00:00:00Z'}]
+        self.rbac_roles=[]; self.custom_permissions=None; self.system_report_fails=False; self.user = None; self.project_roles={}; self.denied_projects=set(); self.totp_enabled=False; self.require_totp=False; self.role = 'administrator'; self.projects=[{'id':P1,'name':'Production','slug':'production','revision':'1','status':'active','description':'','metadata':{},'max_body_bytes':1048576,'max_batch_events':100,'created_at':'2026-01-01T00:00:00Z'}]
         self.sources=[{'id':S1,'project_id':P1,'name':'Application','slug':'app','created_at':'2026-01-01T00:00:00Z','status':'active','revision':'1','source_type':'application','metadata':{}}]
         self.users=[{'id':U1,'email':'admin@example.test','role':'administrator','blocked_at':None}]
         self.sessions=[{'id':U1,'current':True,'user_agent':'Current browser','remote_address':'127.0.0.1','created_at':'2026-01-01T00:00:00Z','last_seen_at':'2026-01-01T00:00:00Z','expires_at':'2026-01-02T00:00:00Z'},{'id':U2,'current':False,'user_agent':'Other device','remote_address':'192.0.2.3','created_at':'2026-01-01T00:00:00Z','last_seen_at':'2026-01-01T00:00:00Z','expires_at':'2026-01-02T00:00:00Z'}]; self.members=[]; self.tokens=[]; self.accounts=[]; self.calls=[]; self.fail_next=False; self.change_export=False; self.head_changed=False; self.multi_logs=False; self.redaction={}; self.views=[]; self.connection_credentials={}; self.connection_event=None; self.connection_attempts=[]
@@ -94,8 +94,19 @@ class Fixture:
             if self.totp_enabled and not body.get('otp'): return err(401,'second_factor_required')
             if self.totp_enabled and body.get('otp')!='123456': return err(401,'unauthorized')
             self.user={'id':U1 if self.role=='administrator' else U2,'email':body['email'],'role':self.role,'two_factor_enabled':self.totp_enabled}
+            if self.custom_permissions is not None:self.user['permissions']=self.custom_permissions
             return send({'user':self.user,'csrf_token':CSRF,'expires_in':28800,'enrollment_required':self.require_totp and not self.totp_enabled},headers={'Set-Cookie':'cajeerlogs_session='+'b'*64+'; Path=/; HttpOnly; SameSite=Strict'})
-        if path=='/health': return send({'status':'ok','version':'0.4.1'})
+        if path=='/roles':
+            if self.role!='administrator':return err(403,'forbidden')
+            permissions=['projects:read','logs:read','logs:export','logs:write','sources:create','tokens:read','tokens:create','audit:read']
+            if method=='GET':return send({'items':self.rbac_roles,'permissions':permissions,'builtins':{'administrator':permissions+['roles:manage'],'operator':permissions,'viewer':permissions[:3]}})
+            row=dict(body,id=str(uuid.uuid4()),revision=1);self.rbac_roles.append(row);return send(row,201)
+        if path.startswith('/roles/'):
+            row=next(x for x in self.rbac_roles if x['id']==path.split('/')[-1])
+            if body['revision']!=row['revision']:return err(409,'role_changed')
+            if method=='DELETE':self.rbac_roles.remove(row);return send(status=204)
+            row.update(name=body['name'],permissions=body['permissions'],revision=row['revision']+1);return send(row)
+        if path=='/health': return send({'status':'ok','version':'0.4.2'})
         if path=='/auth/token':
             credential=self.connection_credentials.get(req.headers.get('authorization','').removeprefix('Bearer '))
             return send({'token':credential['row']}) if credential else err(401,'unauthorized')
@@ -338,7 +349,7 @@ def run():
         browser=browser_for(p); ctx=browser.new_context(accept_downloads=True); page=ctx.new_page(); page.set_default_timeout(8000)
         errors=[]; page.on('pageerror',lambda e: errors.append(str(e)))
         # Actual PHP router, not intercepted, even in offline browser mode.
-        status,headers,body=http(url+'/admin');assert status==200 and b'0.4.1' in body
+        status,headers,body=http(url+'/admin');assert status==200 and b'0.4.2' in body
         assert "script-src 'self'" in {k.lower():v for k,v in headers.items()}['content-security-policy']
         assert http(url+'/api/v1/auth/me')[0]==401
         assert http(url+'/admin/assets/panel.js')[0]==200
@@ -359,6 +370,12 @@ def run():
         expect(page.get_by_role('heading',name='Вход в CajeerLogs')).to_be_visible()
         login(page,password='bad');expect(page.get_by_role('alert')).to_contain_text('Неверные');login(page)
         expect(page.get_by_role('heading',name='Обзор',exact=True)).to_be_visible();expect(page.get_by_text('Всего событий')).to_be_visible()
+        nav(page,'rbac');expect(page.get_by_role('heading',name='Роли и разрешения',exact=True)).to_be_visible()
+        page.get_by_role('button',name='Новая роль',exact=True).click();dlg=page.get_by_role('dialog');dlg.get_by_label('Название роли').fill('RBAC Support');dlg.get_by_role('button',name='Создать роль',exact=True).click();expect(page.get_by_role('row').filter(has_text='RBAC Support')).to_be_visible()
+        page.get_by_role('button',name='Изменить роль',exact=True).click();dlg.get_by_label('Название роли').fill('RBAC Support v2');dlg.get_by_label('logs:export',exact=False).check();dlg.get_by_role('button',name='Сохранить роль',exact=True).click();expect(page.get_by_role('row').filter(has_text='RBAC Support v2')).to_be_visible()
+        assert f.rbac_roles[0]['revision']==2 and 'logs:export' in f.rbac_roles[0]['permissions']
+        page.get_by_role('button',name='Удалить роль',exact=True).click();dlg.get_by_role('button',name='Подтвердить',exact=True).click();expect(page.get_by_role('row').filter(has_text='RBAC Support v2')).to_have_count(0)
+        nav(page,'overview');print('PASS role editor create, update and delete')
         # Search projects via the API, revalidate the selected project, and jump to a section.
         page.get_by_role('button',name='Быстрый переход').click();dlg=page.get_by_role('dialog')
         expect(dlg.get_by_role('button',name='Production',exact=False)).to_be_visible()
@@ -535,11 +552,14 @@ def run():
         print('PASS session restore, expiry, viewer restrictions, logout; no uncaught browser errors')
         f.role='operator';login(page,email='operator@example.test');nav(page,'tokens');expect(page.get_by_role('heading',name='Токены проекта')).to_be_visible()
         selected=page.get_by_label('Активный проект').input_value();f.project_roles[selected]='viewer';page.evaluate("window.dispatchEvent(new Event('focus'))")
-        expect(page.get_by_text('У вас нет прав управления токенами в этом проекте.')).to_be_visible();expect(page.get_by_role('heading',name='Токены проекта')).to_have_count(0)
+        expect(page.get_by_text('Нет разрешений на токены или сервисные аккаунты в этом проекте.')).to_be_visible();expect(page.get_by_role('heading',name='Токены проекта')).to_have_count(0)
         nav(page,'logs');expect(page.get_by_role('heading',name='Логи',exact=True)).to_be_visible();f.denied_projects.add(selected);page.evaluate("window.dispatchEvent(new Event('focus'))")
         expect(page.get_by_label('Активный проект')).not_to_have_value(selected);assert not errors,errors
         page.get_by_role('button',name='Выйти',exact=True).click();expect(page.get_by_role('heading',name='Вход в CajeerLogs')).to_be_visible();f.denied_projects.clear();f.project_roles.clear()
         print('PASS effective-role downgrade, revoked project eviction and fresh workspace')
+        f.role='operator';f.custom_permissions=['projects:read','logs:read'];login(page,email='support@example.test');nav(page,'logs');expect(page.get_by_role('button',name='CSV',exact=True)).to_have_count(0);expect(page.locator('#nav a[href="#tokens"]')).to_have_count(0);expect(page.locator('#nav a[href="#rbac"]')).to_have_count(0);nav(page,'projects');expect(page.get_by_role('button',name='Добавить источник')).to_have_count(0)
+        page.get_by_role('button',name='Выйти',exact=True).click();expect(page.get_by_role('heading',name='Вход в CajeerLogs')).to_be_visible();f.custom_permissions=None
+        print('PASS restricted operator sees logs but not export or management controls')
         f.role='administrator'; f.require_totp=True; login(page)
         expect(page.get_by_role('heading',name='Настройка 2FA',exact=True)).to_be_visible();expect(page.locator('#nav a[href="#logs"]')).to_have_count(0)
         setup=page.locator('form').filter(has=page.get_by_role('button',name='Настроить 2FA',exact=True));setup.get_by_label('Текущий пароль').fill('admin-password-12345');setup.get_by_role('button',name='Настроить 2FA').click()

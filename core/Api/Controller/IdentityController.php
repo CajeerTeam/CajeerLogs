@@ -23,8 +23,10 @@ final class IdentityController
         'PATCH /auth/profile'=>'profile', 'POST /auth/2fa/recovery-codes'=>'recoveryCodes',
         'GET /users/{user}/sessions'=>'userSessions', 'DELETE /users/{user}/sessions/{session}'=>'revokeUserSession', 'POST /users/{user}/sessions/revoke-all'=>'revokeUserSessions',
         'POST /auth/logout'=>'logout', 'POST /auth/logout-all'=>'logoutAll', 'POST /auth/password'=>'password',
+        'GET /roles'=>'roles', 'POST /roles'=>'createRole', 'PATCH /roles/{role}'=>'updateRole', 'DELETE /roles/{role}'=>'deleteRole',
+        'PUT /users/{user}/role-assignment'=>'assignGlobalRole', 'PUT /projects/{project}/members/{user}/role-assignment'=>'assignProjectRole',
         'GET /users'=>'users', 'POST /users'=>'createUser', 'GET /users/{user}'=>'user', 'PATCH /users/{user}'=>'updateUser',
-        'GET /users/{user}/projects'=>'userProjects', 'GET /users/{user}/audit'=>'userAudit', 'POST /users/{user}/2fa/reset'=>'resetUserTotp',
+        'GET /users/{user}/permissions'=>'userPermissions', 'GET /users/{user}/projects'=>'userProjects', 'GET /users/{user}/audit'=>'userAudit', 'POST /users/{user}/2fa/reset'=>'resetUserTotp',
         'GET /projects'=>'projects', 'POST /projects'=>'createProject', 'GET /projects/{project}'=>'project',
         'PATCH /projects/{project}'=>'updateProject', 'POST /projects/{project}/archive'=>'archiveProject', 'POST /projects/{project}/restore'=>'restoreProject', 'GET /projects/{project}/stats'=>'projectStats',
         'GET /projects/{project}/members'=>'members', 'PUT /projects/{project}/members/{user}'=>'addMember',
@@ -149,7 +151,7 @@ final class IdentityController
     { (new AuditLogger($this->pdo))->record($action,['request_id'=>$r->requestId]+$context,$p['id'],$target); }
     private function sql(string $query,array $params=[]): \PDOStatement { return $this->identity->sql($query,$params); }
     private function one(string $query,array $params): array { $row=$this->sql($query,$params)->fetch(); if (!$row) { self::missing(); } return $row; }
-    private function page(Request $r,string $query,array $params=[],string $id='id',bool $projects=false,bool $sources=false): Response
+    private function page(Request $r,string $query,array $params=[],string $id='id',bool $projects=false,bool $sources=false,?callable $transform=null): Response
     {
         $limit=filter_var($r->query['limit']??50,FILTER_VALIDATE_INT,['options'=>['min_range'=>1,'max_range'=>100]]);
         if ($limit===false) { self::invalid('limit must be 1..100.'); }
@@ -160,6 +162,7 @@ final class IdentityController
         if (count($rows)>$limit) { array_pop($rows); $next=end($rows)['id']; }
         foreach ($rows as &$row) { if ($projects) $row=ProjectRepository::decode($row); if ($sources) $row=SourceRepository::decode($row); if (isset($row['scopes']) && is_string($row['scopes'])) { $row=TokenRepository::decode($row); } }
         unset($row);
+        if ($transform!==null) $rows=array_map($transform,$rows);
         return new JsonResponse(['items'=>$rows,'next_cursor'=>$next]);
     }
     private function login(Request $r): Response
@@ -170,7 +173,7 @@ final class IdentityController
         $cookie=$result['cookie']; unset($result['cookie']);
         return new JsonResponse($result,200,['Set-Cookie'=>$cookie]);
     }
-    private function me(Request $r,array $p): Response { $this->session($p); return new JsonResponse(['user'=>$p['user'],'csrf_token'=>$p['csrf'],'enrollment_required'=>$this->identity->enrollmentRequired($p['user'])]); }
+    private function me(Request $r,array $p): Response { $this->session($p); return new JsonResponse(['user'=>$p['user']+['permissions'=>$this->identity->effectivePermissions($p)],'csrf_token'=>$p['csrf'],'enrollment_required'=>$this->identity->enrollmentRequired($p['user'])]); }
     private function totp(): TwoFactorManager { return new TwoFactorManager($this->pdo,$this->app->config()->get('security.totp_key'),$this->app->config()->get('security.require_admin_totp')); }
     private function confirmPassword(array $p,array $d): void
     {
@@ -269,7 +272,7 @@ final class IdentityController
         if (!is_string($name)||strlen($name)>480||!preg_match('/^[^\p{C}]{0,120}$/uD',$name)) self::invalid('Display name must contain at most 120 characters and no control characters.');
         $user=$this->one('UPDATE users SET display_name=:name,updated_at=now() WHERE id=:id RETURNING id,email,role,blocked_at,two_factor_enabled,created_at,updated_at,display_name,last_login_at',['name'=>trim($name),'id'=>$p['id']]);
         $this->audit($r,$p,'auth.profile_updated',$p['id']);
-        return new JsonResponse(['user'=>$user]);
+        return new JsonResponse(['user'=>$user+['permissions'=>$this->identity->effectivePermissions($p)]]);
     }
     private function recoveryCodes(Request $r,array $p): Response
     {
@@ -279,7 +282,7 @@ final class IdentityController
         $this->audit($r,$p,'auth.recovery_codes_regenerated',$p['id']);
         return new JsonResponse(['recovery_codes'=>$codes]);
     }
-    private const USER_FIELDS='id,email,role,blocked_at,two_factor_enabled,created_at,updated_at,display_name,last_login_at';
+    private const USER_FIELDS='id,email,role,blocked_at,two_factor_enabled,created_at,updated_at,display_name,last_login_at,rbac_role_id';
     private function managedUser(Request $r,array $p): array
     {
         $this->session($p); $this->allow($p,'users:manage');
@@ -320,18 +323,29 @@ final class IdentityController
     }
     private function user(Request $r,array $p): Response
     { return new JsonResponse(['user'=>$this->managedUser($r,$p)]); }
+    private function userPermissions(Request $r,array $p): Response
+    {
+        $u=$this->managedUser($r,$p); $project=null;
+        if (isset($r->query['project_id'])) { if (!is_string($r->query['project_id'])) self::invalid(); $project=self::uuid($r->query['project_id']); $this->one('SELECT id FROM projects WHERE id=:id',['id'=>$project]); }
+        $permissions=[];
+        if ($u['blocked_at']===null) {
+            try { $permissions=$this->identity->effectivePermissions(['kind'=>'session','id'=>$u['id']],$project); }
+            catch (HttpException $e) { if ($e->status!==403) throw $e; }
+        }
+        return new JsonResponse(['user_id'=>$u['id'],'project_id'=>$project,'permissions'=>$permissions],200,['Cache-Control'=>'no-store']);
+    }
     private function userProjects(Request $r,array $p): Response
     {
         $u=$this->managedUser($r,$p);
         // Explicit memberships and effective access are distinct. Administrators have implicit access.
-        $query="SELECT p.id,p.name,p.slug,p.archived_at,m.project_role,(m.user_id IS NOT NULL) AS member, CASE WHEN u.blocked_at IS NOT NULL THEN NULL WHEN u.role='administrator' THEN 'administrator' WHEN m.user_id IS NULL THEN NULL WHEN u.role='viewer' OR m.project_role='viewer' THEN 'viewer' ELSE u.role END AS effective_role FROM projects p CROSS JOIN users u LEFT JOIN project_members m ON m.project_id=p.id AND m.user_id=u.id WHERE u.id=:user AND (u.role='administrator' OR m.user_id IS NOT NULL)";
+        $query="SELECT p.id,p.name,p.slug,p.archived_at,m.project_role,m.rbac_role_id,(m.user_id IS NOT NULL) AS member, CASE WHEN u.blocked_at IS NOT NULL THEN NULL WHEN u.role='administrator' THEN 'administrator' WHEN m.user_id IS NULL THEN NULL WHEN u.role='viewer' OR m.project_role='viewer' THEN 'viewer' ELSE u.role END AS effective_role FROM projects p CROSS JOIN users u LEFT JOIN project_members m ON m.project_id=p.id AND m.user_id=u.id WHERE u.id=:user AND (u.role='administrator' OR m.user_id IS NOT NULL)";
         return $this->page($r,$query,['user'=>$u['id']],'p.id');
     }
     private function userAudit(Request $r,array $p): Response
     {
         $u=$this->managedUser($r,$p); $id=$u['id'];
         // Never expose arbitrary audit context (it may contain operational data).
-        $query="SELECT a.id,a.actor_id,a.action,a.target,a.created_at,a.context->>'request_id' AS request_id, CASE WHEN a.action='user.updated' THEN a.context->>'role_before' END AS role_before, CASE WHEN a.action='user.updated' THEN a.context->>'role_after' END AS role_after, CASE WHEN a.action='user.updated' THEN a.context->>'blocked_before' END AS blocked_before, CASE WHEN a.action='user.updated' THEN a.context->>'blocked_after' END AS blocked_after, CASE WHEN a.action='user.updated' THEN a.context->>'password_reset' END AS password_reset, CASE WHEN a.action='project.member_role_set' THEN a.context->>'project_role' END AS project_role FROM audit_log a WHERE ((a.action LIKE 'user.%' AND a.target=:target) OR (a.action LIKE 'auth.%' AND (a.actor_id=:actor OR a.target=:auth_target)) OR (a.action IN ('project.member_added','project.member_role_set','project.member_removed') AND right(a.target,37)=:suffix))";
+        $query="SELECT a.id,a.actor_id,a.action,a.target,a.created_at,a.context->>'request_id' AS request_id, CASE WHEN a.action IN ('user.updated','role.global_assigned','role.project_assigned') THEN a.context->>'role_before' END AS role_before, CASE WHEN a.action IN ('user.updated','role.global_assigned','role.project_assigned') THEN a.context->>'role_after' END AS role_after, CASE WHEN a.action='user.updated' THEN a.context->>'blocked_before' END AS blocked_before, CASE WHEN a.action='user.updated' THEN a.context->>'blocked_after' END AS blocked_after, CASE WHEN a.action='user.updated' THEN a.context->>'password_reset' END AS password_reset, CASE WHEN a.action='project.member_role_set' THEN a.context->>'project_role' END AS project_role FROM audit_log a WHERE (((a.action LIKE 'user.%' OR a.action IN ('role.global_assigned','role.project_assigned')) AND a.target=:target) OR (a.action LIKE 'auth.%' AND (a.actor_id=:actor OR a.target=:auth_target)) OR (a.action IN ('project.member_added','project.member_role_set','project.member_removed') AND right(a.target,37)=:suffix))";
         $params=['target'=>$id,'actor'=>$id,'auth_target'=>$id,'suffix'=>':'.$id];
         $limit=filter_var($r->query['limit']??25,FILTER_VALIDATE_INT,['options'=>['min_range'=>1,'max_range'=>100]]);
         if ($limit===false) self::invalid('limit must be 1..100.');
@@ -372,9 +386,9 @@ final class IdentityController
         $blocked=array_key_exists('blocked',$d)?$d['blocked']:$u['blocked_at']!==null;
         if (!is_bool($blocked)) { self::invalid('blocked must be boolean.'); }
         if ($u['role']==='administrator' && $u['blocked_at']===null && ($role!=='administrator'||$blocked) && (int)$this->sql("SELECT count(*) FROM users u WHERE role='administrator' AND blocked_at IS NULL AND (NOT two_factor_enabled OR EXISTS(SELECT 1 FROM user_totp t WHERE t.user_id=u.id AND t.pending_session IS NULL))")->fetchColumn()<=1) { throw new HttpException(409,'last_administrator','Cannot disable the last usable administrator.'); }
-        $params=['id'=>$id,'email'=>array_key_exists('email',$d)?self::email($d):$u['email'],'role'=>$role,'blocked'=>$blocked?'true':'false'];
+        $params=['id'=>$id,'email'=>array_key_exists('email',$d)?self::email($d):$u['email'],'role'=>$role,'role_admin'=>$role,'blocked'=>$blocked?'true':'false'];
         $extra=''; if (array_key_exists('password',$d)) { $params['hash']=password_hash(self::passwordValue($d),PASSWORD_ARGON2ID); $extra=',password_hash=:hash'; }
-        $this->sql('UPDATE users SET email=:email,role=:role,blocked_at=CASE WHEN CAST(:blocked AS boolean) THEN COALESCE(blocked_at,now()) ELSE NULL END,updated_at=now()'.$extra.' WHERE id=:id',$params);
+        $this->sql('UPDATE users SET email=:email,role=:role,rbac_role_id=CASE WHEN :role_admin=\'administrator\' THEN NULL ELSE rbac_role_id END,blocked_at=CASE WHEN CAST(:blocked AS boolean) THEN COALESCE(blocked_at,now()) ELSE NULL END,updated_at=now()'.$extra.' WHERE id=:id',$params);
         $this->sql('DELETE FROM auth_sessions WHERE user_id=:id',['id'=>$id]);
         $this->audit($r,$p,'user.updated',$id,['role_before'=>$u['role'],'role_after'=>$role,'blocked_before'=>$u['blocked_at']!==null,'blocked_after'=>$blocked,'password_reset'=>array_key_exists('password',$d)]); return new JsonResponse(['id'=>$id]);
     }
@@ -383,7 +397,7 @@ final class IdentityController
         $this->session($p); $this->allow($p,'projects:read');
         $fields=implode(',',array_map(static fn($f)=>'p.'.$f,explode(',',ProjectRepository::FIELDS)));
         $admin=$p['user']['role']==='administrator';
-        $query='SELECT '.$fields.($admin?",'administrator' AS effective_role":",CASE WHEN m.project_role='viewer' THEN 'viewer' ELSE :role END AS effective_role").' FROM projects p'.($admin?' WHERE true':' JOIN project_members m ON m.project_id=p.id WHERE m.user_id=:user');
+        $query='SELECT '.$fields.($admin?",'administrator' AS effective_role":",CASE WHEN m.project_role='viewer' THEN 'viewer' ELSE :role END AS effective_role,m.rbac_role_id AS restriction_id,rr.scope AS restriction_scope,rr.permissions AS restriction_permissions").' FROM projects p'.($admin?' WHERE true':' JOIN project_members m ON m.project_id=p.id LEFT JOIN rbac_roles rr ON rr.id=m.rbac_role_id WHERE m.user_id=:user');
         $params=$admin?[]:['user'=>$p['id'],'role'=>$p['user']['role']];
         $status=$r->query['status']??'all';
         if (!in_array($status,['all','active','archived'],true)) self::invalid('Invalid project status.');
@@ -392,7 +406,12 @@ final class IdentityController
             $q=$r->query['q']; if (!is_string($q)||strlen($q)>255||str_contains($q,"\0")) self::invalid('Invalid project search.');
             $query.=" AND (strpos(lower(p.name),lower(:q_name))>0 OR strpos(p.slug,lower(:q_slug))>0 OR strpos(p.id::text,lower(:q_id))>0)"; $params['q_name']=$q; $params['q_slug']=$q; $params['q_id']=$q;
         }
-        return $this->page($r,$query,$params,'p.id',true);
+        $global=$this->identity->effectivePermissions($p);
+        return $this->page($r,$query,$params,'p.id',true,false,static function(array $row) use ($global,$admin): array {
+            $grants=array_values(array_intersect($global,\Cajeer\Logs\Security\Rbac::permissions($row['effective_role'])));
+            $row['effective_permissions']=$admin?$grants:\Cajeer\Logs\Security\Rbac::restrict($grants,$row['restriction_id'],$row['restriction_scope'],$row['restriction_permissions'],'project');
+            unset($row['restriction_id'],$row['restriction_scope'],$row['restriction_permissions']); return $row;
+        });
     }
     private function nameSlug(array $d): array
     {
@@ -410,7 +429,7 @@ final class IdentityController
         $id=$this->id($r,'project'); $this->allow($p,$p['kind']==='token'?'logs:read':'projects:read',$id);
         $row=(new ProjectRepository($this->pdo))->find($id); if (!$row) self::missing();
         // Source-scoped tokens cannot access the project-wide endpoint (permission() above).
-        if ($p['kind']==='session') $row['effective_role']=$this->identity->projectRole($p,$id);
+        if ($p['kind']==='session') { $row['effective_role']=$this->identity->projectRole($p,$id); $row['effective_permissions']=$this->identity->effectivePermissions($p,$id); }
         return new JsonResponse($row);
     }
     private function updateProject(Request $r,array $p): Response
@@ -441,7 +460,7 @@ final class IdentityController
     {
         $this->session($p); $this->allow($p,'projects:manage'); $id=$this->id($r,'project');
         $this->one('SELECT id FROM projects WHERE id=:id',['id'=>$id]);
-        return $this->page($r,'SELECT u.id,u.email,u.role,u.blocked_at,m.project_role FROM project_members m JOIN users u ON u.id=m.user_id WHERE m.project_id=:project',['project'=>$id],'u.id');
+        return $this->page($r,'SELECT u.id,u.email,u.role,u.blocked_at,m.project_role,m.rbac_role_id FROM project_members m JOIN users u ON u.id=m.user_id WHERE m.project_id=:project',['project'=>$id],'u.id');
     }
     private function addMember(Request $r,array $p): Response
     {
@@ -544,7 +563,7 @@ final class IdentityController
     }
     private function createSource(Request $r,array $p): Response
     {
-        $this->session($p); $project=$this->id($r,'project'); $this->allow($p,'sources:manage',$project);
+        $this->session($p); $project=$this->id($r,'project'); $this->allow($p,'sources:create',$project);
         $d=$this->sourceData($r,['name','slug']); [$name,$slug]=$this->nameSlug($d); unset($d['name'],$d['slug']);
         $this->one('SELECT id FROM projects WHERE id=:id',['id'=>$project]); $id=(new SourceRepository($this->pdo))->create($project,$name,$slug,$d); $this->audit($r,$p,'source.created',$id,['project_id'=>$project]); return new JsonResponse(['id'=>$id],201);
     }
@@ -555,14 +574,14 @@ final class IdentityController
     }
     private function updateSource(Request $r,array $p): Response
     {
-        $this->session($p); $project=$this->id($r,'project'); $source=$this->id($r,'source'); $this->allow($p,'sources:manage',$project);
+        $this->session($p); $project=$this->id($r,'project'); $source=$this->id($r,'source'); $this->allow($p,'sources:update',$project);
         $d=$this->sourceData($r,['revision','name']); $revision=ProjectRepository::revision($d['revision']??null); unset($d['revision']);
         $row=(new SourceRepository($this->pdo))->update($project,$source,$revision,$d);
         $this->audit($r,$p,'source.updated',$source,['project_id'=>$project,'revision'=>$row['revision'],'fields'=>array_keys($d)]); return new JsonResponse($row);
     }
     private function changeSourceState(Request $r,array $p,string $action): Response
     {
-        $this->session($p); $project=$this->id($r,'project'); $source=$this->id($r,'source'); $this->allow($p,'sources:manage',$project);
+        $this->session($p); $project=$this->id($r,'project'); $source=$this->id($r,'source'); $this->allow($p,'sources:state',$project);
         $d=$this->body($r,['revision']); $row=(new SourceRepository($this->pdo))->transition($project,$source,ProjectRepository::revision($d['revision']??null),$action);
         $this->audit($r,$p,'source.'.$action,$source,['project_id'=>$project,'revision'=>$row['revision'],'status'=>$row['status']]); return new JsonResponse($row);
     }
@@ -640,11 +659,11 @@ final class IdentityController
     private function signing(): \Cajeer\Logs\Security\IngestSigning { return new \Cajeer\Logs\Security\IngestSigning($this->pdo,$this->app->config()->get('security.totp_key')); }
     private function tokenSigning(Request $r,array $p): Response
     {
-        return new JsonResponse($this->signing()->metadata($this->tokenProject($r,$p),$this->id($r,'token')));
+        return new JsonResponse($this->signing()->metadata($this->tokenProject($r,$p,false,'tokens:read'),$this->id($r,'token')));
     }
     private function configureSigning(Request $r,array $p): Response
     {
-        $project=$this->tokenProject($r,$p); $id=$this->id($r,'token'); $d=$this->body($r,['mode','overlap_seconds','expected_key_id']);
+        $project=$this->tokenProject($r,$p,false,'tokens:signing'); $id=$this->id($r,'token'); $d=$this->body($r,['mode','overlap_seconds','expected_key_id']);
         if (!is_string($d['mode']??null)) self::invalid();
         $expected=$d['expected_key_id']??null; if ($expected!==null) { if (!is_string($expected)) self::invalid(); $expected=self::uuid($expected); }
         $result=$this->signing()->configure($project,$id,$d['mode'],TokenRepository::grace($d['overlap_seconds']??0),$expected);
@@ -653,7 +672,7 @@ final class IdentityController
     }
     private function retireSigningKey(Request $r,array $p): Response
     {
-        $project=$this->tokenProject($r,$p); $id=$this->id($r,'token');
+        $project=$this->tokenProject($r,$p,false,'tokens:signing'); $id=$this->id($r,'token');
         $d=$this->body($r,['expected_key_id','expected_previous_key_id']);
         $current=self::uuid(self::str($d,'expected_key_id',36));
         $previous=self::uuid(self::str($d,'expected_previous_key_id',36));
@@ -692,16 +711,16 @@ final class IdentityController
         }
         return new JsonResponse($row,200,['Cache-Control'=>'no-store']);
     }
-    private function tokenDetail(Request $r,array $p): Response { return $this->detailToken($r,$this->tokenProject($r,$p)); }
+    private function tokenDetail(Request $r,array $p): Response { return $this->detailToken($r,$this->tokenProject($r,$p,false,'tokens:read')); }
     private function systemTokenDetail(Request $r,array $p): Response { return $this->detailToken($r,$this->tokenProject($r,$p,true)); }
-    private function projectSecurityAudit(Request $r,array $p): Response { return $this->securityAudit($r,$this->tokenProject($r,$p)); }
+    private function projectSecurityAudit(Request $r,array $p): Response { $this->session($p); $project=$this->id($r,'project'); $this->allow($p,'audit:read',$project); $this->one('SELECT id FROM projects WHERE id=:id',['id'=>$project]); return $this->securityAudit($r,$project); }
     private function systemSecurityAudit(Request $r,array $p): Response { return $this->securityAudit($r,$this->tokenProject($r,$p,true)); }
     private function securityAudit(Request $r,?string $project): Response
     {
         // Explicit event families, never return raw audit context. Project operators
         // see only events explicitly attributed to their project (including legacy policy/member events).
-        $families="(a.action LIKE 'token.%' OR a.action LIKE 'service_account.%' OR a.action LIKE 'project.%' OR a.action LIKE 'source.%' OR a.action='redaction.policy_changed'";
-        $where=$families.($project===null?" OR a.action LIKE 'auth.%' OR a.action LIKE 'user.%')":')');
+        $families="(a.action LIKE 'token.%' OR a.action LIKE 'service_account.%' OR a.action LIKE 'project.%' OR a.action LIKE 'source.%' OR a.action='redaction.policy_changed' OR a.action='role.project_assigned'";
+        $where=$families.($project===null?" OR a.action LIKE 'auth.%' OR a.action LIKE 'user.%' OR a.action LIKE 'role.%')":')');
         $params=[];
         if ($project!==null) {
             $where.=" AND (a.context->>'project_id'=:project OR (a.action='token.bulk_revoked' AND a.target=:bulk_project) OR (a.action IN ('project.created','project.updated','project.archived','project.restored','project.signing_policy') AND a.target=:project_target) OR (a.action IN ('project.member_added','project.member_role_set','project.member_removed') AND left(a.target,37)=:member_prefix))";
@@ -723,41 +742,49 @@ final class IdentityController
             $where.=' AND (a.created_at,a.id)<(CAST(:anchor_time AS timestamptz),CAST(:anchor_id AS uuid))';
             $params+=['anchor_time'=>$anchor['created_at'],'anchor_id'=>$anchor['id']];
         }
-        $query="SELECT a.id,a.actor_id,a.action,a.target,a.created_at,a.context->>'request_id' AS request_id,a.context->>'project_id' AS project_id,a.context->>'key_id' AS key_id,a.context->>'successor_id' AS successor_id,a.context->>'source_id' AS source_id,a.context->>'service_account_id' AS service_account_id,a.context->>'overlap_seconds' AS overlap_seconds,a.context->>'mode' AS mode,a.context->>'count' AS count,a.context->>'revoked' AS revoked,a.context->>'role_before' AS role_before,a.context->>'role_after' AS role_after,a.context->>'project_role' AS project_role,a.context->>'required' AS required,a.context->>'blocked_before' AS blocked_before,a.context->>'blocked_after' AS blocked_after,a.context->>'password_reset' AS password_reset,a.context->>'sessions_revoked' AS sessions_revoked FROM audit_log a WHERE ";
+        $query="SELECT a.id,a.actor_id,a.action,a.target,a.created_at,a.context->>'request_id' AS request_id,a.context->>'project_id' AS project_id,a.context->>'key_id' AS key_id,a.context->>'successor_id' AS successor_id,a.context->>'source_id' AS source_id,a.context->>'service_account_id' AS service_account_id,a.context->>'overlap_seconds' AS overlap_seconds,a.context->>'mode' AS mode,a.context->>'count' AS count,a.context->>'revoked' AS revoked,a.context->>'role_before' AS role_before,a.context->>'role_after' AS role_after,a.context->>'project_role' AS project_role,a.context->>'required' AS required,a.context->>'blocked_before' AS blocked_before,a.context->>'blocked_after' AS blocked_after,a.context->>'password_reset' AS password_reset,a.context->>'sessions_revoked' AS sessions_revoked,CASE WHEN a.action='role.created' THEN a.context->>'permissions' END AS role_permissions,CASE WHEN a.action='role.updated' THEN a.context->>'permissions_before' END AS permissions_before,CASE WHEN a.action='role.updated' THEN a.context->>'permissions_after' END AS permissions_after FROM audit_log a WHERE ";
         $rows=$this->sql($query.$where.' ORDER BY a.created_at DESC,a.id DESC LIMIT '.($limit+1),$params)->fetchAll();
         $next=null; if (count($rows)>$limit) { array_pop($rows); $next=end($rows)['id']; }
         return new JsonResponse(['items'=>$rows,'next_cursor'=>$next],200,['Cache-Control'=>'no-store']);
     }
-    private function tokenProject(Request $r,array $p,bool $system=false): ?string
+    private function tokenProject(Request $r,array $p,bool $system=false,string $permission='tokens:read'): ?string
     {
         $this->session($p);
         if($system) { $this->allow($p,'users:manage'); return null; }
-        $project=$this->id($r,'project'); $this->allow($p,'tokens:manage',$project); $this->one('SELECT id FROM projects WHERE id=:id',['id'=>$project]); return $project;
+        $project=$this->id($r,'project'); $this->allow($p,$permission,$project); $this->one('SELECT id FROM projects WHERE id=:id',['id'=>$project]); return $project;
     }
-    private function tokens(Request $r,array $p): Response { return $this->tokenList($r,$this->tokenProject($r,$p)); }
+    private function tokens(Request $r,array $p): Response { return $this->tokenList($r,$this->tokenProject($r,$p,false,'tokens:read')); }
     private function systemTokens(Request $r,array $p): Response { return $this->tokenList($r,$this->tokenProject($r,$p,true)); }
+    private function grantScopes(array $p,?string $project,array $scopes): void
+    {
+        if ($project===null) return; // system credential issuance remains administrator-only
+        foreach ($scopes as $scope) $this->allow($p,$scope,$project);
+        // A read-scoped bearer can export through the legacy API; do not mint it for a role denied export.
+        if (in_array('logs:read',$scopes,true)) $this->allow($p,'logs:export',$project);
+    }
     private function issue(Request $r,array $p,?string $project): Response
     {
         $d=$this->body($r,['name','scopes','source_id','expires_in','description','requests_per_minute','service_account_id','signing_mode']);
-        $name=self::str($d,'name'); $scopes=TokenRepository::scopes($d['scopes']??null,$project); $ttl=TokenRepository::ttl($d['expires_in']??2592000);
+        $name=self::str($d,'name'); $scopes=TokenRepository::scopes($d['scopes']??null,$project); $this->grantScopes($p,$project,$scopes); $ttl=TokenRepository::ttl($d['expires_in']??2592000);
         $source=null; if (isset($d['source_id'])) { if ($project===null||!is_string($d['source_id'])) self::invalid(); $source=self::uuid($d['source_id']); $this->one('SELECT id FROM sources WHERE project_id=:project AND id=:id',['project'=>$project,'id'=>$source]); }
         $account=null; if(isset($d['service_account_id'])) { if($project===null||!is_string($d['service_account_id'])) self::invalid(); $account=self::uuid($d['service_account_id']); }
         $meta=TokenRepository::changes(['name'=>$name,'description'=>array_key_exists('description',$d)?$d['description']:'','requests_per_minute'=>$d['requests_per_minute']??null]);
         $result=(new TokenRepository($this->pdo))->issue($name,$scopes,$project,$source,$ttl,$p['id'],$account,$meta['description'],$meta['requests_per_minute']);
         if (array_key_exists('signing_mode',$d)) {
+            if ($project!==null) $this->allow($p,'tokens:signing',$project);
             if ($project===null || !in_array('logs:write',$scopes,true) || !is_string($d['signing_mode'])) self::invalid('Signing mode requires an ingest credential.');
             $result['signing']=$this->signing()->configure($project,$result['id'],$d['signing_mode'],0);
         }
         $this->audit($r,$p,'token.created',$result['id'],['project_id'=>$project,'service_account_id'=>$account,'scopes'=>$scopes]); return new JsonResponse($result,201,['Cache-Control'=>'no-store']);
     }
-    private function createToken(Request $r,array $p): Response { return $this->issue($r,$p,$this->tokenProject($r,$p)); }
+    private function createToken(Request $r,array $p): Response { return $this->issue($r,$p,$this->tokenProject($r,$p,false,'tokens:create')); }
     private function createSystemToken(Request $r,array $p): Response { return $this->issue($r,$p,$this->tokenProject($r,$p,true)); }
     private function revoke(Request $r,array $p,?string $project): Response
     {
         $id=$this->id($r,'token'); $this->one('SELECT id FROM api_tokens WHERE id=:id AND project_id IS NOT DISTINCT FROM CAST(:project AS uuid)',['id'=>$id,'project'=>$project]);
         if((new TokenRepository($this->pdo))->revoke($id)) $this->audit($r,$p,'token.revoked',$id,['project_id'=>$project]); return new Response('',204);
     }
-    private function revokeToken(Request $r,array $p): Response { return $this->revoke($r,$p,$this->tokenProject($r,$p)); }
+    private function revokeToken(Request $r,array $p): Response { return $this->revoke($r,$p,$this->tokenProject($r,$p,false,'tokens:revoke')); }
     private function revokeSystemToken(Request $r,array $p): Response { return $this->revoke($r,$p,$this->tokenProject($r,$p,true)); }
     private function changeToken(Request $r,array $p,?string $project): Response
     {
@@ -765,16 +792,21 @@ final class IdentityController
         $id=$this->id($r,'token'); $result=(new TokenRepository($this->pdo))->update($project,$id,$revision,$d);
         $this->audit($r,$p,'token.updated',$id,['project_id'=>$project,'fields'=>array_keys($d),'revision'=>$result['revision']]); return new JsonResponse($result);
     }
-    private function updateToken(Request $r,array $p): Response { return $this->changeToken($r,$p,$this->tokenProject($r,$p)); }
+    private function updateToken(Request $r,array $p): Response { return $this->changeToken($r,$p,$this->tokenProject($r,$p,false,'tokens:update')); }
     private function updateSystemToken(Request $r,array $p): Response { return $this->changeToken($r,$p,$this->tokenProject($r,$p,true)); }
     private function rotate(Request $r,array $p,?string $project): Response
     {
         $d=$this->body($r,['revision','expires_in','overlap_seconds','scopes']); $id=$this->id($r,'token');
         $scopes=array_key_exists('scopes',$d)?TokenRepository::scopes($d['scopes'],$project):null;
+        if ($project!==null && $scopes===null) {
+            $old=$this->one('SELECT scopes FROM api_tokens WHERE id=:id AND project_id=:project',['id'=>$id,'project'=>$project]);
+            $scopes=TokenRepository::decode($old)['scopes'];
+        }
+        if ($scopes!==null) $this->grantScopes($p,$project,$scopes);
         $result=(new TokenRepository($this->pdo))->rotate($project,$id,TokenRepository::revision($d['revision']??null),TokenRepository::ttl($d['expires_in']??2592000),TokenRepository::grace($d['overlap_seconds']??0),$p['id'],$scopes,$this->app->config()->get('security.totp_key'));
         $this->audit($r,$p,'token.rotated',$id,['project_id'=>$project,'successor_id'=>$result['id'],'overlap_seconds'=>$d['overlap_seconds']??0,'scopes'=>$result['scopes']]); return new JsonResponse($result,201,['Cache-Control'=>'no-store']);
     }
-    private function rotateToken(Request $r,array $p): Response { return $this->rotate($r,$p,$this->tokenProject($r,$p)); }
+    private function rotateToken(Request $r,array $p): Response { return $this->rotate($r,$p,$this->tokenProject($r,$p,false,'tokens:rotate')); }
     private function rotateSystemToken(Request $r,array $p): Response { return $this->rotate($r,$p,$this->tokenProject($r,$p,true)); }
     private function bulkRevoke(Request $r,array $p,?string $project): Response
     {
@@ -785,18 +817,18 @@ final class IdentityController
         $count=(new TokenRepository($this->pdo))->revokeAll($project,$source,$account);
         $this->audit($r,$p,'token.bulk_revoked',$project,['project_id'=>$project,'source_id'=>$source,'service_account_id'=>$account,'count'=>$count]); return new JsonResponse(['revoked'=>$count]);
     }
-    private function revokeProjectTokens(Request $r,array $p): Response { return $this->bulkRevoke($r,$p,$this->tokenProject($r,$p)); }
+    private function revokeProjectTokens(Request $r,array $p): Response { return $this->bulkRevoke($r,$p,$this->tokenProject($r,$p,false,'tokens:revoke')); }
     private function revokeAllSystemTokens(Request $r,array $p): Response { return $this->bulkRevoke($r,$p,$this->tokenProject($r,$p,true)); }
     private function serviceAccounts(Request $r,array $p): Response
     {
-        $project=$this->tokenProject($r,$p); $query='SELECT id,project_id,name,created_by,created_at,disabled_at FROM service_accounts WHERE project_id=:project'; $params=['project'=>$project];
+        $project=$this->tokenProject($r,$p,false,'services:read'); $query='SELECT id,project_id,name,created_by,created_at,disabled_at FROM service_accounts WHERE project_id=:project'; $params=['project'=>$project];
         $query.=match($r->query['status']??'all') {'all'=>'','active'=>' AND disabled_at IS NULL','disabled'=>' AND disabled_at IS NOT NULL',default=>self::invalid('Invalid account status.')};
         if (isset($r->query['q'])) { $q=$r->query['q']; if(!is_string($q)||strlen($q)>255||str_contains($q,"\0")) self::invalid('Invalid account search.'); $query.=' AND (strpos(lower(name),lower(:q))>0 OR strpos(id::text,lower(:qid))>0)'; $params+=['q'=>trim($q),'qid'=>trim($q)]; }
         return $this->page($r,$query,$params);
     }
     private function serviceAccountDetail(Request $r,array $p): Response
     {
-        $project=$this->tokenProject($r,$p); $id=$this->id($r,'account');
+        $project=$this->tokenProject($r,$p,false,'services:read'); $id=$this->id($r,'account');
         $row=$this->one('SELECT id,project_id,name,created_by,created_at,disabled_at FROM service_accounts WHERE id=:id AND project_id=:project',['id'=>$id,'project'=>$project]);
         $stats=$this->one("SELECT count(*) AS total_tokens,count(*) FILTER (WHERE revoked_at IS NULL AND (expires_at IS NULL OR expires_at>clock_timestamp())) AS active_tokens,max(last_used_at) AS last_used_at FROM api_tokens WHERE service_account_id=:id AND project_id=:project",['id'=>$id,'project'=>$project]);
         foreach (['total_tokens','active_tokens'] as $key) $stats[$key]=(int)$stats[$key];
@@ -804,15 +836,89 @@ final class IdentityController
     }
     private function createServiceAccount(Request $r,array $p): Response
     {
-        $project=$this->tokenProject($r,$p); $d=$this->body($r,['name']); $name=TokenRepository::changes(['name'=>self::str($d,'name')])['name'];
+        $project=$this->tokenProject($r,$p,false,'services:manage'); $d=$this->body($r,['name']); $name=TokenRepository::changes(['name'=>self::str($d,'name')])['name'];
         $row=$this->sql('INSERT INTO service_accounts(project_id,name,created_by) VALUES (:project,:name,:actor) RETURNING id,project_id,name,created_by,created_at,disabled_at',['project'=>$project,'name'=>$name,'actor'=>$p['id']])->fetch();
         $this->audit($r,$p,'service_account.created',$row['id'],['project_id'=>$project]); return new JsonResponse($row,201);
     }
     private function disableServiceAccount(Request $r,array $p): Response
     {
-        $project=$this->tokenProject($r,$p); $id=$this->id($r,'account'); $d=$this->body($r,['confirm']); if(($d['confirm']??null)!==true) self::invalid('Explicit confirmation required.');
+        $project=$this->tokenProject($r,$p,false,'services:manage'); $this->allow($p,'tokens:revoke',$project); $id=$this->id($r,'account'); $d=$this->body($r,['confirm']); if(($d['confirm']??null)!==true) self::invalid('Explicit confirmation required.');
         $row=$this->one('UPDATE service_accounts SET disabled_at=COALESCE(disabled_at,clock_timestamp()) WHERE id=:id AND project_id=:project RETURNING id,project_id,name,created_by,created_at,disabled_at',['id'=>$id,'project'=>$project]);
         $count=(new TokenRepository($this->pdo))->revokeAll($project,null,$id); $this->audit($r,$p,'service_account.disabled',$id,['project_id'=>$project,'revoked'=>$count]); return new JsonResponse($row+['revoked'=>$count]);
+    }
+    private function roleAdmin(array $p): void { $this->session($p); $this->allow($p,'roles:manage'); }
+    private const ROLE_FIELDS='id,name,scope,permissions,revision,created_at,updated_at';
+    private function roleRow(array $row): array { $row['permissions']=json_decode($row['permissions'],true,16,JSON_THROW_ON_ERROR); $row['revision']=(int)$row['revision']; return $row; }
+    private function roles(Request $r,array $p): Response
+    {
+        $this->roleAdmin($p);
+        $rows=$this->sql('SELECT '.self::ROLE_FIELDS.' FROM rbac_roles ORDER BY scope,name,id')->fetchAll();
+        return new JsonResponse(['items'=>array_map($this->roleRow(...),$rows),'permissions'=>\Cajeer\Logs\Security\Rbac::PROJECT,'builtins'=>array_combine(['administrator','operator','viewer'],array_map(\Cajeer\Logs\Security\Rbac::permissions(...),['administrator','operator','viewer']))],200,['Cache-Control'=>'no-store']);
+    }
+    private function roleInput(Request $r,bool $create): array
+    {
+        $d=$this->body($r,$create?['name','scope','permissions']:['name','permissions','revision']);
+        $name=trim(self::str($d,'name',120)); if ($name==='') self::invalid('Role name required.');
+        $object=json_decode($r->body(),false,64,JSON_THROW_ON_ERROR);
+        if (!is_array($object->permissions??null)) self::invalid('permissions must be an array.');
+        $permissions=\Cajeer\Logs\Security\Rbac::validate($d['permissions']??null);
+        return ['name'=>$name,'permissions'=>json_encode($permissions,JSON_THROW_ON_ERROR)];
+    }
+    private function createRole(Request $r,array $p): Response
+    {
+        $this->roleAdmin($p); $params=$this->roleInput($r,true); $d=$r->json();
+        if (!in_array($d['scope']??null,['global','project'],true)) self::invalid('Invalid role scope.');
+        if ((int)$this->sql('SELECT count(*) FROM rbac_roles')->fetchColumn()>=200) throw new HttpException(409,'role_limit','Role limit reached.');
+        $row=$this->roleRow($this->one('INSERT INTO rbac_roles(name,scope,permissions) VALUES(:name,:scope,CAST(:permissions AS jsonb)) RETURNING '.self::ROLE_FIELDS,$params+['scope'=>$d['scope']]));
+        $this->audit($r,$p,'role.created',$row['id'],['scope'=>$row['scope'],'permissions'=>$row['permissions']]); return new JsonResponse($row,201);
+    }
+    private function roleRevision(array $d): int
+    { $revision=$d['revision']??null; if (!is_int($revision)||$revision<1||$revision>2147483646) self::invalid('Valid role revision required.'); return $revision; }
+    private function updateRole(Request $r,array $p): Response
+    {
+        $this->roleAdmin($p); $id=$this->id($r,'role'); $params=$this->roleInput($r,false);
+        $old=$this->roleRow($this->one('SELECT '.self::ROLE_FIELDS.' FROM rbac_roles WHERE id=:id FOR UPDATE',['id'=>$id]));
+        if ($old['revision']!==$this->roleRevision($r->json())) throw new HttpException(409,'role_changed','Role changed. Reload before retrying.');
+        $row=$this->roleRow($this->one('UPDATE rbac_roles SET name=:name,permissions=CAST(:permissions AS jsonb),revision=revision+1,updated_at=clock_timestamp() WHERE id=:id RETURNING '.self::ROLE_FIELDS,$params+['id'=>$id]));
+        $this->audit($r,$p,'role.updated',$id,['permissions_before'=>$old['permissions'],'permissions_after'=>$row['permissions']]); return new JsonResponse($row);
+    }
+    private function deleteRole(Request $r,array $p): Response
+    {
+        $this->roleAdmin($p); $id=$this->id($r,'role'); $d=$this->body($r,['revision']);
+        $row=$this->roleRow($this->one('SELECT '.self::ROLE_FIELDS.' FROM rbac_roles WHERE id=:id FOR UPDATE',['id'=>$id]));
+        if ($row['revision']!==$this->roleRevision($d)) throw new HttpException(409,'role_changed','Role changed. Reload before retrying.');
+        // RESTRICT foreign keys prohibit silent privilege expansion from deleting an assigned role.
+        $this->sql('DELETE FROM rbac_roles WHERE id=:id',['id'=>$id]); $this->audit($r,$p,'role.deleted',$id); return new Response('',204);
+    }
+    private function assignment(Request $r,string $scope): ?string
+    {
+        $d=$this->body($r,['role_id','expected_role_id']); if (!array_key_exists('role_id',$d)||!array_key_exists('expected_role_id',$d)) self::invalid('role_id and expected_role_id required.');
+        if ($d['role_id']===null) return null;
+        $id=self::uuid(self::str($d,'role_id',36));
+        $row=$this->one('SELECT scope FROM rbac_roles WHERE id=:id',['id'=>$id]);
+        if ($row['scope']!==$scope) self::invalid('Role scope mismatch.'); return $id;
+    }
+    private function assignGlobalRole(Request $r,array $p): Response
+    {
+        $this->roleAdmin($p); $user=$this->id($r,'user'); $role=$this->assignment($r,'global');
+        $old=$this->one('SELECT role,rbac_role_id FROM users WHERE id=:id FOR UPDATE',['id'=>$user]);
+        if ($old['role']==='administrator') self::invalid('Administrator roles are immutable.');
+        $expected=$r->json()['expected_role_id'];
+        if ($expected!==null) $expected=self::uuid(self::str(['id'=>$expected],'id',36));
+        if ($expected!==$old['rbac_role_id']) throw new HttpException(409,'role_assignment_changed','Assignment changed. Reload before retrying.');
+        $this->sql('UPDATE users SET rbac_role_id=:role,updated_at=clock_timestamp() WHERE id=:id',['role'=>$role,'id'=>$user]);
+        $this->audit($r,$p,'role.global_assigned',$user,['role_before'=>$old['rbac_role_id'],'role_after'=>$role]); return new Response('',204);
+    }
+    private function assignProjectRole(Request $r,array $p): Response
+    {
+        $this->roleAdmin($p); $project=$this->id($r,'project'); $user=$this->id($r,'user'); $role=$this->assignment($r,'project');
+        $old=$this->one('SELECT m.rbac_role_id,u.role FROM project_members m JOIN users u ON u.id=m.user_id WHERE m.project_id=:project AND m.user_id=:user FOR UPDATE OF m',['project'=>$project,'user'=>$user]);
+        if ($old['role']==='administrator') self::invalid('Administrator roles are immutable.');
+        $expected=$r->json()['expected_role_id'];
+        if ($expected!==null) $expected=self::uuid(self::str(['id'=>$expected],'id',36));
+        if ($expected!==$old['rbac_role_id']) throw new HttpException(409,'role_assignment_changed','Assignment changed. Reload before retrying.');
+        $this->sql('UPDATE project_members SET rbac_role_id=:role WHERE project_id=:project AND user_id=:user',['role'=>$role,'project'=>$project,'user'=>$user]);
+        $this->audit($r,$p,'role.project_assigned',$user,['project_id'=>$project,'role_before'=>$old['rbac_role_id'],'role_after'=>$role]); return new Response('',204);
     }
     private function report(Request $r,array $p): Response { $this->allow($p,'system:read'); return (new SystemController($this->app->container()->get(SystemReport::class)))->report(); }
 }

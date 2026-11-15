@@ -1,8 +1,8 @@
-import { state, active, render } from '../app/store.js?v=0.4.1';
-import { $, h, button, empty, badge, text, date, enc, message, modalEpoch, modal, table, copy } from './ui.js?v=0.4.1';
-import { detail as inspectEvent } from './event-inspector.js?v=0.4.1';
+import { state, active, render } from '../app/store.js?v=0.4.2';
+import { $, h, button, empty, badge, text, date, enc, message, modalEpoch, modal, table, copy } from './ui.js?v=0.4.2';
+import { detail as inspectEvent } from './event-inspector.js?v=0.4.2';
 
-import { visibleColumns, normalizeLayout, timestampLabel, highlightParts } from '../app/explorer.js?v=0.4.1';
+import { visibleColumns, normalizeLayout, timestampLabel, highlightParts } from '../app/explorer.js?v=0.4.2';
 
 function quickFilter(key,value,project) {
     if(state.project!==project||!state.user||state.route!=='logs')return;

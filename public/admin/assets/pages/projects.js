@@ -1,14 +1,16 @@
-import { roles, state, projectPath, admin, manage, active, render, selectProject } from '../app/store.js?v=0.4.1';
-import { h, button, card, field, input, select, badge, date, enc, message, notify, modalEpoch, clearModal, modal, form, heading, needProject, table } from '../components/ui.js?v=0.4.1';
-import { loadProjects, projectSelector } from '../app/projects.js?v=0.4.1';
-import { directoryPicker } from './users.js?v=0.4.1';
-import { pagedList } from '../components/pagination.js?v=0.4.1';
-import { nameFields, nameBody, mutationSuccess, confirmAction } from '../components/mutations.js?v=0.4.1';
-import { get, write } from '../api/client.js?v=0.4.1';
-import { sourceHealth } from '../app/analytics.js?v=0.4.1';
-import { effectivePolicy, testPayload } from '../app/source-connection.js?v=0.4.1';
-import { onboarding, verifyConnection, openSourceLogs } from '../components/source-onboarding.js?v=0.4.1';
+import { roles, state, projectPath, admin, manage, hasPermission, active, render, selectProject } from '../app/store.js?v=0.4.2';
+import { h, button, card, field, input, select, badge, date, enc, message, notify, modalEpoch, clearModal, modal, form, heading, needProject, table } from '../components/ui.js?v=0.4.2';
+import { loadProjects, projectSelector } from '../app/projects.js?v=0.4.2';
+import { assignmentDialog } from './rbac.js?v=0.4.2';
+import { directoryPicker } from './users.js?v=0.4.2';
+import { pagedList } from '../components/pagination.js?v=0.4.2';
+import { nameFields, nameBody, mutationSuccess, confirmAction } from '../components/mutations.js?v=0.4.2';
+import { get, write } from '../api/client.js?v=0.4.2';
+import { sourceHealth } from '../app/analytics.js?v=0.4.2';
+import { effectivePolicy, testPayload } from '../app/source-connection.js?v=0.4.2';
+import { onboarding, verifyConnection, openSourceLogs } from '../components/source-onboarding.js?v=0.4.2';
 
+const canConnect=()=>hasPermission('tokens:create')&&hasPermission('tokens:signing')&&hasPermission('logs:write')&&hasPermission('logs:read');
 const sourceTypes = [['application','Приложение'],['server','Сервер'],['nginx','Nginx'],['aapanel','aaPanel'],['custom','Другой']];
 const sourceStates = {active:'Активный',disabled:'Отключён',archived:'Архивный'};
 // Rules are edited as JSON; preview uses synthetic sample events and never persists them.
@@ -40,12 +42,12 @@ function sourceSection(path,project,signal,epoch) {
     const cfg=state.sourceManagement?.project===project.id?state.sourceManagement:{project:project.id,q:'',status:'all',source_type:'all',threshold:60};
     state.sourceManagement=cfg;
     function display() {
-        list.replaceChildren(pagedList({path:path+'/sources',query:{limit:50,q:cfg.q,status:cfg.status,source_type:cfg.source_type},signal,epoch,headers:['Название','Slug / тип','Статус / активность','Последний приём','Принято / отклонено','UUID',''],rows:r=>[r.name,h('div',{},r.slug,h('small',{class:'muted'},sourceTypes.find(([id])=>id===r.source_type)?.[1]||r.source_type)),h('div',{},badge(sourceStates[r.status]||r.status),h('small',{class:'muted'},project.status==='archived'?'Проект архивный':sourceHealth(r,Date.now(),cfg.threshold))),date(r.last_seen_at),h('div',{},String(r.accepted_events_total??'—')+' / '+String(r.rejected_events_total??'—')),h('code',{},r.id),h('div',{class:'actions'},button('Открыть источник',()=>void sourceDetail(path,r.id,epoch,signal)),button('Логи источника',()=>openSourceLogs(project.id,r.id)),manage()&&project.status!=='archived'&&r.status==='active'?button('Подключить приложение',()=>onboarding(path,project,r,epoch,signal,sourceTypes)):null)]}));
+        list.replaceChildren(pagedList({path:path+'/sources',query:{limit:50,q:cfg.q,status:cfg.status,source_type:cfg.source_type},signal,epoch,headers:['Название','Slug / тип','Статус / активность','Последний приём','Принято / отклонено','UUID',''],rows:r=>[r.name,h('div',{},r.slug,h('small',{class:'muted'},sourceTypes.find(([id])=>id===r.source_type)?.[1]||r.source_type)),h('div',{},badge(sourceStates[r.status]||r.status),h('small',{class:'muted'},project.status==='archived'?'Проект архивный':sourceHealth(r,Date.now(),cfg.threshold))),date(r.last_seen_at),h('div',{},String(r.accepted_events_total??'—')+' / '+String(r.rejected_events_total??'—')),h('code',{},r.id),h('div',{class:'actions'},button('Открыть источник',()=>void sourceDetail(path,r.id,epoch,signal)),hasPermission('logs:read')?button('Логи источника',()=>openSourceLogs(project.id,r.id)):null,canConnect()&&project.status!=='archived'&&r.status==='active'?button('Подключить приложение',()=>onboarding(path,project,r,epoch,signal,sourceTypes)):null)]}));
     }
     display();
-    return card(h('div',{class:'page-head'},h('h2',{},'Источники'),manage()&&project.status!=='archived'?button('Мастер подключения',()=>onboarding(path,project,null,epoch,signal,sourceTypes),'primary'):null),
+    return card(h('div',{class:'page-head'},h('h2',{},'Источники'),hasPermission('sources:create')&&canConnect()&&project.status!=='archived'?button('Мастер подключения',()=>onboarding(path,project,null,epoch,signal,sourceTypes),'primary'):null),
         h('p',{class:'muted'},'Активность определяется временем последнего принятого события, а не сетевой доступностью. Счётчики поступлений накопительные; retention удаляет только сохранённые события.'),
-        manage()?form('Добавить источник',[...nameFields(),field('Тип источника',select('source_type',sourceTypes,'application'))],async d=>{await write(path+'/sources','POST',{...nameBody(d),source_type:String(d.get('source_type'))});await mutationSuccess(epoch,'Источник создан.');}):null,
+        hasPermission('sources:create')?form('Добавить источник',[...nameFields(),field('Тип источника',select('source_type',sourceTypes,'application'))],async d=>{await write(path+'/sources','POST',{...nameBody(d),source_type:String(d.get('source_type'))});await mutationSuccess(epoch,'Источник создан.');}):null,
         form('Найти источники',[field('Поиск источников',input('q',{maxlength:255,value:cfg.q,placeholder:'Имя, slug или UUID'})),field('Статус источника',select('status',[['all','Все'],...Object.entries(sourceStates)],cfg.status)),field('Фильтр типа источника',select('source_type',[['all','Все'],...sourceTypes],cfg.source_type)),field('Порог отсутствия поступлений, мин',input('threshold',{type:'number',min:1,max:10080,step:1,required:true,value:cfg.threshold}))],async d=>{Object.assign(cfg,{q:String(d.get('q')),status:String(d.get('status')),source_type:String(d.get('source_type')),threshold:Number(d.get('threshold'))});display();}),list);
 }
 function policyTable(project,source) {
@@ -69,17 +71,21 @@ async function sourceDetail(path,id,epoch,signal) {
         if (!active(epoch)||dialog!==modalEpoch) return;
         const root=h('div',{},h('h2',{},r.name),badge(sourceStates[r.status]||r.status),h('p',{},r.description||''),h('code',{},r.id),h('p',{},'Slug: '+r.slug),h('pre',{},JSON.stringify(r.metadata||{},null,2)),
             table(['Показатель','Значение'],[['Сохранено',s.events],['За 24 часа',s.events_24h],['За 60 секунд',s.events_60s],['Принято с 0.1.7',s.accepted_events_total],['Отклонено политиками',s.rejected_events_total],['Последний приём',date(s.last_seen_at)],['Последняя запись',date(s.last_received_at)],['Активные токены источника',s.active_tokens]]),
-            policyTable(project,r),h('div',{class:'actions'},button('Обновить статистику источника',()=>void sourceDetail(path,id,epoch,signal)),button('Открыть логи источника',()=>openSourceLogs(r.project_id,r.id)),manage()&&project.status!=='archived'&&r.status==='active'?button('Подключить приложение',()=>onboarding(path,project,r,epoch,signal,sourceTypes),'primary'):null));
+            policyTable(project,r),h('div',{class:'actions'},button('Обновить статистику источника',()=>void sourceDetail(path,id,epoch,signal)),hasPermission('logs:read')?button('Открыть логи источника',()=>openSourceLogs(r.project_id,r.id)):null,canConnect()&&project.status!=='archived'&&r.status==='active'?button('Подключить приложение',()=>onboarding(path,project,r,epoch,signal,sourceTypes),'primary'):null));
         if (admin()) root.append(redactionButton(url+'/redaction',r.slug));
-        if (manage()) {
+        if (hasPermission('sources:update')) {
             root.append(form('Сохранить источник',sourceFields(r),async d=>{
                 const metadata=JSON.parse(String(d.get('metadata')));if (!metadata||Array.isArray(metadata)||typeof metadata!=='object') throw new Error('Метаданные должны быть JSON-объектом.');
                 const data={revision:String(r.revision),name:String(d.get('name')),source_type:String(d.get('source_type')),description:String(d.get('description')),metadata};
                 for (const k of ['retention_days','max_body_bytes','max_batch_events','events_per_minute']) data[k]=d.get(k)===''?null:Number(d.get(k));
                 await write(url,'PATCH',data);clearModal();await mutationSuccess(epoch,'Источник сохранён.');
             }));
+        }
+        if(hasPermission('sources:state')) {
             const actions=r.status==='archived'?[['restore','Восстановить источник']]:[[r.status==='active'?'disable':'enable',r.status==='active'?'Отключить источник':'Включить источник'],['archive','Архивировать источник']];
             root.append(h('div',{class:'actions'},actions.map(([action,label])=>button(label,()=>confirmAction(label,'История и ранее принятые задания сохраняются. Восстановление оставляет источник отключённым.',async()=>{await write(url+'/'+action,'POST',{revision:String(r.revision)});await mutationSuccess(epoch,'Состояние источника изменено.');}),'danger'))));
+        }
+        if(hasPermission('logs:write')&&hasPermission('logs:read')) {
             if(r.status==='active'&&project.status!=='archived') root.append(form('Отправить тестовый лог',[field('Токен logs:write',input('token',{type:'password',required:true,autocomplete:'off',maxlength:512})),field('HMAC v2 key ID (необязательно)',input('signing_key_id',{maxlength:36})),field('HMAC v2 signing secret',input('signing_secret',{type:'password',autocomplete:'off',maxlength:67}))],async(d,f)=>{
                 const token=String(d.get('token'));const kid=String(d.get('signing_key_id')||'').trim();const secret=String(d.get('signing_secret')||'');f.elements.token.value='';f.elements.signing_secret.value='';
                 const event=await verifyConnection(r,{token,kid,secret},testPayload(r.slug),signal);
@@ -102,7 +108,7 @@ async function projects(signal, epoch) {
     }
     const path = projectPath();
     const project = state.projects.find(p => p.id === state.project);
-    root.append(card(h('h2', {}, project.name), h('p', { class: 'muted' }, 'Slug: ' + project.slug), h('code', {}, project.id), h('div', { class: 'actions' }, button('Открыть логи проекта',()=>{state.filters=null;state.logPosition=null;location.hash='logs';}), manage() ? h('a', { href: '#tokens' }, 'Управление токенами') : null)));
+    root.append(card(h('h2', {}, project.name), h('p', { class: 'muted' }, 'Slug: ' + project.slug), h('code', {}, project.id), h('div', { class: 'actions' }, hasPermission('logs:read')?button('Открыть логи проекта',()=>{state.filters=null;state.logPosition=null;location.hash='logs';}):null, (hasPermission('tokens:read')||hasPermission('services:read')) ? h('a', { href: '#tokens' }, 'Управление токенами') : null)));
     root.append(card(h('h2', {}, 'Состояние проекта'), badge(project.status === 'archived' ? 'Архивный' : 'Активный'), h('p', {}, project.description || 'Описание не задано.'), h('p', {class:'muted'}, 'Архивация запрещает новые события. История и ранее принятые задания сохраняются; retention продолжает действовать.'), h('pre', {}, JSON.stringify(project.metadata || {}, null, 2))));
     root.append(card(h('h2',{},'Политики проекта'),table(['Политика','Значение'],[['Хранение, дней',project.retention_days??'Без отдельного срока'],['Максимум байт запроса',project.max_body_bytes??'—'],['Событий в пакете',project.max_batch_events??'—'],['Событий в минуту',project.events_per_minute??'Без квоты проекта']])));
     if (admin()) {
@@ -129,7 +135,7 @@ async function projects(signal, epoch) {
     root.append(card(h('h2',{},'Статистика проекта'),h('p',{class:'muted'},'События за 24 часа считаются по времени приёма; общее число — сохранённые записи.'),button('Обновить статистику проекта',()=>void refreshStats()),statsBox));void refreshStats();
     root.append(sourceSection(path, project, signal, epoch));
     if (admin()) {
-        root.append(card(h('h2', {}, 'Участники проекта'), h('p', { class: 'muted' }, 'Найдите пользователя по email или UUID. Администраторы имеют доступ ко всем проектам независимо от членства.'), directoryPicker({path:'/users',label:'Поиск пользователя для проекта',query:{status:'active'},signal,epoch,display:u=>u.email,choose:u=>{const target=root.querySelector('input[name="user"]');if(target){target.value=u.id;target.focus();}}}), form('Добавить участника', [field('UUID пользователя', input('user', { required: true, pattern: '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}' })), field('Роль в проекте', select('project_role', [['','Глобальная роль'],['operator','Оператор'],['viewer','Наблюдатель']], ''))], async (d) => { await write(path + '/members/' + enc(String(d.get('user'))), 'PUT', {role:d.get('project_role') || null}); await mutationSuccess(epoch, 'Доступ предоставлен.'); }), pagedList({ path: path + '/members', query: { limit: 50 }, signal, epoch, headers: ['Email', 'Глобальная роль', 'Роль проекта', 'UUID', ''], rows: r => [r.email, roles[r.role] || r.role, r.project_role ? roles[r.project_role] : 'Наследуется', h('code', {}, r.id), h('div', {class:'actions'}, button('Изменить роль', () => modal('Роль участника', form('Сохранить роль', [field('Роль в проекте', select('role', [['','Глобальная роль'],['operator','Оператор'],['viewer','Наблюдатель']], r.project_role || ''))], async d => { await write(path + '/members/' + enc(r.id), 'PUT', {role:d.get('role') || null}); clearModal(); await mutationSuccess(epoch,'Роль участника изменена.'); }))), button('Убрать доступ', () => confirmAction('Удалить участника', `Убрать ${r.email} из проекта?`, async () => { await write(path + '/members/' + enc(r.id), 'DELETE'); await mutationSuccess(epoch, 'Доступ удалён.'); }), 'danger'))] })));
+        root.append(card(h('h2', {}, 'Участники проекта'), h('p', { class: 'muted' }, 'Найдите пользователя по email или UUID. Администраторы имеют доступ ко всем проектам независимо от членства.'), directoryPicker({path:'/users',label:'Поиск пользователя для проекта',query:{status:'active'},signal,epoch,display:u=>u.email,choose:u=>{const target=root.querySelector('input[name="user"]');if(target){target.value=u.id;target.focus();}}}), form('Добавить участника', [field('UUID пользователя', input('user', { required: true, pattern: '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}' })), field('Роль в проекте', select('project_role', [['','Глобальная роль'],['operator','Оператор'],['viewer','Наблюдатель']], ''))], async (d) => { await write(path + '/members/' + enc(String(d.get('user'))), 'PUT', {role:d.get('project_role') || null}); await mutationSuccess(epoch, 'Доступ предоставлен.'); }), pagedList({ path: path + '/members', query: { limit: 50 }, signal, epoch, headers: ['Email', 'Глобальная роль', 'Роль проекта', 'UUID', ''], rows: r => [r.email, roles[r.role] || r.role, h('div',{},r.project_role ? roles[r.project_role] : 'Наследуется',r.rbac_role_id?h('small',{class:'muted'},'Доп. роль: '+r.rbac_role_id):null), h('code', {}, r.id), h('div', {class:'actions'}, button('Изменить роль', () => modal('Роль участника', form('Сохранить роль', [field('Роль в проекте', select('role', [['','Глобальная роль'],['operator','Оператор'],['viewer','Наблюдатель']], r.project_role || ''))], async d => { await write(path + '/members/' + enc(r.id), 'PUT', {role:d.get('role') || null}); clearModal(); await mutationSuccess(epoch,'Роль участника изменена.'); }))), r.role!=='administrator'?button('Настроить разрешения',()=>assignmentDialog({scope:'project',user:r,project:{id:project.id,name:project.name,rbac_role_id:r.rbac_role_id},signal,epoch,refresh:()=>render()})):null, button('Убрать доступ', () => confirmAction('Удалить участника', `Убрать ${r.email} из проекта?`, async () => { await write(path + '/members/' + enc(r.id), 'DELETE'); await mutationSuccess(epoch, 'Доступ удалён.'); }), 'danger'))] })));
     }
     return root;
 }

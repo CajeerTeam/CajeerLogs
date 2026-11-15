@@ -2,6 +2,13 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.4.2] — RBAC & Authorization
+
+- Custom global and project restriction roles with immutable built-in ceilings, PostgreSQL migration 0017.
+- Effective grants, server-side per-operation enforcement, role editor and assignment, revision checks and audit.
+- Independent log export and credential delegation checks; existing machine-token scopes preserved.
+- Real PostgreSQL RBAC integration tests and upgrade from 0.4.1 required by release gate.
+
 ## [0.4.1] — Admin Panel Release
 
 - Глобальный поиск проектов с серверной пагинацией и переходом в рабочие разделы.
