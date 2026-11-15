@@ -89,7 +89,7 @@ final class StrictEventJson
                 if (count($seen)>IngestValidator::MAX_CONTAINER_ITEMS) self::limit();
                 if (str_contains($key,"\0")) throw new HttpException(422,'invalid_payload','Invalid JSON key.',details:['reason'=>'invalid_key']);
                 if (!$this->take(':')) self::malformed();
-                $isContext=$context || ($key==='context' && ($path===[] || (count($path)===2 && $path[0]==='events' && is_int($path[1]))));
+                $isContext=$context || ($key==='context' && ($path===[] || $path===['event'] || (count($path)===2 && $path[0]==='events' && is_int($path[1]))));
                 $out->{$key}=$this->value($depth+1,[...$path,$key],$isContext);
                 if ($this->take('}')) return $this->finishObject($out,$path,$start);
             } while ($this->take(','));

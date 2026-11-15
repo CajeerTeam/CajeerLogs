@@ -11,6 +11,10 @@ final class Redactor
     {
         // Whole header lines, bearer credentials, known Cajeer credentials and common key=value forms.
         $patterns = [
+            '~-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----[\s\S]*?(?:-----END (?:[A-Z0-9 ]+ )?PRIVATE KEY-----|$)~' => '[redacted]',
+            '~\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b~' => '[redacted]',
+            '~\b((?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp|mssql)://)[^\s/@:]+:[^\s/@]+@~i' => '$1[redacted]@',
+
             '~(?:^|(?<=[\r\n]))(\s*(?:authorization|proxy-authorization|cookie|set-cookie)\s*:)\s*[^\r\n]*~i' => '$1 [redacted]',
             '~\b(Bearer|Basic)\s+[A-Za-z0-9._\~+/-]+={0,2}~i' => '$1 [redacted]',
             '~\b(?:cl|sk)_[a-f0-9]{64}\b~i' => '[redacted]',
@@ -19,7 +23,7 @@ final class Redactor
         ];
         foreach ($patterns as $pattern => $replacement) {
             $masked = preg_replace($pattern, $replacement, $value);
-            if ($masked === null) { throw new \RuntimeException('Secret masking failed.'); }
+            if ($masked === null) { throw new \Cajeer\Logs\Http\HttpException(503,'redaction_failed','Redaction could not be completed safely.',['Retry-After'=>'5']); }
             $value = $masked;
         }
         return $value;

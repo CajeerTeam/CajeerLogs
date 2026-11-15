@@ -48,6 +48,6 @@ check($p->pending,'rolled-back publication retains quarantine');
 RestoreFence::assertAvailable($p);
 check(!$p->pending,'successful publication permits runtime');
 check(BackupManager::expectedPending('0.1.0')===['0009_project_management.sql','0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql','0013_ingest_signing.sql'],'exact older release history');
-check(BackupManager::expectedPending('0.1.9')===['0013_ingest_signing.sql']&&BackupManager::expectedPending('0.2.0')===['0013_ingest_signing.sql']&&BackupManager::expectedPending('0.2.1')===['0013_ingest_signing.sql']&&BackupManager::expectedPending('0.2.2')===['0013_ingest_signing.sql']&&BackupManager::expectedPending('0.2.3')===['0013_ingest_signing.sql']&&BackupManager::expectedPending('0.2.4')===['0013_ingest_signing.sql']&&BackupManager::expectedPending('0.2.5')===[],'previous history requires signing migration');
-check(rejects(fn()=>BackupManager::expectedPending('0.2.6')),'unknown backup release refused');
+check(BackupManager::expectedPending('0.1.9')===['0013_ingest_signing.sql']&&BackupManager::expectedPending('0.2.0')===['0013_ingest_signing.sql']&&BackupManager::expectedPending('0.2.1')===['0013_ingest_signing.sql']&&BackupManager::expectedPending('0.2.2')===['0013_ingest_signing.sql']&&BackupManager::expectedPending('0.2.3')===['0013_ingest_signing.sql']&&BackupManager::expectedPending('0.2.4')===['0013_ingest_signing.sql']&&BackupManager::expectedPending('0.2.5')===[]&&BackupManager::expectedPending('0.2.6')===[],'previous history requires signing migration');
+check(rejects(fn()=>BackupManager::expectedPending('0.2.7')),'unknown backup release refused');
 echo "Restore fence: $n checks passed\n";

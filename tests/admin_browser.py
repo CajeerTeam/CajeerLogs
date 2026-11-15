@@ -72,7 +72,7 @@ class Fixture:
         self.user = None; self.totp_enabled=False; self.require_totp=False; self.role = 'administrator'; self.projects=[{'id':P1,'name':'Production','slug':'production','revision':'1','status':'active','description':'','metadata':{},'max_body_bytes':1048576,'max_batch_events':100,'created_at':'2026-01-01T00:00:00Z'}]
         self.sources=[{'id':S1,'project_id':P1,'name':'Application','slug':'app','created_at':'2026-01-01T00:00:00Z','status':'active','revision':'1','source_type':'application','metadata':{}}]
         self.users=[{'id':U1,'email':'admin@example.test','role':'administrator','blocked_at':None}]
-        self.members=[]; self.tokens=[]; self.accounts=[]; self.calls=[]; self.fail_next=False
+        self.members=[]; self.tokens=[]; self.accounts=[]; self.calls=[]; self.fail_next=False; self.redaction={}
         self.event={'id':E1,'project_id':P1,'source_id':S1,'source':'app','service':'api','host':'host-1','level':'error','message':'<img src=x onerror="window.pwned=1"> database error','context':{'secret':'[redacted]','html':'<script>window.pwned=1</script>'},'trace_id':'trace-1','request_id':'req-1','tags':['prod'],'timestamp':'2026-11-14T00:00:00Z','received_at':'2026-11-14T00:00:01Z'}
     def route(self,r):
         req=r.request; path=urlsplit(req.url).path.removeprefix('/api/v1'); method=req.method; q={k:v[0] for k,v in parse_qs(urlsplit(req.url).query).items()}; body=req.post_data_json if req.post_data else None
@@ -86,7 +86,7 @@ class Fixture:
             if body['password']=='bad' or (self.totp_enabled and body.get('otp')!='123456'): return err(401,'unauthorized')
             self.user={'id':U1 if self.role=='administrator' else U2,'email':body['email'],'role':self.role,'two_factor_enabled':self.totp_enabled}
             return send({'user':self.user,'csrf_token':CSRF,'expires_in':28800,'enrollment_required':self.require_totp and not self.totp_enabled},headers={'Set-Cookie':'cajeerlogs_session='+'b'*64+'; Path=/; HttpOnly; SameSite=Strict'})
-        if path=='/health': return send({'status':'ok','version':'0.2.5'})
+        if path=='/health': return send({'status':'ok','version':'0.2.6'})
         if self.user is None: return err(401,'unauthorized')
         if method!='GET': assert req.headers.get('x-csrf-token')==CSRF, (method,path,req.headers)
         if path=='/auth/me': return send({'user':self.user,'csrf_token':CSRF,'enrollment_required':self.require_totp and not self.totp_enabled})
@@ -99,6 +99,16 @@ class Fixture:
             assert body['otp']=='123456' and body['password']=='admin-password-12345'; self.totp_enabled=False; self.user=None; return send(status=204)
         if path in ['/auth/logout','/auth/logout-all','/auth/password']:
             self.user=None;return send(status=204,headers={'Set-Cookie':'cajeerlogs_session=; Path=/; Max-Age=0'})
+        if '/redaction' in path:
+            if self.role!='administrator': return err(403,'forbidden')
+            base=path.removesuffix('/preview'); policy=self.redaction.get(base,{'revision':0,'rules':[]})
+            if path.endswith('/preview'):
+                sample=body['event'].copy(); sample['context']=sample.get('context',{}).copy()
+                assert body['rules']==[{'type':'path','value':'/context/customer_id'}]
+                sample['context']['customer_id']='[redacted]'; return send({'event':sample})
+            if method=='PUT':
+                assert body['revision']==policy['revision']; policy={'revision':policy['revision']+1,'rules':body['rules']}; self.redaction[base]=policy
+            return send(policy)
         if path=='/projects':
             if method=='POST': self.projects.append({'id':P2,'revision':'1','status':'active','description':'','metadata':{},'max_body_bytes':1048576,'max_batch_events':100,**body});return send({'id':P2},201)
             return listing([p for p in self.projects if (q.get('status','all')=='all' or p['status']==q['status']) and q.get('q','').lower() in p['name'].lower()])
@@ -221,7 +231,7 @@ def run():
         browser=browser_for(p); ctx=browser.new_context(accept_downloads=True); page=ctx.new_page(); page.set_default_timeout(8000)
         errors=[]; page.on('pageerror',lambda e: errors.append(str(e)))
         # Actual PHP router, not intercepted, even in offline browser mode.
-        status,headers,body=http(url+'/admin');assert status==200 and b'0.2.5' in body
+        status,headers,body=http(url+'/admin');assert status==200 and b'0.2.6' in body
         assert "script-src 'self'" in {k.lower():v for k,v in headers.items()}['content-security-policy']
         assert http(url+'/api/v1/auth/me')[0]==401
         assert http(url+'/admin/assets/panel.js')[0]==200
@@ -267,6 +277,17 @@ def run():
             page.get_by_role('button',name='Открыть источник').click();page.get_by_role('dialog').get_by_role('button',name=action).click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_role('row').filter(has_text='Renamed source')).to_contain_text(status)
         page.get_by_label('Поиск источников').fill('missing');page.get_by_role('button',name='Найти источники').click();expect(page.get_by_text('Renamed source',exact=True)).to_have_count(0);page.get_by_label('Поиск источников').fill('Renamed');page.get_by_role('button',name='Найти источники').click();expect(page.get_by_text('Renamed source',exact=True)).to_be_visible()
         print('PASS source edit, type, policy, disable/archive/restore/enable and search fixture')
+        # Exercise actual modal JS, draft preview, revision update and reopening against controlled API.
+        page.get_by_role('button',name='Настроить маскирование',exact=True).click()
+        dlg=page.get_by_role('dialog'); expect(dlg.get_by_label('Правила JSON')).to_be_visible()
+        rules=[{'type':'path','value':'/context/customer_id'}]; dlg.get_by_label('Правила JSON').fill(json.dumps(rules))
+        dlg.get_by_label('Синтетическое событие JSON').fill(json.dumps({'source':'new-source','timestamp':'2026-01-01T00:00:00Z','level':'info','message':'sample','context':{'customer_id':'preview-private'}}))
+        dlg.get_by_role('button',name='Предпросмотр без записи').click(); expect(dlg.locator('pre')).to_contain_text('[redacted]'); assert 'preview-private' not in dlg.locator('pre').inner_text()
+        dlg.get_by_role('button',name='Сохранить политику').click(); expect(dlg).not_to_be_visible()
+        assert any(v['revision']==1 and v['rules']==rules for v in f.redaction.values())
+        page.get_by_role('button',name='Настроить маскирование',exact=True).click(); expect(page.get_by_role('dialog').get_by_label('Правила JSON')).to_be_visible(); assert 'customer_id' in page.get_by_role('dialog').get_by_label('Правила JSON').input_value()
+        page.locator('#close-modal').click(); print('PASS redaction policy editor, preview and revision save fixture')
+
         nav(page,'users');form=page.locator('form').filter(has=page.get_by_role('button',name='Создать пользователя'));form.get_by_label('Email').fill('viewer@example.test');form.get_by_label('Пароль').fill('viewer-password-12345');form.get_by_role('button',name='Создать пользователя').click();expect(page.get_by_text('viewer@example.test',exact=True)).to_be_visible()
         page.get_by_role('row').filter(has_text='viewer@example.test').get_by_role('button',name='Изменить').click();page.get_by_role('dialog').get_by_label('Роль',exact=True).select_option('operator');page.get_by_role('dialog').get_by_role('button',name='Сохранить').click();expect(page.get_by_role('row').filter(has_text='viewer@example.test')).to_contain_text('Оператор')
         nav(page,'projects');page.get_by_label('UUID пользователя').fill(U2);page.get_by_role('button',name='Добавить участника').click();expect(page.get_by_text('viewer@example.test',exact=True)).to_be_visible();page.get_by_role('button',name='Изменить роль').click();page.get_by_role('dialog').get_by_label('Роль в проекте').select_option('viewer');page.get_by_role('dialog').get_by_role('button',name='Сохранить роль').click();expect(page.get_by_role('row').filter(has_text='viewer@example.test')).to_contain_text('Наблюдатель');page.get_by_role('button',name='Убрать доступ').click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_text('viewer@example.test',exact=True)).to_have_count(0)

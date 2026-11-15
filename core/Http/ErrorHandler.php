@@ -17,6 +17,7 @@ final class ErrorHandler
             return new JsonResponse(['error'=>'queue_full','message'=>'Ingest queue capacity reached.','request_id'=>$requestId],503,['Retry-After'=>'5']);
         }
         if ($status === 503 && $error instanceof HttpException && $error->error === 'authorization_changed') { return new JsonResponse(['error'=>'authorization_changed','message'=>'Credential policy changed. Retry the request.','request_id'=>$requestId],503,['Retry-After'=>'1']); }
+        if ($status === 503 && $error instanceof HttpException && $error->error === 'redaction_failed') { return new JsonResponse(['error'=>'redaction_failed','message'=>'Redaction could not be completed safely.','request_id'=>$requestId],503,['Retry-After'=>'5']); }
         if ($status === 503 && $error instanceof HttpException && $error->error === 'ingest_busy') { return new JsonResponse(['error'=>'ingest_busy','message'=>'Ingest capacity reached.','request_id'=>$requestId],503,['Retry-After'=>'1']); }
         if ($status === 503 && $error instanceof HttpException && $error->error === 'database_unavailable') { return new JsonResponse(['error'=>'service_unavailable','message'=>'Service temporarily unavailable.','request_id'=>$requestId],503,['Retry-After'=>'5']); }
         if ($status === 503) { return new JsonResponse(['error'=>'service_unavailable','message'=>'Service temporarily unavailable.','request_id'=>$requestId],503); }

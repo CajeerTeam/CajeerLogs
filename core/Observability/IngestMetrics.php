@@ -8,7 +8,7 @@ use Cajeer\Logs\Http\Response;
 final class IngestMetrics
 {
     private const BUCKETS=[0.01,0.05,0.1,0.25,0.5,1,2.5,5,10,30,60];
-    private const REASONS=['unauthorized','forbidden','authorization_changed','job_not_found','invalid_job','database_unavailable','https_required','invalid_header','invalid_content_length','invalid_body','ambiguous_body','invalid_transfer_encoding','unsupported_media_type','invalid_json','invalid_payload','payload_too_large','event_too_large','invalid_idempotency_key','idempotency_required','idempotency_conflict','rate_limited','project_archived','project_payload_limit','project_quota_exceeded','source_inactive','source_payload_limit','source_quota_exceeded','queue_full','ingest_busy','service_unavailable','internal_error'];
+    private const REASONS=['unauthorized','forbidden','authorization_changed','job_not_found','invalid_job','database_unavailable','https_required','invalid_header','invalid_content_length','invalid_body','ambiguous_body','invalid_transfer_encoding','unsupported_media_type','invalid_json','invalid_payload','payload_too_large','event_too_large','invalid_idempotency_key','idempotency_required','idempotency_conflict','rate_limited','project_archived','project_payload_limit','project_quota_exceeded','source_inactive','source_payload_limit','source_quota_exceeded','queue_full','redaction_failed','ingest_busy','service_unavailable','internal_error'];
     public function __construct(private readonly string $directory) {}
     public static function mode(string $method,string $path,string $prefix): ?string
     {

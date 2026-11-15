@@ -30,6 +30,9 @@ final class IdentityController
         'PATCH /projects/{project}/sources/{source}'=>'updateSource', 'POST /projects/{project}/sources/{source}/disable'=>'disableSource',
         'POST /projects/{project}/sources/{source}/enable'=>'enableSource', 'POST /projects/{project}/sources/{source}/archive'=>'archiveSource',
         'POST /projects/{project}/sources/{source}/restore'=>'restoreSource', 'GET /projects/{project}/sources/{source}/stats'=>'sourceStats',
+        'GET /system/redaction'=>'redactionSystemGet', 'PUT /system/redaction'=>'redactionSystemSet', 'POST /system/redaction/preview'=>'redactionSystemPreview',
+        'GET /projects/{project}/redaction'=>'redactionProjectGet', 'PUT /projects/{project}/redaction'=>'redactionProjectSet', 'POST /projects/{project}/redaction/preview'=>'redactionProjectPreview',
+        'GET /projects/{project}/sources/{source}/redaction'=>'redactionSourceGet', 'PUT /projects/{project}/sources/{source}/redaction'=>'redactionSourceSet', 'POST /projects/{project}/sources/{source}/redaction/preview'=>'redactionSourcePreview',
         'GET /projects/{project}/signing'=>'projectSigning', 'PUT /projects/{project}/signing'=>'setProjectSigning',
         'GET /projects/{project}/tokens/{token}/signing'=>'tokenSigning', 'POST /projects/{project}/tokens/{token}/signing'=>'configureSigning',
         'GET /projects/{project}/tokens'=>'tokens', 'POST /projects/{project}/tokens'=>'createToken',
@@ -369,6 +372,55 @@ final class IdentityController
     {
         $project=$this->id($r,'project'); $source=$this->id($r,'source'); $this->allow($p,$p['kind']==='token'?'logs:read':'projects:read',$project,$source);
         return new JsonResponse((new SourceRepository($this->pdo))->statistics($project,$source));
+    }
+    private function redactionSystemGet(Request $r,array $p): Response { return $this->redactionGet($r,$p); }
+    private function redactionSystemSet(Request $r,array $p): Response { return $this->redactionSet($r,$p); }
+    private function redactionSystemPreview(Request $r,array $p): Response { return $this->redactionPreview($r,$p); }
+    private function redactionProjectGet(Request $r,array $p): Response { return $this->redactionGet($r,$p); }
+    private function redactionProjectSet(Request $r,array $p): Response { return $this->redactionSet($r,$p); }
+    private function redactionProjectPreview(Request $r,array $p): Response { return $this->redactionPreview($r,$p); }
+    private function redactionSourceGet(Request $r,array $p): Response { return $this->redactionGet($r,$p); }
+    private function redactionSourceSet(Request $r,array $p): Response { return $this->redactionSet($r,$p); }
+    private function redactionSourcePreview(Request $r,array $p): Response { return $this->redactionPreview($r,$p); }
+    /** Policy administration is deliberately restricted to global administrators. */
+    private function redactionScope(Request $r,array $p): array
+    {
+        $this->session($p); $this->allow($p,'projects:manage');
+        return [$r->parameter('project')===null?null:$this->id($r,'project'),$r->parameter('source')===null?null:$this->id($r,'source')];
+    }
+    private function redactionGet(Request $r,array $p): Response
+    {
+        [$project,$source]=$this->redactionScope($r,$p);
+        return new JsonResponse((new \Cajeer\Logs\Log\RedactionPolicies($this->pdo))->get($project,$source),200,['Cache-Control'=>'no-store']);
+    }
+    private function redactionBody(Request $r,array $fields): \stdClass
+    {
+        $d=\Cajeer\Logs\Log\StrictEventJson::decode($r->body());
+        if (!$d instanceof \stdClass || array_diff(array_keys(get_object_vars($d)),$fields)!==[] || !is_array($d->rules??null)) self::invalid('Invalid redaction policy.');
+        \Cajeer\Logs\Log\RedactionPolicy::validate($d->rules);
+        return $d;
+    }
+    private function redactionSet(Request $r,array $p): Response
+    {
+        [$project,$source]=$this->redactionScope($r,$p); $d=$this->redactionBody($r,['revision','rules']);
+        if (!is_int($d->revision??null) || $d->revision<0) self::invalid('Invalid revision.');
+        $result=(new \Cajeer\Logs\Log\RedactionPolicies($this->pdo))->set($project,$source,$d->revision,$d->rules);
+        $this->audit($r,$p,'redaction.policy_changed',$source??$project,['project_id'=>$project,'source_id'=>$source,'revision'=>$result['revision'],'rule_count'=>count($d->rules)]);
+        return new JsonResponse($result,200,['Cache-Control'=>'no-store']);
+    }
+    private function redactionPreview(Request $r,array $p): Response
+    {
+        [$project,$source]=$this->redactionScope($r,$p); $d=$this->redactionBody($r,['rules','event']);
+        if (!(($d->event??null) instanceof \stdClass)) self::invalid('Expected a sample event.');
+        $event=(new \Cajeer\Logs\Log\IngestValidator())->parse(new Request('POST','/api/v1/ingest',['Content-Type'=>'application/json'],[],json_encode($d->event,JSON_THROW_ON_ERROR)));
+        if (count($event)!==1) self::invalid('Expected a single sample event.');
+        if ($project===null) $masked=(new \Cajeer\Logs\Log\RedactionPolicy($d->rules))->apply($event[0]);
+        else {
+            $repo=new \Cajeer\Logs\Log\RedactionPolicies($this->pdo); $repo->get($project,$source);
+            $map=(new \Cajeer\Logs\Log\LogRepository($this->pdo))->resolveSources($event,$project,$source);
+            $masked=$repo->apply($event,$project,$map,draft:['project'=>$project,'source'=>$source,'rules'=>$d->rules])[0];
+        }
+        return new JsonResponse(['event'=>$masked],200,['Cache-Control'=>'no-store']);
     }
     private function projectSigning(Request $r,array $p): Response
     {

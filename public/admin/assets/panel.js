@@ -419,6 +419,19 @@ finally {
 } }, 'danger'); modal(title, h('div', {}, h('p', {}, description), h('div', { class: 'actions' }, ok, button('Отмена', clearModal)), err)); dialogEpoch = modalEpoch; }
 const sourceTypes = [['application','Приложение'],['server','Сервер'],['nginx','Nginx'],['aapanel','aaPanel'],['custom','Другой']];
 const sourceStates = {active:'Активный',disabled:'Отключён',archived:'Архивный'};
+// Rules are edited as JSON; preview uses synthetic sample events and never persists them.
+async function redactionDialog(url, slug='app') {
+    const authEpoch=state.authEpoch, route=state.route, previousModal=modalEpoch;
+    const policy=await get(url); if(authEpoch!==state.authEpoch||!state.user||route!==state.route||previousModal!==modalEpoch)return;
+    const rules=h('textarea',{name:'rules',rows:8,required:true,maxlength:16384},JSON.stringify(policy.rules,null,2));
+    const sample=h('textarea',{name:'sample',rows:8,maxlength:65536},JSON.stringify({source:slug,level:'info',message:'Synthetic sample',timestamp:new Date().toISOString(),context:{customer_id:'example-id'}},null,2));
+    const output=h('pre',{},'');
+    const parseRules=()=>{const value=JSON.parse(rules.value);if(!Array.isArray(value))throw new Error('Правила должны быть JSON-массивом.');return value;};
+    modal('Политика маскирования',h('div',{},h('p',{},'До 16 правил: {"type":"path","value":"/context/customer_id"}, key (имя поля), regex (маскирует всю строку). Политики складываются; базовая защита не отключается.'),
+        form('Сохранить политику',[field('Правила JSON',rules)],async()=>{await write(url,'PUT',{revision:policy.revision,rules:parseRules()});if(authEpoch!==state.authEpoch)return;clearModal();}),
+        form('Предпросмотр без записи',[field('Синтетическое событие JSON',sample)],async()=>{output.textContent='';const event=JSON.parse(sample.value);const result=await write(url+'/preview','POST',{rules:parseRules(),event});if(authEpoch===state.authEpoch)output.textContent=JSON.stringify(result.event,null,2);}),output));
+}
+function redactionButton(url,slug='app') { return button('Настроить маскирование',()=>redactionDialog(url,slug).catch(e=>modal('Политика маскирования',message(e)))); }
 function sourceFields(r) {
     const num = (key,label,min,max) => field(label,input(key,{type:'number',min,max,step:1,value:r[key] ?? ''}));
     return [field('Название источника',input('name',{value:r.name,required:true,maxlength:255})),
@@ -447,6 +460,7 @@ async function sourceDetail(path,id,epoch,signal) {
         const root=h('div',{},h('h2',{},r.name),badge(sourceStates[r.status]||r.status),h('p',{},r.description||''),h('code',{},r.id),h('p',{},'Slug: '+r.slug),h('pre',{},JSON.stringify(r.metadata||{},null,2)),
             table(['Показатель','Значение'],[['Сохранено',s.events],['За 24 часа',s.events_24h],['За 60 секунд',s.events_60s],['Принято с 0.1.7',s.accepted_events_total],['Отклонено политиками',s.rejected_events_total],['Последний приём',date(s.last_seen_at)],['Последняя запись',date(s.last_received_at)],['Активные токены источника',s.active_tokens]]),
             h('h3',{},'Подключение'),h('p',{},'Создайте токен logs:write для этого источника в разделе API-токены. Передайте его через CAJEER_TOKEN.'),h('pre',{},JSON.stringify({source:r.slug,level:'info',message:'Hello CajeerLogs',timestamp:new Date().toISOString()},null,2)),h('code',{},location.origin+apiPrefix+'/ingest'));
+        if (admin()) root.append(redactionButton(url+'/redaction',r.slug));
         if (manage()) {
             root.append(form('Сохранить источник',sourceFields(r),async d=>{
                 const metadata=JSON.parse(String(d.get('metadata')));if (!metadata||Array.isArray(metadata)||typeof metadata!=='object') throw new Error('Метаданные должны быть JSON-объектом.');
@@ -493,6 +507,7 @@ async function projects(signal, epoch) {
     root.append(card(h('h2', {}, project.name), h('p', { class: 'muted' }, 'Slug: ' + project.slug), h('code', {}, project.id), h('div', { class: 'actions' }, h('a', { href: '#logs' }, 'Открыть логи'), manage() ? h('a', { href: '#tokens' }, 'Управление токенами') : null)));
     root.append(card(h('h2', {}, 'Состояние проекта'), badge(project.status === 'archived' ? 'Архивный' : 'Активный'), h('p', {}, project.description || 'Описание не задано.'), h('p', {class:'muted'}, 'Архивация запрещает новые события. История и ранее принятые задания сохраняются; retention продолжает действовать.'), h('pre', {}, JSON.stringify(project.metadata || {}, null, 2))));
     if (admin()) {
+        root.append(card(h('h2',{},'Маскирование проекта'),redactionButton(path+'/redaction')));
         root.append(card(h('h2',{},'HMAC-политика проекта'),button('Настроить обязательную подпись',async()=>{const policy=await get(path+'/signing'); if(!active(epoch))return; modal('HMAC проекта',form('Сохранить HMAC-политику',[field('Подпись ingest',select('required',[['false','Необязательная (глобальная политика действует)'],['true','Обязательная']],String(policy.require_ingest_hmac)))],async d=>{await write(path+'/signing','PUT',{required:d.get('required')==='true'});clearModal();await loadProjects(signal);await mutationSuccess(epoch,'HMAC-политика обновлена.');}));})));
         const numeric = (name, label, value, min, max, required = false) => field(label, input(name, {type:'number', min, max, step:1, value:value ?? '', required}));
         root.append(card(h('h2', {}, 'Редактирование и политики'), form('Сохранить проект', [
@@ -576,7 +591,7 @@ function editUser(user, epoch) { modal('Редактировать пользо�
     return;
 } clearModal(); await mutationSuccess(epoch, 'Пользователь обновлён.'); }))); }
 async function users(signal, epoch) { return h('div', {}, heading('Пользователи', 'Управление ролями, паролями и блокировкой.'), card(h('h2', {}, 'Создать пользователя'), form('Создать пользователя', userFields(), async (d) => { await write('/users', 'POST', { email: String(d.get('email')), password: String(d.get('password')), role: String(d.get('role')) }); await mutationSuccess(epoch, 'Пользователь создан.'); })), card(h('h2', {}, 'Список пользователей'), pagedList({ path: '/users', query: { limit: 50 }, signal, epoch, headers: ['Email', 'Роль', 'UUID', 'Статус', ''], rows: r => [r.email, roles[r.role] || r.role, h('code', {}, r.id), badge(r.blocked_at ? 'Заблокирован' : 'Активен'), button('Изменить', () => editUser(r, epoch))] }))); }
-async function system(signal) { const root = h('div', {}, heading('Система', 'Диагностика runtime, PostgreSQL и миграций.', button('Обновить', () => void render()))); const [health, ready, report] = await Promise.all([get('/health', {}, signal), fetch('/ready', { credentials: 'same-origin', cache: 'no-store', signal }).then(async (r) => ({ status: r.status, data: await r.json() })), request('/system/report', { signal, raw: true, allowStatus: [503] }).then(r => r.json())]); root.append(card(h('h2', {}, 'Состояние'), table(['Проверка', 'Результат'], [['Runtime', badge(health.status)], ['PostgreSQL readiness', badge(ready.status === 200 ? 'ok' : 'down')], ['Версия', health.version], ['Среда', report.environment || '—'], ['PHP', report.php || '—'], ['Общий статус', badge(report.status || 'down')]])), card(h('h2', {}, 'Системный отчёт'), h('pre', {}, JSON.stringify(report, null, 2)), button('Скопировать отчёт', () => void copy(JSON.stringify(report, null, 2))))); return root; }
+async function system(signal) { const root = h('div', {}, heading('Система', 'Диагностика runtime, PostgreSQL и миграций.', button('Обновить', () => void render()))); const [health, ready, report] = await Promise.all([get('/health', {}, signal), fetch('/ready', { credentials: 'same-origin', cache: 'no-store', signal }).then(async (r) => ({ status: r.status, data: await r.json() })), request('/system/report', { signal, raw: true, allowStatus: [503] }).then(r => r.json())]); root.append(card(h('h2', {}, 'Состояние'), table(['Проверка', 'Результат'], [['Runtime', badge(health.status)], ['PostgreSQL readiness', badge(ready.status === 200 ? 'ok' : 'down')], ['Версия', health.version], ['Среда', report.environment || '—'], ['PHP', report.php || '—'], ['Общий статус', badge(report.status || 'down')]])), card(h('h2', {}, 'Системный отчёт'), h('pre', {}, JSON.stringify(report, null, 2)), button('Скопировать отчёт', () => void copy(JSON.stringify(report, null, 2))))); if(admin()) root.append(card(h('h2',{},'Глобальное маскирование'),redactionButton('/system/redaction'))); return root; }
 function twoFactorCard() {
     const pw=()=>field('Текущий пароль',input('password',{type:'password',required:true,autocomplete:'current-password',maxlength:1024}));
     const otp=()=>field('Код приложения или recovery-код',input('otp',{required:true,autocomplete:'one-time-code',maxlength:32}));

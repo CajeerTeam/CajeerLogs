@@ -32,6 +32,7 @@ REQUIRED = {'release.json', 'core/bootstrap.php', 'bin/cajeer', 'public/index.ph
             'deploy/production/environment.example', 'scripts/release.py', 'tests/release.py',
             'tests/release_runtime.php', 'tests/production_smoke.py', 'tests/upgrade_release.py',
             'core/Security/IngestPrincipal.php', 'core/Security/IngestAuthorization.php', 'tests/ingest_authorization.php', 'docs/Ingest-Authorization.md',
+            'core/Log/RedactionPolicy.php', 'core/Log/RedactionPolicies.php', 'tests/redaction.php', 'tests/redaction_database.php', 'docs/Redaction-Data-Privacy.md',
             'core/Log/StrictEventJson.php', 'tests/event_validation.php', 'docs/Event-Validation.md',
             'core/Log/IngestBatch.php', 'tests/batch_ingestion.php', 'docs/Single-Batch-Ingestion.md',
             'core/Log/IngestService.php', 'core/Log/IngestEnvelope.php', 'core/Log/IngestAdmission.php', 'core/Log/IngestBudget.php', 'core/Observability/IngestMetrics.php', 'tests/ingest_runtime.php', 'docs/Ingest-Runtime.md',

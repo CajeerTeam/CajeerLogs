@@ -30,8 +30,11 @@ final class PostgresQueueDriver implements QueueDriverInterface
             if (!hash_equals($row['request_hash'],$hash)) { throw new HttpException(409,'idempotency_conflict','Idempotency-Key was used for a different request.'); }
             return ['job_id'=>(string)$row['id'],'status'=>$row['status'],'replayed'=>true];
         }
-        $body=IngestBatch::encodeJob($events,$sources);
+        $events=IngestBatch::normalize($events,IngestBatch::JOB_BYTES);
+        $sources=IngestBatch::sourceMap($events,$sources);
         $this->assertEnqueueScope($token,$project,$sources);
+        $events=(new \Cajeer\Logs\Log\RedactionPolicies($this->pdo))->apply($events,$project,$sources);
+        $body=IngestBatch::encodeJob($events,$sources);
         // Admission is only needed for a new job, after validation but before the
         // global capacity lock. A policy denial is returned for outer telemetry commit.
         if ($admit!==null && ($denied=$admit())!==null) {
@@ -47,6 +50,7 @@ final class PostgresQueueDriver implements QueueDriverInterface
         $raw=json_encode(['events'=>$p['events'],'sources'=>(object)$p['sources']],JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
         [$events,$sources]=IngestBatch::decodeJob($raw);
         $this->assertEnqueueScope($p['token'],$p['project'],$sources);
+        $events=(new \Cajeer\Logs\Log\RedactionPolicies($this->pdo))->apply($events,$p['project'],$sources);
         return $this->insertJob($p['token'],$p['project'],$p['key'],$p['hash'],IngestBatch::encodeJob($events,$sources));
     }
     /** Defense in depth for direct repository callers. Lock the token before the

@@ -32,6 +32,7 @@ class RepoStatement extends PDOStatement {
         }
         return array_shift($this->pdo->pages)??[];
     }
+    public function fetchColumn(int $column=0):mixed{return str_contains($this->sql,"current_setting('transaction_isolation')")?'read committed':false;}
     public function closeCursor():bool{return true;}
 }
 class RepoPDO extends PDO {

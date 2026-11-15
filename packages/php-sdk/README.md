@@ -1,6 +1,6 @@
-# CajeerLogs PHP SDK 0.2.5
+# CajeerLogs PHP SDK 0.2.6
 
-PHP 8.4+, PSR-3 (`psr/log` 3), необязательно Monolog 3. Существующее имя Composer-пакета `cajeer/logs-extension-sdk` сохранено для совместимости. Добавьте path repository, указывающий на `packages/php-sdk` этого релиза, затем `composer require cajeer/logs-extension-sdk:0.2.5`. SDK использует PHP HTTPS streams (allow_url_fopen=On, OpenSSL, доверенные CA); Composer нужен для автозагрузки PSR-3 и Monolog, сервер CajeerLogs не нужен внутри приложения.
+PHP 8.4+, PSR-3 (`psr/log` 3), необязательно Monolog 3. Существующее имя Composer-пакета `cajeer/logs-extension-sdk` сохранено для совместимости. Добавьте path repository, указывающий на `packages/php-sdk` этого релиза, затем `composer require cajeer/logs-extension-sdk:0.2.6`. SDK использует PHP HTTPS streams (allow_url_fopen=On, OpenSSL, доверенные CA); Composer нужен для автозагрузки PSR-3 и Monolog, сервер CajeerLogs не нужен внутри приложения.
 
 ```php
 use Cajeer\Logs\Sdk\CajeerLogsClient;

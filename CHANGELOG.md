@@ -2,6 +2,13 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.2.6] — Redaction & Data Privacy
+
+- Аддитивные политики системы, проекта и источника, revision и аудит.
+- Маскирование JSON paths, имён ключей и bounded regex, JWT/PEM/DSN; защита перед enqueue/INSERT и при обработке worker.
+- Административные API/preview и редактор, CLI dry-run/rewrite истории.
+- Миграции 0001–0013 неизменны; PostgreSQL integration suite обязателен для сертификации.
+
 ## [0.2.5] — HMAC & Replay Protection
 
 - HMAC v1 сохранён; v2 подписывает UUID отдельного ключа и точное тело запроса.

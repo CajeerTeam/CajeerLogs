@@ -130,6 +130,8 @@ final class LogRepository
     private function insertBatch(array $events,string $project,array $sources,string $token,int $version): array
     {
         if (!$this->pdo->inTransaction()) { throw new \LogicException('Log writes require a transaction.'); }
+        $events=IngestBatch::normalize($events,IngestBatch::SQL_BYTES,$version);
+        $events=(new RedactionPolicies($this->pdo))->apply($events,$project,$sources,$version);
         [$ids,$body]=self::encodeBatch($events,$sources,$version);
         $project=LogQuery::uuid($project); $token=LogQuery::uuid($token);
         // A single statement admits the entire batch or no rows. Queue payloads cannot
@@ -236,10 +238,69 @@ final class LogRepository
         $data=array_intersect_key($event,array_flip(['timestamp','source','service','host','level','message','context','trace_id','request_id','tags']));
         $request=new \Cajeer\Logs\Http\Request('POST','/api/v1/ingest',['Content-Type'=>'application/json'],[],json_encode($data,JSON_THROW_ON_ERROR));
         $normalized=(new IngestValidator())->parse($request)[0];
+        $normalized=(new RedactionPolicies($this->pdo))->apply([$normalized],$project,[$target=>$source])[0];
         $this->sql('UPDATE log_events SET project_id=:project,source_id=:source,level=:level,message=:message,context=CAST(:context AS jsonb),service=:service,host=:host,trace_id=:trace,request_id=:request,tags=ARRAY(SELECT jsonb_array_elements_text(CAST(:tags AS jsonb))) WHERE id=:id',[
             'project'=>$project,'source'=>$source,'level'=>$normalized->level,'message'=>$normalized->message,'context'=>json_encode($normalized->context,JSON_THROW_ON_ERROR),
             'service'=>$normalized->service,'host'=>$normalized->host,'trace'=>$normalized->traceId,'request'=>$normalized->requestId,'tags'=>json_encode($normalized->tags,JSON_THROW_ON_ERROR),'id'=>$id]);
         (new \Cajeer\Logs\Audit\AuditLogger($this->pdo))->record('logs.legacy_adopted',['project_id'=>$project,'source_id'=>$source],null,$id);
+    }
+
+    /** A history rewrite only changes masked context leaves, preserving unmodified
+     * PostgreSQL numeric precision and JSON types even for old arbitrary decimals. */
+    public static function contextPatches(mixed $before,mixed $after,array $path=[]): array
+    {
+        if (($before instanceof \stdClass && $after instanceof \stdClass) || (is_array($before) && is_array($after))) {
+            $out=[]; foreach ($before as $k=>$v) {
+                $next=$after instanceof \stdClass?$after->{(string)$k}:$after[$k];
+                foreach (self::contextPatches($v,$next,[...$path,(string)$k]) as $patch) $out[]=$patch;
+            }
+            return $out;
+        }
+        return $before===$after?[]:[['path'=>$path,'value'=>$after]];
+    }
+
+    /** Explicit bounded historical rewrite. No event contents leave this method. */
+    public function redactHistory(string $project,?string $after,int $limit,bool $apply): array
+    {
+        $this->requireTransaction(); $project=LogQuery::uuid($project);
+        if ($limit<1 || $limit>50) throw new DatabaseException('Invalid history batch limit.');
+        $policies=new RedactionPolicies($this->pdo); $policies->lock(); $policies->get($project);
+        $params=['project'=>$project]; $where='project_id=:project AND source_id IS NOT NULL';
+        if ($after!==null) { $params['after']=LogQuery::uuid($after); $where.=' AND id>:after'; }
+        // Never fetch unbounded legacy/corrupted rows; fail the page rather than skipping them.
+        $columns=str_replace('message,context,trace_id','CASE WHEN octet_length(message)<=65536 THEN message END AS message,CASE WHEN octet_length(context::text)<=262144 THEN context END AS context,trace_id',self::COLUMNS);
+        $rows=$this->sql('SELECT '.$columns.' FROM log_events WHERE '.$where.' ORDER BY id LIMIT '.($limit+1).($apply?' FOR UPDATE':''),$params)->fetchAll();
+        $more=count($rows)>$limit; if ($more) array_pop($rows);
+        $changed=0; $last=null;
+        foreach ($rows as $row) {
+            $last=$row['id'];
+            if ($row['context']===null || $row['message']===null) throw new DatabaseException('Historical event exceeds safe redaction size.');
+            $r=self::decode($row);
+            $event=new IngestEvent($r['source'],$r['level'],$r['message'],$r['context'],$r['timestamp'],$r['service'],$r['host'],$r['trace_id'],$r['request_id'],$r['tags']);
+            $masked=$policies->apply([$event],$project,[$r['source']=>$r['source_id']],1)[0];
+            if (json_encode($event,JSON_THROW_ON_ERROR)===json_encode($masked,JSON_THROW_ON_ERROR)) continue;
+            ++$changed;
+            if (!$apply) continue;
+            $patches=self::contextPatches($event->context,$masked->context);
+            // Bounded SQL work; report failure rather than leaving a partly masked event.
+            if (count($patches)>2048) throw new DatabaseException('Historical event exceeds safe redaction patch count.');
+            $this->sql(<<<'SQL'
+                UPDATE log_events l SET message=:message,
+                    context=(WITH RECURSIVE changes AS (
+                        SELECT value,ordinality FROM jsonb_array_elements(CAST(:patch AS jsonb)) WITH ORDINALITY
+                    ), rewritten(n,ctx) AS (
+                        SELECT 0::bigint,l.context
+                        UNION ALL
+                        SELECT c.ordinality,jsonb_set(r.ctx,ARRAY(SELECT jsonb_array_elements_text(c.value->'path')),c.value->'value',false)
+                        FROM rewritten r JOIN changes c ON c.ordinality=r.n+1
+                    ) SELECT ctx FROM rewritten WHERE n=(SELECT count(*) FROM changes)),
+                    service=:service,host=:host,trace_id=:trace,request_id=:request,tags=ARRAY(SELECT jsonb_array_elements_text(CAST(:tags AS jsonb)))
+                WHERE l.id=:id AND l.project_id=:project
+                SQL,[
+                'message'=>$masked->message,'patch'=>json_encode($patches,JSON_THROW_ON_ERROR),'service'=>$masked->service,'host'=>$masked->host,'trace'=>$masked->traceId,'request'=>$masked->requestId,'tags'=>json_encode($masked->tags,JSON_THROW_ON_ERROR),'id'=>$last,'project'=>$project]);
+        }
+        if ($apply) (new \Cajeer\Logs\Audit\AuditLogger($this->pdo))->record('logs.history_redacted',['project_id'=>$project,'scanned'=>count($rows),'changed'=>$changed,'after'=>$after,'last_id'=>$last],null,$project);
+        return ['dry_run'=>!$apply,'scanned'=>count($rows),'changed'=>$changed,'next_cursor'=>$more?$last:null];
     }
 
     /** Called inside the same transaction as log storage; the authenticated token row is locked. */

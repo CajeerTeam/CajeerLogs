@@ -47,17 +47,18 @@ final class BatchStatement extends PDOStatement {
         if(str_contains($this->sql,'request_hash FROM jobs'))return $this->db->existing;
         return ['id'=>'7','project_id'=>'11111111-1111-4111-8111-111111111111','token_id'=>'33333333-3333-4333-8333-333333333333','attempts'=>1,'max_attempts'=>8];
     }
-    public function fetchColumn(int $column=0):mixed{return match(true){str_contains($this->sql,'WITH locked AS MATERIALIZED')=>$this->db->scope,str_contains($this->sql,'lease_until>')=>$this->db->live,str_contains($this->sql,'CASE WHEN octet_length')=>$this->db->payload,str_contains($this->sql,'INSERT INTO jobs')=>$this->db->insertId,default=>0};}
+    public function fetchColumn(int $column=0):mixed{return match(true){str_contains($this->sql,"current_setting('transaction_isolation')")=>'read committed',str_contains($this->sql,'WITH locked AS MATERIALIZED')=>$this->db->scope,str_contains($this->sql,'lease_until>')=>$this->db->live,str_contains($this->sql,'CASE WHEN octet_length')=>$this->db->payload,str_contains($this->sql,'INSERT INTO jobs')=>$this->db->insertId,default=>0};}
+    public function fetchAll(int $mode=PDO::FETCH_DEFAULT,mixed ...$args):array{return [];}
     public function closeCursor():bool{return true;}
     public function rowCount():int{return 1;}
 }
 $db=new BatchPDO();$q=new PostgresQueueDriver($db);$db->active=true;$key=str_repeat('a',64);$hash=str_repeat('b',64);$admitted=0;
 $admit=function()use(&$admitted){++$admitted;return null;};
 check($q->enqueue($t,$p,$key,$hash,[$e],['app'=>$s],$admit)['job_id']==='7'&&$admitted===1,'new job invokes admission once');
-check(str_contains($db->calls[4][0],'octet_length(b.body::text)')&&$db->calls[4][1]['limit']===IngestBatch::JOB_DECODE_BYTES,'enqueue checks actual JSONB decoding size');
+check(str_contains($db->calls[6][0],'octet_length(b.body::text)')&&$db->calls[6][1]['limit']===IngestBatch::JOB_DECODE_BYTES,'enqueue checks actual JSONB decoding size');
 $db->existing=['id'=>'7','status'=>'completed','request_hash'=>$hash];check($q->enqueue($t,$p,$key,$hash,[$e],['app'=>$s],$admit)['replayed']&&$admitted===1,'replay skips admission and capacity');
 $db->existing=false;$db->calls=[];check(reject(fn()=>$q->enqueue($t,$p,$key,$hash,array_fill(0,50,$big),['app'=>$s],$admit),413)&&$admitted===1&&count($db->calls)===1,'invalid new job rejected before admission and capacity lock');
-$db->calls=[];$denial=new HttpException(429,'source_quota_exceeded','denied');check($q->enqueue($t,$p,$key,$hash,[$e],['app'=>$s],fn()=>$denial)===$denial&&count($db->calls)===2,'policy denial bypasses enqueue');
+$db->calls=[];$denial=new HttpException(429,'source_quota_exceeded','denied');check($q->enqueue($t,$p,$key,$hash,[$e],['app'=>$s],fn()=>$denial)===$denial&&count($db->calls)===4,'policy denial bypasses enqueue');
 $db->calls=[];$db->scope='forbidden';check(reject(fn()=>$q->enqueue($t,$p,$key,$hash,[$e],['app'=>$s],$admit),403)&&$admitted===1&&count($db->calls)===2,'direct scope denial occurs before admission and capacity');
 $db->calls=[];$db->scope='unauthorized';check(reject(fn()=>$q->enqueue($t,$p,$key,$hash,[$e],['app'=>$s],$admit),401)&&$admitted===1,'inactive direct credential cannot enqueue');$db->scope='ok';
 $db->insertId=false;check(reject(fn()=>$q->enqueue($t,$p,$key,$hash,[$e],['app'=>$s]),413),'JSONB expansion refusal does not return accepted job');

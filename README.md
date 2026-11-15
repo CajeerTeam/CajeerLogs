@@ -2,6 +2,10 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.2.6 — Redaction & Data Privacy
+
+Настраиваемое аддитивное маскирование системы, проекта и источника; revision, preview и аудит; применение до durable enqueue и INSERT; обработка истории через CLI. См. [Redaction & Data Privacy](docs/Redaction-Data-Privacy.md).
+
 ## 0.2.5 — HMAC & Replay Protection
 
 Обязательные политики подписи, отдельные зашифрованные signing keys, ротация с overlap, проверка nonce под блокировками PostgreSQL и HMAC v1/v2 во всех SDK. Миграция 0013. [Инструкция](docs/HMAC-signature.md).
