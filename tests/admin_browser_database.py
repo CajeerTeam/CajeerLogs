@@ -43,6 +43,10 @@ def run():
             code,_,body=http(url+'/api/v1/ingest','POST',json.dumps(event).encode(),{'Content-Type':'application/json','Authorization':'Bearer '+token});assert code==201, (code,body)
             event_id=json.loads(body)['event_ids'][0]
             nav(page,'overview');expect(page.get_by_text('Всего событий')).to_be_visible();expect(page.locator('.metric').first.locator('strong')).to_have_text('1')
+            page.get_by_label('Период',exact=True).select_option('15m');page.get_by_role('button',name='Применить',exact=True).click();expect(page.locator('.metric').first.locator('strong')).to_have_text('1')
+            page.get_by_role('button',name='Выбрать',exact=True).first.click();expect(page.get_by_label('Источник dashboard')).not_to_have_value('')
+            page.get_by_role('button',name='Все логи',exact=True).click();expect(page.get_by_role('heading',name='Логи',exact=True)).to_be_visible();expect(page.get_by_text('e2e database error',exact=False)).to_be_visible()
+            page.get_by_role('button',name='Сбросить',exact=True).click()
             nav(page,'logs');expect(page.get_by_text('e2e database error',exact=False)).to_be_visible();page.get_by_label('Поиск',exact=True).fill('database');page.get_by_label('Уровень',exact=True).select_option('error');page.get_by_role('button',name='Найти').click();expect(page.get_by_text('e2e database error',exact=False)).to_be_visible()
             page.get_by_role('button',name='Подробнее').click();expect(page.get_by_role('dialog')).to_contain_text(event_id);expect(page.get_by_role('dialog')).to_contain_text('[redacted]');assert page.locator('#modal img').count()==0;assert page.evaluate('window.pwned') is None;page.locator('#close-modal').click()
             with page.expect_download() as dl:page.get_by_role('button',name='CSV',exact=True).click()

@@ -37,6 +37,11 @@ check(invalid(fn()=>LogQuery::parse($base+['from'=>'2026-01-01T00:00:00Z','to'=>
 $stats=$base+['from'=>'2026-01-01T00:00:00Z','to'=>'2026-02-01T00:00:00Z','interval'=>'day'];
 check(LogQuery::parse($stats,'stats')->interval==='day','31-day stats range accepted');
 check(invalid(fn()=>LogQuery::parse(array_replace($stats,['interval'=>'week']),'stats')),'reject arbitrary SQL interval');
+$short=$base+['from'=>'2026-01-01T00:00:00Z','to'=>'2026-01-01T06:00:00Z','interval'=>'minute'];
+check(LogQuery::parse($short,'stats')->interval==='minute','six-hour minute statistics accepted');
+check(invalid(fn()=>LogQuery::parse(array_replace($short,['to'=>'2026-01-01T06:00:00.000001Z']),'stats')),'minute budget exact upper boundary');
+check(LogQuery::parse(array_replace($short,['to'=>'2026-01-03T00:00:00Z','interval'=>'5min']),'stats')->interval==='5min','two-day five-minute statistics accepted');
+check(invalid(fn()=>LogQuery::parse(array_replace($short,['to'=>'2026-01-03T00:00:00.000001Z','interval'=>'5min']),'stats')),'five-minute budget exact upper boundary');
 check(invalid(fn()=>LogQuery::parse($base+['q'=>'x'],'detail')),'detail rejects irrelevant filters');
 check(invalid(fn()=>LogQuery::parse($base+['format'=>'xml'],'export')),'invalid export format');
 check(LogQuery::parse($base+['format'=>'csv'],'export')->format==='csv','CSV format accepted');

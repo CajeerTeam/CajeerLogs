@@ -5,6 +5,7 @@ Run: python -m pip install playwright; python -m playwright install chromium
 Set CHROMIUM_PATH to use an installed system browser. Fixture responses are NOT DB tests.
 """
 import contextlib
+import datetime
 import json
 import os
 from pathlib import Path
@@ -88,7 +89,7 @@ class Fixture:
             if self.totp_enabled and body.get('otp')!='123456': return err(401,'unauthorized')
             self.user={'id':U1 if self.role=='administrator' else U2,'email':body['email'],'role':self.role,'two_factor_enabled':self.totp_enabled}
             return send({'user':self.user,'csrf_token':CSRF,'expires_in':28800,'enrollment_required':self.require_totp and not self.totp_enabled},headers={'Set-Cookie':'cajeerlogs_session='+'b'*64+'; Path=/; HttpOnly; SameSite=Strict'})
-        if path=='/health': return send({'status':'ok','version':'0.3.2'})
+        if path=='/health': return send({'status':'ok','version':'0.3.3'})
         if self.user is None: return err(401,'unauthorized')
         if method!='GET': assert req.headers.get('x-csrf-token')==CSRF, (method,path,req.headers)
         if path=='/auth/me': return send({'user':self.user,'csrf_token':CSRF,'enrollment_required':self.require_totp and not self.totp_enabled})
@@ -173,7 +174,11 @@ class Fixture:
         if path.endswith('/tokens/revoke-all'):
             for row in self.tokens: row['revoked_at']='2026-01-01'
             return send({'revoked':len(self.tokens)})
-        if path=='/logs/stats': return send({'total':2,'by_level':{'error':2,'warning':0},'by_source':[{'source':'app','source_id':S1,'count':2}],'buckets':[{'timestamp':'2026-11-14T00:00:00Z','count':2}],'sources_truncated':False,'from':q.get('from'),'to':q.get('to')})
+        if path=='/logs/stats':
+            interval=q.get('interval','hour'); width={'minute':60,'5min':300,'hour':3600,'day':86400}[interval]
+            start=datetime.datetime.fromisoformat(q['from'].replace('Z','+00:00')).timestamp()
+            bucket=datetime.datetime.fromtimestamp(int(start//width)*width,datetime.timezone.utc).isoformat().replace('+00:00','Z')
+            return send({'total':2,'by_level':{'error':2,'warning':0},'by_source':[{'source':'app','source_id':S1,'count':2}],'source_count':1,'by_service':[{'service':'api','count':2}],'by_host':[{'host':'host-1','count':2}],'buckets':[{'timestamp':bucket,'count':2,'errors':2}],'interval':interval,'sources_truncated':False,'from':q.get('from'),'to':q.get('to')})
         if path=='/logs':
             if self.fail_next: self.fail_next=False;return err(503,'service_unavailable')
             assert q['project_id'] in [P1,P2]
@@ -258,7 +263,7 @@ def run():
         browser=browser_for(p); ctx=browser.new_context(accept_downloads=True); page=ctx.new_page(); page.set_default_timeout(8000)
         errors=[]; page.on('pageerror',lambda e: errors.append(str(e)))
         # Actual PHP router, not intercepted, even in offline browser mode.
-        status,headers,body=http(url+'/admin');assert status==200 and b'0.3.2' in body
+        status,headers,body=http(url+'/admin');assert status==200 and b'0.3.3' in body
         assert "script-src 'self'" in {k.lower():v for k,v in headers.items()}['content-security-policy']
         assert http(url+'/api/v1/auth/me')[0]==401
         assert http(url+'/admin/assets/panel.js')[0]==200
@@ -278,6 +283,31 @@ def run():
         expect(page.get_by_role('heading',name='Вход в CajeerLogs')).to_be_visible()
         login(page,password='bad');expect(page.get_by_role('alert')).to_contain_text('Неверные');login(page)
         expect(page.get_by_role('heading',name='Обзор',exact=True)).to_be_visible();expect(page.get_by_text('Всего событий')).to_be_visible()
+        # Dashboard controls use the actual API client.
+        page.get_by_label('Период',exact=True).select_option('15m')
+        page.get_by_label('Сравнить с предыдущим периодом').check()
+        page.get_by_role('button',name='Применить',exact=True).click()
+        expect(page.get_by_text('К предыдущему:',exact=False).first).to_be_visible()
+        assert any(c[1]=='/logs/stats' and c[2].get('interval')=='minute' for c in f.calls)
+        expect(page.get_by_role('heading',name='Состояние источников')).to_be_visible()
+        page.get_by_role('button',name='Выбрать',exact=True).first.click()
+        expect(page.get_by_label('Источник dashboard')).to_have_value(S1)
+        assert any(c[1]=='/logs/stats' and c[2].get('source_id')==S1 for c in f.calls)
+        page.locator('.analytics-bucket').first.focus()
+        expect(page.locator('.analytics-chart-detail')).to_contain_text('событий')
+        page.keyboard.press('Enter')
+        expect(page.get_by_role('heading',name='Логи',exact=True)).to_be_visible()
+        expect(page.get_by_label('Источник UUID')).to_have_value(S1)
+        expect(page.get_by_text('database error',exact=False)).to_be_visible()
+        assert any(c[1]=='/logs' and c[2].get('source_id')==S1 and c[2].get('from') and c[2].get('to') for c in f.calls)
+        page.get_by_role('button',name='Сбросить',exact=True).click()
+        nav(page,'overview')
+        page.get_by_label('Период',exact=True).select_option('24h')
+        page.get_by_label('Источник dashboard').select_option('')
+        page.get_by_label('Сравнить с предыдущим периодом').uncheck()
+        page.get_by_role('button',name='Применить',exact=True).click()
+        expect(page.get_by_text('Всего событий')).to_be_visible()
+        print('PASS dashboard UTC period, previous comparison, source selection, keyboard chart drill-down')
         if not offline:
             assert ctx.cookies()[0]['httpOnly'];assert page.evaluate('document.cookie')==''
         expect(page.locator('#breadcrumbs')).to_contain_text('Обзор')

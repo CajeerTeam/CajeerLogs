@@ -172,31 +172,43 @@ final class LogRepository
     public function statistics(LogQuery $query): array
     {
         [$where,$params]=self::predicate($query);
-        // One statement = one PostgreSQL snapshot. Only the 100 largest source groups are returned.
+        // All dimensions use the same bounded, permission-scoped PostgreSQL snapshot.
+        // Only validated intervals reach this fixed SQL expression.
+        $bucket=match($query->interval) {
+            '5min'=>"date_bin(interval '5 minutes',occurred_at AT TIME ZONE 'UTC',timestamp '2000-01-01')",
+            'minute','hour','day'=>"date_trunc('{$query->interval}',occurred_at AT TIME ZONE 'UTC')",
+        };
         $sql=<<<SQL
             WITH filtered AS (
-                SELECT level,source_id,source,date_trunc('{$query->interval}',occurred_at AT TIME ZONE 'UTC') AS bucket
+                SELECT level,source_id,source,service,host,$bucket AS bucket
                 FROM log_events WHERE $where
             ), grouped AS (
-                SELECT level,source_id,source,bucket,count(*) AS n,
+                SELECT level,source_id,source,service,host,bucket,count(*) AS n,
+                    count(*) FILTER (WHERE level IN ('error','critical','alert','emergency')) AS errors,
                     CASE WHEN GROUPING(level)=0 THEN 'level' WHEN GROUPING(source_id)=0 THEN 'source'
+                         WHEN GROUPING(service)=0 THEN 'service' WHEN GROUPING(host)=0 THEN 'host'
                          WHEN GROUPING(bucket)=0 THEN 'bucket' ELSE 'total' END AS kind
-                FROM filtered GROUP BY GROUPING SETS ((),(level),(source_id,source),(bucket))
+                FROM filtered GROUP BY GROUPING SETS ((),(level),(source_id,source),(bucket),(service),(host))
             ), ranked AS (
-                SELECT *,row_number() OVER(PARTITION BY kind ORDER BY n DESC,source_id,source,level,bucket) AS rn,
+                SELECT *,row_number() OVER(PARTITION BY kind ORDER BY n DESC,source_id,source,service,host,level,bucket) AS rn,
                     count(*) OVER(PARTITION BY kind) AS group_count FROM grouped
+                WHERE NOT (kind='service' AND (service IS NULL OR service=''))
+                  AND NOT (kind='host' AND (host IS NULL OR host=''))
             )
-            SELECT kind,level,source_id,source,to_char(bucket,'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS bucket,n,group_count
-            FROM ranked WHERE kind<>'source' OR rn<=100 ORDER BY kind,bucket,level,n DESC,source_id,source
+            SELECT kind,level,source_id,source,service,host,to_char(bucket,'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS bucket,n,errors,group_count
+            FROM ranked WHERE (kind NOT IN ('source','service','host')) OR (kind='source' AND rn<=100) OR (kind IN ('service','host') AND rn<=10)
+            ORDER BY kind,bucket,level,n DESC,source_id,source,service,host
             SQL;
-        $result=['total'=>0,'by_level'=>array_fill_keys(LogQuery::LEVELS,0),'by_source'=>[],'sources_truncated'=>false,'buckets'=>[],'interval'=>$query->interval,'from'=>$query->filters['from'],'to'=>$query->filters['to']];
+        $result=['total'=>0,'by_level'=>array_fill_keys(LogQuery::LEVELS,0),'by_source'=>[],'source_count'=>0,'sources_truncated'=>false,'by_service'=>[],'by_host'=>[],'buckets'=>[],'interval'=>$query->interval,'from'=>$query->filters['from'],'to'=>$query->filters['to']];
         foreach ($this->sql($sql,$params) as $row) {
             $n=(int)$row['n'];
             switch ($row['kind']) {
                 case 'total': $result['total']=$n; break;
                 case 'level': $result['by_level'][$row['level']]=$n; break;
-                case 'source': $result['by_source'][]=['source_id'=>$row['source_id'],'source'=>$row['source'],'count'=>$n]; $result['sources_truncated']=(int)$row['group_count']>100; break;
-                case 'bucket': $result['buckets'][]=['timestamp'=>$row['bucket'],'count'=>$n]; break;
+                case 'source': $result['by_source'][]=['source_id'=>$row['source_id'],'source'=>$row['source'],'count'=>$n]; $result['source_count']=(int)$row['group_count']; $result['sources_truncated']=$result['source_count']>100; break;
+                case 'service': $result['by_service'][]=['service'=>$row['service'],'count'=>$n]; break;
+                case 'host': $result['by_host'][]=['host'=>$row['host'],'count'=>$n]; break;
+                case 'bucket': $result['buckets'][]=['timestamp'=>$row['bucket'],'count'=>$n,'errors'=>(int)$row['errors']]; break;
             }
         }
         return $result;

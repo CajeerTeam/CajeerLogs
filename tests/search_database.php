@@ -131,7 +131,16 @@ try {
     verify(count(data(get('/logs',$query,$readerHeaders))['items'])===4,'read works after timeout');
     $stats=data(get('/logs/stats',$range,$readerHeaders));
     verify($stats['total']===3&&$stats['by_level']['error']===2&&$stats['by_level']['warning']===1&&$stats['by_level']['info']===0&&$stats['by_source'][0]['source_id']===$source&&$stats['by_source'][0]['count']===2&&!$stats['sources_truncated'],'statistics total, levels and sources');
-    verify($stats['buckets']===[['timestamp'=>'2026-01-02T00:00:00.000000Z','count'=>2],['timestamp'=>'2026-01-02T01:00:00.000000Z','count'=>1]],'hourly UTC aggregation');
+    verify($stats['buckets']===[['timestamp'=>'2026-01-02T00:00:00.000000Z','count'=>2,'errors'=>2],['timestamp'=>'2026-01-02T01:00:00.000000Z','count'=>1,'errors'=>0]],'hourly UTC aggregation');
+    verify($stats['source_count']===2&&$stats['by_service']===[['service'=>'api','count'=>3]]&&$stats['by_host']===[['host'=>'host1','count'=>3]],'dashboard group counts and dimensions');
+    $short=$query+['from'=>'2026-01-02T00:00:00Z','to'=>'2026-01-02T01:01:00Z'];
+    $minute=data(get('/logs/stats',$short+['interval'=>'minute'],$readerHeaders));
+    verify($minute['buckets'][0]===['timestamp'=>'2026-01-02T00:00:00.000000Z','count'=>2,'errors'=>2]&&$minute['buckets'][1]['errors']===0,'minute buckets and errors');
+    $five=data(get('/logs/stats',$short+['interval'=>'5min'],$sourceHeaders));
+    verify($five['total']===2&&$five['source_count']===1&&$five['by_service'][0]['count']===2&&count($five['buckets'])===1,'five-minute source-scoped dashboard');
+    get('/logs/stats',$range+['interval'=>'minute'],$readerHeaders,422);
+    get('/logs/stats',$query+['from'=>'2026-01-01T00:00:00Z','to'=>'2026-01-04T00:00:00Z','interval'=>'5min'],$readerHeaders,422);
+    get('/logs/stats',['project_id'=>$foreign]+array_diff_key($short,['project_id'=>true]),$readerHeaders,403);
     $stats=data(get('/logs/stats',$range+['interval'=>'day','level'=>'error'],$sourceHeaders)); verify($stats['total']===2&&count($stats['buckets'])===1&&$stats['buckets'][0]['count']===2,'daily filtered source stats');
     $stats=data(get('/logs/stats',$range+['q'=>'definitelynomatch'],$readerHeaders)); verify($stats['total']===0&&$stats['buckets']===[]&&$stats['by_source']===[],'empty aggregate');
     $export=get('/logs/export',$query+['limit'=>'1'],$readerHeaders); verify(str_contains($export->header('Content-Disposition'),'cajeerlogs.json')&&$export->header('X-Next-Cursor')===data($export)['next_cursor'],'JSON attachment and continuation');

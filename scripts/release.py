@@ -63,6 +63,8 @@ REQUIRED.update({
     'public/admin/assets/components/qr-encoder.js',
     'docs/Authentication-Sessions.md',
     'public/admin/assets/api/client.js',
+    'public/admin/assets/app/analytics.js',
+    'docs/Dashboard-Analytics.md',
     'public/admin/assets/app/projects.js',
     'public/admin/assets/app/router.js',
     'public/admin/assets/app/routes.js',

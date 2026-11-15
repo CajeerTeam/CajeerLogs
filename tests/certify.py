@@ -15,7 +15,7 @@ import release
 
 class GateTest(unittest.TestCase):
     def setUp(self):
-        self.info={'version':'0.3.2','archive_sha256':'a'*64}
+        self.info={'version':'0.3.3','archive_sha256':'a'*64}
         self.reports=[dict(self.info, format=1, scope='database-core', status='passed', php_series=php, postgres_major=pg, php=php+'.1',postgres=pg+'.1',stages=[{'name':name,'status':'passed','exit_code':0} for name in certify.STAGES]) for php,pg in sorted(certify.MATRIX)]
 
     def test_full_matrix(self): certify.validate_matrix(self.reports,self.info)
@@ -40,7 +40,7 @@ class GateTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             tmp=Path(temp); archive=tmp/'release.zip'; release.build(ROOT,archive)
             out=tmp/'evidence.json'; env=dict(os.environ,CAJEER_TEST_DATABASE='0')
-            result=subprocess.run([sys.executable,str(ROOT/'scripts/certify.py'),'database',str(archive),'--from-010',str(tmp),'--from-020',str(tmp),'--from-029',str(tmp),'--from-030',str(tmp),'--output',str(out)],env=env,capture_output=True)
+            result=subprocess.run([sys.executable,str(ROOT/'scripts/certify.py'),'database',str(archive),'--from-010',str(tmp),'--from-020',str(tmp),'--from-029',str(tmp),'--from-030',str(tmp),'--from-032',str(tmp),'--output',str(out)],env=env,capture_output=True)
             self.assertNotEqual(result.returncode,0)
             self.assertEqual(json.loads(out.read_text())['status'],'failed')
             self.assertEqual(json.loads(out.read_text())['stages'],[])

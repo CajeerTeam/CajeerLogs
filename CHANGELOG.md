@@ -2,6 +2,13 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## 0.3.3 — Dashboard & Analytics
+
+- PostgreSQL: UTC интервалы minute/5min/hour/day, errors в bucket, точное количество групп источников, топ сервисов и хостов.
+- Dashboard: периоды до 31 дня, сравнение, метрики, интерактивные графики с переходами в Explorer, обновление по таймеру, отдельные ошибки загрузки.
+- Состояние источников с пагинацией, поиском, статусами и порогом давности последнего приёма.
+- Исправлено исключение production ES Modules из Git; восстановлены отсутствующие модули. Обновление без миграций, API v1 сохранён.
+
 ## 0.3.2 — Authentication & Sessions
 
 - Двухэтапный вход, пароль и TOTP/recovery, локальный QR-код и безопасная замена recovery-кодов.

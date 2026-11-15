@@ -2,6 +2,10 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.3.3 — Dashboard & Analytics
+
+Рабочая аналитика PostgreSQL: периоды и сравнение, интерактивный график событий и ошибок, топ источников, сервисов и хостов, состояние источников и переходы в Log Explorer. Без новой миграции. [Dashboard & Analytics](docs/Dashboard-Analytics.md). Public Preview до CI.
+
 ## 0.3.2 — Authentication & Sessions
 
 Двухэтапный вход, локальный QR для TOTP, одноразовые recovery-коды, редактируемый профиль, список и отзыв сессий пользователя и администратора. Миграция 0015 сохраняет действующие сессии. [Authentication & Sessions](docs/Authentication-Sessions.md). Public Preview до CI.

@@ -1,4 +1,6 @@
-# Admin Panel — 0.3.2
+# Admin Panel — 0.3.3
+
+Новый Dashboard: [Dashboard & Analytics](Dashboard-Analytics.md).
 
 Обновление 0.3.2: [Authentication & Sessions](Authentication-Sessions.md) — вход, TOTP, профиль, сессии и обязательная миграция 0015. Раздел ниже описывает историческое обновление 0.3.0 → 0.3.1.
 

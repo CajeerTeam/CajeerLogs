@@ -1,0 +1,82 @@
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+[hidden] {
+  display: none!important;
+}
+a {
+  color: var(--accent);
+}
+button,input,select,textarea {
+  font: inherit;
+}
+button,select,input,textarea {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  padding: .55rem .75rem;
+  min-height: 40px;
+}
+button {
+  cursor: pointer;
+  font-weight: 600;
+}
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+button:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+button.primary {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border-color: var(--accent);
+}
+button.danger {
+  color: var(--danger);
+}
+:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+input,select,textarea {
+  width: 100%;
+  min-width: 0;
+}
+input[type=checkbox] {
+  width: auto;
+  min-height: auto;
+}
+textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+h1,h2,h3,p {
+  margin: 0 0 .7rem;
+}
+h1 {
+  font-size: 1.8rem;
+  line-height: 1.2;
+}
+h2 {
+  font-size: 1.15rem;
+}
+h3 {
+  font-size: 1rem;
+}
+.muted {
+  color: var(--muted);
+}
+.small {
+  font-size: .85rem;
+}
+
+button.primary:hover:not(:disabled) { color: var(--accent-contrast); filter: brightness(.95); }

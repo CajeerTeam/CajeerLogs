@@ -2,7 +2,7 @@
   "openapi": "3.1.1",
   "info": {
     "title": "CajeerLogs API",
-    "version": "0.3.2",
+    "version": "0.3.3",
     "description": "Identity & Access, synchronous and durable asynchronous PostgreSQL ingestion, job status, project-scoped search, statistics and export. Outgoing webhooks and lifecycle administration use the CLI. TOTP enrollment, recovery codes and administrator enrollment policy. Token rotation, scoped service accounts, credential request quotas and bulk revocation. Mandatory project/token HMAC and separately encrypted rotating signing keys. Session lifecycle, account profile and recovery-code regeneration."
   },
   "servers": [
@@ -3567,10 +3567,12 @@
             "name": "interval",
             "in": "query",
             "required": false,
-            "description": "UTC time bucket.",
+            "description": "UTC time bucket. minute: at most 6 hours; 5min: at most 2 days; hour/day: at most 31 days.",
             "schema": {
               "type": "string",
               "enum": [
+                "minute",
+                "5min",
                 "hour",
                 "day"
               ],
@@ -9253,17 +9255,25 @@
                 "count": {
                   "type": "integer",
                   "minimum": 0
+                },
+                "errors": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "error, critical, alert, emergency events in this bucket"
                 }
               },
               "required": [
                 "timestamp",
-                "count"
+                "count",
+                "errors"
               ]
             }
           },
           "interval": {
             "type": "string",
             "enum": [
+              "minute",
+              "5min",
               "hour",
               "day"
             ]
@@ -9275,6 +9285,53 @@
           "to": {
             "type": "string",
             "format": "date-time"
+          },
+          "source_count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of source groups matching the complete query before truncation"
+          },
+          "by_service": {
+            "type": "array",
+            "maxItems": 10,
+            "description": "Top nonempty service groups by count",
+            "items": {
+              "type": "object",
+              "properties": {
+                "service": {
+                  "type": "string"
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "service",
+                "count"
+              ]
+            }
+          },
+          "by_host": {
+            "type": "array",
+            "maxItems": 10,
+            "description": "Top nonempty host groups by count",
+            "items": {
+              "type": "object",
+              "properties": {
+                "host": {
+                  "type": "string"
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "host",
+                "count"
+              ]
+            }
           }
         },
         "required": [
@@ -9285,7 +9342,10 @@
           "buckets",
           "interval",
           "from",
-          "to"
+          "to",
+          "source_count",
+          "by_service",
+          "by_host"
         ]
       },
       "Project": {

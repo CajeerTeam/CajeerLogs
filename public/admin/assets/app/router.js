@@ -1,0 +1,66 @@
+import { state, names, active, render, installRenderer } from './store.js?v=0.3.3';
+import { $, h, button, message, clearModal, heading } from '../components/ui.js?v=0.3.3';
+import { clearSession, bootstrap } from './session.js?v=0.3.3';
+import { loadProjects } from './projects.js?v=0.3.3';
+import { navigation } from './shell.js?v=0.3.3';
+import { currentRoute, permitted } from './routes.js?v=0.3.3';
+import { overview } from '../pages/overview.js?v=0.3.3';
+import { logs } from '../pages/logs.js?v=0.3.3';
+import { projects } from '../pages/projects.js?v=0.3.3';
+import { tokens } from '../pages/tokens.js?v=0.3.3';
+import { users } from '../pages/users.js?v=0.3.3';
+import { system } from '../pages/system.js?v=0.3.3';
+import { settings } from '../pages/settings.js?v=0.3.3';
+
+async function renderRoute({ focus = false } = {}) {
+    if (!state.user)
+        return;
+    state.controller?.abort();
+    clearModal();
+    const controller = new AbortController();
+    state.controller = controller;
+    const signal = controller.signal;
+    const epoch = ++state.epoch;
+    state.route = currentRoute();
+    if (location.hash !== '#' + state.route && location.hash) history.replaceState(null, '', '#' + state.route);
+    if (!permitted(state.route)) {
+        state.route = state.enrollmentRequired ? 'settings' : 'overview';
+        history.replaceState(null, '', '#'+state.route);
+    }
+    navigation();
+    const main = $('main');
+    main.setAttribute('aria-busy', 'true');
+    main.replaceChildren(h('div', { class: 'loading', role: 'status' }, h('span', { class: 'spinner', 'aria-hidden': 'true' }), 'Загрузка…'));
+    document.title = names[state.route] + ' — CajeerLogs';
+    if (focus) main.focus();
+    try {
+        if (['overview', 'logs', 'projects', 'tokens'].includes(state.route) && !state.projects.length)
+            await loadProjects(signal);
+        if (!active(epoch) || signal.aborted)
+            return;
+        const view = await pages[state.route](signal, epoch);
+        if (!active(epoch) || signal.aborted)
+            return;
+        main.replaceChildren(view);
+    }
+    catch (e) {
+        if (e.name === 'AbortError' || !active(epoch))
+            return;
+        main.replaceChildren(heading(names[state.route], 'Не удалось загрузить раздел.'), message(e), button('Повторить', () => void render()));
+    } finally {
+        if (active(epoch)) main.removeAttribute('aria-busy');
+    }
+}
+document.querySelector('.skip').addEventListener('click', e => { e.preventDefault(); $('main').focus(); });
+window.addEventListener('hashchange', () => { if (state.user)
+    void render({ focus: true }); });
+// Revalidate on browser back/forward cache restoration; do not keep an old authenticated view.
+window.addEventListener('pageshow', e => { if (e.persisted) {
+    clearSession();
+    void bootstrap();
+} });
+const pages = { overview, logs, projects, tokens, users, system, settings };
+
+installRenderer(renderRoute);
+
+export { renderRoute };

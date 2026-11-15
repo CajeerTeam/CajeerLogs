@@ -4,7 +4,7 @@
 
 | Версия | Статус |
 |---|---|
-| 0.3.2 | Authentication & Sessions; текущая версия (Public Preview до CI) |
+| 0.3.3 | Dashboard & Analytics; текущая версия (Public Preview до CI) |
 | 0.3.1 | Admin UI Foundation; предыдущая версия |
 | 0.3.0 | Log Ingestion & Search Release; предыдущая версия |
 | 0.2.9 | Pagination & Log Explorer |

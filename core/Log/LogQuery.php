@@ -83,9 +83,13 @@ final class LogQuery
             $limit=(int)$v;
         }
         $cursor=array_key_exists('cursor',$input)?self::value($input,'cursor',1024):null;
-        $interval=array_key_exists('interval',$input)?self::value($input,'interval',4):'hour';
-        if (!in_array($interval,['hour','day'],true)) { self::invalid('interval must be hour or day.'); }
+        $interval=array_key_exists('interval',$input)?self::value($input,'interval',6):'hour';
+        if (!in_array($interval,['minute','5min','hour','day'],true)) { self::invalid('interval must be minute, 5min, hour or day.'); }
         if ($mode==='stats' && (!isset($f['from'],$f['to']) || (new DateTimeImmutable($f['to']))>(new DateTimeImmutable($f['from']))->modify('+31 days'))) { self::invalid('Statistics require from and to spanning at most 31 days.'); }
+        if ($mode==='stats' && in_array($interval,['minute','5min'],true)) {
+            $max=$interval==='minute'?'+6 hours':'+2 days';
+            if (new DateTimeImmutable($f['to'])>(new DateTimeImmutable($f['from']))->modify($max)) self::invalid('Statistics interval exceeds its bucket budget.');
+        }
         $format=array_key_exists('format',$input)?self::value($input,'format',4):'json';
         if (!in_array($format,['json','csv'],true)) { self::invalid('format must be json or csv.'); }
         $consistency=array_key_exists('consistency',$input)?self::value($input,'consistency',8):'live';

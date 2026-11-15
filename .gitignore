@@ -9,6 +9,11 @@
 !/public/admin/assets/.gitkeep
 !/public/admin/assets/panel.js
 !/public/admin/assets/panel.css
+!/public/admin/assets/api/
+!/public/admin/assets/app/
+!/public/admin/assets/components/
+!/public/admin/assets/pages/
+!/public/admin/assets/styles/
 /storage/cache/*
 !/storage/cache/.gitkeep
 /storage/logs/*
