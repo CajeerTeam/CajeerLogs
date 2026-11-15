@@ -94,8 +94,8 @@ final class PostgresQueueDriver implements QueueDriverInterface
                 // Do not transfer an unbounded/corrupted JSONB value into PHP memory.
                 $body=$this->sql('SELECT CASE WHEN octet_length(payload::text)<=CAST(:limit AS integer) THEN payload::text END FROM jobs WHERE id=:id',['id'=>$row['id'],'limit'=>IngestBatch::JOB_DECODE_BYTES])->fetchColumn();
                 if (!is_string($body)) throw new HttpException(413,'payload_too_large','Stored job exceeds decoding limit.');
-                [$events,$sources]=IngestBatch::decodeJob($body);
-                $ids=(new \Cajeer\Logs\Log\LogRepository($this->pdo))->storeBatch($events,$row['project_id'],$sources,$row['token_id']);
+                [$events,$sources,$version]=IngestBatch::decodeJob($body);
+                $ids=(new \Cajeer\Logs\Log\LogRepository($this->pdo))->storeBatch($events,$row['project_id'],$sources,$row['token_id'],$version);
                 (new \Cajeer\Logs\Integration\EventApiDispatcher($this->pdo))->publishCommittedLogs($row['project_id'],$ids);
                 $this->sql("UPDATE jobs SET status='completed',payload='{}'::jsonb,result=CAST(:result AS jsonb),completed_at=clock_timestamp(),lease_id=NULL,lease_until=NULL,reserved_at=NULL,last_error=NULL WHERE id=:id",['id'=>$row['id'],'result'=>json_encode(['event_ids'=>$ids,'stored'=>count($ids)],JSON_THROW_ON_ERROR)]);
                 if ($this->sql("UPDATE job_attempts SET outcome='completed',finished_at=clock_timestamp() WHERE job_id=:id AND attempt=:attempt AND outcome='running'",['id'=>$row['id'],'attempt'=>$row['attempts']])->rowCount()!==1) throw new \RuntimeException('Missing running job attempt; roll back completion.');

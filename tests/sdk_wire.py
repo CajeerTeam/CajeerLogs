@@ -71,6 +71,9 @@ try:
     for key,status in [('python-denied',401),('python-redirect',307)]:
         try: client.ingest(event,idempotency_key=key); raise AssertionError('expected error')
         except urllib.error.HTTPError as e: check(e.code==status,'Python rejects '+str(status))
+    for bad in ({'timestamp':'2026-02-30T00:00:00Z'},{'message':123},{'context':None},{'tags':[None]},{'source':'APP'},{'message':'bad\x1b'},{'context':{'n':float('nan')}}):
+        try: client.ingest(event|bad,idempotency_key='python-invalid'); raise AssertionError('Invalid event accepted')
+        except ValueError: pass
     run('php',ROOT/'tests/sdk/php.php',url,TOKEN)
     with tempfile.TemporaryDirectory() as tmp:
         tmp=Path(tmp)
@@ -85,6 +88,7 @@ try:
             run('java','-jar',tmp/'sdk.jar',url,TOKEN)
         else:
             run('gradle','-p',ROOT/'clients/java-kotlin','wireTest',f'-PwireUrl={url}',f'-PwireToken={TOKEN}')
+        check(not any(key.endswith('-invalid') for key in calls),'all four SDKs reject invalid events before HTTP')
         for prefix in ('python','php','ts','kotlin'):
             check(len(calls[prefix+'-retry'])==2 and len(calls[prefix+'-denied'])==1 and len(calls[prefix+'-redirect'])==1 and len(calls[prefix+'-replay'])==1 and len(calls[prefix+'-malformed'])==2,prefix+' exact retry / permanent error / no redirect / replay / malformed receipt')
         log=tmp/'app.log'; state=tmp/'state.sqlite'; log.write_bytes(b'first\nsecond\npartial')

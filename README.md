@@ -2,6 +2,10 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.2.3 — Event Validation
+
+Строгий JSON без повторных ключей, ограниченная структура, сохранение точности чисел context, timestamp admission policies, структурированные ошибки, версионированные durable jobs и клиентская валидация. [Инструкция](docs/Event-Validation.md).
+
 ## 0.2.2 — Single & Batch Ingestion
 
 Единая нормализация и ограничение пакетов, проверка durable payload, пакетные блокировки и счётчики источников, безопасная обработка lease и dead-letter. [Инструкция](docs/Single-Batch-Ingestion.md).

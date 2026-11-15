@@ -17,12 +17,11 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
-from cajeer_logs_client import CajeerLogsClient, encode
+from cajeer_logs_client import CajeerLogsClient, encode, validate_event
 
 ACCESS = re.compile(r'^(\S+) \S+ \S+ \[([^]]+)\] "([^"\r\n]*)" (\d{3}) (\d+|-)(?: "([^"\r\n]*)" "([^"\r\n]*)")?$')
 ERROR = re.compile(r'^(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}) \[([a-z]+)\] (.*)$')
 LEVEL = {'warn': 'warning', 'emerg': 'emergency', 'crit': 'critical'}
-LEVELS = {'debug','info','notice','warning','error','critical','alert','emergency'}
 
 
 def parse_line(raw: bytes, fmt: str, source: str, zone: ZoneInfo, service: str | None = None) -> dict:
@@ -33,7 +32,22 @@ def parse_line(raw: bytes, fmt: str, source: str, zone: ZoneInfo, service: str |
     if service:
         event['service'] = service
     if fmt in ('jsonl', 'cajeer-jsonl'):
-        data = json.loads(text)
+        def object_pairs(pairs):
+            result = {}
+            for key, value in pairs:
+                if key in result: raise ValueError("Duplicate JSON key")
+                result[key] = value
+            return result
+        def invalid_constant(_): raise ValueError("Unsupported JSON number")
+        from decimal import Decimal
+        def decimal_value(raw):
+            raw = str(raw)
+            value = float(raw)
+            from math import isfinite
+            if not isfinite(value): raise ValueError("Unsupported JSON number")
+            digits = re.split("[eE]",raw,1)[0].replace("-","").replace(".","").strip("0")
+            return raw if len(digits)>15 or (value==0 and digits) else value
+        data = json.loads(text,object_pairs_hook=object_pairs,parse_constant=invalid_constant,parse_float=Decimal)
         if not isinstance(data, dict):
             raise ValueError('JSONL line must be an object')
         if fmt == 'cajeer-jsonl':
@@ -44,6 +58,12 @@ def parse_line(raw: bytes, fmt: str, source: str, zone: ZoneInfo, service: str |
             data = {k: v for k, v in data.items() if k in ('timestamp','level','message','context','service','host','trace_id','request_id','tags')}
             if not {'timestamp','level','message'} <= data.keys():
                 raise ValueError('Invalid Cajeer archive event')
+        def context_numbers(value):
+            if isinstance(value, Decimal): return decimal_value(value)
+            if isinstance(value, list): return [context_numbers(v) for v in value]
+            if isinstance(value, dict): return {k:context_numbers(v) for k,v in value.items()}
+            return value
+        if 'context' in data: data['context']=context_numbers(data['context'])
         event.update(data)
         event['source'] = source  # never trust input routing
     elif fmt == 'nginx-access':
@@ -67,8 +87,7 @@ def parse_line(raw: bytes, fmt: str, source: str, zone: ZoneInfo, service: str |
             raise ValueError('Unsupported Nginx error format')
         stamp, level, message = m.groups()
         event.update(timestamp=datetime.strptime(stamp, '%Y/%m/%d %H:%M:%S').replace(tzinfo=zone).astimezone(timezone.utc).isoformat(), level=LEVEL.get(level, level), message=message)
-    if event['level'] not in LEVELS or not isinstance(event['message'], str) or not event['message'].strip() or len(event['message'].encode()) > 16384:
-        raise ValueError('Invalid message or level')
+    validate_event(event)
     return event
 
 
@@ -186,7 +205,7 @@ class Collector:
                 try:
                     event = parse_line(raw, self.fmt, self.source, self.zone, self.service)
                     body = encode(events + [event])
-                except (ValueError, UnicodeError, TypeError):
+                except (ValueError, UnicodeError, TypeError, RecursionError):
                     if events: break
                     raise CollectorError(f'Invalid log line at byte offset {offset}; correct input before resuming') from None
                 events.append(event); end = f.tell()

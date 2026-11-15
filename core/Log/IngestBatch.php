@@ -14,7 +14,7 @@ final class IngestBatch
     private const FLAGS = JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES;
 
     /** @return list<IngestEvent> */
-    public static function normalize(array $events, int $maxBytes=self::SQL_BYTES): array
+    public static function normalize(array $events, int $maxBytes=self::SQL_BYTES,int $version=IngestValidator::VERSION): array
     {
         if (!array_is_list($events) || count($events)<1 || count($events)>IngestValidator::MAX_BATCH) {
             throw new HttpException(422,'invalid_payload','Expected 1..100 log events.');
@@ -22,7 +22,7 @@ final class IngestBatch
         $validator=new IngestValidator(); $result=[]; $size=2;
         foreach ($events as $event) {
             if (!$event instanceof IngestEvent) throw new HttpException(422,'invalid_payload','Invalid normalized event.');
-            $event=$validator->forStorage($event);
+            $event=$validator->forStorage($event,$version);
             $size+=strlen(json_encode($event,self::FLAGS))+($result===[]?0:1);
             if ($size>$maxBytes) throw new HttpException(413,'payload_too_large','Normalized batch exceeds size limit.');
             $result[]=$event;
@@ -61,13 +61,13 @@ final class IngestBatch
     {
         $events=self::normalize($events,self::JOB_BYTES);
         $sources=self::sourceMap($events,$sources);
-        $body=json_encode(['events'=>$events,'sources'=>(object)$sources],self::FLAGS);
+        $body=json_encode(['events'=>$events,'sources'=>(object)$sources,'validation_version'=>IngestValidator::VERSION],self::FLAGS);
         if (strlen($body)>self::JOB_BYTES) throw new HttpException(413,'payload_too_large','Normalized job exceeds 2 MiB.');
         return $body;
     }
 
     /** Decode historical normalized event shape without coercion, missing fields or extra data. */
-    public static function decodeEvents(array $payload): array
+    public static function decodeEvents(array $payload,int $version=IngestValidator::VERSION): array
     {
         if (!array_is_list($payload) || count($payload)<1 || count($payload)>IngestValidator::MAX_BATCH) throw new HttpException(422,'invalid_payload','Invalid durable event list.');
         $fields=['source','level','message','context','timestamp','service','host','traceId','requestId','tags'];
@@ -79,7 +79,7 @@ final class IngestBatch
             if (!$e->context instanceof stdClass || !is_array($e->tags)) throw new HttpException(422,'invalid_payload','Invalid durable context or tags.');
             $events[]=new IngestEvent($e->source,$e->level,$e->message,$e->context,$e->timestamp,$e->service,$e->host,$e->traceId,$e->requestId,$e->tags);
         }
-        return self::normalize($events,self::JOB_BYTES);
+        return self::normalize($events,self::JOB_BYTES,$version);
     }
 
     /** PostgreSQL JSONB adds whitespace; the compact encoding is the authoritative size. */
@@ -87,11 +87,12 @@ final class IngestBatch
     {
         if (strlen($body)>self::JOB_DECODE_BYTES) throw new HttpException(413,'payload_too_large','Stored job exceeds decoding limit.');
         $p=json_decode($body,false,64,JSON_THROW_ON_ERROR);
-        if (!$p instanceof stdClass || count(get_object_vars($p))!==2 || !isset($p->events,$p->sources) || !is_array($p->events) || (!$p->sources instanceof stdClass && !is_array($p->sources))) throw new HttpException(422,'invalid_payload','Invalid durable job.');
-        $events=self::decodeEvents($p->events);
+        if (!$p instanceof stdClass || array_diff(array_keys(get_object_vars($p)),['events','sources','validation_version'])!==[] || (property_exists($p,'validation_version') && $p->validation_version!==IngestValidator::VERSION) || !isset($p->events,$p->sources) || !is_array($p->events) || (!$p->sources instanceof stdClass && !is_array($p->sources))) throw new HttpException(422,'invalid_payload','Invalid durable job.');
+        $version=$p->validation_version??1;
+        $events=self::decodeEvents($p->events,$version);
         // Old releases encoded maps with contiguous numeric keys as arrays.
         $sources=self::sourceMap($events,(array)$p->sources);
-        if (strlen(json_encode(['events'=>$events,'sources'=>(object)$sources],self::FLAGS))>self::JOB_BYTES) throw new HttpException(413,'payload_too_large','Normalized job exceeds 2 MiB.');
-        return [$events,$sources];
+        if (strlen(json_encode(['events'=>$events,'sources'=>(object)$sources]+(property_exists($p,'validation_version')?['validation_version'=>$p->validation_version]:[]),self::FLAGS))>self::JOB_BYTES) throw new HttpException(413,'payload_too_large','Normalized job exceeds 2 MiB.');
+        return [$events,$sources,$version];
     }
 }

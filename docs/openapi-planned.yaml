@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: CajeerLogs API
-  version: 0.2.2-planned
+  version: 0.2.3-planned
   description: Historical planned API; for implemented identity, ingestion and search routes see api/openapi.yaml. Webhooks remain unimplemented.
 servers:
   - url: /api/v1

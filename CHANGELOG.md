@@ -2,6 +2,14 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.2.3] — Event Validation
+
+- Строгий bounded JSON reader, запрет повторных ключей, контроль исходного и нормализованного размера, Unicode, структуры и чисел.
+- Ошибки валидации с безопасными reason, field и event_index.
+- Настраиваемые окна timestamp только для новых операций; replay и ранее принятые jobs не переоцениваются.
+- Версионирование durable payload, совместимость прежних заданий; клиентские проверки и строгий JSONL-импорт.
+- Миграции 0001–0012 неизменны; Public Preview до фактической сертификации PostgreSQL.
+
 ## [0.2.2] — Single & Batch Ingestion
 
 - Общая нормализация пакета, точная карта источников, отдельные лимиты SQL и durable payload, ограничение JSONB при записи и чтении.

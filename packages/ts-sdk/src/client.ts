@@ -17,6 +17,52 @@ const random = () => hex(crypto.getRandomValues(new Uint8Array(16)))
 const encoder = new TextEncoder()
 const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
 
+const fields = new Set(['timestamp','source','level','message','context','service','host','trace_id','request_id','tags'])
+const levels = new Set(['debug','info','notice','warning','error','critical','alert','emergency'])
+const object = (v: unknown): v is Record<string,unknown> => v !== null && typeof v === 'object' && !Array.isArray(v) && (Object.getPrototypeOf(v) === Object.prototype || Object.getPrototypeOf(v) === null)
+const text = (v: unknown, max: number): v is string => typeof v === 'string' && v.replace(/^[ \t\r\n\x00\x0b]+|[ \t\r\n\x00\x0b]+$/g,'') !== '' && encoder.encode(v).length <= max
+const validTimestamp = (v: unknown): boolean => {
+  if (typeof v !== 'string') return false
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,6})?(Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/.exec(v)
+  if (!m || m[0] !== v) return false
+  const [year,month,day,hour,minute,second] = m.slice(1,7).map(Number)
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)
+  const days = [31,leap?29:28,31,30,31,30,31,31,30,31,30,31]
+  if (year<1 || month<1 || month>12 || day<1 || day>days[month-1] || hour>23 || minute>59 || second>59) return false
+  const date = new Date(v)
+  return Number.isFinite(date.getTime()) && date.getUTCFullYear() >= 1 && date.getUTCFullYear() <= 9999
+}
+function validateEvent(e: unknown): void {
+  if (!object(e) || Object.keys(e).some(k=>!fields.has(k))) throw new Error('Invalid event fields')
+  if (!text(e.source,100) || !/^[a-z0-9]+(?:-[a-z0-9]+)*$(?![\s\S])/.test(e.source) || !text(e.level,32) || !levels.has(e.level.toLowerCase()) || !text(e.message,16384) || !validTimestamp(e.timestamp)) throw new Error('Invalid required event field')
+  for (const [key,max] of [['service',255],['host',255],['trace_id',128],['request_id',128]] as const) if (e[key] != null && !text(e[key],max)) throw new Error('Invalid optional event field')
+  if (e.context!==undefined && !object(e.context)) throw new Error('Invalid context')
+  if (e.tags!==undefined && (!Array.isArray(e.tags) || e.tags.length>32 || !e.tags.every(t=>text(t,128)))) throw new Error('Invalid tags')
+  let nodes=0
+  const walk=(v: unknown, depth: number): void=>{
+    if (depth>24 || ++nodes>8192) throw new Error('Event structure exceeds limits')
+    if (typeof v==='string') {
+      if (/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(v) || /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(v)) throw new Error('Invalid string')
+    } else if (Array.isArray(v)) {
+      if (v.length>2048) throw new Error('Event structure exceeds limits')
+      for (const child of v) walk(child,depth+1)
+    } else if (object(v)) {
+      const keys=Object.keys(v)
+      if (keys.length>2048 || Object.getOwnPropertySymbols(v).length || 'toJSON' in v) throw new Error('Invalid JSON object')
+      for (const key of keys) {
+        if (encoder.encode(key).length>256 || /[\x00-\x1f\x7f]/.test(key)) throw new Error('Invalid key')
+        if (/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(key)) throw new Error('Invalid key')
+        if (depth===0 && v[key]===undefined && ['context','tags','service','host','trace_id','request_id'].includes(key)) continue
+        walk(v[key],depth+1)
+      }
+    } else if (typeof v==='number') {
+      if (!Number.isFinite(v)) throw new Error('Invalid JSON number')
+    } else if (v!==null && typeof v!=='boolean') throw new Error('Unsupported JSON value')
+  }
+  walk(e,0)
+  if (encoder.encode(JSON.stringify(e)).length>65536 || encoder.encode(JSON.stringify(e.context??{})).length>32768) throw new Error('Event or context exceeds size limit')
+}
+
 export class CajeerLogsClient {
   private readonly url: URL
   private readonly attempts: number
@@ -35,7 +81,11 @@ export class CajeerLogsClient {
   }
   async ingest(event: LogEvent | LogEvent[] | { events: LogEvent[] }, idempotencyKey = random()): Promise<IngestReceipt> {
     const payload = Array.isArray(event) ? { events: event } : event
-    const count = 'events' in payload ? payload.events.length : 1
+    if (!object(payload)) throw new Error('Invalid event or batch')
+    const events = 'events' in payload ? payload.events : [payload]
+    if (!Array.isArray(events) || events.length<1 || events.length>100 || ('events' in payload && Object.keys(payload).length!==1)) throw new Error('Invalid batch')
+    for (const item of events) validateEvent(item)
+    const count = events.length
     const body = JSON.stringify(payload)
     if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(idempotencyKey) || count < 1 || count > 100 || encoder.encode(body).length > 1048576) throw new Error('Invalid body or idempotency key')
     for (let attempt = 0; attempt < this.attempts; attempt++) {

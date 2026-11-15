@@ -1,7 +1,7 @@
 # Run with --env-file .env.production. See docs/First-Public-Release.md.
 name: cajeerlogs
 x-runtime: &runtime
-  image: cajeerlogs:0.2.2
+  image: cajeerlogs:0.2.3
   build:
     context: .
     dockerfile: deploy/production/Dockerfile
@@ -21,6 +21,8 @@ x-runtime: &runtime
     DB_SSLMODE: disable
     INGEST_MAX_INFLIGHT: ${INGEST_MAX_INFLIGHT:-16}
     INGEST_BUDGET_MS: ${INGEST_BUDGET_MS:-25000}
+    INGEST_MAX_EVENT_AGE_SECONDS: ${INGEST_MAX_EVENT_AGE_SECONDS:-0}
+    INGEST_MAX_EVENT_FUTURE_SECONDS: ${INGEST_MAX_EVENT_FUTURE_SECONDS:-0}
     SECURITY_2FA_REQUIRED_FOR_ADMINS: 'true'
     PROMETHEUS_TOKEN: ${PROMETHEUS_TOKEN:?Set PROMETHEUS_TOKEN}
   volumes:
@@ -94,7 +96,7 @@ services:
       app:
         condition: service_healthy
   gateway:
-    image: cajeerlogs-gateway:0.2.2
+    image: cajeerlogs-gateway:0.2.3
     build:
       context: .
       dockerfile: deploy/production/Dockerfile

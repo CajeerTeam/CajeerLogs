@@ -27,9 +27,28 @@ data class LogEvent(val source: String, val level: String, val message: String,
     val timestamp: String = Instant.now().truncatedTo(ChronoUnit.MICROS).toString(), val service: String? = null,
     val host: String? = null, val context: Map<String, Any?> = emptyMap(),
     val traceId: String? = null, val requestId: String? = null, val tags: List<String> = emptyList()) {
-    internal fun json(): String = Json.encode(linkedMapOf("source" to source, "level" to level, "message" to message,
+    internal fun json(): String {
+        require(source.matches(Regex("[a-z0-9]+(?:-[a-z0-9]+)*")) && source.length<=100)
+        require(level.lowercase(java.util.Locale.ROOT) in setOf("debug","info","notice","warning","error","critical","alert","emergency"))
+        fun text(v: String, limit: Int) = v.trim(' ', '\t', '\r', '\n', '\u0000', '\u000b').isNotEmpty() && v.toByteArray(UTF_8).size<=limit
+        require(text(message,16384) && (service==null || text(service,255)) && (host==null || text(host,255)) && (traceId==null || text(traceId,128)) && (requestId==null || text(requestId,128)))
+        require(tags.size<=32 && tags.all { text(it,128) })
+        require(timestamp.matches(Regex("[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,6})?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])")) && !timestamp.startsWith("0000"))
+        val stamp=try {
+            val offset=if (timestamp.endsWith("Z")) "Z" else timestamp.takeLast(6)
+            val local=java.time.LocalDateTime.parse(timestamp.dropLast(offset.length))
+            val minutes=if(offset=="Z") 0 else (offset.substring(1,3).toInt()*60+offset.substring(4,6).toInt())*(if(offset[0]=='-') -1 else 1)
+            local.minusMinutes(minutes.toLong())
+        } catch(e: java.time.DateTimeException) { throw IllegalArgumentException("Invalid timestamp") }
+        require(stamp.year in 1..9999)
+        val value=linkedMapOf("source" to source, "level" to level, "message" to message,
         "timestamp" to timestamp, "service" to service, "host" to host, "context" to context,
-        "trace_id" to traceId, "request_id" to requestId, "tags" to tags).filterValues { it != null })
+        "trace_id" to traceId, "request_id" to requestId, "tags" to tags).filterValues { it != null }
+        require(Json.encode(context).toByteArray(UTF_8).size<=32768)
+        val result=Json.encode(value)
+        require(result.toByteArray(UTF_8).size<=65536)
+        return result
+    }
 }
 data class IngestReceipt(val received: Int, val stored: Int, val eventIds: List<String>, val replayed: Boolean)
 class DeliveryException(val status: Int?, val idempotencyKey: String) : IOException("CajeerLogs delivery failed (HTTP ${status ?: "unknown"}); retry same body and key")
@@ -100,16 +119,16 @@ class CajeerLogsClient @JvmOverloads constructor(baseUrl: String, private val to
 
 /** Small bounded JSON codec for the SDK's wire format. */
 private object Json {
-    fun encode(v: Any?, depth: Int = 0): String {
-        require(depth <= 24)
+    fun encode(v: Any?, depth: Int = 0, nodes: IntArray = intArrayOf(0)): String {
+        require(depth <= 24 && ++nodes[0]<=8192)
         return when (v) {
             null -> "null"
-            is String -> buildString { append('"'); for (c in v) when(c) { '"','\\' -> { append('\\'); append(c) }; else -> if (c.code < 32) append("\\u%04x".format(c.code)) else append(c) }; append('"') }
+            is String -> buildString { require(UTF_8.newEncoder().canEncode(v) && v.none { it.code in 0..8 || it.code in 11..12 || it.code in 14..31 || it.code==127 }); append('"'); for (c in v) when(c) { '"','\\' -> { append('\\'); append(c) }; else -> if (c.code < 32) append("\\u%04x".format(c.code)) else append(c) }; append('"') }
             is Boolean, is Byte, is Short, is Int, is Long -> v.toString()
             is Float -> { require(v.isFinite()); v.toString() }
             is Double -> { require(v.isFinite()); v.toString() }
-            is Map<*,*> -> v.entries.joinToString(",", "{", "}") { require(it.key is String); encode(it.key, depth+1) + ":" + encode(it.value,depth+1) }
-            is Iterable<*> -> v.joinToString(",", "[", "]") { encode(it,depth+1) }
+            is Map<*,*> -> { require(v.size<=2048); v.entries.joinToString(",", "{", "}") { val key=it.key; require(key is String && key.toByteArray(UTF_8).size<=256 && key.none { c->c.code<32 || c.code==127 }); encode(key,0) + ":" + encode(it.value,depth+1,nodes) } }
+            is Iterable<*> -> { var count=0; v.joinToString(",", "[", "]") { require(++count<=2048); encode(it,depth+1,nodes) } }
             else -> throw IllegalArgumentException("Unsupported JSON value")
         }
     }

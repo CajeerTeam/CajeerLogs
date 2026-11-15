@@ -8,7 +8,7 @@ final class ErrorHandler
     public static function response(\Throwable $error, string $requestId): Response
     {
         if ($error instanceof HttpException && $error->status < 500) {
-            return new JsonResponse(['error' => $error->error, 'message' => $error->getMessage(), 'request_id' => $requestId], $error->status, $error->headers);
+            return new JsonResponse(['error' => $error->error, 'message' => $error->getMessage(), 'request_id' => $requestId] + ($error->details===[] ? [] : ['details'=>$error->details]), $error->status, $error->headers);
         }
         // Do not log request bodies, headers, exception messages or traces containing credentials.
         error_log(sprintf('CajeerLogs request_id=%s exception=%s at %s:%d', $requestId, $error::class, basename($error->getFile()), $error->getLine()));

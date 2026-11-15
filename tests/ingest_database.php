@@ -160,6 +160,31 @@ WORKER;
             if (is_resource($child)) { proc_close($child); }
         }
     }
+    // Strict validation and admission-only timestamp rules through both live routes.
+    $oldEvent=encode(array_replace($event,['timestamp'=>'2000-01-01T00:00:00Z','message'=>'validation policy replay']));
+    $asyncSend=fn(string $body,string $key)=>$app->handle(new Request('POST','/api/v1/ingest/async',['Authorization'=>'Bearer '.$secret,'Content-Type'=>'application/json','Idempotency-Key'=>$key],[],$body));
+    $accepted=expect($oldEvent,$secret,201,'old timestamp accepted before enabling window',['Idempotency-Key'=>'validation-old-sync']);
+    $job=$asyncSend($oldEvent,'validation-old-async');verify($job->status===202,'old async job accepted before enabling window');
+    $jobId=data($job)['job_id'];
+    $app->config()->set('ingest.max_event_age_seconds',60);$app->config()->set('ingest.max_event_future_seconds',60);
+    try {
+        $beforeValidation=(int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn();
+        $beforeJobs=(int)$pdo->query('SELECT count(*) FROM jobs')->fetchColumn();
+        $denied=expect($oldEvent,$secret,422,'new historical operation rejected',['Idempotency-Key'=>'validation-new-sync']);
+        verify(data($denied)['details']['reason']==='timestamp_window','timestamp error details over runtime');
+        verify($asyncSend($oldEvent,'validation-new-async')->status===422,'new async historical operation rejected');
+        $dup=substr($raw,0,-1).',"message":"duplicate"}';
+        $denied=expect($dup,$secret,400,'duplicate key rejected by live runtime');verify(data($denied)['details']['reason']==='duplicate_key','duplicate key diagnostic');
+        verify($asyncSend($dup,'validation-dup-async')->status===400,'duplicate key rejected by async runtime');
+        verify((int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===$beforeValidation&&(int)$pdo->query('SELECT count(*) FROM jobs')->fetchColumn()===$beforeJobs,'validation denial writes neither events nor jobs');
+        verify(data(expect($oldEvent,$secret,200,'sync replay bypasses newly configured age window',['Idempotency-Key'=>'validation-old-sync']))['event_ids']===data($accepted)['event_ids'],'sync replay retains UUID');
+        $replay=$asyncSend($oldEvent,'validation-old-async');verify($replay->status===200&&data($replay)['job_id']===$jobId,'async replay bypasses age window');
+        $queue=$app->container()->get(\Cajeer\Logs\Queue\PostgresQueueDriver::class);$claim=$queue->claim();
+        verify((string)$claim['id']===$jobId&&$queue->process($claim)==='completed','already accepted job completes despite new timestamp policy');
+        $now=encode(array_replace($event,['timestamp'=>gmdate('Y-m-d\TH:i:s\Z'),'message'=>'validation current event']));
+        expect($now,$secret,201,'current timestamp passes admission window');
+        $future=encode(array_replace($event,['timestamp'=>gmdate('Y-m-d\TH:i:s\Z',time()+3600)]));expect($future,$secret,422,'future timestamp rejected');
+    } finally { $app->config()->set('ingest.max_event_age_seconds',0);$app->config()->set('ingest.max_event_future_seconds',0); }
     // Network HTTP across PHP request lifecycles and independent DB connection.
     $socket=stream_socket_server('tcp://127.0.0.1:0',$errno,$errstr); if ($socket===false) { throw new RuntimeException('Cannot allocate test port.'); }
     $address=stream_socket_get_name($socket,false); fclose($socket); $log=$tmp.'/http.log';

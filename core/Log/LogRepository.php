@@ -116,19 +116,19 @@ final class LogRepository
     }
 
     /** @param list<IngestEvent> $events @param array<string,string> $sources @return list<string> */
-    public function storeBatch(array $events, string $project, array $sources, string $token): array
+    public function storeBatch(array $events, string $project, array $sources, string $token,int $version=IngestValidator::VERSION): array
     {
         ++self::$metrics['batch_attempts'];
         try {
-            $ids=$this->insertBatch($events,$project,$sources,$token);
+            $ids=$this->insertBatch($events,$project,$sources,$token,$version);
             self::$metrics['rows_returned']+=count($ids);
             return $ids;
         } catch (\Throwable $e) { ++self::$metrics['failed_batches']; throw $e; }
     }
-    private function insertBatch(array $events,string $project,array $sources,string $token): array
+    private function insertBatch(array $events,string $project,array $sources,string $token,int $version): array
     {
         if (!$this->pdo->inTransaction()) { throw new \LogicException('Log writes require a transaction.'); }
-        [$ids,$body]=self::encodeBatch($events,$sources);
+        [$ids,$body]=self::encodeBatch($events,$sources,$version);
         $project=LogQuery::uuid($project); $token=LogQuery::uuid($token);
         // A single statement admits the entire batch or no rows. Queue payloads cannot
         // override source/project/token attribution, even if corrupted on disk.
@@ -163,9 +163,9 @@ final class LogRepository
 
     /** Bounded normalized payload, also used for jobs that have already passed HTTP validation.
      * @return array{0:list<string>,1:string} */
-    public static function encodeBatch(array $events,array $sources): array
+    public static function encodeBatch(array $events,array $sources,int $version=IngestValidator::VERSION): array
     {
-        $events=IngestBatch::normalize($events);
+        $events=IngestBatch::normalize($events,IngestBatch::SQL_BYTES,$version);
         $sources=IngestBatch::sourceMap($events,$sources);
         // Generate UUIDs before a single multi-row INSERT, preserving receipt order.
         $ids=[];$rows=[];$size=2;

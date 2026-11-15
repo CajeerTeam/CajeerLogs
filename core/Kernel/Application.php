@@ -134,7 +134,7 @@ final class Application
         $rate = !is_bool($config->get('api.rate_limit')) ? filter_var($config->get('api.rate_limit'), FILTER_VALIDATE_INT, ['options'=>['min_range'=>1,'max_range'=>100000]]) : false;
         if ($rate === false) { throw new \RuntimeException('Invalid API_RATE_LIMIT_PER_MINUTE.'); }
         $config->set('api.rate_limit', $rate);
-        foreach (['ingest.max_inflight'=>[0,128], 'ingest.budget_ms'=>[100,120000]] as $key=>[$min,$max]) {
+        foreach (['ingest.max_inflight'=>[0,128], 'ingest.budget_ms'=>[100,120000], 'ingest.max_event_age_seconds'=>[0,315576000], 'ingest.max_event_future_seconds'=>[0,315576000]] as $key=>[$min,$max]) {
             $value=is_bool($config->get($key)) ? false : filter_var($config->get($key),FILTER_VALIDATE_INT,['options'=>['min_range'=>$min,'max_range'=>$max]]);
             if ($value===false) throw new \RuntimeException('Invalid configuration: '.$key);
             $config->set($key,$value);

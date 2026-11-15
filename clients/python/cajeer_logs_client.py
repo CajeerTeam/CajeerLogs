@@ -30,13 +30,71 @@ class DeliveryError(Exception):
         super().__init__(f"CajeerLogs delivery failed (HTTP {status if status is not None else 'unknown'}); key={key}")
 
 
+_FIELDS = {"timestamp", "source", "level", "message", "context", "service", "host", "trace_id", "request_id", "tags"}
+_LEVELS = {"debug", "info", "notice", "warning", "error", "critical", "alert", "emergency"}
+_TIMESTAMP = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])")
+
+
+def validate_event(event: dict[str, Any]) -> None:
+    def text(value, limit):
+        return isinstance(value, str) and bool(value.strip(" \t\r\n\0\v")) and len(value.encode("utf-8")) <= limit
+    if not isinstance(event, dict) or event.keys() - _FIELDS:
+        raise ValueError("Invalid event fields")
+    source, level, message = (event.get(k) for k in ("source", "level", "message"))
+    if not text(source, 100) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", source) or not text(level, 32) or level.lower() not in _LEVELS or not text(message, 16384):
+        raise ValueError("Invalid required event field")
+    stamp = event.get("timestamp")
+    if not isinstance(stamp, str) or not _TIMESTAMP.fullmatch(stamp):
+        raise ValueError("Invalid timestamp")
+    try:
+        datetime.fromisoformat(stamp.replace("Z", "+00:00")).astimezone(timezone.utc)
+    except (ValueError, OverflowError):
+        raise ValueError("Invalid timestamp") from None
+    for field, limit in (("service",255),("host",255),("trace_id",128),("request_id",128)):
+        if event.get(field) is not None and not text(event[field], limit):
+            raise ValueError("Invalid optional event field")
+    if "context" in event and not isinstance(event["context"], dict):
+        raise ValueError("Invalid context")
+    if "tags" in event and (not isinstance(event["tags"], list) or len(event["tags"]) > 32 or any(not text(t,128) for t in event["tags"])):
+        raise ValueError("Invalid tags")
+    nodes = 0
+    def walk(value, depth):
+        nonlocal nodes
+        nodes += 1
+        if depth > 24 or nodes > 8192:
+            raise ValueError("Event structure exceeds limits")
+        if isinstance(value, str):
+            value.encode("utf-8")
+            if re.search(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", value):
+                raise ValueError("Invalid string")
+        elif isinstance(value, (dict,list)):
+            if len(value) > 2048:
+                raise ValueError("Event structure exceeds limits")
+            if isinstance(value, dict):
+                for key, child in value.items():
+                    if not isinstance(key, str) or len(key.encode("utf-8")) > 256 or re.search(r"[\x00-\x1f\x7f]",key):
+                        raise ValueError("Invalid key")
+                    walk(child, depth+1)
+            else:
+                for child in value: walk(child, depth+1)
+        elif value is not None and (not isinstance(value,(bool,int,float)) or isinstance(value,float) and not math.isfinite(value) or type(value) is int and len(str(value))>1024):
+            raise ValueError("Unsupported JSON value")
+    walk(event, 0)
+    def size(v): return len(json.dumps(v,ensure_ascii=False,allow_nan=False,separators=(",",":")).encode("utf-8"))
+    if size(event) > 65536 or size(event.get("context",{})) > 32768:
+        raise ValueError("Event or context exceeds size limit")
+
+
 def encode(event: dict[str, Any] | list[dict[str, Any]]) -> bytes:
     payload = {"events": event} if isinstance(event, list) else event
     if not isinstance(payload, dict):
         raise ValueError("Expected event or events")
+    if "events" in payload and len(payload) != 1:
+        raise ValueError("Invalid batch wrapper")
     events = payload.get("events", [payload])
     if not isinstance(events, list) or not 1 <= len(events) <= 100 or any(not isinstance(e, dict) for e in events):
         raise ValueError("Expected 1..100 events")
+    for item in events: validate_event(item)
     body = json.dumps(payload, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode("utf-8")
     if len(body) > 1048576:
         raise ValueError("Ingest body exceeds 1 MiB")

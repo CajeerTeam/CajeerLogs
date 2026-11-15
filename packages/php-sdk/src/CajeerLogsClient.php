@@ -19,14 +19,47 @@ final class CajeerLogsClient
         $this->url = rtrim($baseUrl,'/').$apiPrefix.'/ingest';
     }
 
+    private static function validateEvent(array $item): void
+    {
+        $json=json_encode($item,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+        if (strlen($json)>65536) throw new \InvalidArgumentException('Event exceeds 64 KiB.');
+        $e=json_decode($json,false,32,JSON_THROW_ON_ERROR);
+        $fields=['timestamp','source','level','message','context','service','host','trace_id','request_id','tags'];
+        if (!$e instanceof \stdClass || array_diff(array_keys(get_object_vars($e)),$fields)!==[]) throw new \InvalidArgumentException('Invalid event fields.');
+        $text=static function(mixed $v,int $max): bool { return is_string($v) && trim($v)!=='' && strlen($v)<=$max; };
+        if (!$text($e->source??null,100) || !preg_match('/^[a-z0-9]+(?:-[a-z0-9]+)*$/D',$e->source) || !$text($e->level??null,32) || !in_array(strtolower($e->level),['debug','info','notice','warning','error','critical','alert','emergency'],true) || !$text($e->message??null,16384)) throw new \InvalidArgumentException('Invalid required event field.');
+        $time=$e->timestamp??null;
+        if (!is_string($time) || !preg_match('/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?(Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/D',$time,$m) || str_starts_with($time,'0000')) throw new \InvalidArgumentException('Invalid timestamp.');
+        $date=\DateTimeImmutable::createFromFormat('!Y-m-d\TH:i:s.uP',$m[1].'.'.str_pad($m[2]??'',6,'0').($m[3]==='Z'?'+00:00':$m[3]));
+        $errors=\DateTimeImmutable::getLastErrors();
+        if (!$date || ($errors!==false && ($errors['warning_count']||$errors['error_count']))) throw new \InvalidArgumentException('Invalid timestamp.');
+        $utc=$date->setTimezone(new \DateTimeZone('UTC'))->format('Y');
+        if (strlen($utc)!==4 || $utc==='0000') throw new \InvalidArgumentException('Invalid timestamp.');
+        foreach (['service'=>255,'host'=>255,'trace_id'=>128,'request_id'=>128] as $key=>$max) if (isset($e->$key) && !$text($e->$key,$max)) throw new \InvalidArgumentException('Invalid optional event field.');
+        if (property_exists($e,'context') && (!$e->context instanceof \stdClass || strlen(json_encode($e->context,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES))>32768)) throw new \InvalidArgumentException('Invalid context.');
+        if (property_exists($e,'tags') && (!is_array($e->tags) || count($e->tags)>32 || !array_all($e->tags,static fn($tag)=>$text($tag,128)))) throw new \InvalidArgumentException('Invalid tags.');
+        $nodes=0;
+        $walk=static function(mixed $v,int $depth) use (&$walk,&$nodes): void {
+            if ($depth>24 || ++$nodes>8192) throw new \InvalidArgumentException('Event structure exceeds limits.');
+            if (is_string($v) && preg_match('/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/',$v)) throw new \InvalidArgumentException('Invalid string.');
+            if (is_array($v)||$v instanceof \stdClass) {
+                if (count((array)$v)>2048) throw new \InvalidArgumentException('Event structure exceeds limits.');
+                foreach ($v as $key=>$value) { if (strlen((string)$key)>256 || preg_match('/[\x00-\x1f\x7f]/',(string)$key)) throw new \InvalidArgumentException('Invalid key.'); $walk($value,$depth+1); }
+            }
+        };
+        $walk($e,0);
+    }
+
     public function ingest(array $event, ?string $idempotencyKey = null): array
     {
         $payload = array_is_list($event) ? ['events'=>$event] : $event;
-        $events = $payload['events'] ?? [$payload];
+        if (array_key_exists('events',$payload) && count($payload)!==1) throw new \InvalidArgumentException('Invalid batch wrapper.');
+        $events = array_key_exists('events',$payload) ? $payload['events'] : [$payload];
         if (!is_array($events) || !array_is_list($events) || count($events)<1 || count($events)>100) { throw new \InvalidArgumentException('Expected 1..100 events.'); }
         foreach ($events as &$item) {
             if (!is_array($item) || array_is_list($item)) { throw new \InvalidArgumentException('Expected event object.'); }
             if (isset($item['context']) && $item['context'] === []) { $item['context'] = new \stdClass(); }
+            self::validateEvent($item);
         }
         unset($item);
         $payload = isset($payload['events']) ? ['events'=>$events] : $events[0];
