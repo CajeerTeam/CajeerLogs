@@ -1,4 +1,4 @@
-import { state, names, hasPermission, render } from './store.js?v=0.4.3';
+import { state, names, hasPermission, render } from './store.js?v=0.4.4';
 
 function currentRoute() { const route = location.hash.slice(1); return Object.hasOwn(names, route) ? route : 'overview'; }
 function navigate(route) { if (!Object.hasOwn(names, route)) throw new Error('Неизвестный раздел.'); if (location.hash !== '#' + route) location.hash = route; void render({ focus: true }); }

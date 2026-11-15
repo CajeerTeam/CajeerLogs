@@ -1,9 +1,9 @@
-import { state, projectPath, admin, hasPermission, canIssueScope, active, render } from '../app/store.js?v=0.4.3';
-import { h, button, card, field, input, select, checkbox, empty, badge, date, enc, message, clearModal, modalEpoch, modal, form, heading, needProject, copy, table, notify } from '../components/ui.js?v=0.4.3';
-import { projectSelector } from '../app/projects.js?v=0.4.3';
-import { pagedList } from '../components/pagination.js?v=0.4.3';
-import { mutationSuccess, confirmAction } from '../components/mutations.js?v=0.4.3';
-import { get, write } from '../api/client.js?v=0.4.3';
+import { state, projectPath, admin, hasPermission, canIssueScope, active, render } from '../app/store.js?v=0.4.4';
+import { h, button, card, field, input, select, checkbox, empty, badge, date, enc, message, clearModal, modalEpoch, modal, form, heading, needProject, copy, table, notify } from '../components/ui.js?v=0.4.4';
+import { projectSelector } from '../app/projects.js?v=0.4.4';
+import { pagedList } from '../components/pagination.js?v=0.4.4';
+import { mutationSuccess, confirmAction } from '../components/mutations.js?v=0.4.4';
+import { get, write, request } from '../api/client.js?v=0.4.4';
 
 let tokenIssuing = false;
 function tokenMetadataFields(r = {}) {
@@ -32,13 +32,29 @@ async function accountDetails(path,r,epoch,signal,onTokens) {
     modal('Карточка сервисной учётной записи',h('div',{},detailsTable([['Название',a.name],['UUID',a.id],['Создал',a.created_by],['Создана',date(a.created_at)],['Отключена',date(a.disabled_at)],['Всего токенов',a.total_tokens],['Активных токенов',a.active_tokens],['Последнее использование',date(a.last_used_at)]]),hasPermission('tokens:read')?button('Показать токены сервиса',()=>{clearModal();onTokens(a.id);},'primary'):null,button('Закрыть',clearModal)));
 }
 export function auditSection(path,signal,epoch,system=false,open=false) {
-    const list=h('div');
+    const list=h('div'); let currentQuery={};
     const filters=form('Фильтровать аудит',[
-        field('Действие аудита',select('action',[['','Все действия'],['token.created','Выпуск токена'],['token.updated','Изменение токена'],['token.rotated','Ротация токена'],['token.revoked','Отзыв токена'],['token.bulk_revoked','Пакетный отзыв'],['token.signing_changed','Изменение HMAC'],['token.signing_previous_retired','Завершение перекрытия HMAC'],['service_account.created','Создание сервиса'],['service_account.disabled','Отключение сервиса'],['project.signing_policy','Политика HMAC'],['project.member_role_set','Изменение роли проекта'],['role.project_assigned','Назначение пользовательской роли проекта'],...(system?[['role.created','Создание роли'],['role.updated','Изменение роли'],['role.deleted','Удаление роли'],['role.global_assigned','Назначение глобальной роли'],['auth.login','Вход'],['auth.login_failed','Неудачный вход'],['user.updated','Изменение пользователя'],['user.totp_reset','Сброс 2FA']]:[])],'')),
-        field('UUID инициатора',input('actor_id',{maxlength:36})),field('UUID объекта',input('target',{maxlength:36}))],async d=>load(Object.fromEntries([...d].map(([k,v])=>[k,String(v).trim()]))));
-    function load(query={}) {list.replaceChildren(pagedList({path,query:{limit:50,...query},signal,epoch,headers:['Время UTC','Действие','Инициатор / объект','Детали'],rows:r=>[date(r.created_at),r.action,h('div',{},h('code',{},r.actor_id||'Система'),h('div',{},h('code',{},r.target||'—'))),button('Запись аудита',()=>modal('Запись аудита',detailsTable(Object.entries(r).filter(([,v])=>v!==null).map(([k,v])=>[k,k==='created_at'?date(v):v]))))]}));}
+        field('Действие аудита',select('action',[['','Все действия'],['logs.exported','Экспорт логов'],['token.created','Выпуск токена'],['token.updated','Изменение токена'],['token.rotated','Ротация токена'],['token.revoked','Отзыв токена'],['token.bulk_revoked','Пакетный отзыв'],['token.signing_changed','Изменение HMAC'],['token.signing_previous_retired','Завершение перекрытия HMAC'],['service_account.created','Создание сервиса'],['service_account.disabled','Отключение сервиса'],['project.signing_policy','Политика HMAC'],['project.member_role_set','Изменение роли проекта'],['role.project_assigned','Назначение пользовательской роли проекта'],...(system?[['security.access_denied','Отказ в доступе'],['auth.reauthenticated','Подтверждение личности'],['auth.reauthentication_failed','Ошибка подтверждения'],['auth.totp_key_rotated','Ротация ключа TOTP'],['role.created','Создание роли'],['role.updated','Изменение роли'],['role.deleted','Удаление роли'],['role.global_assigned','Назначение глобальной роли'],['auth.login','Вход'],['auth.login_failed','Неудачный вход'],['user.updated','Изменение пользователя'],['user.totp_reset','Сброс 2FA']]:[])],'')),
+        field('UUID инициатора',input('actor_id',{maxlength:36})),field('UUID объекта',input('target',{maxlength:36})),
+        field('Результат',select('result',[['','Все'],['success','Успех'],['failure','Ошибка'],['denied','Отказ']],'')),
+        field('Тип инициатора',select('actor_type',[['','Все'],['user','Пользователь'],['token','Токен'],['system','Система'],['anonymous','Анонимный']],'')),
+        field('Начало UTC',input('from',{type:'datetime-local',step:1})),field('Конец UTC (не включительно)',input('to',{type:'datetime-local',step:1}))],async d=>{
+        const query=Object.fromEntries([...d].map(([k,v])=>[k,String(v).trim()]));
+        for(const k of ['from','to']) if(query[k]) query[k]+=(query[k].length===16?':00':'')+'Z';
+        load(query);
+    });
+    function load(query={}) {currentQuery=query;list.replaceChildren(pagedList({path,query:{limit:50,...query},signal,epoch,headers:['Время UTC','Действие','Результат','Инициатор / объект','Детали'],rows:r=>[date(r.created_at),r.action,r.result||'—',h('div',{},h('code',{},r.actor_id||'Система'),h('div',{},h('code',{},r.target||'—'))),button('Запись аудита',()=>modal('Запись аудита',detailsTable(Object.entries(r).filter(([,v])=>v!==null).map(([k,v])=>[k,k==='created_at'?date(v):v]))))]}));}
+    const download=button('Экспорт NDJSON (до 100 записей)',async()=>{
+        try {
+            const authEpoch=state.authEpoch;
+            const response=await request(path,{query:{...currentQuery,limit:100,format:'ndjson'},signal,raw:true});
+            const blob=await response.blob(); if(!active(epoch)||signal.aborted||authEpoch!==state.authEpoch)return;
+            const url=URL.createObjectURL(blob); const link=h('a',{href:url,download:'cajeerlogs-audit.ndjson'});document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+            notify(response.headers.get('X-Next-Cursor')?'Экспортированы первые 100 записей. Уточните фильтры для следующего диапазона.':'Аудит экспортирован.');
+        } catch(error) {showError(epoch,'Экспорт аудита',error);}
+    });
     // Lazy initial load: do not query both audit scopes on every visit.
-    const details=h('details',{open},h('summary',{},system?'Глобальный журнал безопасности':'Журнал безопасности проекта'),h('p',{class:'muted'},'Только чтение. Секреты и произвольный audit context не возвращаются.'),filters,list);
+    const details=h('details',{open},h('summary',{},system?'Глобальный журнал безопасности':'Журнал безопасности проекта'),h('p',{class:'muted'},'Только чтение. Секреты и произвольный audit context не возвращаются.'),filters,download,list);
     let loaded=open;if(open)load();details.addEventListener('toggle',()=>{if(details.open&&!loaded){loaded=true;load();}});return card(details);
 }
 async function signingDialog(url,epoch,signal) {

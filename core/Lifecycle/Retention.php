@@ -17,7 +17,9 @@ final class Retention
         return (new TransactionManager($this->pdo))->run(function () use ($project,$days) {
             $this->lock();
             $s=$this->pdo->prepare('UPDATE projects SET retention_days=:days,revision=revision+1,updated_at=clock_timestamp() WHERE id=:id');$s->execute(['days'=>$days,'id'=>$project]);
-            $changed=$s->rowCount()===1;return $changed;
+            $changed=$s->rowCount()===1;
+            if ($changed) (new \Cajeer\Logs\Audit\AuditLogger($this->pdo))->record('retention.policy_changed',['project_id'=>$project,'retention_days'=>$days],null,$project);
+            return $changed;
         }, maxAttempts: 3);
     }
     public function policies(): array { return $this->pdo->query('SELECT id,name,slug,retention_days FROM projects ORDER BY id LIMIT 1000')->fetchAll(); }

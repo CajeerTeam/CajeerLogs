@@ -14,6 +14,7 @@ final class OperationsCommand
         $backup=new BackupManager($this->app);
         $n=count($args);
         $result=match($command) {
+            'audit:verify'=>$this->verifyAudit($args),
             'backup:create'=>$n===0?$backup->create():throw new DatabaseException('Usage: backup:create'),
             'backup:list'=>$n===0?$backup->list():throw new DatabaseException('Usage: backup:list'),
             'backup:verify'=>$n===1?$backup->verify($args[0]):throw new DatabaseException('Usage: backup:verify BACKUP_ID'),
@@ -23,7 +24,14 @@ final class OperationsCommand
             default=>throw new DatabaseException('Unknown operations command.'),
         };
         echo json_encode($result,JSON_THROW_ON_ERROR|JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES).PHP_EOL;
-        return 0;
+        return $command==='audit:verify' && !$result['valid'] ? 1 : 0;
+    }
+    private function verifyAudit(array $args): array
+    {
+        if (count($args)!==0 && (count($args)!==2 || !ctype_digit($args[0]) || filter_var($args[0],FILTER_VALIDATE_INT)===false)) throw new DatabaseException('Usage: audit:verify [POSITION HASH]');
+        $guard=$this->app->container()->get(\Cajeer\Logs\Database\MigrationRunner::class)->guard();
+        try { return (new \Cajeer\Logs\Audit\AuditLogger($this->app->container()->get(\PDO::class)))->verify(isset($args[0])?(int)$args[0]:null,$args[1]??null); }
+        finally { $guard->release(); }
     }
     private function reset(string $email): array
     {

@@ -67,7 +67,7 @@ with server() as port:
     for path in ("/", "/health", "/api/v1/health?probe=1"):
         status, headers, body = request(port, "GET", path)
         data = json.loads(body)
-        check(status == 200 and data["version"] == "0.4.3" and data["scope"] == "runtime", f"GET {path}")
+        check(status == 200 and data["version"] == "0.4.4" and data["scope"] == "runtime", f"GET {path}")
         check(len(headers["x-request-id"]) == 32 and headers["cache-control"] == "no-store" and headers["x-content-type-options"] == "nosniff", f"headers {path}")
     status, headers, body = request(port, "POST", "/health")
     check(status == 405 and headers["allow"] == "GET, HEAD, OPTIONS" and json.loads(body)["request_id"] == headers["x-request-id"], "405 + Allow + correlation")
@@ -110,7 +110,7 @@ with server() as port:
     status, headers, body = request(port, "GET", "/admin")
     check(status == 308 and headers["location"] == "/admin/", "admin canonical redirect")
     status, headers, body = request(port, "GET", "/admin/")
-    check(status == 200 and headers["content-type"].startswith("text/html") and b'content="0.4.3"' in body and b'content="/api/v1"' in body, "admin HTML runtime version and API prefix")
+    check(status == 200 and headers["content-type"].startswith("text/html") and b'content="0.4.4"' in body and b'content="/api/v1"' in body, "admin HTML runtime version and API prefix")
     check("script-src 'self'" in headers["content-security-policy"] and "frame-ancestors 'none'" in headers["content-security-policy"] and headers["cache-control"] == "no-store", "admin CSP and no-store")
     check(request(port, "HEAD", "/admin/")[2] == b"", "admin HEAD without body")
     check(request(port, "POST", "/admin/")[0] == 405, "admin unsupported method")

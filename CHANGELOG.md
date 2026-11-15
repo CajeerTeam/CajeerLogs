@@ -2,6 +2,13 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## 0.4.4 — Audit Log & Accountability
+
+- Append-only audit chain with explicit project scope, actor type, result, indexed filters and bounded NDJSON export.
+- Audit authenticated authorization denials, log exports, audit exports and CLI retention policy changes.
+- Audit verification CLI with optional independently retained checkpoint; restore verifies chain before publication.
+- Migration 0019 preserves historical records; real PostgreSQL audit integration and upgrade 0.4.3 are required by release gate.
+
 ## 0.4.3 — Identity & 2FA Security
 
 - Role and permission based mandatory TOTP, enrollment-only access, idle timeout and recent authentication.

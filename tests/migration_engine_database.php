@@ -14,9 +14,9 @@ try{
     foreach([$schema,$legacy] as $s)$base->exec('CREATE SCHEMA "'.$s.'"');
     foreach(glob($root.'/migrations/pgsql/*.sql') as $f)copy($f,$tmp.'/'.basename($f));
     $pdo=connection($app,$schema);$runner=new MigrationRunner($pdo,$tmp,$schema);
-    $plan=$runner->plan();check(count($plan['plan'])===18&&$plan['integrity']==='uninitialized'&&$pdo->query("SELECT to_regclass('schema_migrations') IS NULL")->fetchColumn()===true,'fresh plan is read-only');
-    check(count($runner->migrate())===18&&$runner->migrate()===[],'fresh per-file migrations and idempotent replay');
-    $s=$runner->status();check($s['integrity']==='verified'&&count($s['attempts'])===18&&count($s['runs'])===18,'real catalog baseline and attempt journal');
+    $plan=$runner->plan();check(count($plan['plan'])===19&&$plan['integrity']==='uninitialized'&&$pdo->query("SELECT to_regclass('schema_migrations') IS NULL")->fetchColumn()===true,'fresh plan is read-only');
+    check(count($runner->migrate())===19&&$runner->migrate()===[],'fresh per-file migrations and idempotent replay');
+    $s=$runner->status();check($s['integrity']==='verified'&&count($s['attempts'])===19&&count($s['runs'])===19,'real catalog baseline and attempt journal');
     $pdo->exec('ALTER TABLE users ALTER COLUMN email DROP NOT NULL');
     $s=$runner->status();check($s['integrity']==='drift'&&in_array(['object'=>'column:users.email','change'=>'changed'],$s['drift'],true)&&fails(fn()=>$runner->migrate()),'changed nullability detected and migration refused');
     $api=new Application($root);$api->boot();$api->config()->set('database.schema',$schema);$api->config()->set('app.env','test');
@@ -39,27 +39,27 @@ try{
     // Shared runtime lock and independent migration connection use the same namespace.
     $guard=$runner->guard();$second=connection($app,$schema);$second->exec('SET lock_timeout=100');$other=new MigrationRunner($second,$tmp,$schema);
     check(fails(fn()=>$other->migrate()),'runtime shared lock blocks concurrent migration');$guard->release();check($other->migrate()===[],'release permits next migration');
-    file_put_contents($tmp.'/0018_probe.sql',"CREATE TABLE migration_probe(id integer PRIMARY KEY, value text); INSERT INTO migration_probe(id) VALUES(1),(2),(3),(4),(5);");
-    file_put_contents($tmp.'/0019_backfill.sql',"-- cajeer:backfill\nWITH batch AS (SELECT id FROM migration_probe WHERE value IS NULL ORDER BY id LIMIT 2) UPDATE migration_probe SET value='filled' FROM batch WHERE migration_probe.id=batch.id AND migration_probe.value IS NULL RETURNING migration_probe.id;");
+    file_put_contents($tmp.'/0020_probe.sql',"CREATE TABLE migration_probe(id integer PRIMARY KEY, value text); INSERT INTO migration_probe(id) VALUES(1),(2),(3),(4),(5);");
+    file_put_contents($tmp.'/0021_backfill.sql',"-- cajeer:backfill\nWITH batch AS (SELECT id FROM migration_probe WHERE value IS NULL ORDER BY id LIMIT 2) UPDATE migration_probe SET value='filled' FROM batch WHERE migration_probe.id=batch.id AND migration_probe.value IS NULL RETURNING migration_probe.id;");
     $limited=new MigrationRunner($pdo,$tmp,$schema,600000,1);check(fails(fn()=>$limited->migrate()),'bounded backfill pauses safely after committed batch');
-    check((int)$pdo->query("SELECT count(*) FROM migration_probe WHERE value='filled'")->fetchColumn()===2&&$limited->status()['pending']===['0019_backfill.sql'],'earlier migration and first data batch durable');
-    $backfillFile=$tmp.'/0019_backfill.sql'; $backfillBody=file_get_contents($backfillFile); unlink($backfillFile);
+    check((int)$pdo->query("SELECT count(*) FROM migration_probe WHERE value='filled'")->fetchColumn()===2&&$limited->status()['pending']===['0021_backfill.sql'],'earlier migration and first data batch durable');
+    $backfillFile=$tmp.'/0021_backfill.sql'; $backfillBody=file_get_contents($backfillFile); unlink($backfillFile);
     check(fails(fn()=>$runner->status())&&fails(fn()=>$runner->migrate()),'removed unfinished backfill fails closed'); file_put_contents($backfillFile,$backfillBody);
-    check($runner->migrate()===['0019_backfill.sql']&&(int)$pdo->query("SELECT count(*) FROM migration_probe WHERE value='filled'")->fetchColumn()===5,'backfill resumes idempotently');
+    check($runner->migrate()===['0021_backfill.sql']&&(int)$pdo->query("SELECT count(*) FROM migration_probe WHERE value='filled'")->fetchColumn()===5,'backfill resumes idempotently');
     $indexSql="-- cajeer:concurrent-index\nCREATE INDEX CONCURRENTLY migration_probe_value_idx ON migration_probe(value);";
-    file_put_contents($tmp.'/0020_online.sql',$indexSql);
+    file_put_contents($tmp.'/0022_online.sql',$indexSql);
     // Reproduce the durable state of a crash after CREATE INDEX committed, before history commit.
-    $j=$pdo->prepare("INSERT INTO schema_migration_runs(version,checksum,mode,status) VALUES('0020_online.sql',:checksum,'concurrent-index','running')");$j->execute(['checksum'=>hash('sha256',$indexSql)]);
-    $pdo->exec("INSERT INTO schema_migration_attempts(version,attempt,status) VALUES('0020_online.sql',1,'running')");
+    $j=$pdo->prepare("INSERT INTO schema_migration_runs(version,checksum,mode,status) VALUES('0022_online.sql',:checksum,'concurrent-index','running')");$j->execute(['checksum'=>hash('sha256',$indexSql)]);
+    $pdo->exec("INSERT INTO schema_migration_attempts(version,attempt,status) VALUES('0022_online.sql',1,'running')");
     $pdo->exec('CREATE INDEX CONCURRENTLY migration_probe_value_idx ON migration_probe(value)');
     check($runner->status()['integrity']==='drift','incomplete concurrent index visible before recovery');
-    check($runner->migrate()===['0020_online.sql']&&$pdo->query("SELECT indisvalid FROM pg_index WHERE indexrelid='migration_probe_value_idx'::regclass")->fetchColumn()===true,'journaled interrupted concurrent index rebuilt and validated');
-    check($pdo->query("SELECT status FROM schema_migration_attempts WHERE version='0020_online.sql' AND attempt=1")->fetchColumn()==='interrupted','interrupted attempt retained in journal');
-    file_put_contents($tmp.'/0021_committed.sql','CREATE TABLE migration_committed(id integer PRIMARY KEY);');
-    file_put_contents($tmp.'/0022_failed.sql','CREATE TABLE migration_rollback(id integer); SELECT * FROM missing_migration_test_table;');
+    check($runner->migrate()===['0022_online.sql']&&$pdo->query("SELECT indisvalid FROM pg_index WHERE indexrelid='migration_probe_value_idx'::regclass")->fetchColumn()===true,'journaled interrupted concurrent index rebuilt and validated');
+    check($pdo->query("SELECT status FROM schema_migration_attempts WHERE version='0022_online.sql' AND attempt=1")->fetchColumn()==='interrupted','interrupted attempt retained in journal');
+    file_put_contents($tmp.'/0023_committed.sql','CREATE TABLE migration_committed(id integer PRIMARY KEY);');
+    file_put_contents($tmp.'/0024_failed.sql','CREATE TABLE migration_rollback(id integer); SELECT * FROM missing_migration_test_table;');
     check(fails(fn()=>$runner->migrate()),'SQL failure stops pending sequence');
     check($pdo->query("SELECT to_regclass('migration_committed') IS NOT NULL AND to_regclass('migration_rollback') IS NULL")->fetchColumn()===true,'earlier migration committed, failed file fully rolled back');
-    $s=$runner->status();check($s['integrity']==='verified'&&$s['pending']===['0022_failed.sql']&&$pdo->query("SELECT status FROM schema_migration_runs WHERE version='0022_failed.sql'")->fetchColumn()==='failed','failure journal, checksum and pending state preserved');
+    $s=$runner->status();check($s['integrity']==='verified'&&$s['pending']===['0024_failed.sql']&&$pdo->query("SELECT status FROM schema_migration_runs WHERE version='0024_failed.sql'")->fetchColumn()==='failed','failure journal, checksum and pending state preserved');
     check(fails(fn()=>(new MigrationRunner($pdo,$root.'/migrations/pgsql',$schema))->status()),'older runtime rejects future migration history');
     echo "Migration engine PostgreSQL: $n checks passed\n";
 }finally{

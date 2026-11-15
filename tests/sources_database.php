@@ -17,7 +17,7 @@ try{
  $legacy=$pdo->query("INSERT INTO projects(name,slug) VALUES('Legacy','legacy') RETURNING id")->fetchColumn();
  $old=(new SourceRepository($pdo))->create($legacy,'Old app','old-app');
  $pdo->exec("INSERT INTO users(email,password_hash,role) VALUES ('admin@example.test',".$pdo->quote(password_hash('test-password-12345',PASSWORD_ARGON2ID)).",'administrator')");
- $runner=$app->container()->get(MigrationRunner::class);check($runner->migrate()===['0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql','0013_ingest_signing.sql','0014_delivery_idempotency.sql','0015_authentication_sessions.sql','0016_saved_log_views.sql','0017_rbac_roles_permissions.sql','0018_identity_security.sql']&&$runner->migrate()===[]&&$runner->status()['integrity']==='verified','upgrade 0.1.6 source schema');
+ $runner=$app->container()->get(MigrationRunner::class);check($runner->migrate()===['0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql','0013_ingest_signing.sql','0014_delivery_idempotency.sql','0015_authentication_sessions.sql','0016_saved_log_views.sql','0017_rbac_roles_permissions.sql','0018_identity_security.sql','0019_audit_accountability.sql']&&$runner->migrate()===[]&&$runner->status()['integrity']==='verified','upgrade 0.1.6 source schema');
  $repo=new SourceRepository($pdo);check($repo->find($legacy,$old)['status']==='active'&&$repo->find($legacy,$old)['revision']==='1','existing sources preserved');
  $admin=login('admin@example.test');$p=api('POST','/projects',$admin,['name'=>'Project A','slug'=>'project-a'],201)[0]['id'];$path='/projects/'.$p;
  $other=api('POST','/projects',$admin,['name'=>'Project B','slug'=>'project-b'],201)[0]['id'];

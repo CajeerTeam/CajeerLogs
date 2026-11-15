@@ -47,7 +47,7 @@ final class LogsController
             $signer=in_array($mode,['list','export'],true)?PageCursor::forPrincipal($pdo,(string)$config->get('security.totp_key'),$p):null;
             $state=$signer?->open($query);
             $budget=min($config->get('api.search_timeout_ms'),(int)$config->get('database.statement_timeout_ms'));
-            return (new SearchRuntime($pdo,$budget))->run($query,function (LogRepository $engine,callable $limit) use ($mode,$query,$event,$signer,$state,$r): Response {
+            $response=(new SearchRuntime($pdo,$budget))->run($query,function (LogRepository $engine,callable $limit) use ($mode,$query,$event,$signer,$state,$r): Response {
                 if ($mode==='detail') {
                     $row=$engine->find($query,$event);
                     if ($row===null) { throw new HttpException(404,'not_found','Log event not found.'); }
@@ -71,6 +71,11 @@ final class LogsController
                 }
                 return new JsonResponse($page,200,['Cache-Control'=>'no-store']);
             });
+            if ($mode==='export') (new \Cajeer\Logs\Audit\AuditLogger($pdo))->record('logs.exported',['request_id'=>$r->requestId,'project_id'=>$project,'source_id'=>$source,'format'=>$query->format],$p['id'],$project,null,$p['kind']==='token'?'token':'user');
+            return $response;
+        } catch (HttpException $e) {
+            if ($e->status===403 && isset($p,$pdo)) (new \Cajeer\Logs\Audit\AuditLogger($pdo))->record('security.access_denied',['request_id'=>$r->requestId,'operation'=>'logs.'.$mode],$p['id'],null,'denied',$p['kind']==='token'?'token':'user');
+            throw $e;
         } catch (DatabaseException $e) {
             throw new HttpException(503,'database_unavailable','Log storage unavailable.',['Retry-After'=>'5']);
         } catch (PDOException $e) {

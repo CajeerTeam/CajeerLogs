@@ -39,7 +39,7 @@ final class DatabaseStatus
                 SELECT name FROM checked WHERE relation IS NULL
                     OR NOT pg_catalog.has_table_privilege(current_user, relation, 'SELECT')
                     OR NOT pg_catalog.has_table_privilege(current_user, relation, 'INSERT')
-                    OR NOT pg_catalog.has_table_privilege(current_user, relation, 'UPDATE')
+                    OR (name<>'audit_log' AND NOT pg_catalog.has_table_privilege(current_user, relation, 'UPDATE'))
                     OR (name IN ('project_members','auth_sessions','auth_rate_limits','ingest_receipts','ingest_nonces','jobs','job_attempts','log_events','webhook_deliveries','webhook_attempts','user_totp','user_recovery_codes') AND NOT pg_catalog.has_table_privilege(current_user, relation, 'DELETE'))
                 ORDER BY name
                 SQL);

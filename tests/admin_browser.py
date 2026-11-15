@@ -106,7 +106,7 @@ class Fixture:
             if body['revision']!=row['revision']:return err(409,'role_changed')
             if method=='DELETE':self.rbac_roles.remove(row);return send(status=204)
             row.update(name=body['name'],permissions=body['permissions'],revision=row['revision']+1);return send(row)
-        if path=='/health': return send({'status':'ok','version':'0.4.3'})
+        if path=='/health': return send({'status':'ok','version':'0.4.4'})
         if path=='/auth/token':
             credential=self.connection_credentials.get(req.headers.get('authorization','').removeprefix('Bearer '))
             return send({'token':credential['row']}) if credential else err(401,'unauthorized')
@@ -212,8 +212,10 @@ class Fixture:
             if method=='GET': return send({'user':self.users[-1]})
             self.users[-1].update(email=body['email'],role=body['role'],blocked_at='2026-01-01' if body['blocked'] else None);return send({'id':U2})
         if path.endswith('/security/audit'):
-            rows=[{'id':E1,'action':'token.created','actor_id':U1,'target':T1,'created_at':'2026-11-15T00:00:00Z','request_id':'safe-audit-id','project_id':P1}]
-            return listing([r for r in rows if not q.get('action') or r['action']==q['action']])
+            rows=[{'id':E1,'action':'token.created','actor_id':U1,'target':T1,'created_at':'2026-11-15T00:00:00Z','request_id':'safe-audit-id','project_id':P1,'result':'success','actor_type':'user','chain_position':1,'event_hash':'a'*64}]
+            rows=[row for row in rows if all(not q.get(k) or row[k]==q[k] for k in ['action','result','actor_type'])]
+            if q.get('format')=='ndjson': return r.fulfill(status=200,content_type='application/x-ndjson',body=''.join(json.dumps(row)+'\n' for row in rows))
+            return listing(rows)
         if '/service-accounts/' in path and method=='GET':
             a=next(x for x in self.accounts if x['id']==path.split('/')[-1]);ts=[x for x in self.tokens if x.get('service_account_id')==a['id']];return send(dict(a,total_tokens=len(ts),active_tokens=len([x for x in ts if not x.get('revoked_at')]),last_used_at=None))
         if path.endswith('/service-accounts'):
@@ -352,7 +354,7 @@ def run():
         browser=browser_for(p); ctx=browser.new_context(accept_downloads=True); page=ctx.new_page(); page.set_default_timeout(8000)
         errors=[]; page.on('pageerror',lambda e: errors.append(str(e)))
         # Actual PHP router, not intercepted, even in offline browser mode.
-        status,headers,body=http(url+'/admin');assert status==200 and b'0.4.3' in body
+        status,headers,body=http(url+'/admin');assert status==200 and b'0.4.4' in body
         assert "script-src 'self'" in {k.lower():v for k,v in headers.items()}['content-security-policy']
         assert http(url+'/api/v1/auth/me')[0]==401
         assert http(url+'/admin/assets/panel.js')[0]==200
@@ -528,6 +530,17 @@ def run():
         nav(page,'security');expect(page.get_by_role('heading',name='Безопасность и аудит',exact=True)).to_be_visible();expect(page.get_by_text('token.created',exact=True)).to_be_visible()
         page.get_by_text('Глобальный журнал безопасности',exact=True).click();expect(page.get_by_text('token.created',exact=True)).to_have_count(2)
         expect(page.get_by_role('link',name='Мой профиль, 2FA и сессии')).to_be_visible()
+        project_audit=page.locator('details').filter(has=page.get_by_text('Журнал безопасности проекта',exact=True))
+        project_audit.get_by_label('Результат',exact=True).select_option('failure');project_audit.get_by_role('button',name='Фильтровать аудит').click();expect(project_audit.get_by_text('token.created',exact=True)).to_have_count(0)
+        project_audit.get_by_label('Результат',exact=True).select_option('success');project_audit.get_by_label('Тип инициатора').select_option('user');project_audit.get_by_label('Начало UTC').fill('2026-11-01T00:00');project_audit.get_by_role('button',name='Фильтровать аудит').click();expect(project_audit.get_by_text('token.created',exact=True)).to_be_visible()
+        assert any(c[2].get('from')=='2026-11-01T00:00:00Z' and c[2].get('result')=='success' for c in f.calls)
+        if offline:
+            project_audit.get_by_role('button',name='Экспорт NDJSON (до 100 записей)').click();page.wait_for_function("window.testDownload?.name==='cajeerlogs-audit.ndjson'");assert json.loads(page.evaluate('window.testDownload.body'))['result']=='success'
+        else:
+            with page.expect_download() as download:
+                project_audit.get_by_role('button',name='Экспорт NDJSON (до 100 записей)').click()
+            assert json.loads(Path(download.value.path()).read_text())['result']=='success'
+        print('PASS audit result/actor/time filters and NDJSON download')
         print('PASS integrated security workspace and global/project audit')
         # Full wizard: new source, source-scoped write-only token, v2 signature, lost-response replay, persisted detail and drill-down.
         nav(page,'projects');page.get_by_label('Поиск проектов').fill(P2);page.get_by_role('button',name='Найти проекты').click();expect(page.get_by_role('row').filter(has_text=P2).first).to_be_visible()

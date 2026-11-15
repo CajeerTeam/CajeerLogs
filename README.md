@@ -2,6 +2,10 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.4.4 — Audit Log & Accountability
+
+Append-only audit, PostgreSQL hash chain, explicit scope and results, time filters, bounded NDJSON export and CLI verification. Migration 0019. [Audit Log & Accountability](docs/Audit-Log-Accountability.md). Public Preview до CI.
+
 ## 0.4.3 — Identity & 2FA Security
 
 Политики обязательной 2FA, idle timeout, подтверждение личности и отдельная ротация TOTP-ключей: [Identity & 2FA Security](docs/Identity-2FA-Security.md).

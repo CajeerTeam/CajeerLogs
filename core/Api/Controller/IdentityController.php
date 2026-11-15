@@ -96,7 +96,9 @@ final class IdentityController
         $rate->enforce('identity-'.$p['kind'].':'.$p['id'],300,60);
         if (in_array($action,['reauthenticate','password','totpSetup','totpEnable','totpDisable','recoveryCodes','resetUserTotp'],true)) { $rate->enforce('password:'.$p['id'],5,300); }
         // Serialize authorization changes with administrative writes. Recheck after lock.
-        if (in_array($r->method,['GET','HEAD'],true)) { return $this->$action($r,$p); }
+        if (in_array($r->method,['GET','HEAD'],true)) {
+            try { return $this->$action($r,$p); } catch (HttpException $e) { $this->auditDenied($r,$p,$action,$e); throw $e; }
+        }
         try { return (new TransactionManager($this->pdo))->run(function () use ($r,$credential,$action) {
             $this->identity->lock();
             $p=$this->identity->authenticate($r,$credential ?? [],in_array($action,['me','logout','logoutAll','totpSetup','totpEnable'],true),false);
@@ -106,8 +108,14 @@ final class IdentityController
             return $response;
         }, maxAttempts: 3); } catch (HttpException $e) {
             if ($action==='reauthenticate' && $e->status===403) $this->audit($r,$p,'auth.reauthentication_failed',$p['id']);
+            else $this->auditDenied($r,$p,$action,$e);
             throw $e;
         }
+    }
+    private function auditDenied(Request $r,array $p,string $action,HttpException $e): void
+    {
+        // A denied cross-project request must not disclose the caller to that project's operators.
+        if ($e->status===403) (new AuditLogger($this->pdo))->record('security.access_denied',['request_id'=>$r->requestId,'operation'=>$action],$p['id'],null,'denied',$p['kind']==='token'?'token':'user');
     }
     private static function invalid(string $message='Invalid request fields.'): never { throw new HttpException(422,'invalid_payload',$message); }
     private static function missing(): never { throw new HttpException(404,'not_found','Resource not found.'); }
@@ -153,7 +161,7 @@ final class IdentityController
     private function session(array $p): void { if ($p['kind']!=='session') { Identity::forbidden(); } }
     private function allow(array $p,string $permission,?string $project=null,?string $source=null): void { $this->identity->permission($p,$permission,$project,$source); }
     private function audit(Request $r,array $p,string $action,?string $target=null,array $context=[]): void
-    { (new AuditLogger($this->pdo))->record($action,['request_id'=>$r->requestId]+$context,$p['id'],$target); }
+    { (new AuditLogger($this->pdo))->record($action,['request_id'=>$r->requestId]+$context,$p['id'],$target,null,$p['kind']==='token'?'token':'user'); }
     private function sql(string $query,array $params=[]): \PDOStatement { return $this->identity->sql($query,$params); }
     private function one(string $query,array $params): array { $row=$this->sql($query,$params)->fetch(); if (!$row) { self::missing(); } return $row; }
     private function page(Request $r,string $query,array $params=[],string $id='id',bool $projects=false,bool $sources=false,?callable $transform=null): Response
@@ -733,19 +741,27 @@ final class IdentityController
     }
     private function tokenDetail(Request $r,array $p): Response { return $this->detailToken($r,$this->tokenProject($r,$p,false,'tokens:read')); }
     private function systemTokenDetail(Request $r,array $p): Response { return $this->detailToken($r,$this->tokenProject($r,$p,true)); }
-    private function projectSecurityAudit(Request $r,array $p): Response { $this->session($p); $project=$this->id($r,'project'); $this->allow($p,'audit:read',$project); $this->one('SELECT id FROM projects WHERE id=:id',['id'=>$project]); return $this->securityAudit($r,$project); }
-    private function systemSecurityAudit(Request $r,array $p): Response { return $this->securityAudit($r,$this->tokenProject($r,$p,true)); }
-    private function securityAudit(Request $r,?string $project): Response
+    private function projectSecurityAudit(Request $r,array $p): Response { $this->session($p); $project=$this->id($r,'project'); $this->allow($p,'audit:read',$project); $this->one('SELECT id FROM projects WHERE id=:id',['id'=>$project]); return $this->securityAudit($r,$project,$p); }
+    private function systemSecurityAudit(Request $r,array $p): Response { return $this->securityAudit($r,$this->tokenProject($r,$p,true),$p); }
+    private function securityAudit(Request $r,?string $project,array $p): Response
     {
-        // Explicit event families, never return raw audit context. Project operators
-        // see only events explicitly attributed to their project (including legacy policy/member events).
-        $families="(a.action LIKE 'token.%' OR a.action LIKE 'service_account.%' OR a.action LIKE 'project.%' OR a.action LIKE 'source.%' OR a.action='redaction.policy_changed' OR a.action='role.project_assigned'";
-        $where=$families.($project===null?" OR a.action LIKE 'auth.%' OR a.action LIKE 'user.%' OR a.action LIKE 'role.%')":')');
-        $params=[];
-        if ($project!==null) {
-            $where.=" AND (a.context->>'project_id'=:project OR (a.action='token.bulk_revoked' AND a.target=:bulk_project) OR (a.action IN ('project.created','project.updated','project.archived','project.restored','project.signing_policy') AND a.target=:project_target) OR (a.action IN ('project.member_added','project.member_role_set','project.member_removed') AND left(a.target,37)=:member_prefix))";
-            $params=['project'=>$project,'project_target'=>$project,'bulk_project'=>$project,'member_prefix'=>$project.':'];
+        // Explicit scope is assigned at insertion, including migrated legacy events.
+        $where='TRUE'; $params=[];
+        if ($project!==null) { $where='a.project_id=:project'; $params['project']=$project; }
+        foreach (['from','to'] as $field) if (isset($r->query[$field])) {
+            $value=$r->query[$field];
+            if (!is_string($value)||!preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$/D',$value)) self::invalid('Invalid audit UTC timestamp.');
+            try { $time=new \DateTimeImmutable($value); } catch (\Exception) { self::invalid('Invalid audit UTC timestamp.'); }
+            if ($time->format('Y-m-d\TH:i:s')!==substr($value,0,19)) self::invalid('Invalid audit UTC timestamp.');
+            $where.=' AND a.created_at'.($field==='from'?'>=':'<').'CAST(:'.$field.' AS timestamptz)'; $params[$field]=$value;
         }
+        if (isset($params['from'],$params['to']) && new \DateTimeImmutable($params['from'])>=new \DateTimeImmutable($params['to'])) self::invalid('Invalid audit time range.');
+        foreach (['result'=>['success','failure','denied'],'actor_type'=>['user','token','system','anonymous']] as $field=>$allowed) if (isset($r->query[$field])) {
+            if (!in_array($r->query[$field],$allowed,true)) self::invalid('Invalid '.$field);
+            $where.=' AND a.'.$field.'=:'.$field; $params[$field]=$r->query[$field];
+        }
+        $format=$r->query['format']??'json';
+        if (!in_array($format,['json','ndjson'],true)) self::invalid('Invalid audit format.');
         foreach (['actor_id','target'] as $field) if (isset($r->query[$field])) {
             if (!is_string($r->query[$field])) self::invalid($field);
             $params[$field]=self::uuid($r->query[$field]); $where.=" AND a.$field=:$field";
@@ -762,9 +778,18 @@ final class IdentityController
             $where.=' AND (a.created_at,a.id)<(CAST(:anchor_time AS timestamptz),CAST(:anchor_id AS uuid))';
             $params+=['anchor_time'=>$anchor['created_at'],'anchor_id'=>$anchor['id']];
         }
-        $query="SELECT a.id,a.actor_id,a.action,a.target,a.created_at,a.context->>'request_id' AS request_id,a.context->>'project_id' AS project_id,a.context->>'key_id' AS key_id,a.context->>'successor_id' AS successor_id,a.context->>'source_id' AS source_id,a.context->>'service_account_id' AS service_account_id,a.context->>'overlap_seconds' AS overlap_seconds,a.context->>'mode' AS mode,a.context->>'count' AS count,a.context->>'revoked' AS revoked,a.context->>'role_before' AS role_before,a.context->>'role_after' AS role_after,a.context->>'project_role' AS project_role,a.context->>'required' AS required,a.context->>'blocked_before' AS blocked_before,a.context->>'blocked_after' AS blocked_after,a.context->>'password_reset' AS password_reset,a.context->>'sessions_revoked' AS sessions_revoked,CASE WHEN a.action='role.created' THEN a.context->>'permissions' END AS role_permissions,CASE WHEN a.action='role.updated' THEN a.context->>'permissions_before' END AS permissions_before,CASE WHEN a.action='role.updated' THEN a.context->>'permissions_after' END AS permissions_after FROM audit_log a WHERE ";
+        // The global sequence reveals cross-project volume; only system audit exposes it.
+        $chainFields=$project===null?'a.chain_position,a.event_hash,':'';
+        $query="SELECT a.id,a.actor_id,a.action,a.target,a.created_at,a.context->>'request_id' AS request_id,a.project_id,a.result,a.actor_type,{$chainFields}a.context->>'operation' AS operation,a.context->>'key_id' AS key_id,a.context->>'successor_id' AS successor_id,a.context->>'source_id' AS source_id,a.context->>'service_account_id' AS service_account_id,a.context->>'overlap_seconds' AS overlap_seconds,a.context->>'mode' AS mode,a.context->>'count' AS count,a.context->>'revoked' AS revoked,a.context->>'role_before' AS role_before,a.context->>'role_after' AS role_after,a.context->>'project_role' AS project_role,a.context->>'required' AS required,a.context->>'blocked_before' AS blocked_before,a.context->>'blocked_after' AS blocked_after,a.context->>'password_reset' AS password_reset,a.context->>'sessions_revoked' AS sessions_revoked,CASE WHEN a.action='role.created' THEN a.context->>'permissions' END AS role_permissions,CASE WHEN a.action='role.updated' THEN a.context->>'permissions_before' END AS permissions_before,CASE WHEN a.action='role.updated' THEN a.context->>'permissions_after' END AS permissions_after FROM audit_log a WHERE ";
         $rows=$this->sql($query.$where.' ORDER BY a.created_at DESC,a.id DESC LIMIT '.($limit+1),$params)->fetchAll();
         $next=null; if (count($rows)>$limit) { array_pop($rows); $next=end($rows)['id']; }
+        if ($format==='ndjson') {
+            $body=''; foreach ($rows as $row) $body.=json_encode($row,JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE)."\n";
+            $headers=['Cache-Control'=>'no-store','Content-Type'=>'application/x-ndjson; charset=utf-8','Content-Disposition'=>'attachment; filename="cajeerlogs-audit.ndjson"'];
+            if ($next!==null) $headers['X-Next-Cursor']=$next;
+            $this->audit($r,$p,'audit.exported',$project,['project_id'=>$project,'count'=>count($rows)]);
+            return new Response($body,200,$headers);
+        }
         return new JsonResponse(['items'=>$rows,'next_cursor'=>$next],200,['Cache-Control'=>'no-store']);
     }
     private function tokenProject(Request $r,array $p,bool $system=false,string $permission='tokens:read'): ?string
