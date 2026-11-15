@@ -33,7 +33,7 @@ final class LogsController
             $schemaGuard=$this->app->container()->get(\Cajeer\Logs\Database\MigrationRunner::class)->guard();
             $rate=new RateLimiter($pdo);
             $rate->enforce('logs-ip:'.\Cajeer\Logs\Security\IngestAuthorization::peerKey($r),$config->get('api.rate_limit'),60);
-            $identity=new Identity($pdo,true,'',28800,'',$config->get('security.require_admin_totp'));
+            $identity=Identity::fromConfig($pdo,true,'',$config);
             $p=$identity->authenticate($r,$credential);
             $rate->enforce('logs-'.$p['kind'].':'.$p['id'],$config->get('api.rate_limit'),60);
             $project=$query->filters['project_id']; $source=$query->filters['source_id']??null;

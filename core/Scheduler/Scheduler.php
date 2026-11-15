@@ -12,7 +12,7 @@ use Cajeer\Logs\Integration\WebhookOutbox;
 final class Scheduler
 {
     public const TASKS=['retention'=>60,'auth_cleanup'=>300,'queue_cleanup'=>3600,'webhook_cleanup'=>3600];
-    public function __construct(private readonly PDO $pdo) {}
+    public function __construct(private readonly PDO $pdo, private readonly int $idle=0) {}
     public function due(): array {
         $rows=$this->pdo->query('SELECT name FROM scheduler_runs WHERE next_run_at>clock_timestamp()')->fetchAll(PDO::FETCH_COLUMN);
         return array_values(array_diff(array_keys(self::TASKS),$rows));
@@ -27,7 +27,7 @@ final class Scheduler
                     if (!$lock->fetchColumn() || !in_array($task,$this->due(),true)) { return null; }
                     $result=match($task) {
                         'retention'=>['removed'=>(new Retention($this->pdo))->prune()],
-                        'auth_cleanup'=>(new Maintenance($this->pdo))->authCleanup(),
+                        'auth_cleanup'=>(new Maintenance($this->pdo,$this->idle))->authCleanup(),
                         'queue_cleanup'=>['removed'=>(new PostgresQueueDriver($this->pdo))->cleanup()],
                         'webhook_cleanup'=>['removed'=>(new WebhookOutbox($this->pdo))->cleanup()],
                     };

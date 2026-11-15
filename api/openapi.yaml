@@ -2,7 +2,7 @@
   "openapi": "3.1.1",
   "info": {
     "title": "CajeerLogs API",
-    "version": "0.4.2",
+    "version": "0.4.3",
     "description": "Identity & Access, synchronous and durable asynchronous PostgreSQL ingestion, job status, project-scoped search, statistics and export. Outgoing webhooks and lifecycle administration use the CLI. TOTP enrollment, recovery codes and administrator enrollment policy. Token rotation, scoped service accounts, credential request quotas and bulk revocation. Mandatory project/token HMAC and separately encrypted rotating signing keys. Session lifecycle, account profile and recovery-code regeneration. Private saved log views with canonical search filters and table layout. Administrator user directory, effective project access, scoped access audit and reauthenticated 2FA reset. Token detail, service account statistics, filtered security audit and explicit HMAC overlap retirement."
   },
   "servers": [
@@ -77,6 +77,9 @@
                     },
                     "enrollment_required": {
                       "type": "boolean"
+                    },
+                    "security": {
+                      "$ref": "#/components/schemas/IdentitySecurityState"
                     }
                   },
                   "required": [
@@ -190,6 +193,9 @@
                     },
                     "enrollment_required": {
                       "type": "boolean"
+                    },
+                    "security": {
+                      "$ref": "#/components/schemas/IdentitySecurityState"
                     }
                   },
                   "required": [
@@ -479,6 +485,12 @@
                     "minLength": 12,
                     "maxLength": 1024,
                     "writeOnly": true
+                  },
+                  "otp": {
+                    "type": "string",
+                    "writeOnly": true,
+                    "maxLength": 32,
+                    "description": "Required if TOTP is enabled."
                   }
                 },
                 "required": [
@@ -5438,6 +5450,9 @@
                       "items": {
                         "type": "string"
                       }
+                    },
+                    "security": {
+                      "$ref": "#/components/schemas/IdentitySecurityState"
                     }
                   },
                   "required": [
@@ -10888,6 +10903,99 @@
           }
         ]
       }
+    },
+    "/auth/reauthenticate": {
+      "post": {
+        "operationId": "reauthenticate",
+        "summary": "Confirm current identity",
+        "security": [
+          {
+            "session": [],
+            "csrf": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Confirmed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "security": {
+                      "$ref": "#/components/schemas/IdentitySecurityState"
+                    }
+                  },
+                  "required": [
+                    "security"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMedia"
+          },
+          "422": {
+            "$ref": "#/components/responses/InvalidPayload"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "413": {
+            "$ref": "#/components/responses/TooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "description": "Refreshes recent authentication for the current session only. Password and fresh TOTP or recovery code when enrolled. Does not extend absolute lifetime or issue a new session.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "password": {
+                    "type": "string",
+                    "writeOnly": true,
+                    "maxLength": 1024
+                  },
+                  "otp": {
+                    "type": "string",
+                    "writeOnly": true,
+                    "maxLength": 32
+                  }
+                },
+                "required": [
+                  "password"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -12351,6 +12459,10 @@
           },
           "current": {
             "type": "boolean"
+          },
+          "effective_expires_at": {
+            "type": "string",
+            "format": "date-time"
           }
         },
         "required": [
@@ -13249,6 +13361,36 @@
           "user_id",
           "project_id",
           "permissions"
+        ],
+        "additionalProperties": false
+      },
+      "IdentitySecurityState": {
+        "type": "object",
+        "properties": {
+          "totp_required": {
+            "type": "boolean"
+          },
+          "idle_seconds": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reauth_seconds": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reauthenticated_until": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "totp_required",
+          "idle_seconds",
+          "reauth_seconds",
+          "reauthenticated_until"
         ],
         "additionalProperties": false
       }

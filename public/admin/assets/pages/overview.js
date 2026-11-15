@@ -1,10 +1,10 @@
-import { levels, state, render, hasPermission } from '../app/store.js?v=0.4.2';
-import { h, button, card, empty, date, heading, needProject, table, field, select, input, form, checkbox, message } from '../components/ui.js?v=0.4.2';
-import { projectSelector } from '../app/projects.js?v=0.4.2';
-import { navigate } from '../app/routes.js?v=0.4.2';
-import { logTable } from '../components/log-table.js?v=0.4.2';
-import { get } from '../api/client.js?v=0.4.2';
-import { rangeFor, previousRange, denseBuckets, sourceHealth, delta, explorerFilters, utcInput, errorLevels } from '../app/analytics.js?v=0.4.2';
+import { levels, state, render, hasPermission } from '../app/store.js?v=0.4.3';
+import { h, button, card, empty, date, heading, needProject, table, field, select, input, form, checkbox, message } from '../components/ui.js?v=0.4.3';
+import { projectSelector } from '../app/projects.js?v=0.4.3';
+import { navigate } from '../app/routes.js?v=0.4.3';
+import { logTable } from '../components/log-table.js?v=0.4.3';
+import { get, request } from '../api/client.js?v=0.4.3';
+import { rangeFor, previousRange, denseBuckets, sourceHealth, delta, explorerFilters, utcInput, errorLevels } from '../app/analytics.js?v=0.4.3';
 
 const format = n => Number(n).toLocaleString('ru-RU',{maximumFractionDigits:2});
 const labels = {'15m':'15 минут','1h':'1 час','6h':'6 часов','24h':'24 часа','7d':'7 дней','30d':'30 дней','custom':'Свой период'};
@@ -74,14 +74,15 @@ function sourcesPanel(config,sourcePage,range,project,now,signal) {
     root.append(h('p',{class:'muted'},`Страница ${config.previous.length+1} · ${items.length} источников · порог ${config.threshold} мин.`),table(['Источник','Состояние','Последний приём (UTC)','Принято всего','Отклонено всего','Действия'],items.map(s=>[h('div',{},h('strong',{},s.name),h('div',{class:'muted small'},s.slug)),sourceHealth(s,now,config.threshold),date(s.last_seen_at),s.accepted_events_total??'—',s.rejected_events_total??'—',h('div',{class:'inline'},button('Выбрать',()=>{if(signal.aborted)return;config.source=s.id;config.sourceName=s.name;void render();},'',{disabled:config.source===s.id}),button('Логи',()=>drill(project,range,s.id)))])),h('div',{class:'actions'},button('Предыдущие источники',()=>{if(signal.aborted)return;config.cursor=config.previous.pop()??null;void render();},'',{disabled:!config.previous.length}),button('Следующие источники',()=>{if(signal.aborted)return;config.previous.push(config.cursor);config.cursor=sourcePage.next_cursor;void render();},'',{disabled:!sourcePage.next_cursor})));
     return root;
 }
-async function overview(signal) {
+async function overview(signal, epoch, background=false) {
+    const read=(path,query,signal)=>background?request(path,{query,signal,extraHeaders:{'X-Cajeer-Background':'1'}}):get(path,query,signal);
     const project=state.project;
     const root=h('div',{},heading('Обзор','Аналитика событий и состояние источников.',button('Обновить',()=>void render())),projectSelector());
     if(!project){root.append(needProject());return root;}
     if(!hasPermission('logs:read')){root.append(card(empty('Нет разрешения logs:read в этом проекте. Выберите другой проект.')));return root;}
     const config=state.dashboard?.project===project?state.dashboard:(state.dashboard=newConfig(project));
     const now=Date.now(),range=rangeFor(config,now),query={project_id:project,source_id:config.source||null,from:range.from,to:range.to};
-    const results=await Promise.allSettled([get('/logs/stats',{...query,interval:range.interval},signal),get('/logs',{...query,limit:10,levels:config.critical?JSON.stringify(errorLevels.slice(1)):null},signal),get(`/projects/${encodeURIComponent(project)}/sources`,{limit:50,cursor:config.cursor,q:config.sourceQuery,status:config.sourceStatus},signal),config.compare?get('/logs/stats',{...query,...previousRange(range)},signal):Promise.resolve(null)]);
+    const results=await Promise.allSettled([read('/logs/stats',{...query,interval:range.interval},signal),read('/logs',{...query,limit:10,levels:config.critical?JSON.stringify(errorLevels.slice(1)):null},signal),read(`/projects/${encodeURIComponent(project)}/sources`,{limit:50,cursor:config.cursor,q:config.sourceQuery,status:config.sourceStatus},signal),config.compare?read('/logs/stats',{...query,...previousRange(range)},signal):Promise.resolve(null)]);
     if(signal.aborted)throw new DOMException('Route changed','AbortError');
     const [statsResult,logsResult,sourcesResult,previousResult]=results;
     const value=r=>r.status==='fulfilled'?r.value:null;
@@ -98,7 +99,7 @@ async function overview(signal) {
     if(config.refresh){
         // Cancel on route/session changes. Do not overwrite an in-progress form.
         let timer;let dirty=false;root.addEventListener('input',()=>{dirty=true;});root.addEventListener('change',()=>{dirty=true;});
-        const tick=()=>{if(signal.aborted)return;if(document.hidden||dirty){timer=setTimeout(tick,60000);return;}void render();};
+        const tick=()=>{if(signal.aborted)return;if(document.hidden||dirty){timer=setTimeout(tick,60000);return;}void render({background:true});};
         timer=setTimeout(tick,60000);signal.addEventListener('abort',()=>clearTimeout(timer),{once:true});
     }
     return root;

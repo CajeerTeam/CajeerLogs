@@ -2,6 +2,13 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## 0.4.3 — Identity & 2FA Security
+
+- Role and permission based mandatory TOTP, enrollment-only access, idle timeout and recent authentication.
+- Independent versioned TOTP key rotation; bounded CLI batches and verification. Shared ingest keys unchanged.
+- Password changes require a fresh factor when enrolled; recovery regeneration revokes other sessions.
+- Migration 0018; real PostgreSQL security tests and upgrade gate from 0.4.2.
+
 ## [0.4.2] — RBAC & Authorization
 
 - Custom global and project restriction roles with immutable built-in ceilings, PostgreSQL migration 0017.

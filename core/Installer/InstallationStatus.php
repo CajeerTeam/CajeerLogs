@@ -32,7 +32,7 @@ final class InstallationStatus
                 $config = $this->app->config();
                 $healthy = $this->app->container()->get(\Cajeer\Logs\Observability\Diagnostics::class)->ok()
                     && ($config->get('app.env') !== 'production' || parse_url($config->get('app.url'), PHP_URL_SCHEME) === 'https')
-                    && (!$config->get('security.require_admin_totp') || \Cajeer\Logs\Security\TwoFactorManager::keyValid($config->get('security.totp_key')))
+                    && (!($config->get('security.require_admin_totp') || \Cajeer\Logs\Security\IdentityPolicy::fromConfig($config)->requiresEnrollmentPolicy()) || \Cajeer\Logs\Security\TwoFactorManager::keyValid($config->get('security.totp_key')))
                     && $this->app->container()->get(DatabaseStatus::class)->check()['status'] === 'ok';
                 $report['state'] = $healthy?'ready':'configuration_or_permissions_required';
                 return $report;

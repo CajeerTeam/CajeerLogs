@@ -1,13 +1,13 @@
-import { levels, state, projectPath, active, render, hasPermission } from '../app/store.js?v=0.4.2';
-import { h, button, card, field, input, select, date, message, notify, form, heading, needProject, clearModal } from '../components/ui.js?v=0.4.2';
-import { projectSelector } from '../app/projects.js?v=0.4.2';
-import { logTable } from '../components/log-table.js?v=0.4.2';
-import { columns, defaultLayout, normalizeLayout, moveColumn, pageChanged } from '../app/explorer.js?v=0.4.2';
-import { request, get } from '../api/client.js?v=0.4.2';
+import { levels, state, projectPath, active, render, hasPermission } from '../app/store.js?v=0.4.3';
+import { h, button, card, field, input, select, date, message, notify, form, heading, needProject, clearModal } from '../components/ui.js?v=0.4.3';
+import { projectSelector } from '../app/projects.js?v=0.4.3';
+import { logTable } from '../components/log-table.js?v=0.4.3';
+import { columns, defaultLayout, normalizeLayout, moveColumn, pageChanged } from '../app/explorer.js?v=0.4.3';
+import { request, get } from '../api/client.js?v=0.4.3';
 
-import { filterBuilder } from '../components/filter-builder.js?v=0.4.2';
-import { savedViews } from '../components/saved-views.js?v=0.4.2';
-import { queryFilters as buildQuery } from '../app/filters.js?v=0.4.2';
+import { filterBuilder } from '../components/filter-builder.js?v=0.4.3';
+import { savedViews } from '../components/saved-views.js?v=0.4.3';
+import { queryFilters as buildQuery } from '../app/filters.js?v=0.4.3';
 function queryFilters() { return buildQuery(state.filters,state.project); }
 function logPager(query, signal, epoch) {
     const signature = JSON.stringify(query), project = state.project;
@@ -31,7 +31,7 @@ function logPager(query, signal, epoch) {
     const toolbar = h('div',{class:'actions explorer-toolbar'},refresh,latest,query.consistency==='live'?check:null,query.consistency==='live'?h('label',{class:'check'},autoInput,'Проверять каждые 60 с'):null);
     box.append(config,toolbar,status,notice,error,viewport,pager);
     const valid=()=>active(epoch)&&!signal.aborted&&state.project===project;
-    function schedule(){clearTimeout(timer); if(auto&&valid())timer=setTimeout(async()=>{if(!document.hidden)await probe();schedule();},60000);}
+    function schedule(){clearTimeout(timer); if(auto&&valid())timer=setTimeout(async()=>{if(!document.hidden)await probe(true);schedule();},60000);}
     signal.addEventListener('abort',()=>{clearTimeout(timer);},{once:true});
     function remember(){if(!valid()||!current)return;state.logPosition={signature,cursor:current.page_cursor,index,headDigest,scroll:{...scroll},selected};}
     function capture(){const el=viewport.querySelector('.explorer-scroll');if(el){scroll={left:el.scrollLeft,top:el.scrollTop};} const focused=document.activeElement?.closest('.explorer-open');if(focused)selected=focused.dataset.eventId;remember();}
@@ -67,8 +67,8 @@ function logPager(query, signal, epoch) {
         }catch(e){if(e.name==='AbortError'||!valid())return;if(e.status===401||e.status===403)clearData(e);else{error.replaceChildren(message(e),button('Повторить запрос',()=>void load(cursor,target,{reset,resetScroll})),button('Начать новый поиск',()=>void load(null,0,{reset:true})));if(!current)status.textContent='Не удалось загрузить события.';}}
         finally{busy=false;syncControls();}
     }
-    async function probe(){if(!valid()||busy||probing||exporting||!current||query.consistency!=='live')return;probing=true;syncControls();try{
-        const data=await get('/logs',{...query,cursor:null},signal);if(!valid())return;
+    async function probe(background=false){if(!valid()||busy||probing||exporting||!current||query.consistency!=='live')return;probing=true;syncControls();try{
+        const data=await request('/logs',{query:{...query,cursor:null},signal,extraHeaders:background?{'X-Cajeer-Background':'1'}:{}});if(!valid())return;
         notice.hidden=false;
         if(!headDigest)notice.replaceChildren(h('span',{},'Проверена первая страница. Перейдите к последним событиям для обновления.'),button('Показать последние',()=>void load(null,0,{reset:true})));
         else if(pageChanged(headDigest,data))notice.replaceChildren(h('span',{},'Первая страница изменилась: появились новые события или изменился состав выборки.'),button('Показать последние',()=>void load(null,0,{reset:true})));

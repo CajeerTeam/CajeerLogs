@@ -17,7 +17,7 @@ use PDOException;
 final class IdentityController
 {
     public const ROUTES = [
-        'POST /auth/login'=>'login', 'GET /auth/me'=>'me', 'GET /auth/token'=>'token',
+        'POST /auth/login'=>'login', 'POST /auth/reauthenticate'=>'reauthenticate', 'GET /auth/me'=>'me', 'GET /auth/token'=>'token',
         'POST /auth/2fa/setup'=>'totpSetup', 'POST /auth/2fa/enable'=>'totpEnable', 'POST /auth/2fa/disable'=>'totpDisable',
         'GET /auth/sessions'=>'sessions', 'DELETE /auth/sessions/{session}'=>'revokeSession', 'POST /auth/logout-others'=>'logoutOthers',
         'PATCH /auth/profile'=>'profile', 'POST /auth/2fa/recovery-codes'=>'recoveryCodes',
@@ -67,7 +67,7 @@ final class IdentityController
         $origin=$url['scheme'].'://'.$url['host'].(isset($url['port']) && !(($secure && $url['port']===443)||(!$secure && $url['port']===80)) ? ':'.$url['port'] : '');
         $this->pdo=$app->container()->get(PDO::class);
         $this->schemaGuard=$app->container()->get(\Cajeer\Logs\Database\MigrationRunner::class)->guard();
-        $this->identity=new Identity($this->pdo,$secure,$origin,$app->config()->get('security.session_ttl_seconds'),$app->config()->get('security.totp_key'),$app->config()->get('security.require_admin_totp'));
+        $this->identity=Identity::fromConfig($this->pdo,$secure,$origin,$app->config());
     }
     public static function register(Router $router, Application $app, string $prefix): void
     {
@@ -94,15 +94,20 @@ final class IdentityController
         if ($action==='login') { return $this->login($r); }
         $p=$this->identity->authenticate($r,$credential ?? [],in_array($action,['me','logout','logoutAll','totpSetup','totpEnable'],true));
         $rate->enforce('identity-'.$p['kind'].':'.$p['id'],300,60);
-        if (in_array($action,['password','totpSetup','totpEnable','totpDisable','recoveryCodes','resetUserTotp'],true)) { $rate->enforce('password:'.$p['id'],5,300); }
+        if (in_array($action,['reauthenticate','password','totpSetup','totpEnable','totpDisable','recoveryCodes','resetUserTotp'],true)) { $rate->enforce('password:'.$p['id'],5,300); }
         // Serialize authorization changes with administrative writes. Recheck after lock.
         if (in_array($r->method,['GET','HEAD'],true)) { return $this->$action($r,$p); }
-        return (new TransactionManager($this->pdo))->run(function () use ($r,$credential,$action) {
+        try { return (new TransactionManager($this->pdo))->run(function () use ($r,$credential,$action) {
             $this->identity->lock();
             $p=$this->identity->authenticate($r,$credential ?? [],in_array($action,['me','logout','logoutAll','totpSetup','totpEnable'],true),false);
+            // Explicit password+factor operations already perform their own confirmation.
+            if (in_array($action,['createRole','updateRole','deleteRole','assignGlobalRole','assignProjectRole','createUser','updateUser','addMember','removeMember','createToken','createSystemToken','rotateToken','rotateSystemToken','configureSigning','retireSigningKey','setProjectSigning','revokeToken','revokeSystemToken','revokeProjectTokens','revokeAllSystemTokens','disableServiceAccount','createServiceAccount','updateToken','updateSystemToken','redactionSystemSet','redactionProjectSet','redactionSourceSet','createProject','updateProject','archiveProject','restoreProject','createSource','updateSource','disableSource','enableSource','archiveSource','restoreSource'],true)) $this->identity->requireFresh($p);
             $response=$this->$action($r,$p);
             return $response;
-        }, maxAttempts: 3);
+        }, maxAttempts: 3); } catch (HttpException $e) {
+            if ($action==='reauthenticate' && $e->status===403) $this->audit($r,$p,'auth.reauthentication_failed',$p['id']);
+            throw $e;
+        }
     }
     private static function invalid(string $message='Invalid request fields.'): never { throw new HttpException(422,'invalid_payload',$message); }
     private static function missing(): never { throw new HttpException(404,'not_found','Resource not found.'); }
@@ -173,8 +178,20 @@ final class IdentityController
         $cookie=$result['cookie']; unset($result['cookie']);
         return new JsonResponse($result,200,['Set-Cookie'=>$cookie]);
     }
-    private function me(Request $r,array $p): Response { $this->session($p); return new JsonResponse(['user'=>$p['user']+['permissions'=>$this->identity->effectivePermissions($p)],'csrf_token'=>$p['csrf'],'enrollment_required'=>$this->identity->enrollmentRequired($p['user'])]); }
-    private function totp(): TwoFactorManager { return new TwoFactorManager($this->pdo,$this->app->config()->get('security.totp_key'),$this->app->config()->get('security.require_admin_totp')); }
+    private function me(Request $r,array $p): Response { $this->session($p); return new JsonResponse(['user'=>$p['user']+['permissions'=>$this->identity->effectivePermissions($p)],'csrf_token'=>$p['csrf'],'enrollment_required'=>$this->identity->enrollmentRequired($p['user']),'security'=>$this->identity->securityState($p['user'],$this->freshUntil($p))]); }
+    private function totp(): TwoFactorManager { return $this->identity->totp(); }
+    private function freshUntil(array $p): ?string {
+        $seconds=$this->identity->policy()->fresh;
+        return $seconds>0 && !empty($p['reauthenticated_at']) ? gmdate('Y-m-d\TH:i:s\Z',strtotime($p['reauthenticated_at'])+$seconds):null;
+    }
+    private function reauthenticate(Request $r,array $p): Response {
+        $this->session($p); $d=$this->body($r,['password','otp']);
+        $this->confirmPassword($p,$d);
+        if ($p['user']['two_factor_enabled'] && !$this->totp()->verify($p['id'],isset($d['otp'])?self::str($d,'otp',32):null)) throw new HttpException(403,'invalid_otp','Invalid second factor.');
+        $row=$this->one('UPDATE auth_sessions SET reauthenticated_at=clock_timestamp() WHERE token_hash=:hash RETURNING reauthenticated_at',['hash'=>$p['hash']]);
+        $this->audit($r,$p,'auth.reauthenticated',$p['id']);
+        return new JsonResponse(['security'=>$this->identity->securityState($p['user'],$this->freshUntil($row))]);
+    }
     private function confirmPassword(array $p,array $d): void
     {
         $row=$this->one('SELECT password_hash FROM users WHERE id=:id',['id'=>$p['id']]);
@@ -201,7 +218,7 @@ final class IdentityController
     private function totpDisable(Request $r,array $p): Response
     {
         $this->session($p); $d=$this->body($r,['password','otp']); $this->confirmPassword($p,$d);
-        if ($p['user']['role']==='administrator' && $this->totp()->requiredForAdmins()) { throw new HttpException(403,'forbidden','Two-factor authentication is required for administrators.'); }
+        if ($this->identity->totpRequired($p['user'])) { throw new HttpException(403,'forbidden','Two-factor authentication is required by security policy.'); }
         if (!$p['user']['two_factor_enabled'] || !$this->totp()->verify($p['id'],self::str($d,'otp',32))) { throw new HttpException(403,'invalid_otp','Invalid second factor.'); }
         $this->totp()->disable($p['id']); $this->sql('DELETE FROM auth_sessions WHERE user_id=:id',['id'=>$p['id']]); $this->audit($r,$p,'auth.totp_disabled');
         return new Response('',204,['Set-Cookie'=>$this->identity->cookie('',true)]);
@@ -219,17 +236,19 @@ final class IdentityController
     }
     private function password(Request $r,array $p): Response
     {
-        $this->session($p); $d=$this->body($r,['current_password','password']);
+        $this->session($p); $d=$this->body($r,['current_password','password','otp']);
         $old=self::str($d,'current_password',1024); $new=self::passwordValue($d);
         $row=$this->one('SELECT password_hash FROM users WHERE id=:id',['id'=>$p['id']]);
         if (!password_verify($old,$row['password_hash'])) { throw new HttpException(403,'invalid_password','Current password is incorrect.'); }
+        if ($p['user']['two_factor_enabled'] && !$this->totp()->verify($p['id'],isset($d['otp'])?self::str($d,'otp',32):null)) throw new HttpException(403,'invalid_otp','Invalid second factor.');
         $this->sql('UPDATE users SET password_hash=:hash,updated_at=now() WHERE id=:id',['hash'=>password_hash($new,PASSWORD_ARGON2ID),'id'=>$p['id']]);
         $this->sql('DELETE FROM auth_sessions WHERE user_id=:id',['id'=>$p['id']]); $this->audit($r,$p,'auth.password_changed');
         return new Response('',204,['Set-Cookie'=>$this->identity->cookie('',true)]);
     }
     private function sessionList(Request $r,array $p,string $user): Response
     {
-        return $this->page($r,'SELECT id,created_at,last_seen_at,expires_at,user_agent,remote_address,(id=CAST(:current AS uuid)) AS current FROM auth_sessions WHERE user_id=:user AND expires_at>now()', ['user'=>$user,'current'=>$p['session_id']]);
+         $idle=$this->identity->policy()->idle; $expiry=$idle>0?"LEAST(expires_at,last_seen_at+interval '$idle seconds')":'expires_at';
+        return $this->page($r,"SELECT id,created_at,last_seen_at,expires_at,$expiry AS effective_expires_at,user_agent,remote_address,(id=CAST(:current AS uuid)) AS current FROM auth_sessions WHERE user_id=:user AND $expiry>clock_timestamp()", ['user'=>$user,'current'=>$p['session_id']]);
     }
     private function sessions(Request $r,array $p): Response
     { $this->session($p); return $this->sessionList($r,$p,$p['id']); }
@@ -279,6 +298,7 @@ final class IdentityController
         $this->session($p); $d=$this->body($r,['password','otp']); $this->confirmPassword($p,$d);
         if (!$p['user']['two_factor_enabled'] || !$this->totp()->verify($p['id'],self::str($d,'otp',32))) throw new HttpException(403,'invalid_otp','Invalid second factor.');
         $codes=$this->totp()->regenerateRecoveryCodes($p['id']);
+        $this->sql('DELETE FROM auth_sessions WHERE user_id=:id AND token_hash<>:hash',['id'=>$p['id'],'hash'=>$p['hash']]);
         $this->audit($r,$p,'auth.recovery_codes_regenerated',$p['id']);
         return new JsonResponse(['recovery_codes'=>$codes]);
     }

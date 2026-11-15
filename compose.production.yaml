@@ -1,7 +1,7 @@
 # Run with --env-file .env.production. See docs/First-Public-Release.md.
 name: cajeerlogs
 x-runtime: &runtime
-  image: cajeerlogs:0.4.2
+  image: cajeerlogs:0.4.3
   build:
     context: .
     dockerfile: deploy/production/Dockerfile
@@ -26,6 +26,12 @@ x-runtime: &runtime
     INGEST_MAX_EVENT_AGE_SECONDS: ${INGEST_MAX_EVENT_AGE_SECONDS:-0}
     INGEST_MAX_EVENT_FUTURE_SECONDS: ${INGEST_MAX_EVENT_FUTURE_SECONDS:-0}
     SECURITY_2FA_REQUIRED_FOR_ADMINS: 'true'
+    SECURITY_2FA_REQUIRED_ROLES: ${SECURITY_2FA_REQUIRED_ROLES:-}
+    SECURITY_2FA_REQUIRED_PERMISSIONS: ${SECURITY_2FA_REQUIRED_PERMISSIONS:-}
+    SECURITY_SESSION_IDLE_SECONDS: ${SECURITY_SESSION_IDLE_SECONDS:-0}
+    SECURITY_REAUTH_SECONDS: ${SECURITY_REAUTH_SECONDS:-0}
+    SECURITY_TOTP_ACTIVE_KEY: ${SECURITY_TOTP_ACTIVE_KEY:-}
+    SECURITY_TOTP_PREVIOUS_KEY: ${SECURITY_TOTP_PREVIOUS_KEY:-}
     SECURITY_SESSION_TTL_SECONDS: ${SECURITY_SESSION_TTL_SECONDS:-28800}
     PROMETHEUS_TOKEN: ${PROMETHEUS_TOKEN:?Set PROMETHEUS_TOKEN}
   volumes:
@@ -99,7 +105,7 @@ services:
       app:
         condition: service_healthy
   gateway:
-    image: cajeerlogs-gateway:0.4.2
+    image: cajeerlogs-gateway:0.4.3
     build:
       context: .
       dockerfile: deploy/production/Dockerfile

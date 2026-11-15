@@ -134,11 +134,13 @@ final class Application
         $rate = !is_bool($config->get('api.rate_limit')) ? filter_var($config->get('api.rate_limit'), FILTER_VALIDATE_INT, ['options'=>['min_range'=>1,'max_range'=>100000]]) : false;
         if ($rate === false) { throw new \RuntimeException('Invalid API_RATE_LIMIT_PER_MINUTE.'); }
         $config->set('api.rate_limit', $rate);
-        foreach (['security.session_ttl_seconds'=>[300,604800], 'api.search_timeout_ms'=>[100,60000], 'ingest.idempotency_seconds'=>[86400,2592000], 'ingest.max_inflight'=>[0,128], 'ingest.budget_ms'=>[100,120000], 'ingest.max_event_age_seconds'=>[0,315576000], 'ingest.max_event_future_seconds'=>[0,315576000]] as $key=>[$min,$max]) {
+        foreach (['security.session_ttl_seconds'=>[300,604800], 'security.session_idle_seconds'=>[0,604800], 'security.reauth_seconds'=>[0,3600], 'api.search_timeout_ms'=>[100,60000], 'ingest.idempotency_seconds'=>[86400,2592000], 'ingest.max_inflight'=>[0,128], 'ingest.budget_ms'=>[100,120000], 'ingest.max_event_age_seconds'=>[0,315576000], 'ingest.max_event_future_seconds'=>[0,315576000]] as $key=>[$min,$max]) {
             $value=is_bool($config->get($key)) ? false : filter_var($config->get($key),FILTER_VALIDATE_INT,['options'=>['min_range'=>$min,'max_range'=>$max]]);
             if ($value===false) throw new \RuntimeException('Invalid configuration: '.$key);
             $config->set($key,$value);
         }
+        \Cajeer\Logs\Security\IdentityPolicy::fromConfig($config);
+        foreach (['security.totp_active_key','security.totp_previous_key'] as $key) { if ($config->get($key)!=='' && !\Cajeer\Logs\Security\TwoFactorManager::keyValid($config->get($key))) throw new \RuntimeException('Invalid TOTP key configuration: '.$key); }
         $queueMax=filter_var($config->get('queue.max_jobs'),FILTER_VALIDATE_INT,['options'=>['min_range'=>1,'max_range'=>100000]]);
         if ($queueMax===false) { throw new \RuntimeException('Invalid QUEUE_MAX_JOBS.'); }
         $config->set('queue.max_jobs',$queueMax);
@@ -169,7 +171,7 @@ final class Application
         $router->add('GET', '/health', $health);
         $router->add('GET', $config->get('api.prefix') . '/health', $health);
         $router->add('GET', '/ready', function (): Response {
-            $ok = ($this->config()->get('app.env') !== 'production' || parse_url($this->config()->get('app.url'), PHP_URL_SCHEME) === 'https') && (!$this->config()->get('security.require_admin_totp') || \Cajeer\Logs\Security\TwoFactorManager::keyValid($this->config()->get('security.totp_key'))) && $this->container->get(Diagnostics::class)->ok() && $this->container->get(DatabaseStatus::class)->check()['status'] === 'ok';
+            $ok = ($this->config()->get('app.env') !== 'production' || parse_url($this->config()->get('app.url'), PHP_URL_SCHEME) === 'https') && (!($this->config()->get('security.require_admin_totp') || \Cajeer\Logs\Security\IdentityPolicy::fromConfig($this->config())->requiresEnrollmentPolicy()) || \Cajeer\Logs\Security\TwoFactorManager::keyValid($this->config()->get('security.totp_key'))) && $this->container->get(Diagnostics::class)->ok() && $this->container->get(DatabaseStatus::class)->check()['status'] === 'ok';
             return new JsonResponse(['status' => $ok ? 'ok' : 'down', 'service' => $this->config()->get('app.name'), 'version' => $this->version(), 'scope' => 'database'], $ok ? 200 : 503);
         });
         if ($config->get('observability.prometheus_enabled')) {

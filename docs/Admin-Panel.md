@@ -1,4 +1,4 @@
-# Admin Panel — 0.4.2
+# Admin Panel — 0.4.3
 
 Полный релиз: [Admin Panel Release](Admin-Panel-Release.md). Подробности: [Dashboard & Analytics](Dashboard-Analytics.md) и [Authentication & Sessions](Authentication-Sessions.md).
 
@@ -6,11 +6,11 @@
 
 Интеграции: [SDK & Integrations](SDK-Integrations.md).
 
-## Обновление 0.3.9 → 0.4.2
+## Обновление 0.3.9 → 0.4.3
 
 1. Сделайте резервные копии PostgreSQL и файлов, остановите веб-трафик на время замены.
 2. Наложите changed-files ZIP на корень существующего проекта. Сохраните существующий `admin/index.html` (непубличный шаблон) и установите весь набор изменённых и новых файлов `public/admin/assets/` (включая вложенные JS/CSS-модули).
-3. Проверьте `php bin/cajeer version` (0.4.2), `php bin/cajeer migrate:status`, `php bin/cajeer db:doctor`. Миграция 0017 добавляет настраиваемые роли; 0001–0016 и их checksums не меняются. Выполните `php bin/cajeer migrate` перед запуском. См. [RBAC](RBAC.md).
+3. Проверьте `php bin/cajeer version` (0.4.3), `php bin/cajeer migrate:status`, `php bin/cajeer db:doctor`. Миграция 0018 добавляет метаданные повторной аутентификации; 0001–0017 не меняются. См. [Identity & 2FA Security](Identity-2FA-Security.md). Выполните `php bin/cajeer migrate` перед запуском. См. [RBAC](RBAC.md).
 4. Проверьте маршрутизацию `/admin/` в Nginx или Apache по примерам ниже. Если использовался PHP OPcache без автоматического revalidation, перезапустите/reload PHP-FPM.
 5. Откройте `https://<ваш-домен>/admin/`, войдите с существующим администратором и проверьте доступ к проектам, приём и просмотр события.
 

@@ -66,4 +66,13 @@ test($app->handle(new Request('OPTIONS','/api/v1/auth/login'))->status===204,'pr
 $app->config()->set('database.default','unsupported');
 $r=$app->handle(new Request('POST','/api/v1/auth/login',['Content-Type'=>'application/json'],[],'{"email":"admin@example.test","password":"test-only-password"}'));
 test($r->status===503&&!str_contains($r->body,'test-only-password'),'database failure safe and explicit');
+$policy=new \Cajeer\Logs\Security\IdentityPolicy(['operator'],['logs:export'],120,300);
+test($policy->requires('operator',[])&&$policy->requires('viewer',['logs:export'])&&!$policy->requires('viewer',['logs:read']),'2FA role and permission policy');
+try { new \Cajeer\Logs\Security\IdentityPolicy(['invalid']); test(false,'invalid policy'); } catch (InvalidArgumentException) { test(true,'invalid policy rejected'); }
+$legacyKey=bin2hex(random_bytes(32));$active=bin2hex(random_bytes(32));$next=bin2hex(random_bytes(32));$secret=random_bytes(20);$uid='user-id';
+$legacy=new \Cajeer\Logs\Security\TwoFactorManager($noConnection,$legacyKey);$first=new \Cajeer\Logs\Security\TwoFactorManager($noConnection,$legacyKey,false,$active);$second=new \Cajeer\Logs\Security\TwoFactorManager($noConnection,$legacyKey,false,$next,$active);
+$cipher=$first->seal($uid,$secret);test(str_starts_with($cipher,'v2:')&&hash_equals($secret,$first->open($uid,$cipher)),'versioned TOTP secret roundtrip');
+test(hash_equals($secret,$first->open($uid,$legacy->seal($uid,$secret))),'legacy key readable during rotation');
+test(hash_equals($secret,$second->open($uid,$cipher))&&hash_equals($secret,$second->open($uid,$second->seal($uid,$secret))),'previous and active key both readable');
+foreach ([fn()=>$first->open('other',$cipher),fn()=>$legacy->open($uid,$cipher),fn()=>$first->open($uid,substr($cipher,0,-5).'AAAAA')] as $f) {try{$f();test(false,'key protection');}catch(\Cajeer\Logs\Database\DatabaseException){test(true,'wrong user, version or tampering rejected');}}
 echo "Identity runtime: $count checks passed\n";

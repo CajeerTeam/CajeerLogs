@@ -57,17 +57,18 @@ final class DatabaseStatus
                 if (!$pdo->query("SELECT EXISTS(SELECT 1 FROM users WHERE role='administrator' AND blocked_at IS NULL)")->fetchColumn()) {
                     return ['status'=>'down','server_version'=>$version,'error'=>'Installation has no active administrator.'];
                 }
-                if ($this->app->config()->get('security.require_admin_totp') && !\Cajeer\Logs\Security\TwoFactorManager::keyValid($totpKey)) {
+                if (($this->app->config()->get('security.require_admin_totp') || \Cajeer\Logs\Security\IdentityPolicy::fromConfig($this->app->config())->requiresEnrollmentPolicy()) && !\Cajeer\Logs\Security\TwoFactorManager::keyValid($totpKey)) {
                     return ['status'=>'down','server_version'=>$version,'error'=>'Required TOTP encryption key is unavailable.'];
                 }
             }
             if ($pdo->query('SELECT EXISTS(SELECT 1 FROM users u LEFT JOIN user_totp t ON t.user_id=u.id AND t.pending_session IS NULL WHERE u.two_factor_enabled AND t.user_id IS NULL)')->fetchColumn()) {
                 return ['status'=>'down','server_version'=>$version,'error'=>'An enrolled user has no active TOTP secret.'];
             }
-            $enrolled = $pdo->query('SELECT u.id,t.secret_ciphertext FROM users u JOIN user_totp t ON t.user_id=u.id WHERE u.two_factor_enabled ORDER BY u.id LIMIT 1')->fetch();
-            if ($enrolled) {
+            // Check at least one enrollment for each stored key version, including pending enrollments.
+            $enrolled = $pdo->query("SELECT DISTINCT ON (CASE WHEN secret_ciphertext LIKE 'v2:%' THEN split_part(secret_ciphertext,':',2) ELSE '' END) user_id AS id,secret_ciphertext FROM user_totp ORDER BY CASE WHEN secret_ciphertext LIKE 'v2:%' THEN split_part(secret_ciphertext,':',2) ELSE '' END,user_id")->fetchAll();
+            foreach ($enrolled as $enrollment) {
                 // A syntactically valid but wrong key previously passed readiness after restore/rotation.
-                try { (new \Cajeer\Logs\Security\TwoFactorManager($pdo,$totpKey))->open($enrolled['id'],$enrolled['secret_ciphertext']); }
+                try { \Cajeer\Logs\Security\TwoFactorManager::fromConfig($pdo,$this->app->config())->open($enrollment['id'],$enrollment['secret_ciphertext']); }
                 catch (\Throwable) { return ['status'=>'down','server_version'=>$version,'error'=>'TOTP encryption key cannot decrypt enrolled user secret.']; }
             }
             $signing = $pdo->query("SELECT s.token_id,s.current_key_id,s.current_ciphertext FROM ingest_signing s JOIN api_tokens t ON t.id=s.token_id WHERE s.current_key_id IS NOT NULL AND t.revoked_at IS NULL AND (t.expires_at IS NULL OR t.expires_at>clock_timestamp()) ORDER BY s.token_id LIMIT 1")->fetch();

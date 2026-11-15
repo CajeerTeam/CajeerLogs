@@ -12,7 +12,7 @@ final class SchedulerRunCommand
         $pdo=$this->app->container()->get(PDO::class);$retention=new Retention($pdo);
         $id=$args[0]??'';$days=$args[1]??'';
         $result=match($command) {
-            'scheduler:run'=>$args===[]?(new Scheduler($pdo))->run():null,
+            'scheduler:run'=>$args===[]?(new Scheduler($pdo,$this->app->config()->get('security.session_idle_seconds')))->run():null,
             'retention:list'=>$args===[]?$retention->policies():null,
             'retention:set'=>count($args)===2 && preg_match('/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/iD',$id) && ($days==='off'||ctype_digit($days)&&(int)$days>=1&&(int)$days<=3650)?['changed'=>$retention->set($id,$days==='off'?null:(int)$days)]:null,
             'retention:run'=>$args===[]?['removed'=>$retention->run()]: (count($args)===1 && ctype_digit($id) && (int)$id>=1 && (int)$id<=10000?['removed'=>$retention->run((int)$id)]:null),

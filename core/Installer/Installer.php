@@ -55,8 +55,8 @@ final class Installer
                     // Do not persist a key that cannot decrypt existing enrollments.
                     if ($pdo->query("SELECT to_regclass('user_totp') IS NOT NULL")->fetchColumn() !== true) { return; }
                     $key = ($values['SECURITY_TOTP_KEY'] ?? '') ?: $values['SECURITY_HMAC_SECRET'];
-                    $manager = new \Cajeer\Logs\Security\TwoFactorManager($pdo,$key);
-                    $rows = $pdo->query('SELECT user_id,secret_ciphertext FROM user_totp WHERE pending_session IS NULL');
+                    $manager = new \Cajeer\Logs\Security\TwoFactorManager($pdo,$key,false,$values['SECURITY_TOTP_ACTIVE_KEY']??'',$values['SECURITY_TOTP_PREVIOUS_KEY']??'');
+                    $rows = $pdo->query('SELECT user_id,secret_ciphertext FROM user_totp');
                     while ($row = $rows->fetch()) {
                         try { $manager->open($row['user_id'],$row['secret_ciphertext']); }
                         catch (\Throwable) { throw new DatabaseException('Installation configuration cannot decrypt an existing TOTP enrollment. Restore the original key.'); }

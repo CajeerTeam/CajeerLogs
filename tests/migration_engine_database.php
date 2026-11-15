@@ -14,9 +14,9 @@ try{
     foreach([$schema,$legacy] as $s)$base->exec('CREATE SCHEMA "'.$s.'"');
     foreach(glob($root.'/migrations/pgsql/*.sql') as $f)copy($f,$tmp.'/'.basename($f));
     $pdo=connection($app,$schema);$runner=new MigrationRunner($pdo,$tmp,$schema);
-    $plan=$runner->plan();check(count($plan['plan'])===17&&$plan['integrity']==='uninitialized'&&$pdo->query("SELECT to_regclass('schema_migrations') IS NULL")->fetchColumn()===true,'fresh plan is read-only');
-    check(count($runner->migrate())===17&&$runner->migrate()===[],'fresh per-file migrations and idempotent replay');
-    $s=$runner->status();check($s['integrity']==='verified'&&count($s['attempts'])===17&&count($s['runs'])===17,'real catalog baseline and attempt journal');
+    $plan=$runner->plan();check(count($plan['plan'])===18&&$plan['integrity']==='uninitialized'&&$pdo->query("SELECT to_regclass('schema_migrations') IS NULL")->fetchColumn()===true,'fresh plan is read-only');
+    check(count($runner->migrate())===18&&$runner->migrate()===[],'fresh per-file migrations and idempotent replay');
+    $s=$runner->status();check($s['integrity']==='verified'&&count($s['attempts'])===18&&count($s['runs'])===18,'real catalog baseline and attempt journal');
     $pdo->exec('ALTER TABLE users ALTER COLUMN email DROP NOT NULL');
     $s=$runner->status();check($s['integrity']==='drift'&&in_array(['object'=>'column:users.email','change'=>'changed'],$s['drift'],true)&&fails(fn()=>$runner->migrate()),'changed nullability detected and migration refused');
     $api=new Application($root);$api->boot();$api->config()->set('database.schema',$schema);$api->config()->set('app.env','test');

@@ -76,7 +76,7 @@ def login(page, email='admin@example.test', password='admin-password-12345'):
 
 class Fixture:
     def __init__(self):
-        self.rbac_roles=[]; self.custom_permissions=None; self.system_report_fails=False; self.user = None; self.project_roles={}; self.denied_projects=set(); self.totp_enabled=False; self.require_totp=False; self.role = 'administrator'; self.projects=[{'id':P1,'name':'Production','slug':'production','revision':'1','status':'active','description':'','metadata':{},'max_body_bytes':1048576,'max_batch_events':100,'created_at':'2026-01-01T00:00:00Z'}]
+        self.reauth=False; self.fresh_until=None; self.rbac_roles=[]; self.custom_permissions=None; self.system_report_fails=False; self.user = None; self.project_roles={}; self.denied_projects=set(); self.totp_enabled=False; self.require_totp=False; self.role = 'administrator'; self.projects=[{'id':P1,'name':'Production','slug':'production','revision':'1','status':'active','description':'','metadata':{},'max_body_bytes':1048576,'max_batch_events':100,'created_at':'2026-01-01T00:00:00Z'}]
         self.sources=[{'id':S1,'project_id':P1,'name':'Application','slug':'app','created_at':'2026-01-01T00:00:00Z','status':'active','revision':'1','source_type':'application','metadata':{}}]
         self.users=[{'id':U1,'email':'admin@example.test','role':'administrator','blocked_at':None}]
         self.sessions=[{'id':U1,'current':True,'user_agent':'Current browser','remote_address':'127.0.0.1','created_at':'2026-01-01T00:00:00Z','last_seen_at':'2026-01-01T00:00:00Z','expires_at':'2026-01-02T00:00:00Z'},{'id':U2,'current':False,'user_agent':'Other device','remote_address':'192.0.2.3','created_at':'2026-01-01T00:00:00Z','last_seen_at':'2026-01-01T00:00:00Z','expires_at':'2026-01-02T00:00:00Z'}]; self.members=[]; self.tokens=[]; self.accounts=[]; self.calls=[]; self.fail_next=False; self.change_export=False; self.head_changed=False; self.multi_logs=False; self.redaction={}; self.views=[]; self.connection_credentials={}; self.connection_event=None; self.connection_attempts=[]
@@ -106,7 +106,7 @@ class Fixture:
             if body['revision']!=row['revision']:return err(409,'role_changed')
             if method=='DELETE':self.rbac_roles.remove(row);return send(status=204)
             row.update(name=body['name'],permissions=body['permissions'],revision=row['revision']+1);return send(row)
-        if path=='/health': return send({'status':'ok','version':'0.4.2'})
+        if path=='/health': return send({'status':'ok','version':'0.4.3'})
         if path=='/auth/token':
             credential=self.connection_credentials.get(req.headers.get('authorization','').removeprefix('Bearer '))
             return send({'token':credential['row']}) if credential else err(401,'unauthorized')
@@ -126,7 +126,10 @@ class Fixture:
             return send({'accepted':True,'received':1,'stored':0,'rejected':0,'event_ids':[self.connection_event['id']],'replayed':True},200)
         if self.user is None: return err(401,'unauthorized')
         if method!='GET': assert req.headers.get('x-csrf-token')==CSRF, (method,path,req.headers)
-        if path=='/auth/me': return send({'user':self.user,'csrf_token':CSRF,'enrollment_required':self.require_totp and not self.totp_enabled})
+        if path=='/auth/me': return send({'user':self.user,'csrf_token':CSRF,'enrollment_required':self.require_totp and not self.totp_enabled,**({'security':{'totp_required':self.require_totp,'idle_seconds':120,'reauth_seconds':300,'reauthenticated_until':self.fresh_until}} if self.reauth else {})})
+        if path=='/auth/reauthenticate':
+            if body.get('password')!='admin-password-12345' or (self.totp_enabled and body.get('otp')!='123456'): return err(403,'invalid_otp')
+            self.fresh_until='2026-11-16T00:00:00Z';return send({'security':{'totp_required':self.require_totp,'idle_seconds':120,'reauth_seconds':300,'reauthenticated_until':self.fresh_until}})
         if path=='/auth/profile' and method=='PATCH':
             self.user['display_name']=body['display_name']; return send({'user':self.user})
         if path=='/auth/sessions': return listing(self.sessions)
@@ -349,7 +352,7 @@ def run():
         browser=browser_for(p); ctx=browser.new_context(accept_downloads=True); page=ctx.new_page(); page.set_default_timeout(8000)
         errors=[]; page.on('pageerror',lambda e: errors.append(str(e)))
         # Actual PHP router, not intercepted, even in offline browser mode.
-        status,headers,body=http(url+'/admin');assert status==200 and b'0.4.2' in body
+        status,headers,body=http(url+'/admin');assert status==200 and b'0.4.3' in body
         assert "script-src 'self'" in {k.lower():v for k,v in headers.items()}['content-security-policy']
         assert http(url+'/api/v1/auth/me')[0]==401
         assert http(url+'/admin/assets/panel.js')[0]==200
@@ -568,6 +571,9 @@ def run():
         page.get_by_role('button',name='Выйти',exact=True).click();expect(page.get_by_role('heading',name='Вход в CajeerLogs')).to_be_visible();login(page);expect(page.get_by_role('heading',name='Подтверждение 2FA')).to_be_visible()
         page.get_by_label('Код 2FA / recovery (если включено)').fill('000000');page.get_by_role('button',name='Подтвердить вход').click();expect(page.get_by_role('alert')).to_contain_text('Неверные')
         page.get_by_label('Код 2FA / recovery (если включено)').fill('123456');page.get_by_role('button',name='Подтвердить вход').click();expect(page.get_by_role('heading',name='Настройки',exact=True)).to_be_visible();f.require_totp=False
+        f.reauth=True;page.evaluate("window.dispatchEvent(new Event('focus'))");expect(page.get_by_role('heading',name='Подтверждение личности')).to_be_visible()
+        confirm=page.locator('form').filter(has=page.get_by_role('button',name='Подтвердить личность',exact=True));confirm.get_by_label('Текущий пароль').fill('admin-password-12345');confirm.get_by_label('Код 2FA или recovery').fill('000000');confirm.get_by_role('button',name='Подтвердить личность').click();expect(confirm.get_by_role('alert')).to_be_visible();confirm.get_by_label('Код 2FA или recovery').fill('123456');confirm.get_by_role('button',name='Подтвердить личность').click();expect(page.get_by_text('Подтверждение действительно до',exact=False)).to_be_visible();assert confirm.get_by_label('Текущий пароль').input_value()==''
+        print('PASS recent authentication settings form and fresh second-factor validation (fixture)')
         disable=page.locator('form').filter(has=page.get_by_role('button',name='Отключить 2FA',exact=True));disable.get_by_label('Текущий пароль').fill('admin-password-12345');disable.get_by_label('Код приложения или recovery-код').fill('123456');disable.get_by_role('button',name='Отключить 2FA').click();expect(page.get_by_role('heading',name='Вход в CajeerLogs')).to_be_visible();assert not errors,errors
         print('PASS mandatory enrollment, TOTP setup/enable, recovery code lifecycle, login factor and disable (fixture)')
         browser.close()

@@ -1,8 +1,8 @@
-import { state, resetWorkspace, render, advanceSession } from './store.js?v=0.4.2';
-import { $, h, field, input, clearModal, form } from '../components/ui.js?v=0.4.2';
-import { refreshProject } from './projects.js?v=0.4.2';
-import { navigation } from './shell.js?v=0.4.2';
-import { request, get } from '../api/client.js?v=0.4.2';
+import { state, resetWorkspace, render, advanceSession } from './store.js?v=0.4.3';
+import { $, h, field, input, clearModal, form } from '../components/ui.js?v=0.4.3';
+import { refreshProject } from './projects.js?v=0.4.3';
+import { navigation } from './shell.js?v=0.4.3';
+import { request, get } from '../api/client.js?v=0.4.3';
 
 const version = document.querySelector('meta[name=cajeer-version]').content;
 let sessionChecking = false;
@@ -14,7 +14,7 @@ export function sessionChanged() { channel?.postMessage('changed'); }
 channel?.addEventListener('message', () => { if (state.user) void revalidateSession(true); });
 function clearSession(reason) {
     loginAttempt++; advanceSession(); state.epoch++; state.controller?.abort(); state.controller = null;
-    state.user = null; state.csrf = null; state.enrollmentRequired = false; resetWorkspace();
+    state.user = null; state.security = null; state.csrf = null; state.enrollmentRequired = false; resetWorkspace();
     clearModal(); $('notice').hidden = true; $('notice').textContent = ''; $('main').removeAttribute('aria-busy');
     renderLogin(reason);
 }
@@ -54,7 +54,7 @@ function renderLogin(reason = '') {
     }
     panel.append(credentialsForm,h('p',{class:'muted small'},'CajeerLogs '+version)); $('main').replaceChildren(panel);
 }
-async function startSession(res) { loginAttempt++; advanceSession(); state.user = res.user; state.enrollmentRequired = Boolean(res.enrollment_required); state.csrf = res.csrf_token; resetWorkspace(); await render({ focus: true }); }
+async function startSession(res) { loginAttempt++; advanceSession(); state.user = res.user; state.security = res.security??null; state.enrollmentRequired = Boolean(res.enrollment_required); state.csrf = res.csrf_token; resetWorkspace(); await render({ focus: true }); }
 async function bootstrap() {
     const epoch = state.authEpoch;
     try {
@@ -76,11 +76,13 @@ async function revalidateSession(force = false) {
         return;
     }
     const permissionsChanged=JSON.stringify(state.user.permissions??null)!==JSON.stringify(res.user.permissions??null);
-    state.user = res.user; state.csrf = res.csrf_token;
+    const policyChanged=JSON.stringify([state.security?.totp_required,state.security?.idle_seconds,state.security?.reauth_seconds])!==JSON.stringify([res.security?.totp_required,res.security?.idle_seconds,res.security?.reauth_seconds]);
+    state.user = res.user; state.security = res.security??null; state.csrf = res.csrf_token;
+    if (policyChanged && !permissionsChanged && state.route==='settings') { state.enrollmentRequired=Boolean(res.enrollment_required); void render(); return; }
     if (permissionsChanged) { state.enrollmentRequired=Boolean(res.enrollment_required); resetWorkspace(); void render(); return; }
     if (state.enrollmentRequired !== Boolean(res.enrollment_required)) { state.enrollmentRequired=Boolean(res.enrollment_required); void render(); return; }
     const signal=state.controller?.signal, epoch=state.epoch;
-    if(state.project && signal && await refreshProject(signal) && authEpoch===state.authEpoch && epoch===state.epoch && !signal.aborted) {
+    if(state.project && signal && await refreshProject(signal, true) && authEpoch===state.authEpoch && epoch===state.epoch && !signal.aborted) {
         // Revoke stale DOM, dialogs, and pending requests immediately after discovering access changes.
         void render();
     }

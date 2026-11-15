@@ -15,7 +15,13 @@ use Cajeer\Logs\Database\Repository\TokenRepository;
 final class Identity
 {
     private const DUMMY = '$argon2id$v=19$m=65536,t=4,p=1$MTIzNDU2Nzg5MDEyMzQ1Ng$Qx3xdVf8W+33jD9M2Y2I8YtRVfPivgEht0+CNzR3GLU';
-    public function __construct(private readonly PDO $pdo, private readonly bool $secureCookie, private readonly string $origin, private readonly int $ttl = 28800, private readonly string $totpKey = '', private readonly bool $requireAdminTotp = false) {}
+    public function __construct(private readonly PDO $pdo, private readonly bool $secureCookie, private readonly string $origin, private readonly int $ttl = 28800, private readonly string $totpKey = '', private readonly bool $requireAdminTotp = false, private readonly IdentityPolicy $policy = new IdentityPolicy(), private readonly string $totpActiveKey = '', private readonly string $totpPreviousKey = '') {}
+
+    public static function fromConfig(PDO $pdo,bool $secure,string $origin,\Cajeer\Logs\Config\ConfigRepository $config): self {
+        return new self($pdo,$secure,$origin,$config->get('security.session_ttl_seconds'),$config->get('security.totp_key'),$config->get('security.require_admin_totp'),IdentityPolicy::fromConfig($config),$config->get('security.totp_active_key',''),$config->get('security.totp_previous_key',''));
+    }
+    public function policy(): IdentityPolicy { return $this->policy; }
+    public function totp(): TwoFactorManager { return new TwoFactorManager($this->pdo,$this->totpKey,$this->requireAdminTotp,$this->totpActiveKey,$this->totpPreviousKey); }
 
     public static function credentials(Request $r): array
     {
@@ -68,7 +74,7 @@ final class Identity
             if ($user['two_factor_enabled'] && $otp === null) {
                 throw new HttpException(401,'second_factor_required','Enter a TOTP or recovery code.', ['WWW-Authenticate'=>'Bearer realm="CajeerLogs"']);
             }
-            if ($user['two_factor_enabled'] && !(new TwoFactorManager($this->pdo,$this->totpKey))->verify($user['id'],$otp)) {
+            if ($user['two_factor_enabled'] && !$this->totp()->verify($user['id'],$otp)) {
                 (new AuditLogger($this->pdo))->record('auth.login_failed',['request_id'=>$r->requestId],$user['id']);
                 return null;
             }
@@ -89,13 +95,24 @@ final class Identity
         if ($result===null) self::unauthorized();
         return $result;
     }
-    public function enrollmentRequired(array $user): bool { return $this->requireAdminTotp && $user['role']==='administrator' && !$user['two_factor_enabled']; }
+    public function totpRequired(array $user): bool {
+        if ($this->requireAdminTotp && $user['role']==='administrator') return true;
+        if (in_array($user['role'],$this->policy->roles,true)) return true;
+        return $this->policy->permissions!==[] && $this->policy->requires($user['role'],$this->effectivePermissions(['kind'=>'session','id'=>$user['id']]));
+    }
+    public function enrollmentRequired(array $user): bool { return !$user['two_factor_enabled'] && $this->totpRequired($user); }
+    public function securityState(array $user,?string $freshUntil=null): array { return ['totp_required'=>$this->totpRequired($user),'idle_seconds'=>$this->policy->idle,'reauth_seconds'=>$this->policy->fresh,'reauthenticated_until'=>$freshUntil]; }
+    public function requireFresh(array $p): void {
+        if ($this->policy->fresh===0) return;
+        if ($p['kind']!=='session') self::forbidden();
+        if (!$this->sql("SELECT 1 FROM auth_sessions WHERE token_hash=:hash AND reauthenticated_at>clock_timestamp()-interval '".$this->policy->fresh." seconds'",['hash'=>$p['hash']])->fetchColumn()) throw new HttpException(403,'reauthentication_required','Confirm your identity in account settings and retry the operation.');
+    }
     public function issueSession(array $user, ?Request $request = null): array
     {
         if (!$this->pdo->inTransaction()) { throw new \LogicException('Session creation requires transaction.'); }
         $secret=bin2hex(random_bytes(32)); $csrf=(new CsrfProtection())->token();
-        $this->sql("INSERT INTO auth_sessions(token_hash,user_id,csrf_token,expires_at,user_agent,remote_address) VALUES (:hash,:id,:csrf,now()+CAST(:ttl AS integer)*interval '1 second',:agent,:address)",['hash'=>hash('sha256',$secret),'id'=>$user['id'],'csrf'=>$csrf,'ttl'=>$this->ttl,'agent'=>self::sessionAgent($request),'address'=>$request !== null && filter_var($request->remoteAddress,FILTER_VALIDATE_IP) ? $request->remoteAddress : null]);
-        return ['user'=>self::publicUser($user)+['permissions'=>$this->effectivePermissions(['kind'=>'session','id'=>$user['id']])],'csrf_token'=>$csrf,'cookie'=>$this->cookie($secret),'expires_in'=>$this->ttl,'enrollment_required'=>$this->enrollmentRequired($user)];
+        $this->sql("INSERT INTO auth_sessions(token_hash,user_id,csrf_token,expires_at,user_agent,remote_address,reauthenticated_at) VALUES (:hash,:id,:csrf,now()+CAST(:ttl AS integer)*interval '1 second',:agent,:address,now())",['hash'=>hash('sha256',$secret),'id'=>$user['id'],'csrf'=>$csrf,'ttl'=>$this->ttl,'agent'=>self::sessionAgent($request),'address'=>$request !== null && filter_var($request->remoteAddress,FILTER_VALIDATE_IP) ? $request->remoteAddress : null]);
+        return ['user'=>self::publicUser($user)+['permissions'=>$this->effectivePermissions(['kind'=>'session','id'=>$user['id']])],'csrf_token'=>$csrf,'cookie'=>$this->cookie($secret),'expires_in'=>$this->ttl,'enrollment_required'=>$this->enrollmentRequired($user),'security'=>$this->securityState($user,$this->policy->fresh>0?gmdate('Y-m-d\TH:i:s\Z',time()+$this->policy->fresh):null)];
     }
     private static function sessionAgent(?Request $request): ?string
     {
@@ -115,15 +132,21 @@ final class Identity
             return ['kind'=>'token','id'=>$row['id'],'token'=>$row];
         }
         $hash = hash('sha256',$credential['secret']);
-        $row = $this->sql('SELECT u.id,u.email,u.role,u.blocked_at,u.two_factor_enabled,u.created_at,u.updated_at,u.display_name,u.last_login_at,s.csrf_token,s.id AS session_id,s.expires_at FROM auth_sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=:hash AND s.expires_at>now() AND u.blocked_at IS NULL',['hash'=>$hash])->fetch();
+        $idle=$this->policy->idle;
+        $condition=$idle>0?" AND s.last_seen_at>clock_timestamp()-interval '$idle seconds'":'';
+        $row = $this->sql('SELECT u.id,u.email,u.role,u.blocked_at,u.two_factor_enabled,u.created_at,u.updated_at,u.display_name,u.last_login_at,s.csrf_token,s.id AS session_id,s.expires_at,s.reauthenticated_at FROM auth_sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=:hash AND s.expires_at>clock_timestamp() AND u.blocked_at IS NULL'.$condition,['hash'=>$hash])->fetch();
         if (!$row) { self::unauthorized(); }
         if (!$allowEnrollment && $this->enrollmentRequired($row)) { throw new HttpException(403,'totp_enrollment_required','Enroll in two-factor authentication first.'); }
         if (!in_array($r->method,['GET','HEAD','OPTIONS'],true)) {
             $this->origin($r);
             if (!(new CsrfProtection())->verify($row['csrf_token'],$r->header('X-CSRF-Token'))) { throw new HttpException(403,'csrf_failed','Invalid CSRF token.'); }
         }
-        $this->sql("UPDATE auth_sessions SET last_seen_at=now() WHERE token_hash=:hash AND last_seen_at<now()-interval '5 minutes'",['hash'=>$hash]);
-        return ['kind'=>'session','id'=>$row['id'],'user'=>self::publicUser($row),'hash'=>$hash,'csrf'=>$row['csrf_token'],'session_id'=>$row['session_id'],'expires_at'=>$row['expires_at']];
+        // Session polling alone must not keep an otherwise idle session alive.
+        if ($idle>0 && !str_ends_with($r->path,'/auth/me') && !($r->method==='GET' && $r->header('X-Cajeer-Background')==='1')) {
+            $updated=$this->sql("UPDATE auth_sessions SET last_seen_at=clock_timestamp() WHERE token_hash=:hash AND expires_at>clock_timestamp() AND last_seen_at>clock_timestamp()-interval '$idle seconds'",['hash'=>$hash]);
+            if ($updated->rowCount()!==1) self::unauthorized();
+        } elseif ($idle===0) $this->sql("UPDATE auth_sessions SET last_seen_at=now() WHERE token_hash=:hash AND last_seen_at<now()-interval '5 minutes'",['hash'=>$hash]);
+        return ['kind'=>'session','id'=>$row['id'],'user'=>self::publicUser($row),'hash'=>$hash,'csrf'=>$row['csrf_token'],'session_id'=>$row['session_id'],'expires_at'=>$row['expires_at'],'reauthenticated_at'=>$row['reauthenticated_at']];
     }
     /** A project role can restrict, never elevate, the global role. Administrators retain global access. */
     public function projectRole(array $p,string $project): string

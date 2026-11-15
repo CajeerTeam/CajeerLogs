@@ -9,7 +9,8 @@ use PDO;
 /** RFC 6238 TOTP, encrypted at rest, single-use time steps and recovery codes. */
 final class TwoFactorManager
 {
-    public function __construct(private readonly PDO $pdo, private readonly string $key, private readonly bool $required = false) {}
+    public function __construct(private readonly PDO $pdo, private readonly string $key, private readonly bool $required = false, private readonly string $activeKey = '', private readonly string $previousKey = '') {}
+    public static function fromConfig(PDO $pdo, \Cajeer\Logs\Config\ConfigRepository $c): self { return new self($pdo,$c->get('security.totp_key'),$c->get('security.require_admin_totp'),$c->get('security.totp_active_key',''),$c->get('security.totp_previous_key','')); }
     public function requiredForAdmins(): bool { return $this->required; }
     public static function base32(string $bytes): string
     {
@@ -32,23 +33,62 @@ final class TwoFactorManager
         return $matched;
     }
     public static function keyValid(string $key): bool { return extension_loaded('sodium') && preg_match('/^[a-f0-9]{64}$/iD',$key)===1 && preg_match('/^([a-f0-9])\1{63}$/iD',$key)!==1; }
-    private function encryptionKey(): string
+    private static function encryptionKey(string $key,string $domain): string
     {
-        if (!self::keyValid($this->key)) { throw new DatabaseException('Configure SECURITY_TOTP_KEY as a random 32-byte hex key and enable sodium.'); }
-        return hash_hkdf('sha256',hex2bin($this->key),32,'cajeerlogs:totp:v1');
+        if (!self::keyValid($key)) throw new DatabaseException('Configured TOTP encryption key is unavailable.');
+        return hash_hkdf('sha256',hex2bin($key),32,$domain);
     }
+    public static function keyId(string $key): string { return hash('sha256',self::encryptionKey($key,'cajeerlogs:totp:key-id:v2')); }
+    public function activePrefix(): string { return $this->activeKey===''?'':'v2:'.self::keyId($this->activeKey).':'; }
     public function seal(string $id,string $secret): string
     {
-        $key=$this->encryptionKey(); $nonce=random_bytes(SODIUM_CRYPTO_SECRETBOX_NONCEBYTES);
-        return base64_encode($nonce.sodium_crypto_secretbox($id.':'.$secret,$nonce,$key));
+        $prefix=$this->activePrefix();
+        $key=self::encryptionKey($prefix===''?$this->key:$this->activeKey,$prefix===''?'cajeerlogs:totp:v1':'cajeerlogs:totp:v2');
+        $nonce=random_bytes(SODIUM_CRYPTO_SECRETBOX_NONCEBYTES);
+        return $prefix.base64_encode($nonce.sodium_crypto_secretbox($id.':'.$secret,$nonce,$key));
     }
     public function open(string $id,string $cipher): string
     {
-        $key=$this->encryptionKey(); $raw=base64_decode($cipher,true); $size=SODIUM_CRYPTO_SECRETBOX_NONCEBYTES;
-        if ($raw===false || strlen($raw)<$size+SODIUM_CRYPTO_SECRETBOX_MACBYTES) { throw new DatabaseException('Invalid encrypted TOTP secret.'); }
+        if (str_starts_with($cipher,'v2:')) {
+            if (!preg_match('/^v2:([a-f0-9]{64}):([A-Za-z0-9+\/=]+)$/D',$cipher,$parts)) throw new DatabaseException('Invalid encrypted TOTP secret.');
+            $candidate=null;
+            foreach ([$this->activeKey,$this->previousKey] as $key) if (self::keyValid($key) && hash_equals(self::keyId($key),$parts[1])) { $candidate=$key; break; }
+            if ($candidate===null) throw new DatabaseException('TOTP key version is unavailable.');
+            $key=self::encryptionKey($candidate,'cajeerlogs:totp:v2'); $cipher=$parts[2];
+        } else $key=self::encryptionKey($this->key,'cajeerlogs:totp:v1');
+        $raw=base64_decode($cipher,true); $size=SODIUM_CRYPTO_SECRETBOX_NONCEBYTES;
+        if ($raw===false || strlen($raw)<$size+SODIUM_CRYPTO_SECRETBOX_MACBYTES) throw new DatabaseException('Invalid encrypted TOTP secret.');
         $plain=sodium_crypto_secretbox_open(substr($raw,$size),substr($raw,0,$size),$key);
-        if ($plain===false || !str_starts_with($plain,$id.':') || strlen($plain)!==strlen($id)+21) { throw new DatabaseException('Cannot decrypt TOTP secret.'); }
+        if ($plain===false || !str_starts_with($plain,$id.':') || strlen($plain)!==strlen($id)+21) throw new DatabaseException('Cannot decrypt TOTP secret.');
         return substr($plain,strlen($id)+1);
+    }
+    /** Bounded, restartable rotation. The same identity lock coordinates login/enrollment. */
+    public function rotateBatch(int $limit=100): array {
+        $prefix=$this->activePrefix();
+        if ($prefix==='' || $limit<1 || $limit>500) throw new DatabaseException('Configure a TOTP active key and a batch size of 1..500.');
+        return (new \Cajeer\Logs\Database\TransactionManager($this->pdo))->run(function () use ($limit,$prefix) {
+            (new Identity($this->pdo,true,''))->lock();
+            $rows=$this->sql("SELECT user_id,secret_ciphertext FROM user_totp WHERE left(secret_ciphertext,:length)<>:prefix ORDER BY user_id LIMIT $limit FOR UPDATE",['length'=>strlen($prefix),'prefix'=>$prefix])->fetchAll();
+            foreach ($rows as $row) {
+                $secret=$this->open($row['user_id'],$row['secret_ciphertext']);
+                $cipher=$this->seal($row['user_id'],$secret);
+                if (!hash_equals($secret,$this->open($row['user_id'],$cipher))) throw new DatabaseException('TOTP rotation verification failed.');
+                $this->sql('UPDATE user_totp SET secret_ciphertext=:cipher WHERE user_id=:id',['cipher'=>$cipher,'id'=>$row['user_id']]);
+                sodium_memzero($secret);
+            }
+            $remaining=(int)$this->sql('SELECT count(*) FROM user_totp WHERE left(secret_ciphertext,:length)<>:prefix',['length'=>strlen($prefix),'prefix'=>$prefix])->fetchColumn();
+            if ($rows!==[]) (new \Cajeer\Logs\Audit\AuditLogger($this->pdo))->record('auth.totp_key_rotated',['rotated'=>count($rows),'remaining'=>$remaining]);
+            return ['rotated'=>count($rows),'remaining'=>$remaining,'active_key_id'=>self::keyId($this->activeKey)];
+        });
+    }
+    /** Verify all rows in bounded pages, including pending enrollment. No secret is returned. */
+    public function verifyKeys(): array {
+        $after=null; $count=0; $legacy=0; $prefix=$this->activePrefix();
+        do {
+            $rows=$after===null?$this->sql('SELECT user_id,secret_ciphertext FROM user_totp ORDER BY user_id LIMIT 100')->fetchAll():$this->sql('SELECT user_id,secret_ciphertext FROM user_totp WHERE user_id>:after ORDER BY user_id LIMIT 100',['after'=>$after])->fetchAll();
+            foreach ($rows as $row) { $secret=$this->open($row['user_id'],$row['secret_ciphertext']); sodium_memzero($secret); $after=$row['user_id']; $count++; if ($prefix!==''&&!str_starts_with($row['secret_ciphertext'],$prefix)) $legacy++; }
+        } while(count($rows)===100);
+        return ['verified'=>$count,'remaining'=>$legacy];
     }
     private function sql(string $sql,array $params=[]): \PDOStatement { $s=$this->pdo->prepare($sql); $s->execute($params); return $s; }
     private function transaction(): void { if (!$this->pdo->inTransaction()) { throw new \LogicException('TOTP changes require identity transaction.'); } }

@@ -1,17 +1,18 @@
-import { state, render, selectProject } from './store.js?v=0.4.2';
-import { h, button, select, notify } from '../components/ui.js?v=0.4.2';
-import { get } from '../api/client.js?v=0.4.2';
+import { state, render, selectProject } from './store.js?v=0.4.3';
+import { h, button, select, notify } from '../components/ui.js?v=0.4.3';
+import { get, request } from '../api/client.js?v=0.4.3';
 
-async function loadProjects(signal, more = false) {
+async function loadProjects(signal, more = false, background=false) {
+    const read=(path,query,signal)=>background?request(path,{query,signal,extraHeaders:{'X-Cajeer-Background':'1'}}):get(path,query,signal);
     const auth=state.authEpoch, selected=state.project;
     const valid=()=>!signal?.aborted&&state.authEpoch===auth&&state.project===selected;
-    const result=await get('/projects',{...state.projectQuery,limit:100,cursor:more?state.projectCursor:null},signal);
+    const result=await read('/projects',{...state.projectQuery,limit:100,cursor:more?state.projectCursor:null},signal);
     if(!valid())return;
     const items=more?[...state.projects,...result.items.filter(p=>!state.projects.some(x=>x.id===p.id))]:result.items;
     // A project selected from the directory may be outside the first selector page.
     // Preserve it only after a fresh authorization check; never retain revoked projects.
     if(selected&&!items.some(p=>p.id===selected)&&!more){
-        try{const current=await get('/projects/'+encodeURIComponent(selected),{},signal);if(!valid())return;items.push(current);}
+        try{const current=await read('/projects/'+encodeURIComponent(selected),{},signal);if(!valid())return;items.push(current);}
         catch(e){if(!valid())return;if(e.status!==403&&e.status!==404)throw e;}
     }
     if(!valid())return;
@@ -50,20 +51,20 @@ finally {
 // One in-flight access check per navigation scope. Focus/poll and page load must not
 // race each other to overwrite effective_role with an older response.
 let refreshInFlight = null;
-export function refreshProject(signal) {
+export function refreshProject(signal, background=false) {
     const key=state.project, auth=state.authEpoch;
     if(!key)return Promise.resolve(false);
-    if(refreshInFlight && refreshInFlight.key===key && refreshInFlight.auth===auth && refreshInFlight.signal===signal) return refreshInFlight.promise;
-    const slot={key,auth,signal};
-    slot.promise=fetchProject(signal).finally(()=>{if(refreshInFlight===slot)refreshInFlight=null;});
+    if(refreshInFlight && refreshInFlight.key===key && refreshInFlight.auth===auth && refreshInFlight.signal===signal && refreshInFlight.background===background) return refreshInFlight.promise;
+    const slot={key,auth,signal,background};
+    slot.promise=fetchProject(signal,background).finally(()=>{if(refreshInFlight===slot)refreshInFlight=null;});
     refreshInFlight=slot;return slot.promise;
 }
-async function fetchProject(signal) {
+async function fetchProject(signal,background) {
     const id=state.project, auth=state.authEpoch;
     if(!id) return false;
     const valid=()=>!signal?.aborted && state.authEpoch===auth && state.project===id;
     try {
-        const row=await get('/projects/'+encodeURIComponent(id),{},signal);
+        const row=await request('/projects/'+encodeURIComponent(id),{signal,extraHeaders:background?{'X-Cajeer-Background':'1'}:{}});
         if(!valid())return false;
         const old=state.projects.find(p=>p.id===id);
         state.projects=[...state.projects.map(p=>p.id===id?row:p)];
