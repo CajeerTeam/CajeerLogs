@@ -2,6 +2,14 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.2.5] — HMAC & Replay Protection
+
+- HMAC v1 сохранён; v2 подписывает UUID отдельного ключа и точное тело запроса.
+- Обязательная подпись проекта или credential, зашифрованные ключи и ротация с одним предыдущим ключом.
+- Транзакционная проверка политики, DB clock, общий nonce namespace и запрет downgrade.
+- Admin Panel, SDK и JSONL collector поддерживают v2; миграция 0013, предыдущие неизменны.
+- Public Preview до фактического PostgreSQL release gate.
+
 ## [0.2.4] — Ingest Authorization
 
 - Единая авторизация sync/async и polling, общий IP/token request budget; доверие только REMOTE_ADDR.

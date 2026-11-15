@@ -89,16 +89,16 @@ final class BackupManager
     /** Explicit supported release histories, no acceptance of unknown versions. */
     public static function compatibleRelease(mixed $backup, string $current): bool
     {
-        $versions=['0.0.9','0.1.0','0.1.1','0.1.2','0.1.3','0.1.4','0.1.5','0.1.6','0.1.7','0.1.8','0.1.9','0.2.0','0.2.1','0.2.2','0.2.3','0.2.4'];
+        $versions=['0.0.9','0.1.0','0.1.1','0.1.2','0.1.3','0.1.4','0.1.5','0.1.6','0.1.7','0.1.8','0.1.9','0.2.0','0.2.1','0.2.2','0.2.3','0.2.4','0.2.5'];
         $from=array_search($backup,$versions,true); $to=array_search($current,$versions,true);
         return $from!==false && $to!==false && $from<=$to;
     }
 
     public static function expectedPending(string $version): array
     {
-        if (!self::compatibleRelease($version,'0.2.4')) throw new DatabaseException('Unsupported backup release.');
-        $migrations=['0009_project_management.sql','0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql'];
-        return array_slice($migrations,match($version) {'0.2.4','0.2.3','0.2.2','0.2.1','0.2.0','0.1.9'=>4,'0.1.8'=>3,'0.1.7'=>2,'0.1.6'=>1,default=>0});
+        if (!self::compatibleRelease($version,'0.2.5')) throw new DatabaseException('Unsupported backup release.');
+        $migrations=['0009_project_management.sql','0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql','0013_ingest_signing.sql'];
+        return array_slice($migrations,match($version) {'0.2.5'=>5,'0.2.4','0.2.3','0.2.2','0.2.1','0.2.0','0.1.9'=>4,'0.1.8'=>3,'0.1.7'=>2,'0.1.6'=>1,default=>0});
     }
     public function restore(string $id,string $target): array
     {

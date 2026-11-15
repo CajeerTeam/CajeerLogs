@@ -32,12 +32,12 @@ try {
     putenv('APP_URL=http://logs.example.test'); $app=new Application($root); $app->boot();
     check(rejects(fn()=>(new Installer($app))->run('admin@example.test','test-only-password-123'),'https_origin'),'production installer rejects HTTP before touching DB');
     check($app->handle(new Request('GET','/ready'))->status===503,'production HTTP origin never ready');
-    check(BackupManager::compatibleRelease('0.0.9','0.2.4')&&BackupManager::compatibleRelease('0.1.0','0.2.4')&&BackupManager::compatibleRelease('0.1.1','0.2.4')&&BackupManager::compatibleRelease('0.1.2','0.2.4')&&BackupManager::compatibleRelease('0.1.3','0.2.4'),'restore supported from previous compatible releases');
-    check(BackupManager::compatibleRelease('0.1.4','0.2.4')&&BackupManager::compatibleRelease('0.1.5','0.2.4'),'previous release restore');
-    check(BackupManager::compatibleRelease('0.1.6','0.2.4'),'0.1.6 backup accepted');
-    check(BackupManager::compatibleRelease('0.1.7','0.2.4'),'0.1.7 backup accepted');
-    check(BackupManager::compatibleRelease('0.1.8','0.2.4')&&BackupManager::compatibleRelease('0.1.9','0.2.4')&&BackupManager::compatibleRelease('0.2.0','0.2.4')&&BackupManager::compatibleRelease('0.2.1','0.2.4')&&BackupManager::compatibleRelease('0.2.2','0.2.4')&&BackupManager::compatibleRelease('0.2.3','0.2.4')&&BackupManager::compatibleRelease('0.2.4','0.2.4'),'previous and same release restore');
-    check(!BackupManager::compatibleRelease('0.0.8','0.2.4')&&!BackupManager::compatibleRelease('0.2.5','0.2.4')&&!BackupManager::compatibleRelease(null,'0.2.4'),'incompatible restore rejected');
+    check(BackupManager::compatibleRelease('0.0.9','0.2.5')&&BackupManager::compatibleRelease('0.1.0','0.2.5')&&BackupManager::compatibleRelease('0.1.1','0.2.5')&&BackupManager::compatibleRelease('0.1.2','0.2.5')&&BackupManager::compatibleRelease('0.1.3','0.2.5'),'restore supported from previous compatible releases');
+    check(BackupManager::compatibleRelease('0.1.4','0.2.5')&&BackupManager::compatibleRelease('0.1.5','0.2.5'),'previous release restore');
+    check(BackupManager::compatibleRelease('0.1.6','0.2.5'),'0.1.6 backup accepted');
+    check(BackupManager::compatibleRelease('0.1.7','0.2.5'),'0.1.7 backup accepted');
+    check(BackupManager::compatibleRelease('0.1.8','0.2.5')&&BackupManager::compatibleRelease('0.1.9','0.2.5')&&BackupManager::compatibleRelease('0.2.0','0.2.5')&&BackupManager::compatibleRelease('0.2.1','0.2.5')&&BackupManager::compatibleRelease('0.2.2','0.2.5')&&BackupManager::compatibleRelease('0.2.3','0.2.5')&&BackupManager::compatibleRelease('0.2.4','0.2.5')&&BackupManager::compatibleRelease('0.2.5','0.2.5'),'previous and same release restore');
+    check(!BackupManager::compatibleRelease('0.0.8','0.2.5')&&!BackupManager::compatibleRelease('0.2.6','0.2.5')&&!BackupManager::compatibleRelease(null,'0.2.5'),'incompatible restore rejected');
 } finally {
     foreach (['CAJEER_ENV_FILE'=>$old,'APP_ENV'=>$env,'APP_URL'=>$url] as $name=>$value) putenv($value===false?$name:$name.'='.$value);
     if (file_exists($tmp.'/config/.env')||is_link($tmp.'/config/.env')) unlink($tmp.'/config/.env'); rmdir($tmp.'/config'); rmdir($tmp);

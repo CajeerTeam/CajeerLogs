@@ -13,7 +13,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
@@ -116,13 +116,14 @@ def validate_receipt(receipt: Any, count: int, status: int) -> dict[str, Any]:
 @dataclass
 class CajeerLogsClient:
     base_url: str
-    token: str
-    hmac_secret: str | None = None
+    token: str = field(repr=False)
+    hmac_secret: str | None = field(default=None, repr=False)
     timeout: float = 10
     signed: bool = False
     api_prefix: str = "/api/v1"
     attempts: int = 3
     allow_insecure_http: bool = False
+    signing_key_id: str | None = None
 
     def __post_init__(self):
         parsed = urllib.parse.urlsplit(self.base_url)
@@ -134,7 +135,10 @@ class CajeerLogsClient:
             raise ValueError("HTTPS required outside loopback")
         if not re.fullmatch(r"[A-Za-z0-9._~-]{1,512}", self.token):
             raise ValueError("Invalid bearer token")
-        if self.hmac_secret is not None and self.hmac_secret != self.token:
+        if self.signing_key_id is not None:
+            if not re.fullmatch(r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}", self.signing_key_id) or not re.fullmatch(r"sk_[a-f0-9]{64}", self.hmac_secret or ""):
+                raise ValueError("Invalid separate signing configuration")
+        elif self.hmac_secret is not None and self.hmac_secret != self.token:
             raise ValueError("Ingest HMAC v1 uses the scoped bearer token as its signing key")
         if not isinstance(self.attempts, int) or not 1 <= self.attempts <= 10 or not math.isfinite(self.timeout) or not 0 < self.timeout <= 120:
             raise ValueError("Invalid delivery limits")
@@ -155,9 +159,12 @@ class CajeerLogsClient:
             headers = {"Content-Type": "application/json", "Authorization": f"Bearer {self.token}", "Idempotency-Key": key}
             if self.signed or self.hmac_secret is not None:
                 timestamp, nonce = str(int(time.time())), secrets.token_hex(16)
-                canonical = "\n".join(("cajeerlogs-ingest-v1", "POST", path, timestamp, nonce, key, hashlib.sha256(body).hexdigest()))
+                prefix = ("cajeerlogs-ingest-v1",) if self.signing_key_id is None else ("cajeerlogs-ingest-v2", self.signing_key_id)
+                if self.signing_key_id is not None:
+                    headers["X-Log-Key-Id"] = self.signing_key_id
+                canonical = "\n".join((*prefix, "POST", path, timestamp, nonce, key, hashlib.sha256(body).hexdigest()))
                 headers.update({"X-Log-Timestamp": timestamp, "X-Log-Nonce": nonce,
-                                "X-Log-Signature": hmac.new(self.token.encode(), canonical.encode(), hashlib.sha256).hexdigest()})
+                                "X-Log-Signature": hmac.new((self.hmac_secret or self.token).encode(), canonical.encode(), hashlib.sha256).hexdigest()})
             request = urllib.request.Request(url, data=body, headers=headers, method="POST")
             status, wait = None, 0.25 * 2 ** attempt
             try:

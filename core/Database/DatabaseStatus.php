@@ -31,7 +31,7 @@ final class DatabaseStatus
             // Check every expected relation and its read/write privileges in one round trip.
             $relations = $pdo->prepare(<<<'SQL'
                 WITH expected(name) AS (VALUES ('users'), ('projects'), ('sources'), ('api_tokens'), ('service_accounts'),
-                    ('project_members'), ('auth_sessions'), ('auth_rate_limits'), ('ingest_receipts'), ('ingest_nonces'), ('log_events'), ('audit_log'), ('jobs'), ('settings'), ('webhooks'), ('extensions'), ('integration_webhooks'), ('webhook_deliveries'), ('webhook_attempts'), ('job_attempts'), ('scheduler_runs'), ('user_totp'), ('user_recovery_codes')),
+                    ('project_members'), ('auth_sessions'), ('auth_rate_limits'), ('ingest_receipts'), ('ingest_nonces'), ('ingest_signing'), ('log_events'), ('audit_log'), ('jobs'), ('settings'), ('webhooks'), ('extensions'), ('integration_webhooks'), ('webhook_deliveries'), ('webhook_attempts'), ('job_attempts'), ('scheduler_runs'), ('user_totp'), ('user_recovery_codes')),
                 checked AS (
                     SELECT name, pg_catalog.to_regclass(pg_catalog.format('%I.%I', CAST(:schema AS text), name))::oid AS relation
                     FROM expected
@@ -69,6 +69,11 @@ final class DatabaseStatus
                 // A syntactically valid but wrong key previously passed readiness after restore/rotation.
                 try { (new \Cajeer\Logs\Security\TwoFactorManager($pdo,$totpKey))->open($enrolled['id'],$enrolled['secret_ciphertext']); }
                 catch (\Throwable) { return ['status'=>'down','server_version'=>$version,'error'=>'TOTP encryption key cannot decrypt enrolled user secret.']; }
+            }
+            $signing = $pdo->query("SELECT s.token_id,s.current_key_id,s.current_ciphertext FROM ingest_signing s JOIN api_tokens t ON t.id=s.token_id WHERE s.current_key_id IS NOT NULL AND t.revoked_at IS NULL AND (t.expires_at IS NULL OR t.expires_at>clock_timestamp()) ORDER BY s.token_id LIMIT 1")->fetch();
+            if ($signing) {
+                try { (new \Cajeer\Logs\Security\IngestSigning($pdo,$totpKey))->open($signing['token_id'],$signing['current_key_id'],$signing['current_ciphertext']); }
+                catch (\Throwable) { return ['status'=>'down','server_version'=>$version,'error'=>'Signing encryption key cannot decrypt active signing secret.']; }
             }
             $session=$pdo->query("SELECT current_setting('application_name') AS application_name, current_setting('statement_timeout') AS statement_timeout, current_setting('lock_timeout') AS lock_timeout, current_setting('idle_in_transaction_session_timeout') AS idle_transaction_timeout, COALESCE((SELECT ssl FROM pg_catalog.pg_stat_ssl WHERE pid=pg_backend_pid()),false) AS tls")->fetch();
             return ['status' => 'ok', 'server_version' => $version, 'migrations' => $status, 'session'=>$session, 'connection'=>$this->app->container()->get(ConnectionManager::class)->metrics()];

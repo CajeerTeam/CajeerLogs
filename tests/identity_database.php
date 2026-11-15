@@ -40,7 +40,7 @@ try {
     $stmt=$pdo->prepare("INSERT INTO users(email,password_hash,role) VALUES ('admin@example.test',:hash,'administrator')"); $stmt->execute(['hash'=>password_hash('admin-password-12345',PASSWORD_ARGON2ID)]);
     $adminId=$pdo->query('SELECT id FROM users')->fetchColumn();
     $runner=$app->container()->get(MigrationRunner::class);
-    verify($runner->migrate()===['0003_identity_access.sql','0004_log_ingestion.sql','0005_log_search.sql','0006_sdk_integrations.sql','0007_queue_lifecycle.sql','0008_security_operations.sql','0009_project_management.sql','0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql']&&$runner->migrate()===[],'0.0.2 upgrade to current schema and idempotent migration');
+    verify($runner->migrate()===['0003_identity_access.sql','0004_log_ingestion.sql','0005_log_search.sql','0006_sdk_integrations.sql','0007_queue_lifecycle.sql','0008_security_operations.sql','0009_project_management.sql','0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql','0013_ingest_signing.sql']&&$runner->migrate()===[],'0.0.2 upgrade to current schema and idempotent migration');
     verify($pdo->query('SELECT id FROM users')->fetchColumn()===$adminId,'upgrade preserves administrator');
     verify($app->handle(new Request('GET','/ready'))->status===200,'identity schema readiness');
     ok('POST','/auth/login',['email'=>'admin@example.test','password'=>'wrong'],[],401);
@@ -119,7 +119,7 @@ try {
     ok('GET','/auth/me',null,$view,401);
     $rate=new RateLimiter($pdo); verify($rate->hit('test-rate',2,60)&&$rate->hit('test-rate',2,60)&&!$rate->hit('test-rate',2,60),'atomic rate limit blocks excess');
     for ($i=0;$i<10;$i++) { $rate->hit('login-email:throttled@example.test',10,300); }
-    $limited=callApi('POST','/auth/login',['email'=>'throttled@example.test','password'=>'wrong'],[],[],'192.0.2.42');
+    $limited=callApi('POST','/auth/login',['email'=>'throttled@example.test','password'=>'wrong'],[],[],'192.0.2.52');
     verify($limited->status===429&&$limited->header('Retry-After')==='300','login rate limit through runtime');
     $pdo->exec("INSERT INTO auth_rate_limits(bucket_key,window_start,hits) VALUES (repeat('a',64),1,1)");
     verify((new AuthCleanupCommand($app))->handle()===0 && !$pdo->query("SELECT EXISTS(SELECT 1 FROM auth_rate_limits WHERE window_start=1)")->fetchColumn() && !$pdo->query("SELECT EXISTS(SELECT 1 FROM auth_sessions WHERE expires_at<=now())")->fetchColumn(),'expired session and rate bucket cleanup');

@@ -23,7 +23,7 @@ try {
     foreach (glob($root.'/migrations/pgsql/000[1-7]_*.sql') as $f) copy($f,$tmp.'/migrations/'.basename($f));
     (new MigrationRunner($pdo,$tmp.'/migrations',$schema))->migrate();
     $id=(new UserRepository($pdo))->create('security@example.test','admin-sec-password-123','administrator');
-    $runner=$app->container()->get(MigrationRunner::class); verify($runner->migrate()===['0008_security_operations.sql','0009_project_management.sql','0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql']&&$runner->migrate()===[],'0.0.8 upgrade and migration replay');
+    $runner=$app->container()->get(MigrationRunner::class); verify($runner->migrate()===['0008_security_operations.sql','0009_project_management.sql','0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql','0013_ingest_signing.sql']&&$runner->migrate()===[],'0.0.8 upgrade and migration replay');
     $password=['email'=>'security@example.test','password'=>'admin-sec-password-123'];
     $login=call('POST','/auth/login',$password); $session=credentials($login); verify(json_decode($login->body,true)['enrollment_required']===true,'mandatory administrator restricted login');
     data(call('GET','/projects',null,$session),403); data(call('GET','/auth/me',null,$session));

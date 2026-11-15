@@ -2,6 +2,10 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.2.5 — HMAC & Replay Protection
+
+Обязательные политики подписи, отдельные зашифрованные signing keys, ротация с overlap, проверка nonce под блокировками PostgreSQL и HMAC v1/v2 во всех SDK. Миграция 0013. [Инструкция](docs/HMAC-signature.md).
+
 ## 0.2.4 — Ingest Authorization
 
 Единый проверенный ingest principal, общие лимиты sync/async/polling, повторная авторизация под блокировкой токена и перед подтверждением, строгие scopes и SQL-проверка доступа очереди. [Инструкция](docs/Ingest-Authorization.md).

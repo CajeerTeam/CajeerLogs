@@ -44,7 +44,7 @@ REQUIRED = {'release.json', 'core/bootstrap.php', 'bin/cajeer', 'public/index.ph
             'core/Installer/InstallationStatus.php', 'core/Installer/SchemaPreparation.php',
             'docs/Installer-Administrator.md', 'tests/installer.php',
             'core/Database/IntegrityInspector.php', 'core/Database/PerformanceInspector.php',
-            'core/Console/Command/DatabaseMaintenanceCommand.php', 'migrations/pgsql/0012_database_integrity.sql',
+            'core/Console/Command/DatabaseMaintenanceCommand.php', 'migrations/pgsql/0012_database_integrity.sql', 'migrations/pgsql/0013_ingest_signing.sql', 'core/Security/IngestSigning.php', 'tests/hmac.php', 'tests/hmac_database.php',
             'docs/Database-Integrity-Performance.md', 'scripts/benchmark.py', 'tests/benchmark.py',
             'tests/integrity.php', 'tests/integrity_database.php',
             'core/Database/RestoreFence.php', 'scripts/certify.py', 'tests/certify.py',

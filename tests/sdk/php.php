@@ -16,4 +16,6 @@ foreach ([['timestamp'=>'2026-02-30T00:00:00Z'],['message'=>123],['context'=>nul
     try {$c->ingest(array_replace($event,$bad),'php-invalid');throw new RuntimeException('Invalid event accepted');}
     catch (\InvalidArgumentException $e) {}
 }
+$v2=new CajeerLogsClient($argv[1],$argv[2],signingKeyId:'33333333-3333-4333-8333-333333333333',signingSecret:'sk_'.str_repeat('b',64));
+if($v2->ingest($event,'php-v2')['stored']!==1) throw new RuntimeException('v2 failed');
 echo "PHP SDK wire tests passed\n";

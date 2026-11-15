@@ -55,7 +55,8 @@ class DeliveryException(val status: Int?, val idempotencyKey: String) : IOExcept
 
 class CajeerLogsClient @JvmOverloads constructor(baseUrl: String, private val token: String,
     private val signed: Boolean = false, private val timeoutSeconds: Long = 10,
-    private val attempts: Int = 3, apiPrefix: String = "/api/v1", allowInsecureHttp: Boolean = false) {
+    private val attempts: Int = 3, apiPrefix: String = "/api/v1", allowInsecureHttp: Boolean = false,
+    private val signingKeyId: String? = null, private val signingSecret: String? = null) {
     private val endpoint: URI
     private val client: HttpClient
     private val random = SecureRandom()
@@ -64,6 +65,7 @@ class CajeerLogsClient @JvmOverloads constructor(baseUrl: String, private val to
         require(base.scheme in listOf("http", "https") && base.host != null && base.userInfo == null && base.query == null && base.fragment == null && base.path in listOf("", "/")) { "Invalid base URL" }
         require(base.scheme == "https" || allowInsecureHttp || base.host in listOf("localhost", "127.0.0.1", "[::1]", "::1")) { "HTTPS required outside loopback" }
         require(apiPrefix.matches(Regex("/[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*")) && token.matches(Regex("[A-Za-z0-9._~-]{1,512}")) && timeoutSeconds in 1..120 && attempts in 1..10) { "Invalid client configuration" }
+        require((signingKeyId == null) == (signingSecret == null) && (signingKeyId == null || (signingKeyId.matches(Regex("[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}")) && signingSecret!!.matches(Regex("sk_[a-f0-9]{64}"))))) { "Invalid separate signing configuration" }
         endpoint = base.resolve("$apiPrefix/ingest")
         client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(timeoutSeconds)).followRedirects(HttpClient.Redirect.NEVER).build()
     }
@@ -83,10 +85,12 @@ class CajeerLogsClient @JvmOverloads constructor(baseUrl: String, private val to
         repeat(attempts) { attempt ->
             val request = HttpRequest.newBuilder(endpoint).timeout(Duration.ofSeconds(timeoutSeconds))
                 .header("Authorization", "Bearer $token").header("Content-Type", "application/json").header("Idempotency-Key", key)
-            if (signed) {
+            if (signed || signingKeyId != null) {
                 val ts = Instant.now().epochSecond.toString(); val nonce = nonce()
-                val canonical = listOf("cajeerlogs-ingest-v1", "POST", endpoint.path, ts, nonce, key, hex(MessageDigest.getInstance("SHA-256").digest(body))).joinToString("\n")
-                val mac = Mac.getInstance("HmacSHA256").apply { init(SecretKeySpec(token.toByteArray(UTF_8), "HmacSHA256")) }
+                val prefix = if (signingKeyId == null) listOf("cajeerlogs-ingest-v1") else listOf("cajeerlogs-ingest-v2", signingKeyId)
+                if (signingKeyId != null) request.header("X-Log-Key-Id", signingKeyId)
+                val canonical = (prefix + listOf("POST", endpoint.path, ts, nonce, key, hex(MessageDigest.getInstance("SHA-256").digest(body)))).joinToString("\n")
+                val mac = Mac.getInstance("HmacSHA256").apply { init(SecretKeySpec((signingSecret ?: token).toByteArray(UTF_8), "HmacSHA256")) }
                 request.header("X-Log-Timestamp", ts).header("X-Log-Nonce", nonce).header("X-Log-Signature", hex(mac.doFinal(canonical.toByteArray(UTF_8))))
             }
             var status: Int? = null; var wait = 250L * (1L shl attempt)

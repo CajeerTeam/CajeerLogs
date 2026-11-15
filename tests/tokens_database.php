@@ -20,7 +20,7 @@ try{
  foreach(glob($root.'/migrations/pgsql/*.sql') as $f) if((int)substr(basename($f),0,4)<11)copy($f,$tmp.'/'.basename($f));(new MigrationRunner($pdo,$tmp,$schema))->migrate();
  $actor=(new UserRepository($pdo))->create('admin@example.test','test-only-password-12345','administrator');$p=(new ProjectRepository($pdo))->create('Project','project');$source=(new SourceRepository($pdo))->create($p,'App','app');
  $legacy=(new TokenRepository($pdo))->create('Existing',['logs:read'],$p,$source);$runner=$app->container()->get(MigrationRunner::class);
- check($runner->migrate()===['0011_token_management.sql','0012_database_integrity.sql']&&$runner->migrate()===[]&&$runner->status()['integrity']==='verified','0.1.7 upgrade and replay');
+ check($runner->migrate()===['0011_token_management.sql','0012_database_integrity.sql','0013_ingest_signing.sql']&&$runner->migrate()===[]&&$runner->status()['integrity']==='verified','0.1.7 upgrade and replay');
  check((new TokenRepository($pdo))->findActive($legacy['token'])['id']===$legacy['id'],'existing credential survives upgrade');
  $admin=login('admin@example.test');$path='/projects/'.$p;$tokens=$path.'/tokens';$accounts=$path.'/service-accounts';
  $other=api('POST','/projects',$admin,['name'=>'Other','slug'=>'other'],201)[0]['id'];$foreign=api('POST','/projects/'.$other.'/sources',$admin,['name'=>'Foreign','slug'=>'foreign'],201)[0]['id'];

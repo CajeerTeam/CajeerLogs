@@ -13,4 +13,6 @@ for (const bad of [{timestamp:'2026-02-30T00:00:00Z'},{message:123},{context:nul
   try { await c.ingest({...event,...bad},'ts-invalid') } catch(e) { if(e instanceof DeliveryError) throw e; rejected=true }
   if(!rejected) throw new Error('Invalid event accepted')
 }
+const v2 = new CajeerLogsClient(process.argv[2], process.argv[3], { signingKeyId:'33333333-3333-4333-8333-333333333333', signingSecret:'sk_'+'b'.repeat(64) })
+if ((await v2.ingest(event,'ts-v2')).stored !== 1) throw new Error('v2 failed')
 console.log('TypeScript SDK wire tests passed')

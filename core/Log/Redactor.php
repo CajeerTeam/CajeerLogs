@@ -13,7 +13,7 @@ final class Redactor
         $patterns = [
             '~(?:^|(?<=[\r\n]))(\s*(?:authorization|proxy-authorization|cookie|set-cookie)\s*:)\s*[^\r\n]*~i' => '$1 [redacted]',
             '~\b(Bearer|Basic)\s+[A-Za-z0-9._\~+/-]+={0,2}~i' => '$1 [redacted]',
-            '~\bcl_[a-f0-9]{64}\b~i' => '[redacted]',
+            '~\b(?:cl|sk)_[a-f0-9]{64}\b~i' => '[redacted]',
             '~\b(https?://)[^\s/@:]+:[^\s/@]+@~i' => '$1[redacted]@',
             '~(?<![\w-])(["\']?(?:'.self::SECRET.')["\']?\s*[:=]\s*)(?:\[redacted\]|"(?:\\\\.|[^"\\\\])*"|\'(?:\\\\.|[^\'\\\\])*\'|[^\s,;&}\]]+)~i' => '$1[redacted]',
         ];

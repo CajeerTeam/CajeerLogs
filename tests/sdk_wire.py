@@ -20,6 +20,8 @@ sys.path.insert(0, str(ROOT/'clients/python'))
 from cajeer_logs_client import CajeerLogsClient, DeliveryError
 from cajeer_logs_collector import Collector, parse_line
 TOKEN='cl_'+'a'*64
+SIGNING_ID='33333333-3333-4333-8333-333333333333'
+SIGNING_SECRET='sk_'+'b'*64
 calls={}; failures=[]; collector_fail=False
 
 class Handler(BaseHTTPRequestHandler):
@@ -30,8 +32,14 @@ class Handler(BaseHTTPRequestHandler):
         try:
             assert self.path=='/api/v1/ingest' and self.headers['Authorization']=='Bearer '+TOKEN and key
             if nonce:
-                canonical='\n'.join(['cajeerlogs-ingest-v1','POST',self.path,self.headers['X-Log-Timestamp'],nonce,key,hashlib.sha256(raw).hexdigest()])
-                assert hmac.compare_digest(self.headers['X-Log-Signature'],hmac.new(TOKEN.encode(),canonical.encode(),hashlib.sha256).hexdigest())
+                kid=self.headers.get('X-Log-Key-Id')
+                if key.endswith('-v2'):
+                    assert kid==SIGNING_ID
+                else:
+                    assert kid is None
+                prefix=['cajeerlogs-ingest-v1'] if kid is None else ['cajeerlogs-ingest-v2',kid]
+                canonical='\n'.join([*prefix,'POST',self.path,self.headers['X-Log-Timestamp'],nonce,key,hashlib.sha256(raw).hexdigest()])
+                assert hmac.compare_digest(self.headers['X-Log-Signature'],hmac.new((SIGNING_SECRET if kid else TOKEN).encode(),canonical.encode(),hashlib.sha256).hexdigest())
             previous=calls.setdefault(key,[])
             if previous:
                 assert previous[0][0]==raw
@@ -74,6 +82,7 @@ try:
     for bad in ({'timestamp':'2026-02-30T00:00:00Z'},{'message':123},{'context':None},{'tags':[None]},{'source':'APP'},{'message':'bad\x1b'},{'context':{'n':float('nan')}}):
         try: client.ingest(event|bad,idempotency_key='python-invalid'); raise AssertionError('Invalid event accepted')
         except ValueError: pass
+    check(CajeerLogsClient(url,TOKEN,hmac_secret=SIGNING_SECRET,signing_key_id=SIGNING_ID).ingest(event,idempotency_key='python-v2')['stored']==1,'Python HMAC v2')
     run('php',ROOT/'tests/sdk/php.php',url,TOKEN)
     with tempfile.TemporaryDirectory() as tmp:
         tmp=Path(tmp)
@@ -88,6 +97,7 @@ try:
             run('java','-jar',tmp/'sdk.jar',url,TOKEN)
         else:
             run('gradle','-p',ROOT/'clients/java-kotlin','wireTest',f'-PwireUrl={url}',f'-PwireToken={TOKEN}')
+        check(all(prefix+'-v2' in calls for prefix in ('python','php','ts','kotlin')),'all four SDKs sent valid HMAC v2')
         check(not any(key.endswith('-invalid') for key in calls),'all four SDKs reject invalid events before HTTP')
         for prefix in ('python','php','ts','kotlin'):
             check(len(calls[prefix+'-retry'])==2 and len(calls[prefix+'-denied'])==1 and len(calls[prefix+'-redirect'])==1 and len(calls[prefix+'-replay'])==1 and len(calls[prefix+'-malformed'])==2,prefix+' exact retry / permanent error / no redirect / replay / malformed receipt')

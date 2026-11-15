@@ -10,5 +10,7 @@ fun main(args: Array<String>) {
     for (bad in listOf(event.copy(timestamp="2026-02-30T00:00:00Z"),event.copy(message="bad\u001b"),event.copy(source="APP"),event.copy(context=mapOf("n" to Double.NaN)),event.copy(tags=listOf("")))) {
         try { c.ingest(bad,"kotlin-invalid"); error("Invalid event accepted") } catch(e: IllegalArgumentException) {}
     }
+    val v2 = CajeerLogsClient(args[0],args[1],signingKeyId="33333333-3333-4333-8333-333333333333",signingSecret="sk_"+"b".repeat(64))
+    check(v2.ingest(event,"kotlin-v2").stored == 1)
     println("Kotlin SDK wire tests passed")
 }

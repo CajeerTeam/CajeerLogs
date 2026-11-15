@@ -5,7 +5,7 @@ namespace Cajeer\Logs\Log;
 use Cajeer\Logs\Database\{TransactionManager,DatabaseException,DatabaseFailure};
 use Cajeer\Logs\Http\{Request,Response,JsonResponse,HttpException};
 use Cajeer\Logs\Kernel\Application;
-use Cajeer\Logs\Security\{IngestAuthorization,SignedPayload};
+use Cajeer\Logs\Security\{IngestAuthorization,IngestSigning};
 use PDO;
 use PDOException;
 
@@ -46,7 +46,6 @@ final class IngestService
         IngestEnvelope::validate($r, min(IngestValidator::MAX_BODY_BYTES, $config->get('app.max_body_bytes')));
         $budget=new IngestBudget($config->get('ingest.budget_ms'));
         $slot=IngestAdmission::acquire($this->app->basePath('storage/cache'),$config->get('ingest.max_inflight'));
-        $signer=new SignedPayload();
         try {
             $budget->check();
             $pdo=$this->app->container()->get(PDO::class);
@@ -55,7 +54,8 @@ final class IngestService
             $budget->check();
             $authorization=new IngestAuthorization($pdo,$config->get('api.rate_limit'));
             $principal=$authorization->begin($r,$credential);
-            $signer->verify($r,$credential['secret'],$key,$config->get('ingest.require_hmac'));
+            $signer=new IngestSigning($pdo,$config->get('security.totp_key'));
+            $signer->verify($r,$principal,$credential['secret'],$key,$config->get('ingest.require_hmac'));
             $events=(new IngestValidator())->parse($r);
             $receivedAt=time();
             IngestBatch::checkSize($events,$async?IngestBatch::JOB_BYTES:IngestBatch::SQL_BYTES);
@@ -73,7 +73,7 @@ final class IngestService
                 $sources=$repo->resolveSources($events,$project,$p->sourceId);
                 foreach ($sources as $sourceId) $p->assertSource($sourceId);
                 // Verify freshness again after waiting on concurrent writers.
-                $nonce=$signer->verify($r,$credential['secret'],$key,$config->get('ingest.require_hmac'));
+                $nonce=$signer->verify($r,$p,$credential['secret'],$key,$config->get('ingest.require_hmac'),true);
                 if ($nonce!==null) { $repo->claimNonce($p->id,$nonce); }
                 if ($async) {
                     if ($repo->receipt($p->id,$keyHash,$requestHash)!==null) { throw new HttpException(409,'idempotency_conflict','Idempotency-Key already used for synchronous ingest.'); }

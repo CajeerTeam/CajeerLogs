@@ -4,7 +4,7 @@
 
 | Версия | Статус |
 |---|---|
-| 0.2.4 | Ingest Authorization; текущая версия (Public Preview до CI) |
+| 0.2.5 | HMAC & Replay Protection; текущая версия (Public Preview до CI) |
 
 ## Сообщение об уязвимости
 
@@ -20,7 +20,7 @@
 - Rate limiting.
 - CSRF protection.
 - Security headers.
-- Signed payloads для webhooks и Event API.
+- Signed payloads для webhooks и Event API; [HMAC v1/v2 для ingest](docs/HMAC-signature.md), обязательные политики, зашифрованные signing keys и транзакционная защита nonce.
 - Redaction секретов в логах.
 
 Эксплуатация, восстановление доступа, ограничения резервирования и мониторинг: [Security & Operations](docs/Security-Operations.md).

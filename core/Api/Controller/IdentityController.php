@@ -30,6 +30,8 @@ final class IdentityController
         'PATCH /projects/{project}/sources/{source}'=>'updateSource', 'POST /projects/{project}/sources/{source}/disable'=>'disableSource',
         'POST /projects/{project}/sources/{source}/enable'=>'enableSource', 'POST /projects/{project}/sources/{source}/archive'=>'archiveSource',
         'POST /projects/{project}/sources/{source}/restore'=>'restoreSource', 'GET /projects/{project}/sources/{source}/stats'=>'sourceStats',
+        'GET /projects/{project}/signing'=>'projectSigning', 'PUT /projects/{project}/signing'=>'setProjectSigning',
+        'GET /projects/{project}/tokens/{token}/signing'=>'tokenSigning', 'POST /projects/{project}/tokens/{token}/signing'=>'configureSigning',
         'GET /projects/{project}/tokens'=>'tokens', 'POST /projects/{project}/tokens'=>'createToken',
         'DELETE /projects/{project}/tokens/{token}'=>'revokeToken',
         'PATCH /projects/{project}/tokens/{token}'=>'updateToken', 'POST /projects/{project}/tokens/{token}/rotate'=>'rotateToken',
@@ -368,6 +370,33 @@ final class IdentityController
         $project=$this->id($r,'project'); $source=$this->id($r,'source'); $this->allow($p,$p['kind']==='token'?'logs:read':'projects:read',$project,$source);
         return new JsonResponse((new SourceRepository($this->pdo))->statistics($project,$source));
     }
+    private function projectSigning(Request $r,array $p): Response
+    {
+        $this->session($p); $this->allow($p,'projects:manage');
+        return new JsonResponse($this->one('SELECT require_ingest_hmac FROM projects WHERE id=:id',['id'=>$this->id($r,'project')]));
+    }
+    private function setProjectSigning(Request $r,array $p): Response
+    {
+        $this->session($p); $this->allow($p,'projects:manage'); $id=$this->id($r,'project');
+        $d=$this->body($r,['required']); if (!is_bool($d['required']??null)) self::invalid();
+        $row=$this->one('UPDATE projects SET require_ingest_hmac=CAST(:required AS boolean),revision=revision+1,updated_at=clock_timestamp() WHERE id=:id RETURNING require_ingest_hmac,revision',['required'=>$d['required']?'true':'false','id'=>$id]);
+        $row['revision']=(string)$row['revision'];
+        $this->audit($r,$p,'project.signing_policy',$id,['required'=>$d['required']]); return new JsonResponse($row);
+    }
+    private function signing(): \Cajeer\Logs\Security\IngestSigning { return new \Cajeer\Logs\Security\IngestSigning($this->pdo,$this->app->config()->get('security.totp_key')); }
+    private function tokenSigning(Request $r,array $p): Response
+    {
+        return new JsonResponse($this->signing()->metadata($this->tokenProject($r,$p),$this->id($r,'token')));
+    }
+    private function configureSigning(Request $r,array $p): Response
+    {
+        $project=$this->tokenProject($r,$p); $id=$this->id($r,'token'); $d=$this->body($r,['mode','overlap_seconds','expected_key_id']);
+        if (!is_string($d['mode']??null)) self::invalid();
+        $expected=$d['expected_key_id']??null; if ($expected!==null) { if (!is_string($expected)) self::invalid(); $expected=self::uuid($expected); }
+        $result=$this->signing()->configure($project,$id,$d['mode'],TokenRepository::grace($d['overlap_seconds']??0),$expected);
+        $this->audit($r,$p,'token.signing_changed',$id,['project_id'=>$project,'mode'=>$d['mode'],'key_id'=>$result['current_key_id']]);
+        return new JsonResponse($result,200,['Cache-Control'=>'no-store']);
+    }
     private function tokenList(Request $r,?string $project): Response
     {
         $query='SELECT '.TokenRepository::FIELDS.' FROM api_tokens WHERE project_id IS NOT DISTINCT FROM CAST(:project AS uuid)'; $params=['project'=>$project];
@@ -386,13 +415,17 @@ final class IdentityController
     private function systemTokens(Request $r,array $p): Response { return $this->tokenList($r,$this->tokenProject($r,$p,true)); }
     private function issue(Request $r,array $p,?string $project): Response
     {
-        $d=$this->body($r,['name','scopes','source_id','expires_in','description','requests_per_minute','service_account_id']);
+        $d=$this->body($r,['name','scopes','source_id','expires_in','description','requests_per_minute','service_account_id','signing_mode']);
         $name=self::str($d,'name'); $scopes=TokenRepository::scopes($d['scopes']??null,$project); $ttl=TokenRepository::ttl($d['expires_in']??2592000);
         $source=null; if (isset($d['source_id'])) { if ($project===null||!is_string($d['source_id'])) self::invalid(); $source=self::uuid($d['source_id']); $this->one('SELECT id FROM sources WHERE project_id=:project AND id=:id',['project'=>$project,'id'=>$source]); }
         $account=null; if(isset($d['service_account_id'])) { if($project===null||!is_string($d['service_account_id'])) self::invalid(); $account=self::uuid($d['service_account_id']); }
         $meta=TokenRepository::changes(['name'=>$name,'description'=>array_key_exists('description',$d)?$d['description']:'','requests_per_minute'=>$d['requests_per_minute']??null]);
         $result=(new TokenRepository($this->pdo))->issue($name,$scopes,$project,$source,$ttl,$p['id'],$account,$meta['description'],$meta['requests_per_minute']);
-        $this->audit($r,$p,'token.created',$result['id'],['project_id'=>$project,'service_account_id'=>$account,'scopes'=>$scopes]); return new JsonResponse($result,201);
+        if (array_key_exists('signing_mode',$d)) {
+            if ($project===null || !in_array('logs:write',$scopes,true) || !is_string($d['signing_mode'])) self::invalid('Signing mode requires an ingest credential.');
+            $result['signing']=$this->signing()->configure($project,$result['id'],$d['signing_mode'],0);
+        }
+        $this->audit($r,$p,'token.created',$result['id'],['project_id'=>$project,'service_account_id'=>$account,'scopes'=>$scopes]); return new JsonResponse($result,201,['Cache-Control'=>'no-store']);
     }
     private function createToken(Request $r,array $p): Response { return $this->issue($r,$p,$this->tokenProject($r,$p)); }
     private function createSystemToken(Request $r,array $p): Response { return $this->issue($r,$p,$this->tokenProject($r,$p,true)); }
@@ -415,8 +448,8 @@ final class IdentityController
     {
         $d=$this->body($r,['revision','expires_in','overlap_seconds','scopes']); $id=$this->id($r,'token');
         $scopes=array_key_exists('scopes',$d)?TokenRepository::scopes($d['scopes'],$project):null;
-        $result=(new TokenRepository($this->pdo))->rotate($project,$id,TokenRepository::revision($d['revision']??null),TokenRepository::ttl($d['expires_in']??2592000),TokenRepository::grace($d['overlap_seconds']??0),$p['id'],$scopes);
-        $this->audit($r,$p,'token.rotated',$id,['project_id'=>$project,'successor_id'=>$result['id'],'overlap_seconds'=>$d['overlap_seconds']??0,'scopes'=>$result['scopes']]); return new JsonResponse($result,201);
+        $result=(new TokenRepository($this->pdo))->rotate($project,$id,TokenRepository::revision($d['revision']??null),TokenRepository::ttl($d['expires_in']??2592000),TokenRepository::grace($d['overlap_seconds']??0),$p['id'],$scopes,$this->app->config()->get('security.totp_key'));
+        $this->audit($r,$p,'token.rotated',$id,['project_id'=>$project,'successor_id'=>$result['id'],'overlap_seconds'=>$d['overlap_seconds']??0,'scopes'=>$result['scopes']]); return new JsonResponse($result,201,['Cache-Control'=>'no-store']);
     }
     private function rotateToken(Request $r,array $p): Response { return $this->rotate($r,$p,$this->tokenProject($r,$p)); }
     private function rotateSystemToken(Request $r,array $p): Response { return $this->rotate($r,$p,$this->tokenProject($r,$p,true)); }

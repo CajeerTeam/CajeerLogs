@@ -26,9 +26,9 @@ try {
     $pdo->exec('UPDATE log_events SET ingest_token_id='.$pdo->quote($t2['id']).' WHERE id='.$pdo->quote($id));
     check((new IntegrityInspector($pdo))->inspect()['checks']['log_token_scope']['issues_at_least']===1,'foreign token diagnosed');
     try{$runner->migrate();$failed=false;}catch(Throwable){$failed=true;}
-    check($failed&&$runner->status()['pending']===['0012_database_integrity.sql'],'migration rejects corrupt history without partial DDL');
+    check($failed&&$runner->status()['pending']===['0012_database_integrity.sql','0013_ingest_signing.sql'],'migration rejects corrupt history without partial DDL');
     $pdo->exec('UPDATE log_events SET ingest_token_id='.$pdo->quote($t['id']).' WHERE id='.$pdo->quote($id));
-    check($runner->migrate()===['0012_database_integrity.sql']&&$runner->status()['integrity']==='verified','upgrade after explicit repair');
+    check($runner->migrate()===['0012_database_integrity.sql','0013_ingest_signing.sql']&&$runner->status()['integrity']==='verified','upgrade after explicit repair');
     check(rejected(fn()=>$pdo->exec('UPDATE log_events SET ingest_token_id='.$pdo->quote($t2['id']).' WHERE id='.$pdo->quote($id)),'23503'),'FK rejects cross-project log token');
     check(rejected(fn()=>$pdo->exec("UPDATE log_events SET source='wrong' WHERE id=".$pdo->quote($id)),'23503'),'FK rejects source slug mismatch');
     check(rejected(fn()=>$pdo->exec('UPDATE jobs SET token_id='.$pdo->quote($t2['id']).' WHERE id='.$job),'23503'),'FK rejects cross-project queue token');

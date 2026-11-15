@@ -7,7 +7,7 @@ final class CajeerLogsClient
 {
     private readonly string $url;
     public function __construct(string $baseUrl, private readonly string $token, private readonly bool $signed = false,
-        private readonly float $timeout = 10, private readonly int $attempts = 3, string $apiPrefix = '/api/v1', bool $allowInsecureHttp = false)
+        private readonly float $timeout = 10, private readonly int $attempts = 3, string $apiPrefix = '/api/v1', bool $allowInsecureHttp = false, private readonly ?string $signingKeyId = null, private readonly ?string $signingSecret = null)
     {
         $u = parse_url($baseUrl);
         if (!$u || !in_array($u['scheme'] ?? '', ['http','https'], true) || empty($u['host']) || isset($u['user'],$u['pass']) || isset($u['user']) || isset($u['query']) || isset($u['fragment']) || !in_array($u['path'] ?? '', ['', '/'], true)
@@ -16,6 +16,7 @@ final class CajeerLogsClient
             throw new \InvalidArgumentException('Invalid client configuration.');
         }
         if ($u['scheme'] === 'http' && !$allowInsecureHttp && !in_array($u['host'], ['localhost','127.0.0.1','[::1]'], true)) { throw new \InvalidArgumentException('HTTPS required outside loopback.'); }
+        if (($signingKeyId===null)!==($signingSecret===null) || ($signingKeyId!==null && (!preg_match('/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/D',$signingKeyId) || !preg_match('/^sk_[a-f0-9]{64}$/D',$signingSecret)))) throw new \InvalidArgumentException('Invalid separate signing configuration.');
         $this->url = rtrim($baseUrl,'/').$apiPrefix.'/ingest';
     }
 
@@ -68,10 +69,12 @@ final class CajeerLogsClient
         if (strlen($body)>1048576 || !preg_match('/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/D',$key)) { throw new \InvalidArgumentException('Invalid body or idempotency key.'); }
         for ($i=0;$i<$this->attempts;$i++) {
             $headers=['Content-Type: application/json','Authorization: Bearer '.$this->token,'Idempotency-Key: '.$key,'Connection: close'];
-            if ($this->signed) {
+            if ($this->signed || $this->signingKeyId!==null) {
                 $ts=(string)time(); $nonce=bin2hex(random_bytes(16));
-                $canonical=implode("\n",['cajeerlogs-ingest-v1','POST',parse_url($this->url,PHP_URL_PATH),$ts,$nonce,$key,hash('sha256',$body)]);
-                array_push($headers,'X-Log-Timestamp: '.$ts,'X-Log-Nonce: '.$nonce,'X-Log-Signature: '.hash_hmac('sha256',$canonical,$this->token));
+                $prefix=$this->signingKeyId===null?['cajeerlogs-ingest-v1']:['cajeerlogs-ingest-v2',$this->signingKeyId];
+                if ($this->signingKeyId!==null) $headers[]='X-Log-Key-Id: '.$this->signingKeyId;
+                $canonical=implode("\n",[...$prefix,'POST',parse_url($this->url,PHP_URL_PATH),$ts,$nonce,$key,hash('sha256',$body)]);
+                array_push($headers,'X-Log-Timestamp: '.$ts,'X-Log-Nonce: '.$nonce,'X-Log-Signature: '.hash_hmac('sha256',$canonical,$this->signingSecret??$this->token));
             }
             $ctx=stream_context_create(['http'=>['method'=>'POST','header'=>implode("\r\n",$headers),'content'=>$body,'timeout'=>$this->timeout,'ignore_errors'=>true,'follow_location'=>0,'max_redirects'=>0], 'ssl'=>['verify_peer'=>true,'verify_peer_name'=>true,'allow_self_signed'=>false]]);
             $status=null; $wait=0.25*2**$i;

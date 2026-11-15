@@ -4,6 +4,8 @@ export interface ClientOptions {
   timeoutMs?: number
   attempts?: number
   signed?: boolean
+  signingKeyId?: string
+  signingSecret?: string
   apiPrefix?: string
   allowInsecureHttp?: boolean
 }
@@ -68,6 +70,8 @@ export class CajeerLogsClient {
   private readonly attempts: number
   private readonly timeout: number
   private readonly signed: boolean
+  private readonly signingKeyId?: string
+  private readonly signingSecret?: string
   constructor(baseUrl: string, private readonly token: string, options: ClientOptions = {}) {
     const base = new URL(baseUrl)
     const prefix = options.apiPrefix ?? '/api/v1'
@@ -76,7 +80,10 @@ export class CajeerLogsClient {
     this.url = new URL(prefix + '/ingest', base)
     this.attempts = options.attempts ?? 3
     this.timeout = options.timeoutMs ?? 10000
-    this.signed = options.signed ?? false
+    this.signingKeyId = options.signingKeyId
+    this.signingSecret = options.signingSecret
+    if ((this.signingKeyId === undefined) !== (this.signingSecret === undefined) || (this.signingKeyId !== undefined && (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(this.signingKeyId) || !/^sk_[a-f0-9]{64}$/.test(this.signingSecret!)))) throw new Error('Invalid separate signing configuration')
+    this.signed = (options.signed ?? false) || this.signingKeyId !== undefined
     if (!Number.isInteger(this.attempts) || this.attempts < 1 || this.attempts > 10 || !Number.isFinite(this.timeout) || this.timeout <= 0 || this.timeout > 120000) throw new Error('Invalid delivery limits')
   }
   async ingest(event: LogEvent | LogEvent[] | { events: LogEvent[] }, idempotencyKey = random()): Promise<IngestReceipt> {
@@ -93,8 +100,10 @@ export class CajeerLogsClient {
       if (this.signed) {
         const timestamp = String(Math.floor(Date.now() / 1000)), nonce = random()
         const digest = hex(await crypto.subtle.digest('SHA-256', encoder.encode(body)))
-        const canonical = ['cajeerlogs-ingest-v1', 'POST', this.url.pathname, timestamp, nonce, idempotencyKey, digest].join('\n')
-        const key = await crypto.subtle.importKey('raw', encoder.encode(this.token), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+        const prefix = this.signingKeyId === undefined ? ['cajeerlogs-ingest-v1'] : ['cajeerlogs-ingest-v2', this.signingKeyId]
+        if (this.signingKeyId !== undefined) headers['X-Log-Key-Id'] = this.signingKeyId
+        const canonical = [...prefix, 'POST', this.url.pathname, timestamp, nonce, idempotencyKey, digest].join('\n')
+        const key = await crypto.subtle.importKey('raw', encoder.encode(this.signingSecret ?? this.token), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
         Object.assign(headers, { 'X-Log-Timestamp': timestamp, 'X-Log-Nonce': nonce, 'X-Log-Signature': hex(await crypto.subtle.sign('HMAC', key, encoder.encode(canonical))) })
       }
       let status: number | null = null, wait = 250 * 2 ** attempt

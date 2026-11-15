@@ -262,7 +262,7 @@ def main(argv=None):
         nonlocal stopped; stopped = True
     signal.signal(signal.SIGTERM, stop); signal.signal(signal.SIGINT, stop)
     try:
-        collector = Collector(args.file,args.state,CajeerLogsClient(args.url,token,signed=args.signed,api_prefix=args.api_prefix),args.source,args.format,ZoneInfo(args.timezone),args.service,args.rotated_glob,args.batch)
+        collector = Collector(args.file,args.state,CajeerLogsClient(args.url,token,signed=args.signed,api_prefix=args.api_prefix,signing_key_id=os.environ.get("CAJEER_SIGNING_KEY_ID"),hmac_secret=os.environ.get("CAJEER_SIGNING_SECRET")),args.source,args.format,ZoneInfo(args.timezone),args.service,args.rotated_glob,args.batch)
         while not stopped:
             n = collector.step()
             if n > 0: print(f'Committed {n} events',flush=True)
