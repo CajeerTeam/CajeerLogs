@@ -18,6 +18,9 @@ from urllib.request import urlopen, Request
 from urllib.error import HTTPError
 from types import SimpleNamespace
 import re
+import hashlib
+import hmac
+import uuid
 from playwright.sync_api import sync_playwright, expect
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -73,7 +76,7 @@ class Fixture:
         self.user = None; self.totp_enabled=False; self.require_totp=False; self.role = 'administrator'; self.projects=[{'id':P1,'name':'Production','slug':'production','revision':'1','status':'active','description':'','metadata':{},'max_body_bytes':1048576,'max_batch_events':100,'created_at':'2026-01-01T00:00:00Z'}]
         self.sources=[{'id':S1,'project_id':P1,'name':'Application','slug':'app','created_at':'2026-01-01T00:00:00Z','status':'active','revision':'1','source_type':'application','metadata':{}}]
         self.users=[{'id':U1,'email':'admin@example.test','role':'administrator','blocked_at':None}]
-        self.sessions=[{'id':U1,'current':True,'user_agent':'Current browser','remote_address':'127.0.0.1','created_at':'2026-01-01T00:00:00Z','last_seen_at':'2026-01-01T00:00:00Z','expires_at':'2026-01-02T00:00:00Z'},{'id':U2,'current':False,'user_agent':'Other device','remote_address':'192.0.2.3','created_at':'2026-01-01T00:00:00Z','last_seen_at':'2026-01-01T00:00:00Z','expires_at':'2026-01-02T00:00:00Z'}]; self.members=[]; self.tokens=[]; self.accounts=[]; self.calls=[]; self.fail_next=False; self.change_export=False; self.head_changed=False; self.multi_logs=False; self.redaction={}; self.views=[]
+        self.sessions=[{'id':U1,'current':True,'user_agent':'Current browser','remote_address':'127.0.0.1','created_at':'2026-01-01T00:00:00Z','last_seen_at':'2026-01-01T00:00:00Z','expires_at':'2026-01-02T00:00:00Z'},{'id':U2,'current':False,'user_agent':'Other device','remote_address':'192.0.2.3','created_at':'2026-01-01T00:00:00Z','last_seen_at':'2026-01-01T00:00:00Z','expires_at':'2026-01-02T00:00:00Z'}]; self.members=[]; self.tokens=[]; self.accounts=[]; self.calls=[]; self.fail_next=False; self.change_export=False; self.head_changed=False; self.multi_logs=False; self.redaction={}; self.views=[]; self.connection_credentials={}; self.connection_event=None; self.connection_attempts=[]
         self.event={'id':E1,'project_id':P1,'source_id':S1,'source':'app','service':'api','host':'host-1','level':'error','message':'<img src=x onerror="window.pwned=1"> database error','context':{'secret':'[redacted]','html':'<script>window.pwned=1</script>','nested':{'items':[{'code':'needle','big':12345678901234567890}]}},'trace_id':'trace-1','request_id':'req-1','tags':['prod'],'timestamp':'2026-11-14T00:00:00Z','received_at':'2026-11-14T00:00:01Z'}
     def route(self,r):
         req=r.request; path=urlsplit(req.url).path.removeprefix('/api/v1'); method=req.method; q={k:v[0] for k,v in parse_qs(urlsplit(req.url).query).items()}; body=req.post_data_json if req.post_data else None
@@ -89,7 +92,24 @@ class Fixture:
             if self.totp_enabled and body.get('otp')!='123456': return err(401,'unauthorized')
             self.user={'id':U1 if self.role=='administrator' else U2,'email':body['email'],'role':self.role,'two_factor_enabled':self.totp_enabled}
             return send({'user':self.user,'csrf_token':CSRF,'expires_in':28800,'enrollment_required':self.require_totp and not self.totp_enabled},headers={'Set-Cookie':'cajeerlogs_session='+'b'*64+'; Path=/; HttpOnly; SameSite=Strict'})
-        if path=='/health': return send({'status':'ok','version':'0.3.7'})
+        if path=='/health': return send({'status':'ok','version':'0.3.8'})
+        if path=='/auth/token':
+            credential=self.connection_credentials.get(req.headers.get('authorization','').removeprefix('Bearer '))
+            return send({'token':credential['row']}) if credential else err(401,'unauthorized')
+        if path=='/ingest':
+            assert 'x-csrf-token' not in req.headers and 'cookie' not in req.headers
+            token=req.headers.get('authorization','').removeprefix('Bearer '); credential=self.connection_credentials[token]; row=credential['row']
+            source=next(x for x in self.sources if x['id']==row['source_id']); assert source['slug']==body['source']
+            key=req.headers['idempotency-key']; nonce=req.headers['x-log-nonce']; timestamp=req.headers['x-log-timestamp']; kid=req.headers.get('x-log-key-id'); assert kid==credential.get('kid')
+            parts=['cajeerlogs-ingest-v2',kid] if kid else ['cajeerlogs-ingest-v1']; parts+=['POST','/api/v1/ingest',timestamp,nonce,key,hashlib.sha256(req.post_data.encode()).hexdigest()]
+            assert hmac.compare_digest(req.headers['x-log-signature'],hmac.new(credential.get('secret',token).encode(),'\n'.join(parts).encode(),hashlib.sha256).hexdigest())
+            self.connection_attempts.append((key,nonce,req.post_data))
+            if self.connection_event is None:
+                self.connection_event=dict(body,id=str(uuid.uuid4()),project_id=row['project_id'],source_id=row['source_id'],received_at=body['timestamp'],context={},tags=[])
+                # Simulate a response lost after commit; retry must reuse the key and body.
+                return err(503,'service_unavailable')
+            assert self.connection_attempts[-2][0]==key and self.connection_attempts[-2][1]!=nonce and self.connection_attempts[-2][2]==req.post_data
+            return send({'accepted':True,'received':1,'stored':0,'rejected':0,'event_ids':[self.connection_event['id']],'replayed':True},200)
         if self.user is None: return err(401,'unauthorized')
         if method!='GET': assert req.headers.get('x-csrf-token')==CSRF, (method,path,req.headers)
         if path=='/auth/me': return send({'user':self.user,'csrf_token':CSRF,'enrollment_required':self.require_totp and not self.totp_enabled})
@@ -122,7 +142,7 @@ class Fixture:
             return send(policy)
         if path=='/projects':
             if method=='POST': self.projects.append({'id':P2,'revision':'1','status':'active','description':'','metadata':{},'max_body_bytes':1048576,'max_batch_events':100,**body});return send({'id':P2},201)
-            return listing([p for p in self.projects if (q.get('status','all')=='all' or p['status']==q['status']) and q.get('q','').lower() in p['name'].lower()])
+            return listing([p for p in self.projects if (q.get('status','all')=='all' or p['status']==q['status']) and q.get('q','').lower() in (p['name']+' '+p['slug']+' '+p['id']).lower()])
         if path in ['/projects/'+P1,'/projects/'+P2]:
             project=next(p for p in self.projects if p['id']==path.split('/')[-1])
             if method=='PATCH':
@@ -153,8 +173,8 @@ class Fixture:
         if path.startswith('/projects/') and path.endswith('/stats'):
             return send({'sources':len(self.sources),'members':len(self.members),'active_tokens':len(self.tokens),'events':2,'events_24h':2,'queued_jobs':0,'dead_jobs':0,'last_received_at':None})
         if path.endswith('/sources'):
-            if method=='POST': self.sources.append({'id':'99999999-9999-4999-8999-999999999999','project_id':path.split('/')[2],'status':'active','revision':'1','metadata':{},**body});return send({'id':self.sources[-1]['id']},201)
-            return listing([s for s in self.sources if s['project_id']==path.split('/')[2] and (q.get('status','all')=='all' or s['status']==q['status']) and q.get('q','').lower() in s['name'].lower()])
+            if method=='POST': self.sources.append({'id':str(uuid.uuid4()),'project_id':path.split('/')[2],'status':'active','revision':'1','metadata':{},**body});return send({'id':self.sources[-1]['id']},201)
+            return listing([s for s in self.sources if s['project_id']==path.split('/')[2] and (q.get('status','all')=='all' or s['status']==q['status']) and q.get('q','').lower() in (s['name']+' '+s['slug']+' '+s['id']).lower() and (q.get('source_type','all')=='all' or s['source_type']==q['source_type'])])
         if path.endswith('/members'):
             return listing(self.members)
         if '/members/' in path:
@@ -182,6 +202,13 @@ class Fixture:
             for row in selected: row['revoked_at']='2026-01-01'
             return send(dict(self.accounts[0],revoked=len(selected)))
         if path.endswith('/tokens'):
+            if method=='POST' and body.get('signing_mode'):
+                assert body['scopes']==['logs:write'] and body['source_id']
+                pid=path.split('/')[2]; row=dict(body,id=str(uuid.uuid4()),project_id=pid,revoked_at=None,expires_at='2099-01-01T00:00:00Z',revision='1'); token='cl_'+'d'*64
+                credential={'row':row}; result={'id':row['id'],'token':token}
+                if body['signing_mode']=='separate':
+                    kid=str(uuid.uuid4()); secret='sk_'+'e'*64;credential.update(kid=kid,secret=secret);result['signing']={'current_key_id':kid,'signing_secret':secret}
+                self.connection_credentials[token]=credential;self.tokens.append(row);return send(result,201)
             if method=='POST': self.tokens.append({'id':T1,'name':body['name'],'scopes':body['scopes'],'source_id':body.get('source_id'),'expires_at':'2099-01-01T00:00:00Z','revoked_at':None,'revision':'1','description':body.get('description',''),'requests_per_minute':body.get('requests_per_minute'),'service_account_id':body.get('service_account_id')});return send({'id':T1,'token':TOKEN},201)
             return listing(self.tokens if path.startswith('/projects/') else [])
         if path.endswith('/tokens/'+T1+'/rotate'):
@@ -201,6 +228,8 @@ class Fixture:
         if path=='/logs':
             if self.fail_next: self.fail_next=False;return err(503,'service_unavailable')
             assert q['project_id'] in [P1,P2]
+            if self.connection_event and q.get('request_id')==self.connection_event['request_id']:
+                return send({'items':[self.connection_event],'next_cursor':None,'prev_cursor':None,'page_cursor':'page-one','page_digest':'a'*64,'consistency':'live'})
             second=q.get('cursor') in ('opaque-cursor','page-two'); cursor='page-two' if second else 'page-one';
             return send({'items':[{**self.event,'id':E2,'message':'second page event'}] if second else ([self.event,{**self.event,'id':E2,'message':'other event'}] if self.multi_logs else [self.event]), 'next_cursor':None if second else 'opaque-cursor','prev_cursor':'page-one' if second else None,'page_cursor':cursor,'page_digest':'b'*64 if second else ('c'*64 if self.head_changed else 'a'*64),'consistency':q.get('consistency','live'),'snapshot_at':'2026-11-14T00:00:01Z' if q.get('consistency')=='snapshot' else None,'cursor_expires_at':'2026-11-14T01:00:01Z'})
         if path=='/logs/export':
@@ -210,6 +239,8 @@ class Fixture:
                 assert q.get('cursor')=='page-one'; assert req.headers.get('if-match')=='"'+'a'*64+'"'
                 return r.fulfill(status=200,content_type='text/csv',headers={'X-Page-Digest':'a'*64},body='id,message\n'+E1+',database error\n')
             return send({'items':[self.event],'next_cursor':None})
+        if self.connection_event and path=='/logs/'+self.connection_event['id']:
+            assert q.get('project_id')==self.connection_event['project_id'] and q.get('source_id')==self.connection_event['source_id'];return send({'data':self.connection_event})
         if path.startswith('/logs/'): return send({'data':{**self.event,'id':E2,'message':'other event'} if path.endswith(E2) else self.event})
         if path=='/system/report': return send({'status':'ok','environment':'test','php':'8.4','database':{'status':'ok'}})
         raise AssertionError('Unexpected fixture request: '+path)
@@ -263,6 +294,12 @@ def offline_load(page, url, fixture, route=''):
         const memory=()=>{const data={};Object.defineProperties(data,{getItem:{value:k=>data[k]??null},setItem:{value:(k,v)=>{data[k]=String(v);}}});return data;};
         Object.defineProperty(window,'localStorage',{value:memory(),configurable:true});
         Object.defineProperty(window,'sessionStorage',{value:memory(),configurable:true});
+        // about:blank is not a secure context in the restricted runner. Production uses native WebCrypto.
+        if(!crypto.subtle) Object.defineProperty(crypto,'subtle',{value:{
+            digest:async (_,data)=>Uint8Array.from(await window.fixtureCrypto('digest',[],Array.from(new Uint8Array(data)))).buffer,
+            importKey:async (_,data)=>Array.from(new Uint8Array(data)),
+            sign:async (_,key,data)=>Uint8Array.from(await window.fixtureCrypto('sign',key,Array.from(new Uint8Array(data)))).buffer
+        }});
         window.testDownload=null;
         const urls=new Map();const nativeCreate=URL.createObjectURL.bind(URL);const nativeRevoke=URL.revokeObjectURL.bind(URL);
         URL.createObjectURL=blob=>{const u=nativeCreate(blob);urls.set(u,blob);return u;};
@@ -282,7 +319,7 @@ def run():
         browser=browser_for(p); ctx=browser.new_context(accept_downloads=True); page=ctx.new_page(); page.set_default_timeout(8000)
         errors=[]; page.on('pageerror',lambda e: errors.append(str(e)))
         # Actual PHP router, not intercepted, even in offline browser mode.
-        status,headers,body=http(url+'/admin');assert status==200 and b'0.3.7' in body
+        status,headers,body=http(url+'/admin');assert status==200 and b'0.3.8' in body
         assert "script-src 'self'" in {k.lower():v for k,v in headers.items()}['content-security-policy']
         assert http(url+'/api/v1/auth/me')[0]==401
         assert http(url+'/admin/assets/panel.js')[0]==200
@@ -296,6 +333,7 @@ def run():
         print('PASS real PHP delivery, CSP header, unauthenticated API and unavailable database')
         f=Fixture()
         if offline:
+            page.expose_function('fixtureCrypto',lambda op,key,data:list(hashlib.sha256(bytes(data)).digest() if op=='digest' else hmac.new(bytes(key),bytes(data),hashlib.sha256).digest()))
             page.expose_function('fixtureFetch',offline_adapter(f,url));offline_load(page,url,f)
         else:
             page.route('**/api/v1/**',f.route);page.reload()
@@ -428,6 +466,15 @@ def run():
         print('PASS user directory, account detail, audit, membership picker, 2FA reset fixture')
         print('PASS create project/source/user, role update, project membership')
         nav(page,'tokens');page.get_by_label('Название сервиса').fill('Backend service');page.get_by_role('button',name='Создать сервисную учётную запись').click();expect(page.get_by_role('row').filter(has_text='Backend service')).to_be_visible();form=page.locator('form').filter(has=page.get_by_label('logs:read'));form.get_by_label('Название').fill('Reader');form.get_by_label('Сервисная учётная запись (UUID, необязательно)').fill('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');form.get_by_role('button',name='Выпустить токен').click();expect(page.get_by_role('dialog')).to_contain_text(TOKEN);assert TOKEN not in page.evaluate('JSON.stringify(localStorage)+JSON.stringify(sessionStorage)');page.locator('#close-modal').click();expect(page.get_by_text(TOKEN,exact=True)).to_have_count(0);page.get_by_role('button',name='Изменить токен').click();dlg=page.get_by_role('dialog');dlg.get_by_label('Название',exact=True).fill('Renamed Reader');dlg.get_by_label('Запросов в минуту (необязательно)').fill('60');dlg.get_by_role('button',name='Сохранить токен').click();expect(page.get_by_role('row').filter(has_text='Renamed Reader')).to_be_visible();page.get_by_role('button',name='Ротация',exact=True).click();dlg=page.get_by_role('dialog');dlg.get_by_role('button',name='Выпустить замену').click();expect(dlg).to_contain_text('cl_'+'b'*64);page.locator('#close-modal').click();expect(page.get_by_text('Перекрытие',exact=True)).to_be_visible();page.get_by_role('button',name='Отозвать',exact=True).first.click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_text('Отозван',exact=True)).to_be_visible();page.get_by_role('button',name='Отключить сервис').click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_text('Отключена',exact=True)).to_be_visible()
+        # Full wizard: new source, source-scoped write-only token, v2 signature, lost-response replay, persisted detail and drill-down.
+        nav(page,'projects');page.get_by_label('Поиск проектов').fill(P2);page.get_by_role('button',name='Найти проекты').click();expect(page.get_by_role('row').filter(has_text=P2).first).to_be_visible()
+        page.get_by_label('Фильтр типа источника').select_option('server');page.get_by_role('button',name='Найти источники').click();expect(page.get_by_role('button',name='Открыть источник')).to_have_count(0)
+        page.get_by_label('Поиск источников').fill('');page.get_by_label('Фильтр типа источника').select_option('all');page.get_by_role('button',name='Найти источники').click()
+        page.get_by_role('button',name='Мастер подключения').click();dlg=page.get_by_role('dialog');dlg.get_by_label('Название',exact=True).fill('Onboarding app');dlg.get_by_label('Slug').fill('onboarding');dlg.get_by_label('Тип подключения').select_option('server');dlg.get_by_role('button',name='Создать источник подключения').click()
+        dlg.get_by_label('Режим подписи подключения').select_option('separate');dlg.get_by_role('button',name='Выпустить токен подключения').click();expect(dlg).to_contain_text('cl_'+'d'*64);expect(dlg).to_contain_text('sk_'+'e'*64);assert 'cl_'+'d'*64 not in page.evaluate('JSON.stringify(localStorage)+JSON.stringify(sessionStorage)')
+        dlg.get_by_role('button',name='Проверить подключение').click();expect(dlg.get_by_role('alert')).to_be_visible();dlg.get_by_role('button',name='Проверить подключение').click();expect(dlg).to_contain_text('Тестовое событие сохранено и найдено:');assert len(f.connection_attempts)==2
+        dlg.get_by_role('button',name='Открыть тестовое событие в логах').click();expect(page.get_by_role('heading',name='Логи',exact=True)).to_be_visible();expect(page.get_by_text('CajeerLogs source connection test',exact=True)).to_be_visible();expect(page.get_by_text('cl_'+'d'*64,exact=True)).to_have_count(0)
+        page.get_by_role('button',name='Сбросить',exact=True).click();print('PASS project/source directory, HMAC v2 onboarding, receipt replay and Explorer drill-down fixture')
         nav(page,'system');expect(page.get_by_role('heading',name='Системный отчёт')).to_be_visible();nav(page,'settings');page.get_by_role('button',name='Тёмная тема').first.click();assert page.locator('html').get_attribute('data-theme')=='dark';page.get_by_label('Цветовая тема',exact=True).select_option('system');page.emulate_media(color_scheme='dark');expect(page.locator('html')).to_have_attribute('data-theme','dark');page.emulate_media(color_scheme='light');expect(page.locator('html')).to_have_attribute('data-theme','light');page.get_by_label('Цветовая тема',exact=True).select_option('dark');expect(page.locator('html')).to_have_attribute('data-theme','dark');page.set_viewport_size({'width':390,'height':844});assert page.evaluate('document.documentElement.scrollWidth <= innerWidth');expect(page.locator('#sidebar')).not_to_be_visible();page.get_by_role('button',name='Меню').click();expect(page.locator('#sidebar')).to_be_visible();page.keyboard.press('Escape');expect(page.locator('#sidebar')).not_to_be_visible();page.get_by_role('button',name='Меню').click();nav(page,'logs');expect(page.locator('#sidebar')).not_to_be_visible();expect(page.get_by_role('heading',name='Логи',exact=True)).to_be_visible();page.set_viewport_size({'width':1280,'height':720});nav(page,'settings');
         page.get_by_label('Отображаемое имя').fill('Admin <test>');page.get_by_role('button',name='Сохранить профиль').click();expect(page.locator('#account')).to_contain_text('Admin <test>')
         expect(page.get_by_text('Текущая сессия',exact=True)).to_be_visible();page.get_by_role('row').filter(has_text='Other device').get_by_role('button',name='Завершить',exact=True).click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_text('Other device',exact=True)).to_have_count(0)

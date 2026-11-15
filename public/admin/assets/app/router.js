@@ -1,16 +1,16 @@
-import { state, names, active, render, installRenderer } from './store.js?v=0.3.7';
-import { $, h, button, message, clearModal, heading } from '../components/ui.js?v=0.3.7';
-import { clearSession, bootstrap } from './session.js?v=0.3.7';
-import { loadProjects } from './projects.js?v=0.3.7';
-import { navigation } from './shell.js?v=0.3.7';
-import { currentRoute, permitted } from './routes.js?v=0.3.7';
-import { overview } from '../pages/overview.js?v=0.3.7';
-import { logs } from '../pages/logs.js?v=0.3.7';
-import { projects } from '../pages/projects.js?v=0.3.7';
-import { tokens } from '../pages/tokens.js?v=0.3.7';
-import { users } from '../pages/users.js?v=0.3.7';
-import { system } from '../pages/system.js?v=0.3.7';
-import { settings } from '../pages/settings.js?v=0.3.7';
+import { state, names, active, render, installRenderer } from './store.js?v=0.3.8';
+import { $, h, button, message, clearModal, heading } from '../components/ui.js?v=0.3.8';
+import { clearSession, bootstrap } from './session.js?v=0.3.8';
+import { loadProjects } from './projects.js?v=0.3.8';
+import { navigation } from './shell.js?v=0.3.8';
+import { currentRoute, permitted } from './routes.js?v=0.3.8';
+import { overview } from '../pages/overview.js?v=0.3.8';
+import { logs } from '../pages/logs.js?v=0.3.8';
+import { projects } from '../pages/projects.js?v=0.3.8';
+import { tokens } from '../pages/tokens.js?v=0.3.8';
+import { users } from '../pages/users.js?v=0.3.8';
+import { system } from '../pages/system.js?v=0.3.8';
+import { settings } from '../pages/settings.js?v=0.3.8';
 
 async function renderRoute({ focus = false } = {}) {
     if (!state.user)

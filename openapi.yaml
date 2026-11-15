@@ -2,7 +2,7 @@
   "openapi": "3.1.1",
   "info": {
     "title": "CajeerLogs API",
-    "version": "0.3.7",
+    "version": "0.3.8",
     "description": "Identity & Access, synchronous and durable asynchronous PostgreSQL ingestion, job status, project-scoped search, statistics and export. Outgoing webhooks and lifecycle administration use the CLI. TOTP enrollment, recovery codes and administrator enrollment policy. Token rotation, scoped service accounts, credential request quotas and bulk revocation. Mandatory project/token HMAC and separately encrypted rotating signing keys. Session lifecycle, account profile and recovery-code regeneration. Private saved log views with canonical search filters and table layout. Administrator user directory, effective project access, scoped access audit and reauthenticated 2FA reset."
   },
   "servers": [
@@ -1148,7 +1148,8 @@
             "schema": {
               "type": "string",
               "maxLength": 255
-            }
+            },
+            "description": "Case-insensitive substring of name, slug or UUID."
           },
           {
             "name": "status",
@@ -1820,7 +1821,8 @@
             "schema": {
               "type": "string",
               "maxLength": 255
-            }
+            },
+            "description": "Case-insensitive substring of name, slug or UUID."
           },
           {
             "name": "status",
@@ -1832,6 +1834,22 @@
                 "active",
                 "disabled",
                 "archived"
+              ],
+              "default": "all"
+            }
+          },
+          {
+            "name": "source_type",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "application",
+                "server",
+                "nginx",
+                "aapanel",
+                "custom"
               ],
               "default": "all"
             }
@@ -5607,6 +5625,18 @@
                           "type": "null"
                         }
                       ]
+                    },
+                    "active_sources": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "disabled_sources": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "archived_sources": {
+                      "type": "integer",
+                      "minimum": 0
                     }
                   },
                   "required": [
@@ -5617,7 +5647,10 @@
                     "events_24h",
                     "queued_jobs",
                     "dead_jobs",
-                    "last_received_at"
+                    "last_received_at",
+                    "active_sources",
+                    "disabled_sources",
+                    "archived_sources"
                   ]
                 }
               }

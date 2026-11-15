@@ -1,9 +1,9 @@
-import { roles, state, names } from './store.js?v=0.3.7';
-import { $, h, button, notify } from '../components/ui.js?v=0.3.7';
-import { clearSession, sessionChanged } from './session.js?v=0.3.7';
-import { permitted } from './routes.js?v=0.3.7';
-import { themeButton } from './theme.js?v=0.3.7';
-import { write } from '../api/client.js?v=0.3.7';
+import { roles, state, names } from './store.js?v=0.3.8';
+import { $, h, button, notify } from '../components/ui.js?v=0.3.8';
+import { clearSession, sessionChanged } from './session.js?v=0.3.8';
+import { permitted } from './routes.js?v=0.3.8';
+import { themeButton } from './theme.js?v=0.3.8';
+import { write } from '../api/client.js?v=0.3.8';
 
 function header() { const a = $('account'); a.replaceChildren(themeButton()); if (state.user) {
     a.prepend(h('span', { class: 'who', title: state.user.email }, (state.user.display_name || state.user.email) + ' · ' + roles[state.user.role]));

@@ -388,7 +388,7 @@ final class IdentityController
         if ($status!=='all') $query.=' AND p.archived_at IS '.($status==='active'?'NULL':'NOT NULL');
         if (isset($r->query['q'])) {
             $q=$r->query['q']; if (!is_string($q)||strlen($q)>255||str_contains($q,"\0")) self::invalid('Invalid project search.');
-            $query.=" AND (strpos(lower(p.name),lower(:q_name))>0 OR strpos(p.slug,lower(:q_slug))>0)"; $params['q_name']=$q; $params['q_slug']=$q;
+            $query.=" AND (strpos(lower(p.name),lower(:q_name))>0 OR strpos(p.slug,lower(:q_slug))>0 OR strpos(p.id::text,lower(:q_id))>0)"; $params['q_name']=$q; $params['q_slug']=$q; $params['q_id']=$q;
         }
         return $this->page($r,$query,$params,'p.id',true);
     }
@@ -531,9 +531,12 @@ final class IdentityController
         $status=$r->query['status']??'all';
         if (!in_array($status,array_merge(['all'],SourceRepository::STATES),true)) self::invalid('Invalid source status.');
         if ($status!=='all') { $query.=' AND status=:status'; $params['status']=$status; }
+        $type=$r->query['source_type']??'all';
+        if (!in_array($type,array_merge(['all'],SourceRepository::TYPES),true)) self::invalid('Invalid source type.');
+        if ($type!=='all') { $query.=' AND source_type=:source_type'; $params['source_type']=$type; }
         if (isset($r->query['q'])) {
             $q=$r->query['q']; if (!is_string($q)||strlen($q)>255||str_contains($q,"\0")) self::invalid('Invalid source search.');
-            $query.=' AND (strpos(lower(name),lower(:q_name))>0 OR strpos(slug,lower(:q_slug))>0)'; $params['q_name']=$q; $params['q_slug']=$q;
+            $query.=' AND (strpos(lower(name),lower(:q_name))>0 OR strpos(slug,lower(:q_slug))>0 OR strpos(id::text,lower(:q_id))>0)'; $params['q_name']=$q; $params['q_slug']=$q; $params['q_id']=$q;
         }
         return $this->page($r,$query,$params,'id',false,true);
     }

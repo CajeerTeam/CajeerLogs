@@ -1,10 +1,13 @@
-import { roles, state, projectPath, admin, manage, active, render } from '../app/store.js?v=0.3.7';
-import { h, button, card, field, input, select, badge, date, enc, message, notify, modalEpoch, clearModal, modal, form, heading, needProject, table } from '../components/ui.js?v=0.3.7';
-import { loadProjects, projectSelector } from '../app/projects.js?v=0.3.7';
-import { directoryPicker } from './users.js?v=0.3.7';
-import { pagedList } from '../components/pagination.js?v=0.3.7';
-import { nameFields, nameBody, mutationSuccess, confirmAction } from '../components/mutations.js?v=0.3.7';
-import { get, write, request, apiPrefix, ApiError } from '../api/client.js?v=0.3.7';
+import { roles, state, projectPath, admin, manage, active, render } from '../app/store.js?v=0.3.8';
+import { h, button, card, field, input, select, badge, date, enc, message, notify, modalEpoch, clearModal, modal, form, heading, needProject, table } from '../components/ui.js?v=0.3.8';
+import { loadProjects, projectSelector } from '../app/projects.js?v=0.3.8';
+import { directoryPicker } from './users.js?v=0.3.8';
+import { pagedList } from '../components/pagination.js?v=0.3.8';
+import { nameFields, nameBody, mutationSuccess, confirmAction } from '../components/mutations.js?v=0.3.8';
+import { get, write } from '../api/client.js?v=0.3.8';
+import { sourceHealth } from '../app/analytics.js?v=0.3.8';
+import { effectivePolicy, testPayload } from '../app/source-connection.js?v=0.3.8';
+import { onboarding, verifyConnection, openSourceLogs } from '../components/source-onboarding.js?v=0.3.8';
 
 const sourceTypes = [['application','Приложение'],['server','Сервер'],['nginx','Nginx'],['aapanel','aaPanel'],['custom','Другой']];
 const sourceStates = {active:'Активный',disabled:'Отключён',archived:'Архивный'};
@@ -27,28 +30,46 @@ function sourceFields(r) {
         field('Тип источника',select('source_type',sourceTypes,r.source_type)),
         field('Описание источника',h('textarea',{name:'description',maxlength:4096},r.description||'')),
         field('Метаданные источника JSON',h('textarea',{name:'metadata',required:true,maxlength:8192},JSON.stringify(r.metadata||{},null,2))),
-        num('retention_days','Хранение, дней (пусто = политика проекта)',1,3650),
+        num('retention_days','Хранение, дней (пусто = без отдельного срока)',1,3650),
         num('max_body_bytes','Максимум байт запроса (пусто = политика проекта)',1024,1048576),
-        num('max_batch_events','Событий этого источника в пакете',1,100),
+        num('max_batch_events','Событий этого источника в пакете (пусто = без отдельного лимита)',1,100),
         num('events_per_minute','Событий в минуту (пусто = без отдельной квоты)',1,1000000)];
 }
-function sourceSection(path,signal,epoch) {
+function sourceSection(path,project,signal,epoch) {
     const list=h('div');
-    function display(query={}) {
-        list.replaceChildren(pagedList({path:path+'/sources',query:{limit:50,...query},signal,epoch,headers:['Название','Slug','Тип','Статус','Последний приём','UUID',''],rows:r=>[r.name,r.slug,r.source_type||'application',badge(sourceStates[r.status]||'Активный'),date(r.last_seen_at),h('code',{},r.id),button('Открыть источник',()=>void sourceDetail(path,r.id,epoch,signal))]}));
+    const cfg=state.sourceManagement?.project===project.id?state.sourceManagement:{project:project.id,q:'',status:'all',source_type:'all',threshold:60};
+    state.sourceManagement=cfg;
+    function display() {
+        list.replaceChildren(pagedList({path:path+'/sources',query:{limit:50,q:cfg.q,status:cfg.status,source_type:cfg.source_type},signal,epoch,headers:['Название','Slug / тип','Статус / активность','Последний приём','Принято / отклонено','UUID',''],rows:r=>[r.name,h('div',{},r.slug,h('small',{class:'muted'},sourceTypes.find(([id])=>id===r.source_type)?.[1]||r.source_type)),h('div',{},badge(sourceStates[r.status]||r.status),h('small',{class:'muted'},project.status==='archived'?'Проект архивный':sourceHealth(r,Date.now(),cfg.threshold))),date(r.last_seen_at),h('div',{},String(r.accepted_events_total??'—')+' / '+String(r.rejected_events_total??'—')),h('code',{},r.id),h('div',{class:'actions'},button('Открыть источник',()=>void sourceDetail(path,r.id,epoch,signal)),button('Логи источника',()=>openSourceLogs(project.id,r.id)),manage()&&project.status!=='archived'&&r.status==='active'?button('Подключить приложение',()=>onboarding(path,project,r,epoch,signal,sourceTypes)):null)]}));
     }
     display();
-    return card(h('h2',{},'Источники'),manage()?form('Добавить источник',[...nameFields(),field('Тип источника',select('source_type',sourceTypes,'application'))],async d=>{await write(path+'/sources','POST',{...nameBody(d),source_type:String(d.get('source_type'))});await mutationSuccess(epoch,'Источник создан.');}):null,
-        form('Найти источники',[field('Поиск источников',input('q',{maxlength:255})),field('Статус источника',select('status',[['all','Все'],...Object.entries(sourceStates)],'all'))],async d=>display({q:String(d.get('q')),status:String(d.get('status'))})),list);
+    return card(h('div',{class:'page-head'},h('h2',{},'Источники'),manage()&&project.status!=='archived'?button('Мастер подключения',()=>onboarding(path,project,null,epoch,signal,sourceTypes),'primary'):null),
+        h('p',{class:'muted'},'Активность определяется временем последнего принятого события, а не сетевой доступностью. Счётчики поступлений накопительные; retention удаляет только сохранённые события.'),
+        manage()?form('Добавить источник',[...nameFields(),field('Тип источника',select('source_type',sourceTypes,'application'))],async d=>{await write(path+'/sources','POST',{...nameBody(d),source_type:String(d.get('source_type'))});await mutationSuccess(epoch,'Источник создан.');}):null,
+        form('Найти источники',[field('Поиск источников',input('q',{maxlength:255,value:cfg.q,placeholder:'Имя, slug или UUID'})),field('Статус источника',select('status',[['all','Все'],...Object.entries(sourceStates)],cfg.status)),field('Фильтр типа источника',select('source_type',[['all','Все'],...sourceTypes],cfg.source_type)),field('Порог отсутствия поступлений, мин',input('threshold',{type:'number',min:1,max:10080,step:1,required:true,value:cfg.threshold}))],async d=>{Object.assign(cfg,{q:String(d.get('q')),status:String(d.get('status')),source_type:String(d.get('source_type')),threshold:Number(d.get('threshold'))});display();}),list);
+}
+function policyTable(project,source) {
+    const effective=effectivePolicy(project,source);const fmt=v=>v==null?'Нет ограничения':String(v);
+    return h('div',{},h('h3',{},'Действующие политики'),table(['Ограничение','Проект','Источник','Результат'],[
+        ['Хранение, дней',fmt(project.retention_days),source.retention_days==null?'Наследуется':fmt(source.retention_days),fmt(effective.retention_days)],
+        ['Размер запроса, байт',fmt(project.max_body_bytes),source.max_body_bytes==null?'Нет отдельного':fmt(source.max_body_bytes),fmt(effective.max_body_bytes)],
+        ['Событий в пакете',fmt(project.max_batch_events),source.max_batch_events==null?'Нет отдельного':fmt(source.max_batch_events),fmt(effective.max_batch_events)],
+        ['Событий в минуту',fmt(effective.project_events_per_minute),fmt(effective.source_events_per_minute),'Обе квоты применяются независимо']
+    ]),h('p',{class:'muted'},'Ограничения размера и пакета применяются совместно с глобальными лимитами. Квота проекта общая для всех источников; остаток квоты здесь не вычисляется.'));
+}
+function projectDirectory(signal,epoch) {
+    const box=h('div');const cfg=state.projectDirectory||{q:'',status:'all'};state.projectDirectory=cfg;
+    function show(){box.replaceChildren(pagedList({path:'/projects',query:{limit:25,...cfg},signal,epoch,headers:['Проект','Slug / UUID','Статус','Доступ',''],rows:p=>[p.name,h('div',{},p.slug,h('div',{},h('code',{},p.id))),badge(p.status==='archived'?'Архивный':'Активный'),roles[p.effective_role]||p.effective_role||'—',button('Выбрать проект',async e=>{const b=e.currentTarget;b.disabled=true;try{const selected=await get('/projects/'+enc(p.id),{},signal);if(!active(epoch)||signal.aborted)return;state.projects=[...state.projects.filter(x=>x.id!==selected.id),selected];state.project=selected.id;state.filters=null;state.logPosition=null;state.dashboard=null;await render();}catch(err){if(active(epoch)&&err.name!=='AbortError')notify(err.message);}finally{b.disabled=false;}},'',{disabled:p.id===state.project})]}));}
+    show();return card(h('h2',{},'Каталог проектов'),form('Найти проекты',[field('Поиск проектов',input('q',{value:cfg.q,maxlength:255,placeholder:'Имя, slug или UUID'})),field('Статус проекта',select('status',[['all','Все'],['active','Активные'],['archived','Архивные']],cfg.status))],async d=>{Object.assign(cfg,{q:String(d.get('q')),status:String(d.get('status'))});show();}),box);
 }
 async function sourceDetail(path,id,epoch,signal) {
     const url=path+'/sources/'+enc(id); const loading=h('div',{role:'status'},'Загрузка…'); modal('Источник',loading); const dialog=modalEpoch;
     try {
-        const [r,s]=await Promise.all([get(url,{},signal),get(url+'/stats',{},signal)]);
+        const [r,s,project]=await Promise.all([get(url,{},signal),get(url+'/stats',{},signal),get(path,{},signal)]);
         if (!active(epoch)||dialog!==modalEpoch) return;
         const root=h('div',{},h('h2',{},r.name),badge(sourceStates[r.status]||r.status),h('p',{},r.description||''),h('code',{},r.id),h('p',{},'Slug: '+r.slug),h('pre',{},JSON.stringify(r.metadata||{},null,2)),
             table(['Показатель','Значение'],[['Сохранено',s.events],['За 24 часа',s.events_24h],['За 60 секунд',s.events_60s],['Принято с 0.1.7',s.accepted_events_total],['Отклонено политиками',s.rejected_events_total],['Последний приём',date(s.last_seen_at)],['Последняя запись',date(s.last_received_at)],['Активные токены источника',s.active_tokens]]),
-            h('h3',{},'Подключение'),h('p',{},'Создайте токен logs:write для этого источника в разделе API-токены. Передайте его через CAJEER_TOKEN.'),h('pre',{},JSON.stringify({source:r.slug,level:'info',message:'Hello CajeerLogs',timestamp:new Date().toISOString()},null,2)),h('code',{},location.origin+apiPrefix()+'/ingest'));
+            policyTable(project,r),h('div',{class:'actions'},button('Обновить статистику источника',()=>void sourceDetail(path,id,epoch,signal)),button('Открыть логи источника',()=>openSourceLogs(r.project_id,r.id)),manage()&&project.status!=='archived'&&r.status==='active'?button('Подключить приложение',()=>onboarding(path,project,r,epoch,signal,sourceTypes),'primary'):null));
         if (admin()) root.append(redactionButton(url+'/redaction',r.slug));
         if (manage()) {
             root.append(form('Сохранить источник',sourceFields(r),async d=>{
@@ -59,21 +80,10 @@ async function sourceDetail(path,id,epoch,signal) {
             }));
             const actions=r.status==='archived'?[['restore','Восстановить источник']]:[[r.status==='active'?'disable':'enable',r.status==='active'?'Отключить источник':'Включить источник'],['archive','Архивировать источник']];
             root.append(h('div',{class:'actions'},actions.map(([action,label])=>button(label,()=>confirmAction(label,'История и ранее принятые задания сохраняются. Восстановление оставляет источник отключённым.',async()=>{await write(url+'/'+action,'POST',{revision:String(r.revision)});await mutationSuccess(epoch,'Состояние источника изменено.');}),'danger'))));
-            root.append(form('Отправить тестовый лог',[field('Токен logs:write',input('token',{type:'password',required:true,autocomplete:'off',maxlength:512})),field('HMAC v2 key ID (необязательно)',input('signing_key_id',{maxlength:36})),field('HMAC v2 signing secret',input('signing_secret',{type:'password',autocomplete:'off',maxlength:67}))],async(d,f)=>{
-                const token=String(d.get('token')); const kid=String(d.get('signing_key_id')||'').trim(); const secret=String(d.get('signing_secret')||''); f.elements.token.value='';f.elements.signing_secret.value='';
-                if((kid||secret)&&(!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(kid)||!/^sk_[a-f0-9]{64}$/.test(secret))) throw new Error('Укажите корректные ID и секрет ключа HMAC v2.');
-                if (!globalThis.crypto?.subtle) throw new Error('Для подписи запроса требуется HTTPS или localhost.');
-                const identity=await request('/auth/token',{bearer:token,signal});
-                if(identity.token?.project_id!==r.project_id||(identity.token.source_id!==null&&identity.token.source_id!==r.id)||!identity.token.scopes?.includes('logs:write')) throw new Error('Токен не разрешает запись в этот источник.');
-                const body=JSON.stringify({source:r.slug,level:'info',message:'CajeerLogs source connection test',timestamp:new Date().toISOString()});
-                const bytes=new TextEncoder(); const hex=v=>Array.from(new Uint8Array(v),b=>b.toString(16).padStart(2,'0')).join('');
-                const timestamp=String(Math.floor(Date.now()/1000));const nonce=hex(crypto.getRandomValues(new Uint8Array(16))); const key='source-test-'+nonce;
-                const endpoint=apiPrefix()+'/ingest';const digest=hex(await crypto.subtle.digest('SHA-256',bytes.encode(body)));
-                const signingKey=await crypto.subtle.importKey('raw',bytes.encode(secret||token),{name:'HMAC',hash:'SHA-256'},false,['sign']);
-                const signature=hex(await crypto.subtle.sign('HMAC',signingKey,bytes.encode([...(kid?['cajeerlogs-ingest-v2',kid]:['cajeerlogs-ingest-v1']),'POST',endpoint,timestamp,nonce,key,digest].join('\n'))));
-                const resp=await request('/ingest',{method:'POST',body,bearer:token,raw:true,extraHeaders:{'Idempotency-Key':key,'X-Log-Timestamp':timestamp,'X-Log-Nonce':nonce,'X-Log-Signature':signature,...(kid?{'X-Log-Key-Id':kid}:{})},signal});
-                const result=await resp.json();if(resp.status!==201||result.stored!==1||!result.event_ids?.[0]) throw new ApiError(resp.status,result);
-                if(active(epoch)&&dialog===modalEpoch) {notify('Тестовое событие сохранено: '+result.event_ids[0]); await sourceDetail(path,id,epoch,signal);}
+            if(r.status==='active'&&project.status!=='archived') root.append(form('Отправить тестовый лог',[field('Токен logs:write',input('token',{type:'password',required:true,autocomplete:'off',maxlength:512})),field('HMAC v2 key ID (необязательно)',input('signing_key_id',{maxlength:36})),field('HMAC v2 signing secret',input('signing_secret',{type:'password',autocomplete:'off',maxlength:67}))],async(d,f)=>{
+                const token=String(d.get('token'));const kid=String(d.get('signing_key_id')||'').trim();const secret=String(d.get('signing_secret')||'');f.elements.token.value='';f.elements.signing_secret.value='';
+                const event=await verifyConnection(r,{token,kid,secret},testPayload(r.slug),signal);
+                if(active(epoch)&&dialog===modalEpoch){notify('Тестовое событие сохранено: '+event.id);await sourceDetail(path,id,epoch,signal);}
             }));
         }
         loading.replaceWith(root);
@@ -81,7 +91,7 @@ async function sourceDetail(path,id,epoch,signal) {
 }
 async function projects(signal, epoch) {
     const root = h('div', {}, heading('Проекты и источники', 'Управление доступными проектами и подключёнными приложениями.'), projectSelector());
-    root.append(card(form('Найти проекты', [field('Поиск проектов', input('q', {value: state.projectQuery.q || '', maxlength: 255})), field('Статус проекта', select('status', [['all','Все'],['active','Активные'],['archived','Архивные']], state.projectQuery.status || 'all'))], async d => { state.projectQuery = {q: String(d.get('q')), status: String(d.get('status'))}; await loadProjects(signal); state.filters = null; state.logPosition = null; state.dashboard = null; if (active(epoch)) await render(); })));
+    root.append(projectDirectory(signal,epoch));
     if (admin())
         root.append(card(h('h2', {}, 'Создать проект'), form('Создать проект', nameFields(), async (d) => { const r = await write('/projects', 'POST', nameBody(d)); if (!active(epoch))
             return; const created = await get('/projects/' + enc(r.id)); if (!active(epoch))
@@ -92,8 +102,9 @@ async function projects(signal, epoch) {
     }
     const path = projectPath();
     const project = state.projects.find(p => p.id === state.project);
-    root.append(card(h('h2', {}, project.name), h('p', { class: 'muted' }, 'Slug: ' + project.slug), h('code', {}, project.id), h('div', { class: 'actions' }, h('a', { href: '#logs' }, 'Открыть логи'), manage() ? h('a', { href: '#tokens' }, 'Управление токенами') : null)));
+    root.append(card(h('h2', {}, project.name), h('p', { class: 'muted' }, 'Slug: ' + project.slug), h('code', {}, project.id), h('div', { class: 'actions' }, button('Открыть логи проекта',()=>{state.filters=null;state.logPosition=null;location.hash='logs';}), manage() ? h('a', { href: '#tokens' }, 'Управление токенами') : null)));
     root.append(card(h('h2', {}, 'Состояние проекта'), badge(project.status === 'archived' ? 'Архивный' : 'Активный'), h('p', {}, project.description || 'Описание не задано.'), h('p', {class:'muted'}, 'Архивация запрещает новые события. История и ранее принятые задания сохраняются; retention продолжает действовать.'), h('pre', {}, JSON.stringify(project.metadata || {}, null, 2))));
+    root.append(card(h('h2',{},'Политики проекта'),table(['Политика','Значение'],[['Хранение, дней',project.retention_days??'Без отдельного срока'],['Максимум байт запроса',project.max_body_bytes??'—'],['Событий в пакете',project.max_batch_events??'—'],['Событий в минуту',project.events_per_minute??'Без квоты проекта']])));
     if (admin()) {
         root.append(card(h('h2',{},'Маскирование проекта'),redactionButton(path+'/redaction')));
         root.append(card(h('h2',{},'HMAC-политика проекта'),button('Настроить обязательную подпись',async()=>{const policy=await get(path+'/signing'); if(!active(epoch))return; modal('HMAC проекта',form('Сохранить HMAC-политику',[field('Подпись ingest',select('required',[['false','Необязательная (глобальная политика действует)'],['true','Обязательная']],String(policy.require_ingest_hmac)))],async d=>{await write(path+'/signing','PUT',{required:d.get('required')==='true'});clearModal();await loadProjects(signal);await mutationSuccess(epoch,'HMAC-политика обновлена.');}));})));
@@ -113,9 +124,10 @@ async function projects(signal, epoch) {
             await loadProjects(signal); await mutationSuccess(epoch,'Проект обновлён.');
         }), button(project.status === 'archived' ? 'Восстановить проект' : 'Архивировать проект', () => confirmAction('Изменить состояние проекта', project.status === 'archived' ? 'Возобновить приём новых логов?' : 'Остановить новый ingest? История не удаляется.', async () => { await write(path + (project.status === 'archived' ? '/restore' : '/archive'), 'POST', {revision:String(project.revision)}); await loadProjects(signal); await mutationSuccess(epoch,'Состояние проекта изменено.'); }), 'danger')));
     }
-    const summary = await get(path + '/stats', {}, signal);
-    root.append(card(h('h2', {}, 'Статистика проекта'), table(['Показатель','Значение'], [['Источники',summary.sources],['Участники',summary.members],['Активные токены',summary.active_tokens],['События',summary.events],['За 24 часа',summary.events_24h],['Задания в очереди',summary.queued_jobs],['Dead-letter',summary.dead_jobs],['Последнее событие',date(summary.last_received_at)]])));
-    root.append(sourceSection(path, signal, epoch));
+    const statsBox=h('div');let statsEpoch=0;
+    async function refreshStats(){const seq=++statsEpoch;statsBox.replaceChildren(h('p',{role:'status'},'Загрузка статистики…'));try{const summary=await get(path+'/stats',{},signal);if(!active(epoch)||signal.aborted||seq!==statsEpoch)return;statsBox.replaceChildren(table(['Показатель','Значение'], [['Источники',summary.sources],['Участники',summary.members],['Активные токены',summary.active_tokens],['События',summary.events],['За 24 часа',summary.events_24h],['Задания в очереди',summary.queued_jobs],['Dead-letter',summary.dead_jobs],['Последнее событие',date(summary.last_received_at)],['Активные источники',summary.active_sources??'—'],['Отключённые источники',summary.disabled_sources??'—'],['Архивные источники',summary.archived_sources??'—']]));}catch(e){if(active(epoch)&&seq===statsEpoch&&e.name!=='AbortError')statsBox.replaceChildren(message(e));}}
+    root.append(card(h('h2',{},'Статистика проекта'),h('p',{class:'muted'},'События за 24 часа считаются по времени приёма; общее число — сохранённые записи.'),button('Обновить статистику проекта',()=>void refreshStats()),statsBox));void refreshStats();
+    root.append(sourceSection(path, project, signal, epoch));
     if (admin()) {
         root.append(card(h('h2', {}, 'Участники проекта'), h('p', { class: 'muted' }, 'Найдите пользователя по email или UUID. Администраторы имеют доступ ко всем проектам независимо от членства.'), directoryPicker({path:'/users',label:'Поиск пользователя для проекта',query:{status:'active'},signal,epoch,display:u=>u.email,choose:u=>{const target=root.querySelector('input[name="user"]');if(target){target.value=u.id;target.focus();}}}), form('Добавить участника', [field('UUID пользователя', input('user', { required: true, pattern: '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}' })), field('Роль в проекте', select('project_role', [['','Глобальная роль'],['operator','Оператор'],['viewer','Наблюдатель']], ''))], async (d) => { await write(path + '/members/' + enc(String(d.get('user'))), 'PUT', {role:d.get('project_role') || null}); await mutationSuccess(epoch, 'Доступ предоставлен.'); }), pagedList({ path: path + '/members', query: { limit: 50 }, signal, epoch, headers: ['Email', 'Глобальная роль', 'Роль проекта', 'UUID', ''], rows: r => [r.email, roles[r.role] || r.role, r.project_role ? roles[r.project_role] : 'Наследуется', h('code', {}, r.id), h('div', {class:'actions'}, button('Изменить роль', () => modal('Роль участника', form('Сохранить роль', [field('Роль в проекте', select('role', [['','Глобальная роль'],['operator','Оператор'],['viewer','Наблюдатель']], r.project_role || ''))], async d => { await write(path + '/members/' + enc(r.id), 'PUT', {role:d.get('role') || null}); clearModal(); await mutationSuccess(epoch,'Роль участника изменена.'); }))), button('Убрать доступ', () => confirmAction('Удалить участника', `Убрать ${r.email} из проекта?`, async () => { await write(path + '/members/' + enc(r.id), 'DELETE'); await mutationSuccess(epoch, 'Доступ удалён.'); }), 'danger'))] })));
     }
