@@ -1,5 +1,7 @@
 # Log Search — 0.2.8
 
+> В 0.2.9 курсоры HTTP подписаны и изменён формат пагинации; см. [Pagination & Log Explorer](Pagination-Log-Explorer.md).
+
 Рабочий PostgreSQL Explorer поверх событий, принятых через `/api/v1/ingest`. Не требует дополнительного поискового сервера. PostgreSQL 17+, PHP 8.4+, `pdo_pgsql`.
 
 ## Обновление 0.2.7 → 0.2.8

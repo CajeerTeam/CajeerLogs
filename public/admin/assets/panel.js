@@ -4,9 +4,9 @@ const apiPrefix = document.querySelector('meta[name=cajeer-api]').content;
 const version = document.querySelector('meta[name=cajeer-version]').content;
 const roles = { administrator: 'Администратор', operator: 'Оператор', viewer: 'Наблюдатель' };
 const levels = ['debug', 'info', 'notice', 'warning', 'error', 'critical', 'alert', 'emergency'];
-const state = { user: null, csrf: null, projects: [], project: null, projectCursor: null, projectQuery: {}, route: 'overview', epoch: 0, authEpoch: 0, controller: null, filters: null };
+const state = { user: null, csrf: null, projects: [], project: null, projectCursor: null, projectQuery: {}, route: 'overview', epoch: 0, authEpoch: 0, controller: null, filters: null, logPosition: null };
 const names = { overview: 'Обзор', logs: 'Логи', projects: 'Проекты и источники', tokens: 'API-токены', users: 'Пользователи', system: 'Система', settings: 'Настройки' };
-const errors = { unauthorized: 'Неверные учётные данные или сессия истекла.', forbidden: 'Недостаточно прав для операции.', csrf_failed: 'Сессия изменилась. Обновите страницу и повторите операцию.', service_unavailable: 'Сервис или база данных временно недоступны.', rate_limited: 'Слишком много запросов. Повторите позже.', last_administrator: 'Нельзя отключить последнего администратора.', conflict: 'Конфликт с существующими данными.', invalid_password: 'Текущий пароль неверен.', not_found: 'Объект не найден.' };
+const errors = { unauthorized: 'Неверные учётные данные или сессия истекла.', forbidden: 'Недостаточно прав для операции.', csrf_failed: 'Сессия изменилась. Обновите страницу и повторите операцию.', service_unavailable: 'Сервис или база данных временно недоступны.', rate_limited: 'Слишком много запросов. Повторите позже.', last_administrator: 'Нельзя отключить последнего администратора.', conflict: 'Конфликт с существующими данными.', invalid_password: 'Текущий пароль неверен.', not_found: 'Объект не найден.', page_changed: 'Страница изменилась. Обновите поиск перед экспортом.' };
 class ApiError extends Error {
     constructor(status, data) { super((errors[data?.error] || data?.message || `HTTP ${status}`) + (data?.request_id ? ` (ID: ${data.request_id})` : '')); this.status = status; this.data = data; }
 }
@@ -60,8 +60,8 @@ $('modal').addEventListener('close', () => { if (!$('modal').open) {
 } });
 function modal(title, content) { clearModal(); $('modal-title').textContent = title; $('modal-body').append(content); $('modal').showModal(); }
 function active(epoch) { return epoch === state.epoch && !!state.user; }
-function clearSession(reason) { state.authEpoch++; state.epoch++; state.controller?.abort(); state.user = null; state.csrf = null; state.projects = []; state.project = null; state.projectCursor = null; state.projectQuery = {}; state.filters = null; clearModal(); $('notice').hidden = true; $('notice').textContent = ''; renderLogin(reason); }
-async function request(path, { method = 'GET', body, query, signal, raw = false, login = false, allowStatus = [] } = {}) {
+function clearSession(reason) { state.authEpoch++; state.epoch++; state.controller?.abort(); state.user = null; state.csrf = null; state.projects = []; state.project = null; state.projectCursor = null; state.projectQuery = {}; state.filters = null; state.logPosition = null; clearModal(); $('notice').hidden = true; $('notice').textContent = ''; renderLogin(reason); }
+async function request(path, { method = 'GET', body, query, signal, raw = false, login = false, allowStatus = [], ifMatch = null } = {}) {
     const url = new URL(apiPrefix + path, location.origin);
     if (url.origin !== location.origin)
         throw new Error('Недопустимый адрес API.');
@@ -69,6 +69,7 @@ async function request(path, { method = 'GET', body, query, signal, raw = false,
         if (v !== '' && v !== null && v !== undefined)
             url.searchParams.set(k, String(v));
     const headers = { Accept: raw ? '*/*' : 'application/json' };
+    if (ifMatch) headers['If-Match'] = ifMatch;
     if (body !== undefined) {
         headers['Content-Type'] = 'application/json';
         body = JSON.stringify(body);
@@ -157,7 +158,7 @@ function renderLogin(reason = '') {
         field('Email', input('email', { type: 'email', required: true, autocomplete: 'username', maxlength: 255 })), field('Пароль', input('password', { type: 'password', required: true, autocomplete: 'current-password', maxlength: 1024 })), field('Код 2FA / recovery (если включено)', input('otp', { autocomplete: 'one-time-code', maxlength: 32 }))
     ], async (d, f) => { const credentials = { email: String(d.get('email')), password: String(d.get('password')) }; if (d.get('otp')) credentials.otp=String(d.get('otp')).trim(); const res = await request('/auth/login', { method: 'POST', body: credentials, login: true }); f.reset(); await startSession(res); }, { cls: 'stack' }), h('p', { class: 'muted small' }, 'CajeerLogs ' + version)));
 }
-async function startSession(res) { state.authEpoch++; state.user = res.user; state.enrollmentRequired = Boolean(res.enrollment_required); state.csrf = res.csrf_token; state.projects = []; state.project = null; state.projectCursor = null; state.projectQuery = {}; state.filters = null; await render(); }
+async function startSession(res) { state.authEpoch++; state.user = res.user; state.enrollmentRequired = Boolean(res.enrollment_required); state.csrf = res.csrf_token; state.projects = []; state.project = null; state.projectCursor = null; state.projectQuery = {}; state.filters = null; state.logPosition = null; await render(); }
 async function bootstrap() { try {
     await startSession(await get('/auth/me'));
 }
@@ -186,7 +187,7 @@ setInterval(() => void revalidateSession(), 60000);
 async function loadProjects(signal, more = false) { const result = await get('/projects', { ...state.projectQuery, limit: 100, cursor: more ? state.projectCursor : null }, signal); if (signal?.aborted)
     return; state.projects = more ? [...state.projects, ...result.items.filter(p => !state.projects.some(x => x.id === p.id))] : result.items; state.projectCursor = result.next_cursor; if (!state.project || !state.projects.some(p => p.id === state.project))
     state.project = state.projects[0]?.id ?? null; }
-function projectSelector() { const picker = select('active_project', state.projects.map(p => [p.id, `${p.name} (${p.slug})${p.status === 'archived' ? ' — архив' : ''}`]), state.project, { 'aria-label': 'Активный проект' }); picker.disabled = !state.projects.length; picker.addEventListener('change', () => { state.project = picker.value; state.filters = null; void render(); }); return h('div', { class: 'project-strip' }, h('strong', {}, 'Проект:'), picker, state.projectCursor ? button('Ещё проекты', async (e) => { const b = e.currentTarget; const signal = state.controller.signal; b.disabled = true; try {
+function projectSelector() { const picker = select('active_project', state.projects.map(p => [p.id, `${p.name} (${p.slug})${p.status === 'archived' ? ' — архив' : ''}`]), state.project, { 'aria-label': 'Активный проект' }); picker.disabled = !state.projects.length; picker.addEventListener('change', () => { state.project = picker.value; state.filters = null; state.logPosition = null; void render(); }); return h('div', { class: 'project-strip' }, h('strong', {}, 'Проект:'), picker, state.projectCursor ? button('Ещё проекты', async (e) => { const b = e.currentTarget; const signal = state.controller.signal; b.disabled = true; try {
     await loadProjects(signal, true);
     if (!signal.aborted)
         void render();
@@ -304,8 +305,8 @@ async function overview(signal) { const root = h('div', {}, heading('Обзор'
     root.append(needProject());
     return root;
 } const to = new Date(); const from = new Date(to.getTime() - 86400000); const q = { project_id: state.project, from: from.toISOString(), to: to.toISOString() }; const [stats, logs] = await Promise.all([get('/logs/stats', { ...q, interval: 'hour' }, signal), get('/logs', { ...q, limit: 10 }, signal)]); root.append(metrics(stats), timeline(stats), h('div', { class: 'chart-grid' }, bars('По уровням', Object.entries(stats.by_level)), bars('Источники', stats.by_source.slice(0, 10).map(x => [x.source, x.count]))), card(h('div', { class: 'page-head' }, h('h2', {}, 'Последние события'), h('a', { href: '#logs' }, 'Все логи')), logTable(logs.items, state.project))); return root; }
-function defaultFilters() { return { limit: '50' }; }
-function logFilters(sources) { const f = state.filters || defaultFilters(); const val = k => f[k] || ''; const fields = [field('Поиск', input('q', { value: val('q'), maxlength: 512, placeholder: 'database OR timeout' })), field('Уровень', select('level', [['', 'Все'], ...levels.map(l => [l, l])], val('level'))), field('Источник', input('source', { value: val('source'), list: 'log-sources', maxlength: 100, placeholder: 'slug' })), field('Сервис', input('service', { value: val('service'), maxlength: 255 })), field('С (UTC)', input('from', { type: 'datetime-local', value: val('from') })), field('До (UTC)', input('to', { type: 'datetime-local', value: val('to') })), field('На странице', select('limit', [['25', '25'], ['50', '50'], ['100', '100']], val('limit') || '50'))]; const extra = h('details', {}, h('summary', {}, 'Дополнительные фильтры'), h('div', { class: 'form-grid' }, field('Источник UUID', input('source_id', { value: val('source_id'), list: 'log-source-ids', maxlength: 36 })), field('Host', input('host', { value: val('host'), maxlength: 255 })), field('Trace ID', input('trace_id', { value: val('trace_id'), maxlength: 128 })), field('Request ID', input('request_id', { value: val('request_id'), maxlength: 128 })), field('Тег', input('tag', { value: val('tag'), maxlength: 128 })), field('JSON context', h('textarea', { name: 'context', maxlength: 4096, placeholder: '{"error_code":"DB_DOWN"}' }, val('context'))), field('Режим поиска', select('q_mode', [['', 'Web (по умолчанию)'], ['plain', 'Все слова'], ['phrase', 'Фраза']], val('q_mode'))), ...[['levels','Уровни (JSON-массив)','["error","warning"]'],['sources','Источники (JSON-массив)','["app","worker"]'],['services','Сервисы (JSON-массив)','["api","worker"]'],['hosts','Hosts (JSON-массив)','["host1","host2"]'],['trace_ids','Trace IDs (JSON-массив)','["trace-1","trace-2"]'],['request_ids','Request IDs (JSON-массив)','["req-1","req-2"]'],['source_ids','UUID источников (JSON-массив)','["UUID"]'],['tags_all','Все теги (JSON-массив)','["db","prod"]'],['tags_any','Любой тег (JSON-массив)','["db","queue"]'],['context_path','JSON-путь context','["nested","region"]']].map(([key,title,example]) => field(title,input(key,{value:val(key),maxlength:4096,placeholder:example}))), field('Значение JSON-пути (scalar)',input('context_equals',{value:val('context_equals'),maxlength:4096,placeholder:'"eu"'})))); if (['source_id', 'host', 'trace_id', 'request_id', 'tag', 'context','q_mode','levels','sources','services','hosts','source_ids','trace_ids','request_ids','tags_all','tags_any','context_path','context_equals'].some(k => val(k)))
+function defaultFilters() { return { limit: '50', consistency: 'live' }; }
+function logFilters(sources) { const f = state.filters || defaultFilters(); const val = k => f[k] || ''; const fields = [field('Поиск', input('q', { value: val('q'), maxlength: 512, placeholder: 'database OR timeout' })), field('Уровень', select('level', [['', 'Все'], ...levels.map(l => [l, l])], val('level'))), field('Источник', input('source', { value: val('source'), list: 'log-sources', maxlength: 100, placeholder: 'slug' })), field('Сервис', input('service', { value: val('service'), maxlength: 255 })), field('С (UTC)', input('from', { type: 'datetime-local', value: val('from') })), field('До (UTC)', input('to', { type: 'datetime-local', value: val('to') })), field('На странице', select('limit', [['25', '25'], ['50', '50'], ['100', '100']], val('limit') || '50')), field('Режим страницы', select('consistency', [['live', 'Живой поиск'], ['snapshot', 'Ограниченный снимок']], val('consistency') || 'live'))]; const extra = h('details', {}, h('summary', {}, 'Дополнительные фильтры'), h('div', { class: 'form-grid' }, field('Источник UUID', input('source_id', { value: val('source_id'), list: 'log-source-ids', maxlength: 36 })), field('Host', input('host', { value: val('host'), maxlength: 255 })), field('Trace ID', input('trace_id', { value: val('trace_id'), maxlength: 128 })), field('Request ID', input('request_id', { value: val('request_id'), maxlength: 128 })), field('Тег', input('tag', { value: val('tag'), maxlength: 128 })), field('JSON context', h('textarea', { name: 'context', maxlength: 4096, placeholder: '{"error_code":"DB_DOWN"}' }, val('context'))), field('Режим поиска', select('q_mode', [['', 'Web (по умолчанию)'], ['plain', 'Все слова'], ['phrase', 'Фраза']], val('q_mode'))), ...[['levels','Уровни (JSON-массив)','["error","warning"]'],['sources','Источники (JSON-массив)','["app","worker"]'],['services','Сервисы (JSON-массив)','["api","worker"]'],['hosts','Hosts (JSON-массив)','["host1","host2"]'],['trace_ids','Trace IDs (JSON-массив)','["trace-1","trace-2"]'],['request_ids','Request IDs (JSON-массив)','["req-1","req-2"]'],['source_ids','UUID источников (JSON-массив)','["UUID"]'],['tags_all','Все теги (JSON-массив)','["db","prod"]'],['tags_any','Любой тег (JSON-массив)','["db","queue"]'],['context_path','JSON-путь context','["nested","region"]']].map(([key,title,example]) => field(title,input(key,{value:val(key),maxlength:4096,placeholder:example}))), field('Значение JSON-пути (scalar)',input('context_equals',{value:val('context_equals'),maxlength:4096,placeholder:'"eu"'})))); if (['source_id', 'host', 'trace_id', 'request_id', 'tag', 'context','q_mode','levels','sources','services','hosts','source_ids','trace_ids','request_ids','tags_all','tags_any','context_path','context_equals'].some(k => val(k)))
     extra.open = true; const filter = form('Найти', fields, async (d) => { const next = Object.fromEntries(d); for (const key of ['from', 'to'])
     if (next[key]) {
         if (!Number.isFinite(Date.parse(next[key] + 'Z')))
@@ -333,11 +334,11 @@ if (next.context_equals) {
     let v; try { v = JSON.parse(next.context_equals); } catch { throw new Error('Некорректное JSON-значение.'); }
     if (v !== null && typeof v === 'object') throw new Error('Значение JSON-пути должно быть скаляром.');
     // Keep the original text; JavaScript may lose decimal precision.
-} state.filters = next; await render(); }, { after: [button('Сбросить', () => { state.filters = null; void render(); })] }); filter.insertBefore(extra, filter.querySelector('.actions')); filter.append(h('datalist', { id: 'log-sources' }, sources.map(s => h('option', { value: s.slug }, s.name))), h('datalist', { id: 'log-source-ids' }, sources.map(s => h('option', { value: s.id }, s.name)))); return filter; }
+} state.filters = next; state.logPosition = null; await render(); }, { after: [button('Сбросить', () => { state.filters = null; state.logPosition = null; void render(); })] }); filter.insertBefore(extra, filter.querySelector('.actions')); filter.append(h('datalist', { id: 'log-sources' }, sources.map(s => h('option', { value: s.slug }, s.name))), h('datalist', { id: 'log-source-ids' }, sources.map(s => h('option', { value: s.id }, s.name)))); return filter; }
 function queryFilters() { const f = { ...(state.filters || defaultFilters()), project_id: state.project }; for (const k of ['from', 'to'])
     if (f[k])
         f[k] = new Date(f[k] + 'Z').toISOString(); return f; }
-function pagedList({ path, query = {}, headers, rows, signal, epoch, renderItems, exportPage = false }) {
+function pagedList({ path, query = {}, headers, rows, signal, epoch, renderItems }) {
     const box = h('div', {}, h('p', { role: 'status' }, 'Загрузка…'));
     let cursors = [null], index = 0, next = null, busy = false, pageData = null;
     const project = state.project;
@@ -357,9 +358,7 @@ function pagedList({ path, query = {}, headers, rows, signal, epoch, renderItems
             const items = data.items;
             const controls = h('div', { class: 'pager' }, h('span', { class: 'muted', role: 'status' }, `Страница ${index + 1} · ${items.length} записей`), h('div', { class: 'actions' }, button('Назад', () => void load(index - 1), '', { disabled: index === 0 }), button('Далее', () => { cursors[index + 1] = next; cursors = cursors.slice(0, index + 2); void load(index + 1); }, '', { disabled: !next })));
             box.replaceChildren(renderItems ? renderItems(items, project) : table(headers, items.map(rows)), controls);
-            if (exportPage) {
-                controls.prepend(h('div', { class: 'actions' }, button('CSV', e => void download('csv', e.currentTarget)), button('JSON', e => void download('json', e.currentTarget))));
-            }
+
         }
         catch (e) {
             if (e.name !== 'AbortError' && active(epoch)) {
@@ -386,33 +385,68 @@ function pagedList({ path, query = {}, headers, rows, signal, epoch, renderItems
             }
         }
     }
-    async function download(format, b) { b.disabled = true; try {
-        const r = await request('/logs/export', { query: { ...query, cursor: cursors[index], format }, signal, raw: true });
-        const blob = await r.blob();
-        if (!active(epoch))
-            return;
-        const url = URL.createObjectURL(blob);
-        const a = h('a', { href: url, download: 'cajeerlogs.' + format });
-        document.body.append(a);
-        a.click();
-        a.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
-        notify('Экспорт текущей страницы подготовлен.');
-    }
-    catch (e) {
-        if (e.name !== 'AbortError' && active(epoch))
-            notify(e.message);
-    }
-    finally {
-        b.disabled = false;
-    } }
     void load();
+    return box;
+}
+// Server cursor navigation, with only request-local in-memory restoration. Never
+// persist log filters or cursors to URLs, localStorage or sessionStorage.
+function logPager(query, signal, epoch) {
+    const box = h('div', {}, h('p', { role: 'status' }, 'Загрузка…'));
+    const signature = JSON.stringify(query), project = state.project;
+    const saved = state.logPosition?.signature === signature ? state.logPosition : null;
+    let current = null, busy = false, index = saved?.index || 0;
+    async function load(cursor = null, target = 0) {
+        if (busy) return;
+        busy = true; box.setAttribute('aria-busy', 'true');
+        const controls = [...box.querySelectorAll('button')];
+        const disabled = controls.map(b => b.disabled); controls.forEach(b => b.disabled = true);
+        try {
+            const data = await get('/logs', { ...query, cursor }, signal);
+            if (!active(epoch) || signal.aborted) return;
+            current = data; index = Math.max(0, target);
+            state.logPosition = { signature, cursor: data.page_cursor, index };
+            const info = data.snapshot_at ? 'Снимок по received_at: ' + date(data.snapshot_at) : 'Живой поиск: новые события могут менять страницы';
+            const actions = h('div', { class: 'actions' },
+                button('Назад', () => void load(data.prev_cursor, index - 1), '', { disabled: !data.prev_cursor }),
+                button('Далее', () => void load(data.next_cursor, index + 1), '', { disabled: !data.next_cursor }),
+                button('Начать заново', () => void load(null, 0)));
+            const exports = h('div', { class: 'actions' }, button('CSV', e => void download('csv', e.currentTarget)), button('JSON', e => void download('json', e.currentTarget)));
+            box.replaceChildren(logTable(data.items, project), h('p', {class:'muted small'}, info),
+                h('div', {class:'pager'}, h('span', {class:'muted', role:'status'}, `Страница ${index + 1} · ${data.items.length} записей`), exports, actions));
+        } catch (e) {
+            if (e.name === 'AbortError' || !active(epoch)) return;
+            if (e.status === 401 || e.status === 403) { current = null; state.logPosition = null; box.replaceChildren(message(e)); }
+            else {
+                box.querySelector('.error')?.remove();
+                if (!current) box.replaceChildren();
+                box.prepend(h('div', {class:'error'}, message(e), button('Начать новый поиск', () => void load(null, 0))));
+            }
+        } finally {
+            busy = false; box.removeAttribute('aria-busy');
+            controls.forEach((b,i) => { if (b.isConnected) b.disabled = disabled[i]; });
+        }
+    }
+    async function download(format,b) {
+        if (!current || busy) return;
+        const page = current; b.disabled = true;
+        try {
+            const r = await request('/logs/export', {query:{...query,cursor:page.page_cursor,format}, signal,raw:true,ifMatch:'"'+page.page_digest+'"'});
+            if (r.headers.get('X-Page-Digest') !== page.page_digest) throw new Error('Страница изменилась. Обновите поиск перед экспортом.');
+            const blob = await r.blob();
+            if (!active(epoch) || signal.aborted || current !== page) return;
+            const url = URL.createObjectURL(blob), a = h('a',{href:url,download:'cajeerlogs.'+format});
+            document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url),1000);
+            notify('Экспорт текущей страницы подготовлен.');
+        } catch(e) { if(e.name!=='AbortError' && active(epoch)) notify(e.message); }
+        finally { b.disabled = false; }
+    }
+    void load(saved?.cursor || null,index);
     return box;
 }
 async function logs(signal, epoch) { const root = h('div', {}, heading('Логи', 'Поиск, фильтры и просмотр сохранённых событий.'), projectSelector()); if (!state.project) {
     root.append(needProject());
     return root;
-} const src = await get(projectPath() + '/sources', { limit: 100 }, signal); root.append(card(logFilters(src.items)), card(h('h2', {}, 'События'), pagedList({ path: '/logs', query: queryFilters(), signal, epoch, renderItems: logTable, exportPage: true }))); return root; }
+} const src = await get(projectPath() + '/sources', { limit: 100 }, signal); root.append(card(logFilters(src.items)), card(h('h2', {}, 'События'), logPager(queryFilters(), signal, epoch))); return root; }
 const nameFields = () => [field('Название', input('name', { required: true, maxlength: 255 })), field('Slug', input('slug', { required: true, maxlength: 100, pattern: '[a-z0-9]+(-[a-z0-9]+)*', placeholder: 'my-project' }))];
 const nameBody = d => ({ name: String(d.get('name')).trim(), slug: String(d.get('slug')).trim() });
 function mutationSuccess(epoch, label) { notify(label); if (active(epoch))
@@ -505,11 +539,11 @@ async function sourceDetail(path,id,epoch,signal) {
 }
 async function projects(signal, epoch) {
     const root = h('div', {}, heading('Проекты и источники', 'Управление доступными проектами и подключёнными приложениями.'), projectSelector());
-    root.append(card(form('Найти проекты', [field('Поиск проектов', input('q', {value: state.projectQuery.q || '', maxlength: 255})), field('Статус проекта', select('status', [['all','Все'],['active','Активные'],['archived','Архивные']], state.projectQuery.status || 'all'))], async d => { state.projectQuery = {q: String(d.get('q')), status: String(d.get('status'))}; await loadProjects(signal); state.filters = null; if (active(epoch)) await render(); })));
+    root.append(card(form('Найти проекты', [field('Поиск проектов', input('q', {value: state.projectQuery.q || '', maxlength: 255})), field('Статус проекта', select('status', [['all','Все'],['active','Активные'],['archived','Архивные']], state.projectQuery.status || 'all'))], async d => { state.projectQuery = {q: String(d.get('q')), status: String(d.get('status'))}; await loadProjects(signal); state.filters = null; state.logPosition = null; if (active(epoch)) await render(); })));
     if (admin())
         root.append(card(h('h2', {}, 'Создать проект'), form('Создать проект', nameFields(), async (d) => { const r = await write('/projects', 'POST', nameBody(d)); if (!active(epoch))
             return; const created = await get('/projects/' + enc(r.id)); if (!active(epoch))
-            return; state.projectQuery = {}; state.projects.push(created); state.project = created.id; state.filters = null; await mutationSuccess(epoch, 'Проект создан.'); })));
+            return; state.projectQuery = {}; state.projects.push(created); state.project = created.id; state.filters = null; state.logPosition = null; await mutationSuccess(epoch, 'Проект создан.'); })));
     if (!state.project) {
         root.append(needProject());
         return root;

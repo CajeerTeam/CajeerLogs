@@ -36,11 +36,14 @@ SQL)->fetchAll(PDO::FETCH_ASSOC);
 
     public static function queries(string $project,?string $trace=null,?array $filters=null): array
     {
-        $queries=['latest'=>LogRepository::pageStatement(LogQuery::parse(['project_id'=>$project]))];
-        if ($trace!==null) $queries['trace']=LogRepository::pageStatement(LogQuery::parse(['project_id'=>$project,'trace_id'=>$trace]));
+        $first=['d'=>'older','t'=>null,'id'=>null,'w'=>null,'exp'=>0];
+        $queries=['latest'=>LogRepository::explorerStatement(LogQuery::parse(['project_id'=>$project]),$first)];
+        if ($trace!==null) $queries['trace']=LogRepository::explorerStatement(LogQuery::parse(['project_id'=>$project,'trace_id'=>$trace]),$first);
         if ($filters!==null) {
             if (array_key_exists('project_id',$filters)) throw new DatabaseException('The project must be specified only as the first argument.');
-            $queries['filtered']=LogRepository::pageStatement(LogQuery::parse(['project_id'=>$project]+$filters));
+            $query=LogQuery::parse(['project_id'=>$project]+$filters);
+            if ($query->cursor!==null || $query->consistency!=='live') throw new DatabaseException('EXPLAIN accepts first-page live filters only.');
+            $queries['filtered']=LogRepository::explorerStatement($query,$first);
         }
         $queries['retention_candidates']=["SELECT l.id,l.received_at FROM projects p JOIN LATERAL (SELECT id,received_at FROM log_events WHERE project_id=p.id AND received_at<statement_timestamp()-p.retention_days*interval '1 day' ORDER BY received_at,id LIMIT 1000) l ON true WHERE p.id=CAST(:project AS uuid) AND p.retention_days IS NOT NULL",['project'=>$project]];
         $queries['queue_ready']=["SELECT id FROM jobs WHERE queue='ingest-v1' AND status='pending' AND available_at<=statement_timestamp() ORDER BY available_at,id LIMIT 100",[]];

@@ -36,7 +36,7 @@ final class SearchRuntime
                     self::validateText((int)$row['nodes'],(string)$row['tree'],$query);
                     $limit();
                 }
-                return $read(new LogRepository($this->pdo));
+                return $read(new LogRepository($this->pdo),$limit);
             },readOnly:true);
         } catch (PDOException $e) {
             if ((string)($e->errorInfo[0]??$e->getCode())==='57014') throw self::timeout();

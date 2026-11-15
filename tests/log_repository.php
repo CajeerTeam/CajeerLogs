@@ -36,13 +36,14 @@ class RepoStatement extends PDOStatement {
     public function closeCursor():bool{return true;}
 }
 class RepoPDO extends PDO {
-    public bool $active=true;public string $result='all';public string $sql='';public array $last=[];public array $pages=[];
+    public bool $active=true;public string $result='all';public string $sql='';public array $last=[];public array $pages=[];public array $calls=[];
     public function __construct(){}
     public function inTransaction():bool{return $this->active;}
-    public function prepare(string $query,array $options=[]):PDOStatement|false {$this->sql=$query;return new RepoStatement($this,$query);}
+    public function prepare(string $query,array $options=[]):PDOStatement|false {$this->sql=$query;$this->calls[]=$query;return new RepoStatement($this,$query);}
 }
 $pdo=new RepoPDO();$repo=new LogRepository($pdo);$ids=$repo->storeBatch([$e,$e],$p,['app'=>$s],$t);
 check($ids===array_column(json_decode($pdo->last['events'],true,32,JSON_THROW_ON_ERROR),'id'),'return request order regardless of database row order');
+check(str_contains($pdo->calls[count($pdo->calls)-2],'pg_advisory_xact_lock_shared')&&str_contains($pdo->sql,'token_id,clock_timestamp()'),'writer fence precedes INSERT and received_at uses database clock');
 check(str_contains($pdo->sql,'s.project_id=p.project_id')&&str_contains($pdo->sql,'t.source_id=s.id')&&str_contains($pdo->sql,"jsonb_typeof(t.scopes)='array'")&&str_contains($pdo->sql,'jsonb_array_length')&&str_contains($pdo->sql,'count(*) FROM eligible'),'all-or-nothing scope SQL');
 foreach(['empty','partial','wrong'] as $result){$pdo->result=$result;check(failure(fn()=>$repo->storeBatch([$e,$e],$p,['app'=>$s],$t)) instanceof RuntimeException,'reject incomplete/mismatched DB receipt '.$result);}
 $pdo->active=false;check(failure(fn()=>$repo->storeBatch([$e],$p,['app'=>$s],$t)) instanceof LogicException,'transaction required');
@@ -55,4 +56,7 @@ $r=fn(string $id)=>['id'=>$id,'timestamp'=>'2026-01-01T00:00:00.000000Z','contex
 $pdo->pages=[[$r($t),$r($s)],[$r($s),$r($p)],[$r($p)]];
 $q=LogQuery::parse(['project_id'=>$p,'limit'=>'1']);
 check(array_column(iterator_to_array($repo->iterate($q),false),'id')===[$t,$s,$p]&&$pdo->last['cursor_id']===$s,'bounded iteration follows cursor across equal timestamps');
+$encoded=fn(string $id)=>['id'=>$id,'timestamp'=>'2026-01-01T00:00:00.000000Z','payload'=>json_encode(['id'=>$id,'timestamp'=>'2026-01-01T00:00:00.000000Z','context'=>(object)[],'tags'=>[]],JSON_THROW_ON_ERROR)];
+$pdo->pages=[[$encoded($t),['payload'=>null]],[$encoded($s),['payload'=>null]],[$encoded($p)]];
+check(array_column(iterator_to_array($repo->iterateBounded($q),false),'id')===[$t,$s,$p]&&$pdo->last['cursor_id']===$s&&str_contains($pdo->sql,'sum(octet_length(payload))'),'CLI stream uses byte-bounded keyset and actual last emitted row');
 echo "Log repository: $n checks passed\n";

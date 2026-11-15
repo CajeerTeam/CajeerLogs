@@ -2,6 +2,14 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.2.9] — Pagination & Log Explorer
+
+- Подписанные курсоры v2 (HMAC-SHA256, область доступа, фильтры, направление, TTL); старые HTTP cursors требуют нового поиска.
+- Двусторонний keyset и ограниченный snapshot по received_at с проектным fence для штатных INSERT.
+- Бюджет 2 МиБ данных страницы, continuation для CSV/JSON и If-Match для проверки совпадения страницы; bounded JSONL CLI stream.
+- Log Explorer с серверными курсорами, восстановлением позиции в памяти сессии, новым поиском и проверкой экспорта.
+- Миграции 0001–0014 неизменны; Public Preview до PostgreSQL release gate.
+
 ## [0.2.8] — Log Search
 
 - Составные списочные фильтры, три режима FTS, точные JSONB-пути и теги all/any; общие predicates для list/stats/export.

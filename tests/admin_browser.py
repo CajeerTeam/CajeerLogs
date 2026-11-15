@@ -72,7 +72,7 @@ class Fixture:
         self.user = None; self.totp_enabled=False; self.require_totp=False; self.role = 'administrator'; self.projects=[{'id':P1,'name':'Production','slug':'production','revision':'1','status':'active','description':'','metadata':{},'max_body_bytes':1048576,'max_batch_events':100,'created_at':'2026-01-01T00:00:00Z'}]
         self.sources=[{'id':S1,'project_id':P1,'name':'Application','slug':'app','created_at':'2026-01-01T00:00:00Z','status':'active','revision':'1','source_type':'application','metadata':{}}]
         self.users=[{'id':U1,'email':'admin@example.test','role':'administrator','blocked_at':None}]
-        self.members=[]; self.tokens=[]; self.accounts=[]; self.calls=[]; self.fail_next=False; self.redaction={}
+        self.members=[]; self.tokens=[]; self.accounts=[]; self.calls=[]; self.fail_next=False; self.change_export=False; self.redaction={}
         self.event={'id':E1,'project_id':P1,'source_id':S1,'source':'app','service':'api','host':'host-1','level':'error','message':'<img src=x onerror="window.pwned=1"> database error','context':{'secret':'[redacted]','html':'<script>window.pwned=1</script>'},'trace_id':'trace-1','request_id':'req-1','tags':['prod'],'timestamp':'2026-11-14T00:00:00Z','received_at':'2026-11-14T00:00:01Z'}
     def route(self,r):
         req=r.request; path=urlsplit(req.url).path.removeprefix('/api/v1'); method=req.method; q={k:v[0] for k,v in parse_qs(urlsplit(req.url).query).items()}; body=req.post_data_json if req.post_data else None
@@ -86,7 +86,7 @@ class Fixture:
             if body['password']=='bad' or (self.totp_enabled and body.get('otp')!='123456'): return err(401,'unauthorized')
             self.user={'id':U1 if self.role=='administrator' else U2,'email':body['email'],'role':self.role,'two_factor_enabled':self.totp_enabled}
             return send({'user':self.user,'csrf_token':CSRF,'expires_in':28800,'enrollment_required':self.require_totp and not self.totp_enabled},headers={'Set-Cookie':'cajeerlogs_session='+'b'*64+'; Path=/; HttpOnly; SameSite=Strict'})
-        if path=='/health': return send({'status':'ok','version':'0.2.8'})
+        if path=='/health': return send({'status':'ok','version':'0.2.9'})
         if self.user is None: return err(401,'unauthorized')
         if method!='GET': assert req.headers.get('x-csrf-token')==CSRF, (method,path,req.headers)
         if path=='/auth/me': return send({'user':self.user,'csrf_token':CSRF,'enrollment_required':self.require_totp and not self.totp_enabled})
@@ -167,11 +167,14 @@ class Fixture:
         if path=='/logs':
             if self.fail_next: self.fail_next=False;return err(503,'service_unavailable')
             assert q['project_id'] in [P1,P2]
-            if q.get('cursor'): return listing([{**self.event,'id':E2,'message':'second page event'}])
-            return listing([self.event], 'opaque-cursor')
+            second=q.get('cursor') in ('opaque-cursor','page-two'); cursor='page-two' if second else 'page-one';
+            return send({'items':[{**self.event,'id':E2,'message':'second page event'}] if second else [self.event], 'next_cursor':None if second else 'opaque-cursor','prev_cursor':'page-one' if second else None,'page_cursor':cursor,'page_digest':'b'*64 if second else 'a'*64,'consistency':q.get('consistency','live'),'snapshot_at':'2026-11-14T00:00:01Z' if q.get('consistency')=='snapshot' else None,'cursor_expires_at':'2026-11-14T01:00:01Z'})
         if path=='/logs/export':
             assert q.get('project_id') in [P1,P2]
-            if q['format']=='csv': return r.fulfill(status=200,content_type='text/csv',body='id,message\n'+E1+',database error\n')
+            if q['format']=='csv':
+                if self.change_export: return err(412,'page_changed')
+                assert q.get('cursor')=='page-one'; assert req.headers.get('if-match')=='"'+'a'*64+'"'
+                return r.fulfill(status=200,content_type='text/csv',headers={'X-Page-Digest':'a'*64},body='id,message\n'+E1+',database error\n')
             return send({'items':[self.event],'next_cursor':None})
         if path.startswith('/logs/'): return send({'data':self.event})
         if path=='/system/report': return send({'status':'ok','environment':'test','php':'8.4','database':{'status':'ok'}})
@@ -231,7 +234,7 @@ def run():
         browser=browser_for(p); ctx=browser.new_context(accept_downloads=True); page=ctx.new_page(); page.set_default_timeout(8000)
         errors=[]; page.on('pageerror',lambda e: errors.append(str(e)))
         # Actual PHP router, not intercepted, even in offline browser mode.
-        status,headers,body=http(url+'/admin');assert status==200 and b'0.2.8' in body
+        status,headers,body=http(url+'/admin');assert status==200 and b'0.2.9' in body
         assert "script-src 'self'" in {k.lower():v for k,v in headers.items()}['content-security-policy']
         assert http(url+'/api/v1/auth/me')[0]==401
         assert http(url+'/admin/assets/panel.js')[0]==200
@@ -255,18 +258,19 @@ def run():
             assert ctx.cookies()[0]['httpOnly'];assert page.evaluate('document.cookie')==''
         print('PASS login and dashboard fixture')
         nav(page,'logs');expect(page.get_by_role('heading',name='Логи',exact=True)).to_be_visible();expect(page.get_by_text('database error',exact=False)).to_be_visible()
-        page.get_by_label('Поиск',exact=True).fill('database');page.get_by_label('Уровень',exact=True).select_option('error');page.get_by_role('button',name='Найти').click()
+        page.get_by_label('Поиск',exact=True).fill('database');page.get_by_label('Уровень',exact=True).select_option('error');page.get_by_label('Режим страницы',exact=True).select_option('snapshot');page.get_by_role('button',name='Найти').click()
         expect(page.get_by_text('database error',exact=False)).to_be_visible();assert any(c[1]=='/logs' and c[2].get('q')=='database' and c[2].get('level')=='error' for c in f.calls)
         page.get_by_text('Дополнительные фильтры',exact=True).click();page.get_by_label('Режим поиска',exact=True).select_option('phrase');page.get_by_label('Уровни (JSON-массив)',exact=True).fill('["error","warning"]');page.get_by_label('Любой тег (JSON-массив)',exact=True).fill('["db","queue"]');page.get_by_role('button',name='Найти').click()
         expect(page.get_by_text('database error',exact=False)).to_be_visible();assert any(c[1]=='/logs' and c[2].get('q_mode')=='phrase' and c[2].get('levels')=='["error","warning"]' and c[2].get('tags_any')=='["db","queue"]' for c in f.calls)
         print('PASS expanded search filters fixture')
         page.get_by_role('button',name='Подробнее').click();expect(page.get_by_role('dialog')).to_be_visible();expect(page.get_by_role('heading',name='JSON context',exact=True)).to_be_visible();assert page.evaluate('window.pwned') is None;assert page.locator('#modal img, #modal script').count()==0
-        page.locator('#close-modal').click();page.get_by_role('button',name='Далее',exact=True).click();expect(page.get_by_text('second page event')).to_be_visible();page.get_by_role('button',name='Назад',exact=True).click();expect(page.get_by_text('database error',exact=False)).to_be_visible()
+        page.locator('#close-modal').click();page.get_by_role('button',name='Далее',exact=True).click();expect(page.get_by_text('second page event')).to_be_visible();nav(page,'overview');nav(page,'logs');expect(page.get_by_text('second page event')).to_be_visible();page.get_by_role('button',name='Назад',exact=True).click();expect(page.get_by_text('database error',exact=False)).to_be_visible();expect(page.get_by_text('Снимок по received_at:',exact=False)).to_be_visible();assert any(c[1]=='/logs' and c[2].get('cursor')=='page-two' for c in f.calls)
         if offline:
             page.get_by_role('button',name='CSV',exact=True).click();page.wait_for_function('window.testDownload !== null');dl=page.evaluate('window.testDownload');assert dl['name']=='cajeerlogs.csv' and 'database error' in dl['body']
         else:
             with page.expect_download() as dl: page.get_by_role('button',name='CSV',exact=True).click()
             assert dl.value.suggested_filename=='cajeerlogs.csv' and 'database error' in Path(dl.value.path()).read_text()
+        f.change_export=True;page.get_by_role('button',name='CSV',exact=True).click();expect(page.locator('#notice')).to_contain_text('Страница изменилась');f.change_export=False
         print('PASS filters, safe detail rendering, pagination and CSV '+('blob' if offline else 'download'))
         nav(page,'projects');expect(page.get_by_role('heading',name='Создать проект')).to_be_visible();form=page.locator('form').filter(has=page.get_by_role('button',name='Создать проект',exact=True));form.get_by_label('Название').fill('New project');form.get_by_label('Slug').fill('new-project');form.get_by_role('button',name='Создать проект').click();expect(page.get_by_role('heading',name='New project')).to_be_visible()
         page.get_by_label('Название проекта',exact=True).fill('Renamed project');page.get_by_label('Описание проекта').fill('Project details');page.get_by_label('Метаданные JSON').fill('{"environment":"test"}');page.get_by_label('Событий в минуту (пусто = без квоты)').fill('50');page.get_by_role('button',name='Сохранить проект').click();expect(page.get_by_role('heading',name='Renamed project')).to_be_visible()

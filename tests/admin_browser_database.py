@@ -39,6 +39,13 @@ def run():
             page.get_by_role('button',name='Подробнее').click();expect(page.get_by_role('dialog')).to_contain_text(event_id);expect(page.get_by_role('dialog')).to_contain_text('[redacted]');assert page.locator('#modal img').count()==0;assert page.evaluate('window.pwned') is None;page.locator('#close-modal').click()
             with page.expect_download() as dl:page.get_by_role('button',name='CSV',exact=True).click()
             assert event_id in Path(dl.value.path()).read_text()
+            # Exercise the actual signed cursors against PostgreSQL, not fixture pages.
+            batch={'events':[{**event,'message':'e2e pagination batch','context':{'n':i}} for i in range(26)]}
+            code,_,body=http(url+'/api/v1/ingest','POST',json.dumps(batch).encode(),{'Content-Type':'application/json','Authorization':'Bearer '+token});assert code==201,(code,body)
+            page.get_by_label('Поиск',exact=True).fill('pagination');page.get_by_label('На странице',exact=True).select_option('25');page.get_by_label('Режим страницы',exact=True).select_option('snapshot');page.get_by_role('button',name='Найти').click()
+            expect(page.get_by_text('Страница 1 · 25 записей',exact=True)).to_be_visible();page.get_by_role('button',name='Далее',exact=True).click();expect(page.get_by_text('Страница 2 · 1 записей',exact=True)).to_be_visible()
+            nav(page,'overview');nav(page,'logs');expect(page.get_by_text('Страница 2 · 1 записей',exact=True)).to_be_visible();page.get_by_role('button',name='Назад',exact=True).click();expect(page.get_by_text('Страница 1 · 25 записей',exact=True)).to_be_visible()
+
             nav(page,'projects');page.get_by_role('button',name='Открыть источник').click();page.get_by_label('Название источника').fill('Application updated');page.get_by_role('dialog').get_by_label('Тип источника').select_option('nginx');page.get_by_role('button',name='Сохранить источник').click();expect(page.get_by_text('Application updated',exact=True)).to_be_visible()
             for action,status in [('Отключить источник','Отключён'),('Архивировать источник','Архивный'),('Восстановить источник','Отключён'),('Включить источник','Активный')]:
                 page.get_by_role('button',name='Открыть источник').click();page.get_by_role('dialog').get_by_role('button',name=action).click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_role('row').filter(has_text='Application updated')).to_contain_text(status)

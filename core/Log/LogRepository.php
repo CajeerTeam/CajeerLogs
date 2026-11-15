@@ -62,9 +62,10 @@ final class LogRepository
         }
         return [implode(' AND ',$parts),$params];
     }
-    /** The same query is used for runtime reads and read-only EXPLAIN diagnostics. */
+    /** Internal v1 keyset statement. HTTP uses the byte-bounded explorerStatement. */
     public static function pageStatement(LogQuery $query): array
     {
+        if ($query->consistency!=='live') throw new \LogicException('Snapshot requires the signed explorer.');
         [$where,$params]=self::predicate($query);
         if (($pos=$query->position())!==null) {
             $where.=' AND (occurred_at,id) < (CAST(:cursor_time AS timestamptz),CAST(:cursor_id AS uuid))';
@@ -80,6 +81,77 @@ final class LogRepository
         if ($more) { array_pop($rows); }
         $last=$more?end($rows):null;
         return ['items'=>array_map(self::decode(...),$rows),'next_cursor'=>$last?$query->next($last['timestamp'],$last['id']):null];
+    }
+    /** HTTP navigation uses signed state; internal CLI iteration retains its private v1 cursor. */
+    public const PAGE_BYTES=2097152;
+    public static function explorerStatement(LogQuery $query,array $state): array
+    {
+        [$where,$params]=self::predicate($query);
+        if ($state['w']!==null) {
+            $where.=' AND received_at <= CAST(:watermark AS timestamptz)';
+            $params['watermark']=$state['w'];
+        }
+        $newer=$state['d']==='newer'; $order=$newer?'ASC':'DESC';
+        if ($state['t']!==null) {
+            $where.=' AND (occurred_at,id) '.($newer?'>':'<').' (CAST(:cursor_time AS timestamptz),CAST(:cursor_id AS uuid))';
+            $params+=['cursor_time'=>$state['t'],'cursor_id'=>$state['id']];
+        }
+        // Bound actual text crossing the database/PHP boundary, including legacy JSONB.
+        // Candidate selection still uses the indexed keyset order; at most limit+1 rows
+        // are serialized. Return metadata for overflow rows, never their full payload.
+        $limit=$query->limit; $bytes=self::PAGE_BYTES;
+        $sql='WITH candidates AS MATERIALIZED (SELECT '.self::COLUMNS.', occurred_at FROM log_events WHERE '.$where.' ORDER BY occurred_at '.$order.',id '.$order.' LIMIT '.($limit+1).'), '
+            ."encoded AS MATERIALIZED (SELECT id, timestamp, occurred_at, (to_jsonb(c)-'occurred_at')::text AS payload FROM candidates c), "
+            .'sized AS (SELECT *, row_number() OVER (ORDER BY occurred_at '.$order.',id '.$order.') AS rn, sum(octet_length(payload)) OVER (ORDER BY occurred_at '.$order.',id '.$order.') AS bytes FROM encoded) '
+            .'SELECT id,timestamp, CASE WHEN rn<='.$limit.' AND bytes<='.$bytes.' THEN payload END AS payload FROM sized ORDER BY occurred_at '.$order.',id '.$order;
+        return [$sql,$params];
+    }
+    public function explore(LogQuery $query,PageCursor $signer,array $state,?callable $budget=null): array
+    {
+        if (!$this->pdo->inTransaction()) throw new \LogicException('Explorer requires a read transaction.');
+        if ($query->consistency==='snapshot' && $state['w']===null) {
+            // Drain in-flight repository INSERTs before taking the watermark. New
+            // writers wait until this short read transaction commits.
+            if ($budget!==null) $budget();
+            $this->paginationFence($query->filters['project_id'],true);
+            if ($budget!==null) $budget();
+            $state['w']=(string)$this->pdo->query("SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"')")->fetchColumn();
+            $state['w']=LogQuery::timestamp($state['w']);
+        }
+        if ($budget!==null) $budget();
+        [$sql,$params]=self::explorerStatement($query,$state);
+        $rows=$this->sql($sql,$params)->fetchAll(PDO::FETCH_ASSOC);
+        return self::explorerPage($query,$signer,$state,$rows);
+    }
+    private function paginationFence(string $project,bool $exclusive=false): void
+    {
+        $fn=$exclusive?'pg_advisory_xact_lock':'pg_advisory_xact_lock_shared';
+        $this->sql("SELECT $fn(hashtextextended('cajeerlogs:pagination:' || current_schema() || ':' || CAST(:project AS text),0))",['project'=>LogQuery::uuid($project)])->closeCursor();
+    }
+    /** Pure page assembly; also exercised against synthetic boundary rows. */
+    public static function explorerPage(LogQuery $query,PageCursor $signer,array $state,array $rows): array
+    {
+        $items=[]; $more=false; $bytes=0;
+        foreach ($rows as $row) {
+            if ($row['payload']===null || count($items)>=$query->limit) { $more=true; break; }
+            // Preserve historical response types (including large integer strings).
+            $item=json_decode($row['payload'],false,64,JSON_THROW_ON_ERROR|JSON_BIGINT_AS_STRING);
+            $item=(array)$item;
+            $size=strlen(json_encode($item,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES))+1;
+            if ($bytes+$size>self::PAGE_BYTES) { $more=true; break; }
+            $items[]=$item; $bytes+=$size;
+        }
+        if ($more && !$items) throw new HttpException(413,'payload_too_large','A log event exceeds the page byte budget. Read the individual event.');
+        $newer=$state['d']==='newer';
+        if ($newer) $items=array_reverse($items);
+        $first=$items[0]??null; $last=$items[count($items)-1]??null;
+        $cursor=static fn(array $row,string $direction)=>$signer->issue($query,array_replace($state,['d'=>$direction,'t'=>$row['timestamp'],'id'=>$row['id']]));
+        return ['items'=>$items,
+            'next_cursor'=>$last && ($newer?$state['t']!==null:$more)?$cursor($last,'older'):null,
+            'prev_cursor'=>$first && ($newer?$more:$state['t']!==null)?$cursor($first,'newer'):null,
+            'page_cursor'=>$signer->issue($query,$state), 'consistency'=>$query->consistency,
+            'snapshot_at'=>$state['w'],'cursor_expires_at'=>gmdate('Y-m-d\TH:i:s\Z',$state['exp']),
+            'page_digest'=>hash('sha256',json_encode($items,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES))];
     }
     public function find(LogQuery $query,string $id): ?array
     {
@@ -162,6 +234,7 @@ final class LogRepository
         $events=(new RedactionPolicies($this->pdo))->apply($events,$project,$sources,$version);
         [$ids,$body]=self::encodeBatch($events,$sources,$version);
         $project=LogQuery::uuid($project); $token=LogQuery::uuid($token);
+        $this->paginationFence($project);
         // A single statement admits the entire batch or no rows. Queue payloads cannot
         // override source/project/token attribution, even if corrupted on disk.
         $stmt=$this->pdo->prepare(<<<'SQL'
@@ -179,9 +252,9 @@ final class LogRepository
                     AND jsonb_array_length(CASE WHEN jsonb_typeof(t.scopes)='array' THEN t.scopes ELSE '[]'::jsonb END) =
                         CASE WHEN t.scopes @> '["logs:read"]'::jsonb THEN 2 ELSE 1 END
             )
-            INSERT INTO log_events(id,occurred_at,source,service,host,level,message,context,trace_id,request_id,tags,project_id,source_id,ingest_token_id)
+            INSERT INTO log_events(id,occurred_at,source,service,host,level,message,context,trace_id,request_id,tags,project_id,source_id,ingest_token_id,received_at)
             SELECT id,occurred_at,source,service,host,level,message,context,trace_id,request_id,
-                ARRAY(SELECT jsonb_array_elements_text(e.tags)),project_id,source_id,token_id
+                ARRAY(SELECT jsonb_array_elements_text(e.tags)),project_id,source_id,token_id,clock_timestamp()
             FROM eligible e WHERE (SELECT count(*) FROM eligible)=(SELECT count(*) FROM batch_input)
             RETURNING id
             SQL);
@@ -234,6 +307,22 @@ final class LogRepository
             $cursor=$page['next_cursor'];
             if ($cursor!==null) { $query=LogQuery::parse($query->filters+['limit'=>(string)$query->limit,'cursor'=>$cursor]); }
         } while ($cursor!==null);
+    }
+
+    /** Host-only streaming export in a caller-owned repeatable-read transaction.
+     * Position is request-local, never exposed as an unsigned HTTP cursor. */
+    public function iterateBounded(LogQuery $query): \Generator
+    {
+        if (!$this->pdo->inTransaction() || $query->cursor!==null || $query->consistency!=='live') throw new \LogicException('Bounded export requires a fresh query and an owned transaction.');
+        $signer=new PageCursor(random_bytes(32),'cli-export');
+        $state=['d'=>'older','t'=>null,'id'=>null,'w'=>null,'exp'=>time()+PageCursor::TTL];
+        do {
+            $page=$this->explore($query,$signer,$state);
+            foreach ($page['items'] as $item) yield $item;
+            if ($page['next_cursor']===null) break;
+            $last=$page['items'][count($page['items'])-1];
+            $state['t']=$last['timestamp']; $state['id']=$last['id'];
+        } while (true);
     }
 
     /** Legacy rows are not automatically assigned or exposed to a project. */

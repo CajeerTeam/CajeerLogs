@@ -5,7 +5,7 @@ namespace Cajeer\Logs\Api\Controller;
 use Cajeer\Logs\Database\DatabaseException;
 use Cajeer\Logs\Http\{HttpException,JsonResponse,Request,Response,Router};
 use Cajeer\Logs\Kernel\Application;
-use Cajeer\Logs\Log\{LogQuery,LogExport,LogRepository,SearchRuntime};
+use Cajeer\Logs\Log\{LogQuery,LogExport,LogRepository,SearchRuntime,PageCursor};
 use Cajeer\Logs\Security\{Identity,RateLimiter};
 use PDO;
 use PDOException;
@@ -43,22 +43,32 @@ final class LogsController
             }
             $identity->permission($p,'logs:read',$project,$source);
             $query=$query->scoped($source);
+            $signer=in_array($mode,['list','export'],true)?PageCursor::forPrincipal($pdo,(string)$config->get('security.totp_key'),$p):null;
+            $state=$signer?->open($query);
             $budget=min($config->get('api.search_timeout_ms'),(int)$config->get('database.statement_timeout_ms'));
-            return (new SearchRuntime($pdo,$budget))->run($query,function (LogRepository $engine) use ($mode,$query,$event): Response {
+            return (new SearchRuntime($pdo,$budget))->run($query,function (LogRepository $engine,callable $limit) use ($mode,$query,$event,$signer,$state,$r): Response {
                 if ($mode==='detail') {
                     $row=$engine->find($query,$event);
                     if ($row===null) { throw new HttpException(404,'not_found','Log event not found.'); }
                     return new JsonResponse(['data'=>$row]);
                 }
                 if ($mode==='stats') { return new JsonResponse($engine->statistics($query)); }
-                $page=$engine->page($query);
+                $page=$engine->explore($query,$signer,$state,$limit);
                 if ($mode==='export') {
-                    $headers=['Content-Disposition'=>'attachment; filename="cajeerlogs.'.$query->format.'"'];
+                    if (($match=$r->header('If-Match'))!==null && !hash_equals('"'.$page['page_digest'].'"',$match)) {
+                        throw new HttpException(412,'page_changed','Page changed. Refresh the search before exporting.');
+                    }
+                    $headers=['Cache-Control'=>'no-store','X-Page-Cursor'=>$page['page_cursor'],'X-Page-Digest'=>$page['page_digest'],'Content-Disposition'=>'attachment; filename="cajeerlogs.'.$query->format.'"'];
+                    if ($page['prev_cursor']!==null) { $headers['X-Prev-Cursor']=$page['prev_cursor']; }
                     if ($page['next_cursor']!==null) { $headers['X-Next-Cursor']=$page['next_cursor']; }
-                    if ($query->format==='csv') { return new Response(LogExport::csv($page['items']),200,['Content-Type'=>'text/csv; charset=utf-8']+$headers); }
+                    if ($query->format==='csv') {
+                        $csv=LogExport::csv($page['items']);
+                        if (strlen($csv)>5*1024*1024) throw new HttpException(413,'payload_too_large','CSV page exceeds the export budget. Reduce limit.');
+                        return new Response($csv,200,['Content-Type'=>'text/csv; charset=utf-8']+$headers);
+                    }
                     return new JsonResponse($page,200,$headers);
                 }
-                return new JsonResponse($page);
+                return new JsonResponse($page,200,['Cache-Control'=>'no-store']);
             });
         } catch (DatabaseException $e) {
             throw new HttpException(503,'database_unavailable','Log storage unavailable.');

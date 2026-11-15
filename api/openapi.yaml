@@ -2,7 +2,7 @@
   "openapi": "3.1.1",
   "info": {
     "title": "CajeerLogs API",
-    "version": "0.2.8",
+    "version": "0.2.9",
     "description": "Identity & Access, synchronous and durable asynchronous PostgreSQL ingestion, job status, project-scoped search, statistics and export. Outgoing webhooks and lifecycle administration use the CLI. TOTP enrollment, recovery codes and administrator enrollment policy. Token rotation, scoped service accounts, credential request quotas and bulk revocation. Mandatory project/token HMAC and separately encrypted rotating signing keys."
   },
   "servers": [
@@ -2993,7 +2993,7 @@
       "get": {
         "operationId": "searchLogs",
         "summary": "Search logs",
-        "description": "Requires logs:read; session membership or token project/source scope is enforced. Results are scoped to the requested project. All filter groups are ANDed; list values match any except tags_all. JSON lists are scalar URL-encoded strings (1–16 entries each, 64 total). Search without an indexable FTS term requires a time range of at most 31 days. PostgreSQL search timeout returns 503 search_timeout.",
+        "description": "Requires logs:read; session membership or token project/source scope is enforced. Results are scoped to the requested project. All filter groups are ANDed; list values match any except tags_all. JSON lists are scalar URL-encoded strings (1–16 entries each, 64 total). Search without an indexable FTS term requires a time range of at most 31 days. PostgreSQL search timeout returns 503 search_timeout. Signed v2 bidirectional keyset cursors expire after one hour and are bound to the authenticated principal, effective filters and consistency mode. Restart searches using older cursors. Pages are bounded by bytes as well as count; snapshot uses a received_at watermark, not a long-lived MVCC snapshot.",
         "security": [
           {
             "session": []
@@ -3158,7 +3158,7 @@
             "name": "cursor",
             "in": "query",
             "required": false,
-            "description": "Opaque next_cursor from previous page; same filters.",
+            "description": "Opaque signed next_cursor, prev_cursor or page_cursor from an authorized response. Keep filters and consistency unchanged; cursor expires after one hour. Legacy v1 cursors are rejected.",
             "schema": {
               "type": "string",
               "maxLength": 1024
@@ -3299,6 +3299,20 @@
               "maxLength": 4096,
               "example": "\"eu\""
             }
+          },
+          {
+            "name": "consistency",
+            "in": "query",
+            "required": false,
+            "description": "live (default) or snapshot: fixes a server received_at watermark for normal log inserts; retention and redaction remain visible.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "snapshot"
+              ],
+              "default": "live"
+            }
           }
         ],
         "responses": {
@@ -3374,6 +3388,16 @@
           },
           "503": {
             "description": "Storage unavailable or search processing budget exceeded (search_timeout; Retry-After: 5).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A single event exceeds the page byte budget; read the individual event.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3777,7 +3801,7 @@
       "get": {
         "operationId": "exportLogs",
         "summary": "Export one filtered page",
-        "description": "Requires logs:read; session membership or token project/source scope is enforced. Results are scoped to the requested project. All filter groups are ANDed; list values match any except tags_all. JSON lists are scalar URL-encoded strings (1–16 entries each, 64 total). Search without an indexable FTS term requires a time range of at most 31 days. PostgreSQL search timeout returns 503 search_timeout.",
+        "description": "Requires logs:read; session membership or token project/source scope is enforced. Results are scoped to the requested project. All filter groups are ANDed; list values match any except tags_all. JSON lists are scalar URL-encoded strings (1–16 entries each, 64 total). Search without an indexable FTS term requires a time range of at most 31 days. PostgreSQL search timeout returns 503 search_timeout. Signed v2 bidirectional keyset cursors expire after one hour and are bound to the authenticated principal, effective filters and consistency mode. Restart searches using older cursors. Pages are bounded by bytes as well as count; snapshot uses a received_at watermark, not a long-lived MVCC snapshot.",
         "security": [
           {
             "session": []
@@ -3942,7 +3966,7 @@
             "name": "cursor",
             "in": "query",
             "required": false,
-            "description": "Opaque next_cursor from previous page; same filters.",
+            "description": "Opaque signed next_cursor, prev_cursor or page_cursor from an authorized response. Keep filters and consistency unchanged; cursor expires after one hour. Legacy v1 cursors are rejected.",
             "schema": {
               "type": "string",
               "maxLength": 1024
@@ -4097,6 +4121,29 @@
               "maxLength": 4096,
               "example": "\"eu\""
             }
+          },
+          {
+            "name": "consistency",
+            "in": "query",
+            "required": false,
+            "description": "live (default) or snapshot: fixes a server received_at watermark for normal log inserts; retention and redaction remain visible.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "snapshot"
+              ],
+              "default": "live"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "description": "Quoted page_digest from the displayed page. Returns 412 if the page changed.",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -4124,6 +4171,25 @@
                 "description": "Present when another page exists.",
                 "schema": {
                   "type": "string"
+                }
+              },
+              "X-Prev-Cursor": {
+                "description": "Present when a newer page can be requested.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Page-Cursor": {
+                "description": "Signed cursor of the exported page.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Page-Digest": {
+                "description": "SHA-256 of the JSON items array before CSV transformation.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
                 }
               }
             }
@@ -4190,6 +4256,26 @@
           },
           "503": {
             "description": "Storage unavailable or search processing budget exceeded (search_timeout; Retry-After: 5).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A single event exceeds the page byte budget; read the individual event.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Page changed since it was displayed (page_changed). Restart or refresh the page.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8417,11 +8503,48 @@
               "string",
               "null"
             ]
+          },
+          "prev_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "page_cursor": {
+            "type": "string"
+          },
+          "consistency": {
+            "type": "string",
+            "enum": [
+              "live",
+              "snapshot"
+            ]
+          },
+          "snapshot_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "cursor_expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "page_digest": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
           }
         },
         "required": [
           "items",
-          "next_cursor"
+          "next_cursor",
+          "prev_cursor",
+          "page_cursor",
+          "consistency",
+          "snapshot_at",
+          "cursor_expires_at",
+          "page_digest"
         ]
       },
       "LogDetail": {

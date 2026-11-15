@@ -37,7 +37,7 @@ $pdo->issues['job_token_scope']=['1','2','3'];$report=$audit->inspect(2);check($
 $pdo->issues=['receipt_shape'=>['token-id']];$report=$audit->inspect(2);check($report['checks']['receipt_shape']['truncated']===false&&$report['checks']['receipt_shape']['issues_at_least']===1,'exact small result');
 $pdo->fail=true;check(failure(fn()=>$audit->inspect()) instanceof PDOException&&!$pdo->active&&end($pdo->calls)==='ROLLBACK','SQL failure cannot yield successful audit');
 $p='11111111-1111-4111-8111-111111111111';$trace="trace' OR 1=1";
-$plans=PerformanceInspector::queries($p,$trace);check($plans['latest']===LogRepository::pageStatement(LogQuery::parse(['project_id'=>$p])),'EXPLAIN uses actual runtime page statement');
+$plans=PerformanceInspector::queries($p,$trace);check($plans['latest']===LogRepository::explorerStatement(LogQuery::parse(['project_id'=>$p]),['d'=>'older','t'=>null,'id'=>null,'w'=>null,'exp'=>0]),'EXPLAIN uses actual runtime page statement');
 check($plans['trace'][1]['trace_id']===$trace&&!str_contains($plans['trace'][0],$trace),'trace bound, never interpolated');
 check(!isset(PerformanceInspector::queries($p)['trace']),'trace plan optional');
 check(failure(fn()=>PerformanceInspector::queries('invalid')) instanceof Throwable,'invalid project UUID rejected');

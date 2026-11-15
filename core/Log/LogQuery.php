@@ -13,13 +13,13 @@ final class LogQuery
     public const LEVELS=['debug','info','notice','warning','error','critical','alert','emergency'];
     private const FILTERS=['project_id','source_id','source','level','service','host','trace_id','request_id','from','to','q','tag','context','q_mode','levels','sources','source_ids','services','hosts','trace_ids','request_ids','tags_all','tags_any','context_path','context_equals'];
     public const LIST_FILTERS=['levels'=>32,'sources'=>100,'source_ids'=>36,'services'=>255,'hosts'=>255,'trace_ids'=>128,'request_ids'=>128,'tags_all'=>128,'tags_any'=>128];
-    private function __construct(public readonly array $filters, public readonly int $limit, public readonly ?string $cursor, public readonly string $interval, public readonly string $format) {}
+    private function __construct(public readonly array $filters, public readonly int $limit, public readonly ?string $cursor, public readonly string $interval, public readonly string $format, public readonly string $consistency) {}
 
     public static function parse(array $input,string $mode='list'): self
     {
         $allowed=match($mode) {
-            'list'=>[...self::FILTERS,'limit','cursor'],
-            'export'=>[...self::FILTERS,'limit','cursor','format'],
+            'list'=>[...self::FILTERS,'limit','cursor','consistency'],
+            'export'=>[...self::FILTERS,'limit','cursor','format','consistency'],
             'stats'=>[...self::FILTERS,'interval'],
             'detail'=>['project_id','source_id'],
             default=>throw new \LogicException('Unknown query mode.'),
@@ -88,7 +88,9 @@ final class LogQuery
         if ($mode==='stats' && (!isset($f['from'],$f['to']) || (new DateTimeImmutable($f['to']))>(new DateTimeImmutable($f['from']))->modify('+31 days'))) { self::invalid('Statistics require from and to spanning at most 31 days.'); }
         $format=array_key_exists('format',$input)?self::value($input,'format',4):'json';
         if (!in_array($format,['json','csv'],true)) { self::invalid('format must be json or csv.'); }
-        return new self($f,$limit,$cursor,$interval,$format);
+        $consistency=array_key_exists('consistency',$input)?self::value($input,'consistency',8):'live';
+        if (!in_array($consistency,['live','snapshot'],true)) self::invalid('consistency must be live or snapshot.');
+        return new self($f,$limit,$cursor,$interval,$format,$consistency);
     }
 
     private static function value(array $input,string $key,int $max): string
@@ -150,7 +152,7 @@ final class LogQuery
             if (isset($f['source_id']) && $f['source_id']!==$source) { throw new HttpException(403,'forbidden','Access denied.'); }
             $f['source_id']=$source;
         }
-        return new self($f,$this->limit,$this->cursor,$this->interval,$this->format);
+        return new self($f,$this->limit,$this->cursor,$this->interval,$this->format,$this->consistency);
     }
     private function fingerprint(): string
     {

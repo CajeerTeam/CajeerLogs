@@ -136,6 +136,54 @@ try {
     get('/logs',['project_id'=>$foreign],$session,403); verify(count(data(get('/logs',['project_id'=>$foreign],$adminSession))['items'])===1,'admin may select any project explicitly');
     $stmt=$pdo->prepare('DELETE FROM project_members WHERE project_id=:p AND user_id=:u'); $stmt->execute(['p'=>$project,'u'=>$viewer]); get('/logs',$query,$session,403);
     $tokens->revoke($scoped['id']); get('/logs',$query,$sourceHeaders,401);
+    // Signed navigation is bound to the actual authenticated principal, and the
+    // first snapshot drains normal in-flight writes before fixing received_at.
+    $snapshot=$query+['consistency'=>'snapshot','limit'=>'2'];
+    $first=data(get('/logs',$snapshot,$readerHeaders));
+    verify($first['snapshot_at']!==null&&$first['prev_cursor']===null&&array_column($first['items'],'id')===[$d,$c],'first signed snapshot page');
+    $nextPage=data(get('/logs',$snapshot+['cursor'=>$first['next_cursor']],$readerHeaders));
+    verify(array_column($nextPage['items'],'id')===$ties&&$nextPage['next_cursor']===null&&$nextPage['snapshot_at']===$first['snapshot_at'],'snapshot continuation preserves timestamp ties and cutoff');
+    $back=data(get('/logs',$snapshot+['cursor'=>$nextPage['prev_cursor']],$readerHeaders));
+    verify(array_column($back['items'],'id')===[$d,$c]&&$back['page_digest']===$first['page_digest']&&$back['prev_cursor']===null,'reverse keyset returns first page in descending order');
+    $secondReader=$tokens->create('second reader',['logs:read'],$project);
+    get('/logs',$snapshot+['cursor'=>$first['next_cursor']],bearer($secondReader['token']),422);
+    $tampered=substr($first['next_cursor'],0,-1).(substr($first['next_cursor'],-1)==='A'?'B':'A');
+    get('/logs',$snapshot+['cursor'=>$tampered],$readerHeaders,422);
+    get('/logs',$query+['cursor'=>$first['next_cursor'],'limit'=>'2'],$readerHeaders,422);
+    $legacyCursor=\Cajeer\Logs\Log\LogQuery::parse($query)->next($first['items'][0]['timestamp'],$d);
+    get('/logs',$query+['cursor'=>$legacyCursor],$readerHeaders,422);
+    $late=api('POST','/ingest',[],bearer($writer),array_replace($common,['timestamp'=>'2026-01-02T00:30:00Z','message'=>'backdated after snapshot']));
+    verify($late->status===201,'new backdated event accepted after snapshot');$lateId=data($late)['event_ids'][0];
+    verify(!in_array($lateId,array_column(data(get('/logs',$snapshot+['cursor'=>$first['next_cursor']],$readerHeaders))['items'],'id'),true),'late arrival excluded from snapshot');
+    verify(in_array($lateId,array_column(data(get('/logs',$query,$readerHeaders))['items'],'id'),true),'late arrival visible in live search');
+    $verifiedExport=get('/logs/export',$snapshot+['cursor'=>$first['page_cursor'],'format'=>'csv'],$readerHeaders+['If-Match'=>'"'.$first['page_digest'].'"']);
+    verify($verifiedExport->header('X-Page-Digest')===$first['page_digest']&&$verifiedExport->header('X-Page-Cursor')===$first['page_cursor']&&str_contains($verifiedExport->body,$d),'verified CSV same page and continuation');
+    $pdo->prepare('UPDATE log_events SET message=:message WHERE id=:id')->execute(['message'=>'changed after display','id'=>$d]);
+    get('/logs/export',$snapshot+['cursor'=>$first['page_cursor'],'format'=>'csv'],$readerHeaders+['If-Match'=>'"'.$first['page_digest'].'"'],412);
+    // Actual concurrent PostgreSQL session holding the writer fence: a fresh
+    // snapshot must wait (and obey search timeout), never capture a partial boundary.
+    $independent=$app->container()->get(ConnectionFactory::class)->make('pgsql');
+    $independent->beginTransaction();
+    try {
+        $lock=$independent->prepare("SELECT pg_advisory_xact_lock_shared(hashtextextended('cajeerlogs:pagination:' || current_schema() || ':' || CAST(:project AS text),0))");
+        $lock->execute(['project'=>$project]);$lock->closeCursor();
+        $oldBudget=$app->config()->get('api.search_timeout_ms');$app->config()->set('api.search_timeout_ms',100);
+        try { $blocked=get('/logs',$snapshot,$readerHeaders,503);verify(data($blocked)['error']==='search_timeout','snapshot waits for in-flight writer within SQL budget'); }
+        finally { $app->config()->set('api.search_timeout_ms',$oldBudget); }
+    } finally { $independent->rollBack(); }
+    verify(count(data(get('/logs',$snapshot,$readerHeaders))['items'])===2,'snapshot works after writer fence released');
+    // A large historical JSONB row must not cause unbounded page buffering or
+    // disappear silently. Two 1.2 MiB rows force a byte-limited page.
+    $pdo->prepare("UPDATE log_events SET context=jsonb_build_object('large',repeat('x',1200000)) WHERE id IN (CAST(:a AS uuid),CAST(:b AS uuid))")->execute(['a'=>$d,'b'=>$c]);
+    $short=data(get('/logs',$query+['limit'=>'100'],$readerHeaders));
+    verify(count($short['items'])===1&&$short['items'][0]['id']===$d&&$short['next_cursor']!==null,'real SQL byte limit shortens page without skipping');
+    $after=data(get('/logs',$query+['limit'=>'100','cursor'=>$short['next_cursor']],$readerHeaders));
+    verify($after['items'][0]['id']===$c,'byte-limited continuation starts at first omitted event');
+    $pdo->prepare("UPDATE log_events SET context=jsonb_build_object('large',repeat('x',2200000)) WHERE id=:id")->execute(['id'=>$d]);
+    get('/logs',$query+['limit'=>'100'],$readerHeaders,413);
+    $pdo->prepare("UPDATE log_events SET context='{}'::jsonb WHERE id IN (CAST(:a AS uuid),CAST(:b AS uuid))")->execute(['a'=>$d,'b'=>$c]);
+    $pdo->prepare('DELETE FROM log_events WHERE id=:id')->execute(['id'=>$c]);
+    verify(array_column(data(get('/logs',$snapshot+['cursor'=>$first['next_cursor']],$readerHeaders))['items'],'id')===$ties,'deleting the anchor does not break keyset continuation');
     // Real HTTP across a new PHP process, not merely direct dispatch.
     $socket=stream_socket_server('tcp://127.0.0.1:0',$errno,$errstr); if ($socket===false) { throw new RuntimeException('Cannot allocate test port.'); }
     $address=stream_socket_get_name($socket,false); fclose($socket); $log=$tmp.'/http.log';
@@ -147,6 +195,8 @@ try {
         $ctx=stream_context_create(['http'=>['header'=>'Authorization: Bearer '.$reader['token']."\r\n",'ignore_errors'=>true,'timeout'=>15]]);
         $result=file_get_contents('http://'.$address.'/api/v1/logs?'.http_build_query($query+['q'=>'database','limit'=>'1']),false,$ctx);
         verify($result!==false&&str_contains($http_response_header[0]??'',' 200 ')&&count(json_decode($result,true,32,JSON_THROW_ON_ERROR)['items'])===1,'network search reads committed PostgreSQL event');
+        $result=file_get_contents('http://'.$address.'/api/v1/logs?'.http_build_query($snapshot+['cursor'=>$first['next_cursor']]),false,$ctx);
+        verify($result!==false&&str_contains($http_response_header[0]??'',' 200 ')&&array_column(json_decode($result,true,32,JSON_THROW_ON_ERROR)['items'],'id')===$ties,'signed cursor survives independent PHP process');
     } finally { proc_terminate($process); proc_close($process); if (is_file($log)) { unlink($log); } }
     echo "Search PostgreSQL: $count checks passed\n";
 } finally {

@@ -32,7 +32,7 @@ final class LogRepositoryCommand
             if ($command==='logs:export-jsonl') {
                 // No retries: stdout is an external side effect. A consistent snapshot spans pages.
                 $tx->run(function () use ($repo,$query) {
-                    foreach ($repo->iterate($query) as $row) {
+                    foreach ($repo->iterateBounded($query) as $row) {
                         $line=json_encode($row,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES)."\n";
                         for ($offset=0;$offset<strlen($line);$offset+=$n) {
                             $n=fwrite(STDOUT,substr($line,$offset));

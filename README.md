@@ -2,6 +2,10 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.2.9 — Pagination & Log Explorer
+
+Подписанные курсоры v2 с привязкой к области доступа, двусторонний keyset, ограниченный snapshot по received_at, байтовый бюджет страниц, проверяемый экспорт и восстановление позиции Log Explorer. Без новой миграции. См. [Pagination & Log Explorer](docs/Pagination-Log-Explorer.md).
+
 ## 0.2.8 — Log Search
 
 Расширенные фильтры PostgreSQL FTS/JSONB, списки источников, уровней, сервисов, trace/request ID и тегов; точные JSON-пути, read-only SQL-бюджет, метрики и EXPLAIN для реальных фильтров. Без новой миграции. См. [Log Search](docs/Log-Search.md).
