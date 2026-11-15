@@ -370,3 +370,23 @@ details .form-grid {
 .filter-chip button { padding:.1rem .35rem; min-height:0; }
 .filter-source-results { display:flex; flex-wrap:wrap; gap:.3rem; max-height:12rem; overflow:auto; margin-block:.4rem; }
 .filter-source-choice { max-width:100%; overflow-wrap:anywhere; }
+
+/* Event inspector: no HTML injection, bounded tree and independently scrollable raw JSON. */
+.inspector-tabs { margin: 12px 0; flex-wrap: wrap; }
+.inspector-tabs button[aria-pressed="true"], .inspector-panel button[aria-pressed="true"] { border-color: var(--accent); font-weight: 700; outline: 2px solid currentColor; outline-offset: -2px; }
+.inspector-panel { min-width: 0; }
+.inspector-id, .inspector-message, .json-node, .json-result { overflow-wrap: anywhere; }
+.inspector-message { white-space: pre-wrap; max-height: 24rem; overflow: auto; }
+.json-branch { margin: 4px 0; min-width: 0; }
+.json-branch summary { cursor: pointer; overflow-wrap: anywhere; font-family: monospace; }
+.json-children { margin-inline-start: 12px; padding-inline-start: 8px; border-inline-start: 1px solid var(--line); }
+.json-node, .json-result { padding: 5px 0; font-family: monospace; }
+.json-key { font-weight: 600; }
+.json-string { color: var(--warning); }
+.json-number, .json-boolean { color: var(--accent); }
+.json-null { color: var(--muted); }
+.inspector-node-actions { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-inline: 6px; }
+.inspector-node-actions button, .json-result button { font-size: .75rem; padding: 3px 6px; }
+.inspector-search-results { max-height: 24rem; overflow: auto; }
+.json-result { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; border-bottom: 1px solid var(--line); }
+.inspector-raw { width: 100%; min-height: 22rem; font-family: monospace; white-space: pre; overflow: auto; resize: vertical; }

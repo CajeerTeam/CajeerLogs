@@ -1,8 +1,8 @@
-import { state, active, render } from '../app/store.js?v=0.3.5';
-import { $, h, button, empty, badge, text, date, enc, message, modalEpoch, modal, table, copy } from './ui.js?v=0.3.5';
-import { get } from '../api/client.js?v=0.3.5';
+import { state, active, render } from '../app/store.js?v=0.3.6';
+import { $, h, button, empty, badge, text, date, enc, message, modalEpoch, modal, table, copy } from './ui.js?v=0.3.6';
+import { detail as inspectEvent } from './event-inspector.js?v=0.3.6';
 
-import { visibleColumns, normalizeLayout, timestampLabel, highlightParts } from '../app/explorer.js?v=0.3.5';
+import { visibleColumns, normalizeLayout, timestampLabel, highlightParts } from '../app/explorer.js?v=0.3.6';
 
 function quickFilter(key,value,project) {
     if(state.project!==project||!state.user||state.route!=='logs')return;
@@ -40,21 +40,5 @@ function logTable(items, project, options = null) {
     const wrap=h('div',{class:'table-wrap explorer-scroll',tabindex:'0',role:'region','aria-label':'Таблица событий'},t);
     return wrap;
 }
-async function detail(id, project, navigation = null) { const epoch = state.epoch; const loading=h('p',{role:'status'},'Загрузка…'); if(navigation?.continued && $('modal').open){$('modal-body').replaceChildren(loading);}else modal('Событие',loading); const dialogEpoch = modalEpoch; try {
-    const r = await get('/logs/' + enc(id), { project_id: project }, state.controller.signal);
-    if (!active(epoch) || !$('modal').open || dialogEpoch !== modalEpoch)
-        return;
-    const row = r.data;
-    const adjacent = navigation ? h('div',{class:'actions explorer-detail-nav'},
-        button('Предыдущее событие',()=>void detail(navigation.items[navigation.index-1].id,project,{...navigation,index:navigation.index-1,continued:true}),'',{disabled:navigation.index===0}),
-        h('span',{class:'muted'},`${navigation.index+1} / ${navigation.items.length}`),
-        button('Следующее событие',()=>void detail(navigation.items[navigation.index+1].id,project,{...navigation,index:navigation.index+1,continued:true}),'',{disabled:navigation.index===navigation.items.length-1})) : null;
-    $('modal-body').replaceChildren(...(adjacent?[adjacent]:[]), h('div', { class: 'inline' }, badge(row.level), date(row.timestamp)), h('h3', {}, 'Сообщение'), h('pre', {}, text(row.message)), table(['Поле', 'Значение'], ['id', 'project_id', 'source_id', 'source', 'service', 'host', 'trace_id', 'request_id', 'received_at', 'tags'].map(k => [k, h('div',{},k === 'received_at' ? date(row[k]) : Array.isArray(row[k]) ? row[k].join(', ') : text(row[k]),state.route==='logs'&&filterable.includes(k)&&row[k]!=null&&row[k]!==''?button('Фильтр',()=>quickFilter(k,row[k],project),'explorer-copy',{'aria-label':'Фильтр по '+k}):null)])), h('h3', {}, 'JSON context'), h('pre', {}, JSON.stringify(row.context, null, 2)), button('Скопировать JSON', () => void copy(JSON.stringify(row, null, 2))));
-    if(navigation?.continued) (adjacent?.querySelector('button:not(:disabled)') || $('close-modal')).focus();
-}
-catch (e) {
-    if (active(epoch) && $('modal').open && dialogEpoch === modalEpoch && e.name !== 'AbortError')
-        $('modal-body').replaceChildren(message(e));
-} }
-
+function detail(id,project,navigation=null) { return inspectEvent(id,project,navigation,quickFilter); }
 export { logTable, detail };

@@ -1,9 +1,9 @@
-import { roles, state, projectPath, admin, manage, active, render } from '../app/store.js?v=0.3.5';
-import { h, button, card, field, input, select, badge, date, enc, message, notify, modalEpoch, clearModal, modal, form, heading, needProject, table } from '../components/ui.js?v=0.3.5';
-import { loadProjects, projectSelector } from '../app/projects.js?v=0.3.5';
-import { pagedList } from '../components/pagination.js?v=0.3.5';
-import { nameFields, nameBody, mutationSuccess, confirmAction } from '../components/mutations.js?v=0.3.5';
-import { get, write, request, apiPrefix, ApiError } from '../api/client.js?v=0.3.5';
+import { roles, state, projectPath, admin, manage, active, render } from '../app/store.js?v=0.3.6';
+import { h, button, card, field, input, select, badge, date, enc, message, notify, modalEpoch, clearModal, modal, form, heading, needProject, table } from '../components/ui.js?v=0.3.6';
+import { loadProjects, projectSelector } from '../app/projects.js?v=0.3.6';
+import { pagedList } from '../components/pagination.js?v=0.3.6';
+import { nameFields, nameBody, mutationSuccess, confirmAction } from '../components/mutations.js?v=0.3.6';
+import { get, write, request, apiPrefix, ApiError } from '../api/client.js?v=0.3.6';
 
 const sourceTypes = [['application','Приложение'],['server','Сервер'],['nginx','Nginx'],['aapanel','aaPanel'],['custom','Другой']];
 const sourceStates = {active:'Активный',disabled:'Отключён',archived:'Архивный'};

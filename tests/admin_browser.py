@@ -74,7 +74,7 @@ class Fixture:
         self.sources=[{'id':S1,'project_id':P1,'name':'Application','slug':'app','created_at':'2026-01-01T00:00:00Z','status':'active','revision':'1','source_type':'application','metadata':{}}]
         self.users=[{'id':U1,'email':'admin@example.test','role':'administrator','blocked_at':None}]
         self.sessions=[{'id':U1,'current':True,'user_agent':'Current browser','remote_address':'127.0.0.1','created_at':'2026-01-01T00:00:00Z','last_seen_at':'2026-01-01T00:00:00Z','expires_at':'2026-01-02T00:00:00Z'},{'id':U2,'current':False,'user_agent':'Other device','remote_address':'192.0.2.3','created_at':'2026-01-01T00:00:00Z','last_seen_at':'2026-01-01T00:00:00Z','expires_at':'2026-01-02T00:00:00Z'}]; self.members=[]; self.tokens=[]; self.accounts=[]; self.calls=[]; self.fail_next=False; self.change_export=False; self.head_changed=False; self.multi_logs=False; self.redaction={}; self.views=[]
-        self.event={'id':E1,'project_id':P1,'source_id':S1,'source':'app','service':'api','host':'host-1','level':'error','message':'<img src=x onerror="window.pwned=1"> database error','context':{'secret':'[redacted]','html':'<script>window.pwned=1</script>'},'trace_id':'trace-1','request_id':'req-1','tags':['prod'],'timestamp':'2026-11-14T00:00:00Z','received_at':'2026-11-14T00:00:01Z'}
+        self.event={'id':E1,'project_id':P1,'source_id':S1,'source':'app','service':'api','host':'host-1','level':'error','message':'<img src=x onerror="window.pwned=1"> database error','context':{'secret':'[redacted]','html':'<script>window.pwned=1</script>','nested':{'items':[{'code':'needle','big':12345678901234567890}]}},'trace_id':'trace-1','request_id':'req-1','tags':['prod'],'timestamp':'2026-11-14T00:00:00Z','received_at':'2026-11-14T00:00:01Z'}
     def route(self,r):
         req=r.request; path=urlsplit(req.url).path.removeprefix('/api/v1'); method=req.method; q={k:v[0] for k,v in parse_qs(urlsplit(req.url).query).items()}; body=req.post_data_json if req.post_data else None
         self.calls.append((method,path,q,body))
@@ -89,7 +89,7 @@ class Fixture:
             if self.totp_enabled and body.get('otp')!='123456': return err(401,'unauthorized')
             self.user={'id':U1 if self.role=='administrator' else U2,'email':body['email'],'role':self.role,'two_factor_enabled':self.totp_enabled}
             return send({'user':self.user,'csrf_token':CSRF,'expires_in':28800,'enrollment_required':self.require_totp and not self.totp_enabled},headers={'Set-Cookie':'cajeerlogs_session='+'b'*64+'; Path=/; HttpOnly; SameSite=Strict'})
-        if path=='/health': return send({'status':'ok','version':'0.3.5'})
+        if path=='/health': return send({'status':'ok','version':'0.3.6'})
         if self.user is None: return err(401,'unauthorized')
         if method!='GET': assert req.headers.get('x-csrf-token')==CSRF, (method,path,req.headers)
         if path=='/auth/me': return send({'user':self.user,'csrf_token':CSRF,'enrollment_required':self.require_totp and not self.totp_enabled})
@@ -275,7 +275,7 @@ def run():
         browser=browser_for(p); ctx=browser.new_context(accept_downloads=True); page=ctx.new_page(); page.set_default_timeout(8000)
         errors=[]; page.on('pageerror',lambda e: errors.append(str(e)))
         # Actual PHP router, not intercepted, even in offline browser mode.
-        status,headers,body=http(url+'/admin');assert status==200 and b'0.3.5' in body
+        status,headers,body=http(url+'/admin');assert status==200 and b'0.3.6' in body
         assert "script-src 'self'" in {k.lower():v for k,v in headers.items()}['content-security-policy']
         assert http(url+'/api/v1/auth/me')[0]==401
         assert http(url+'/admin/assets/panel.js')[0]==200
@@ -366,9 +366,22 @@ def run():
         print('PASS saved view create, rename, restore and delete through UI')
         print('PASS expanded search filters fixture')
         page.get_by_role('button',name='Подробнее').click();expect(page.get_by_role('dialog')).to_be_visible();expect(page.get_by_role('heading',name='JSON context',exact=True)).to_be_visible();assert page.evaluate('window.pwned') is None;assert page.locator('#modal img, #modal script').count()==0
+        dlg=page.get_by_role('dialog');dlg.get_by_role('button',name='JSON context',exact=True).click();dlg.locator('summary').filter(has_text='nested:').click();dlg.locator('summary').filter(has_text='items:').click();dlg.locator('summary').filter(has_text='0:').click();expect(dlg.locator('.json-node').filter(has_text='needle')).to_be_visible();dlg.get_by_label('Поиск по JSON').fill('needle');dlg.get_by_role('button',name='Найти в JSON').click();expect(dlg.locator('.json-result')).to_contain_text('/nested/items/0/code')
+        dlg.locator('.json-result').get_by_role('button',name='Фильтр',exact=True).click();expect(page.get_by_role('dialog')).not_to_be_visible();expect(page.get_by_label('Значение JSON-пути (scalar)',exact=True)).to_have_value('\"needle\"');assert any(c[1]=='/logs' and c[2].get('context_path')=='["nested","items","0","code"]' for c in f.calls)
+        page.get_by_role('button',name='Снять фильтр JSON-путь',exact=True).click();page.get_by_role('button',name='Подробнее').click();expect(dlg.get_by_role('button',name='Raw JSON',exact=True)).to_be_visible()
+        dlg.get_by_role('button',name='Raw JSON',exact=True).click();expect(dlg.get_by_label('JSON события')).to_have_value(re.compile('12345678901234567890'))
+        if offline:
+            page.evaluate('window.testDownload=null');dlg.get_by_role('button',name='Скачать JSON').click();page.wait_for_function('window.testDownload !== null');assert '12345678901234567890' in page.evaluate('window.testDownload.body')
+        else:
+            with page.expect_download() as dl: dlg.get_by_role('button',name='Скачать JSON').click()
+            assert '12345678901234567890' in Path(dl.value.path()).read_text()
+        dlg.get_by_role('button',name='Связанные события').click();expect(dlg.get_by_text('Текущее',exact=True)).to_be_visible();assert any(c[1]=='/logs' and c[2].get('trace_id')=='trace-1' and c[2].get('project_id')==P1 for c in f.calls)
+        dlg.get_by_role('button',name='Request ID',exact=True).click();expect(dlg.get_by_text('Текущее',exact=True)).to_be_visible();assert any(c[1]=='/logs' and c[2].get('request_id')=='req-1' for c in f.calls)
+        dlg.get_by_role('button',name='Далее',exact=True).click();expect(dlg.get_by_text('second page event')).to_be_visible();dlg.get_by_role('button',name='Открыть',exact=True).click();expect(dlg).to_contain_text(E2)
+        print('PASS event inspector JSON search, lossless raw download, related trace/request and cursor navigation')
         page.locator('#close-modal').click();page.get_by_role('button',name='Далее',exact=True).click();expect(page.get_by_text('second page event')).to_be_visible();nav(page,'overview');nav(page,'logs');expect(page.get_by_text('second page event')).to_be_visible();page.get_by_role('button',name='Назад',exact=True).click();expect(page.get_by_text('database error',exact=False)).to_be_visible();expect(page.get_by_text('Снимок по received_at:',exact=False)).to_be_visible();assert any(c[1]=='/logs' and c[2].get('cursor')=='page-two' for c in f.calls)
         if offline:
-            page.get_by_role('button',name='CSV',exact=True).click();page.wait_for_function('window.testDownload !== null');dl=page.evaluate('window.testDownload');assert dl['name']=='cajeerlogs.csv' and 'database error' in dl['body']
+            page.evaluate('window.testDownload=null');page.get_by_role('button',name='CSV',exact=True).click();page.wait_for_function('window.testDownload !== null');dl=page.evaluate('window.testDownload');assert dl['name']=='cajeerlogs.csv' and 'database error' in dl['body']
         else:
             with page.expect_download() as dl: page.get_by_role('button',name='CSV',exact=True).click()
             assert dl.value.suggested_filename=='cajeerlogs.csv' and 'database error' in Path(dl.value.path()).read_text()

@@ -2,6 +2,10 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.3.6 — Event Details & JSON Viewer
+
+Инспектор событий, ленивое JSON-дерево, поиск по ключам и значениям, копирование путей и исходного JSON, связанные логи по Trace/Request ID. Без миграций. [Документация](docs/Event-Details-JSON-Viewer.md). Public Preview до CI.
+
 ## 0.3.5 — Advanced Filters & Search
 
 Визуальный конструктор поиска, множественные значения, JSON-пути, активные фильтры, предустановки и личные сохранённые представления PostgreSQL. Миграция 0016. [Документация](docs/Advanced-Filters-Search.md). Public Preview до CI.

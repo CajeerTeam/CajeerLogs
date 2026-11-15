@@ -2,6 +2,12 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.3.6] — Event Details & JSON Viewer
+
+- Инспектор: обзор, поля, JSON-дерево, исходный JSON, поиск и связанные события.
+- Сохранение числовых литералов ответа API, ленивое отображение, копирование, скачивание и фильтрация по JSON-пути.
+- Существующий API v1, signed cursor, RBAC, redaction и detail budget без изменений. Без миграций.
+
 ## [0.3.5] — Advanced Filters & Search
 
 - Visual filter lists, source registry lookup, JSON path builder, presets and removable active filters.
