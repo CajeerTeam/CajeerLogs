@@ -165,13 +165,12 @@ final class LogRepository
      * @return array{0:list<string>,1:string} */
     public static function encodeBatch(array $events,array $sources): array
     {
-        if (!array_is_list($events) || count($events)<1 || count($events)>IngestValidator::MAX_BATCH) { throw new HttpException(422,'invalid_payload','Expected 1..100 log events.'); }
+        $events=IngestBatch::normalize($events);
+        $sources=IngestBatch::sourceMap($events,$sources);
         // Generate UUIDs before a single multi-row INSERT, preserving receipt order.
-        $ids=[];$rows=[];$size=2;$validator=new IngestValidator();
+        $ids=[];$rows=[];$size=2;
         foreach ($events as $event) {
-            if (!$event instanceof IngestEvent || !isset($sources[$event->source]) || !is_string($sources[$event->source])) { throw new HttpException(422,'invalid_payload','Invalid event or missing source mapping.'); }
-            $sourceId=LogQuery::uuid($sources[$event->source]);
-            $event=$validator->forStorage($event);
+            $sourceId=$sources[$event->source];
             $bytes=random_bytes(16);
             $bytes[6]=chr((ord($bytes[6])&0x0f)|0x40);
             $bytes[8]=chr((ord($bytes[8])&0x3f)|0x80);
@@ -182,12 +181,12 @@ final class LogRepository
                 'level'=>$event->level,'message'=>$event->message,'context'=>$event->context,'trace_id'=>$event->traceId,'request_id'=>$event->requestId,
                 'tags'=>$event->tags,'source_id'=>$sourceId];
             $encoded=json_encode($row,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
-            $size+=strlen($encoded)+1;
-            if ($size>4194304) { throw new HttpException(413,'payload_too_large','Normalized log batch exceeds 4 MiB.'); }
+            $size+=strlen($encoded)+($rows===[]?0:1);
+            if ($size>IngestBatch::SQL_BYTES) { throw new HttpException(413,'payload_too_large','Normalized log batch exceeds 4 MiB.'); }
             $rows[]=$encoded;
         }
         $body='['.implode(',',$rows).']';
-        if (strlen($body)>4194304) { throw new HttpException(413,'payload_too_large','Normalized log batch exceeds 4 MiB.'); }
+        if (strlen($body)>IngestBatch::SQL_BYTES) { throw new HttpException(413,'payload_too_large','Normalized log batch exceeds 4 MiB.'); }
         return [$ids,$body];
     }
 

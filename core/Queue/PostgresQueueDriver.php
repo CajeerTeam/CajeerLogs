@@ -7,7 +7,7 @@ use Cajeer\Logs\Database\TransactionManager;
 use PDO;
 use Cajeer\Logs\Database\DatabaseFailure;
 use Cajeer\Logs\Http\HttpException;
-use Cajeer\Logs\Log\IngestEvent;
+use Cajeer\Logs\Log\{IngestEvent,IngestBatch};
 
 /** PostgreSQL durable queue; all payloads are already validated and redacted. */
 final class PostgresQueueDriver implements QueueDriverInterface
@@ -20,30 +20,45 @@ final class PostgresQueueDriver implements QueueDriverInterface
         return array_map(static fn(IngestEvent $event): array => get_object_vars($event),$events);
     }
     public static function decodeEvents(array $payload): array {
-        return array_map(static fn(\stdClass $e): IngestEvent => new IngestEvent($e->source,$e->level,$e->message,$e->context,$e->timestamp,$e->service,$e->host,$e->traceId,$e->requestId,$e->tags),$payload);
+        return IngestBatch::decodeEvents($payload);
     }
     /** Caller holds the authenticated token lock; enqueue is serialized for a hard global capacity bound. */
-    public function enqueue(string $token,string $project,string $key,string $hash,array $events,array $sources): array {
+    public function enqueue(string $token,string $project,string $key,string $hash,array $events,array $sources,?callable $admit=null): array|HttpException {
         if (!$this->pdo->inTransaction()) { throw new \LogicException('Enqueue requires a transaction.'); }
         $row=$this->sql("SELECT id,status,request_hash FROM jobs WHERE queue='ingest-v1' AND token_id=:token AND key_hash=:key",['token'=>$token,'key'=>$key])->fetch();
         if ($row) {
             if (!hash_equals($row['request_hash'],$hash)) { throw new HttpException(409,'idempotency_conflict','Idempotency-Key was used for a different request.'); }
             return ['job_id'=>(string)$row['id'],'status'=>$row['status'],'replayed'=>true];
         }
-        $id=$this->push(new QueuedJob('ingest',['token'=>$token,'project'=>$project,'key'=>$key,'hash'=>$hash,'events'=>self::encodeEvents($events),'sources'=>$sources]));
+        $body=IngestBatch::encodeJob($events,$sources);
+        // Admission is only needed for a new job, after validation but before the
+        // global capacity lock. A policy denial is returned for outer telemetry commit.
+        if ($admit!==null && ($denied=$admit())!==null) {
+            if (!$denied instanceof HttpException) throw new \LogicException('Invalid admission result.');
+            return $denied;
+        }
+        $id=$this->insertJob($token,$project,$key,$hash,$body);
         return ['job_id'=>$id,'status'=>'pending','replayed'=>false];
     }
     public function push(QueuedJob $job): string {
         if (!$this->pdo->inTransaction() || $job->name!=='ingest') { throw new \LogicException('Only transactional ingest jobs are supported.'); }
         $p=$job->payload;
+        $raw=json_encode(['events'=>$p['events'],'sources'=>(object)$p['sources']],JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+        [$events,$sources]=IngestBatch::decodeJob($raw);
+        return $this->insertJob($p['token'],$p['project'],$p['key'],$p['hash'],IngestBatch::encodeJob($events,$sources));
+    }
+    private function insertJob(string $token,string $project,string $key,string $hash,string $body): string {
         $this->pdo->query("SELECT pg_advisory_xact_lock(hashtextextended('cajeerlogs:enqueue:' || current_schema(),0))")->closeCursor();
         if ((int)$this->pdo->query("SELECT count(*) FROM jobs WHERE queue='ingest-v1' AND status IN ('pending','running','dead')")->fetchColumn()>=$this->maxJobs) {
             throw new HttpException(503,'queue_full','Ingest queue capacity reached.',['Retry-After'=>'5']);
         }
-        $body=json_encode(['events'=>$p['events'],'sources'=>(object)$p['sources']],JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
-        // Bound stored normalized data, including JSON encoding overhead.
-        if (strlen($body)>2097152) { throw new HttpException(413,'payload_too_large','Normalized job exceeds 2 MiB.'); }
-        return (string)$this->sql("INSERT INTO jobs(queue,name,payload,token_id,project_id,key_hash,request_hash) VALUES ('ingest-v1','ingest',CAST(:payload AS jsonb),:token,:project,:key,:hash) RETURNING id",['payload'=>$body,'token'=>$p['token'],'project'=>$p['project'],'key'=>$p['key'],'hash'=>$p['hash']])->fetchColumn();
+        // JSONB expands exponent notation and inserts whitespace. Never acknowledge a
+        // payload that the bounded worker cannot read back from PostgreSQL.
+        $id=$this->sql("INSERT INTO jobs(queue,name,payload,token_id,project_id,key_hash,request_hash)
+            SELECT 'ingest-v1','ingest',b.body,CAST(:token AS uuid),CAST(:project AS uuid),CAST(:key AS text),CAST(:hash AS text) FROM (SELECT CAST(:payload AS jsonb) AS body) b
+            WHERE octet_length(b.body::text)<=CAST(:limit AS integer) RETURNING id",['payload'=>$body,'token'=>$token,'project'=>$project,'key'=>$key,'hash'=>$hash,'limit'=>IngestBatch::JOB_DECODE_BYTES])->fetchColumn();
+        if ($id===false) throw new HttpException(413,'payload_too_large','Stored job exceeds decoding limit.');
+        return (string)$id;
     }
     public function hasKey(string $token,string $key): bool {
         return (bool)$this->sql("SELECT 1 FROM jobs WHERE queue='ingest-v1' AND token_id=:token AND key_hash=:key",['token'=>$token,'key'=>$key])->fetchColumn();
@@ -74,14 +89,16 @@ final class PostgresQueueDriver implements QueueDriverInterface
     public function process(array $claim): string {
         try {
             return (new TransactionManager($this->pdo))->run(function () use ($claim) {
-                $row=$this->sql("SELECT * FROM jobs WHERE id=:id AND queue='ingest-v1' AND status='running' AND lease_id=:lease AND lease_until>clock_timestamp() FOR UPDATE",['id'=>$claim['id'],'lease'=>$claim['lease_id']])->fetch();
-                if (!$row) { return 'stale'; }
-                $payload=json_decode($row['payload'],false,64,JSON_THROW_ON_ERROR);
-                $events=self::decodeEvents($payload->events);
-                $ids=(new \Cajeer\Logs\Log\LogRepository($this->pdo))->storeBatch($events,$row['project_id'],(array)$payload->sources,$row['token_id']);
+                $row=$this->sql("SELECT id,project_id,token_id,attempts FROM jobs WHERE id=:id AND queue='ingest-v1' AND status='running' AND lease_id=:lease FOR UPDATE",['id'=>$claim['id'],'lease'=>$claim['lease_id']])->fetch();
+                if (!$row || !$this->leaseLive($claim)) { return 'stale'; }
+                // Do not transfer an unbounded/corrupted JSONB value into PHP memory.
+                $body=$this->sql('SELECT CASE WHEN octet_length(payload::text)<=CAST(:limit AS integer) THEN payload::text END FROM jobs WHERE id=:id',['id'=>$row['id'],'limit'=>IngestBatch::JOB_DECODE_BYTES])->fetchColumn();
+                if (!is_string($body)) throw new HttpException(413,'payload_too_large','Stored job exceeds decoding limit.');
+                [$events,$sources]=IngestBatch::decodeJob($body);
+                $ids=(new \Cajeer\Logs\Log\LogRepository($this->pdo))->storeBatch($events,$row['project_id'],$sources,$row['token_id']);
                 (new \Cajeer\Logs\Integration\EventApiDispatcher($this->pdo))->publishCommittedLogs($row['project_id'],$ids);
                 $this->sql("UPDATE jobs SET status='completed',payload='{}'::jsonb,result=CAST(:result AS jsonb),completed_at=clock_timestamp(),lease_id=NULL,lease_until=NULL,reserved_at=NULL,last_error=NULL WHERE id=:id",['id'=>$row['id'],'result'=>json_encode(['event_ids'=>$ids,'stored'=>count($ids)],JSON_THROW_ON_ERROR)]);
-                $this->sql("UPDATE job_attempts SET outcome='completed',finished_at=clock_timestamp() WHERE job_id=:id AND attempt=:attempt",['id'=>$row['id'],'attempt'=>$row['attempts']]);
+                if ($this->sql("UPDATE job_attempts SET outcome='completed',finished_at=clock_timestamp() WHERE job_id=:id AND attempt=:attempt AND outcome='running'",['id'=>$row['id'],'attempt'=>$row['attempts']])->rowCount()!==1) throw new \RuntimeException('Missing running job attempt; roll back completion.');
                 return 'completed';
             }, maxAttempts: 3);
         } catch (\Throwable $e) {
@@ -91,17 +108,23 @@ final class PostgresQueueDriver implements QueueDriverInterface
                 throw $e;
             }
             // Do not persist exception messages, which may contain raw event fields or secrets.
-            return $this->fail($claim,$e instanceof \PDOException?'database_error':'processing_error');
+            // Invalid durable payloads cannot be fixed by an automatic retry. Keep them for operator inspection.
+            $permanent=$e instanceof \JsonException || ($e instanceof HttpException && in_array($e->status,[403,413,422],true));
+            return $this->fail($claim,$permanent?'invalid_payload':($e instanceof \PDOException?'database_error':'processing_error'),$permanent);
         }
     }
     public static function backoff(int $attempt): int { return min(3600, 5 * (2 ** min(10,max(0,$attempt-1)))); }
-    private function fail(array $claim,string $error): string {
-        return (new TransactionManager($this->pdo))->run(function () use ($claim,$error) {
+    /** Evaluate expiry after the row lock has been acquired, not before waiting. */
+    private function leaseLive(array $claim): bool {
+        return $this->sql("SELECT lease_until>clock_timestamp() FROM jobs WHERE id=:id AND status='running' AND lease_id=:lease",['id'=>$claim['id'],'lease'=>$claim['lease_id']])->fetchColumn()===true;
+    }
+    private function fail(array $claim,string $error,bool $permanent=false): string {
+        return (new TransactionManager($this->pdo))->run(function () use ($claim,$error,$permanent) {
             $row=$this->sql("SELECT attempts,max_attempts FROM jobs WHERE id=:id AND status='running' AND lease_id=:lease FOR UPDATE",['id'=>$claim['id'],'lease'=>$claim['lease_id']])->fetch();
-            if (!$row) { return 'stale'; }
-            $dead=(int)$row['attempts'] >= (int)$row['max_attempts'];$outcome=$dead?'dead':'retry';
+            if (!$row || !$this->leaseLive($claim)) { return 'stale'; }
+            $dead=$permanent || (int)$row['attempts'] >= (int)$row['max_attempts'];$outcome=$dead?'dead':'retry';
             $this->sql("UPDATE jobs SET status=:status,available_at=clock_timestamp()+CAST(:delay AS integer)*interval '1 second',completed_at=CASE WHEN CAST(:dead AS boolean) THEN clock_timestamp() ELSE NULL END,lease_id=NULL,lease_until=NULL,reserved_at=NULL,last_error=:error WHERE id=:id",['status'=>$dead?'dead':'pending','delay'=>self::backoff((int)$row['attempts']),'dead'=>$dead?'true':'false','error'=>$error,'id'=>$claim['id']]);
-            $this->sql('UPDATE job_attempts SET outcome=:outcome,error=:error,finished_at=clock_timestamp() WHERE job_id=:id AND attempt=:attempt',['outcome'=>$outcome,'error'=>$error,'id'=>$claim['id'],'attempt'=>$row['attempts']]);
+            if ($this->sql("UPDATE job_attempts SET outcome=:outcome,error=:error,finished_at=clock_timestamp() WHERE job_id=:id AND attempt=:attempt AND outcome='running'",['outcome'=>$outcome,'error'=>$error,'id'=>$claim['id'],'attempt'=>$row['attempts']])->rowCount()!==1) throw new \RuntimeException('Missing running job attempt; roll back failure transition.');
             return $outcome;
         }, maxAttempts: 3);
     }

@@ -2,6 +2,14 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.2.2] — Single & Batch Ingestion
+
+- Общая нормализация пакета, точная карта источников, отдельные лимиты SQL и durable payload, ограничение JSONB при записи и чтении.
+- Async replay не проходит admission повторно; подготовка durable payload до захвата источников и глобальной блокировки очереди.
+- Пакетные упорядоченные блокировки и UPDATE счётчиков источников; сохранены атомарные quota и rollback.
+- Строгая проверка durable payload, немедленный dead-letter некорректных заданий, проверка lease после блокировки, атомарность истории попытки.
+- Регрессионные и PostgreSQL fault-injection тесты; миграции 0001–0012 неизменны. Public Preview до фактического release gate.
+
 ## [0.2.1] — Ingest Runtime
 
 - Единый IngestService для sync/async; сохранены транзакции, HMAC, receipts и очередь.

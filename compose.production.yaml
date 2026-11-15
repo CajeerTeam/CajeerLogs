@@ -1,7 +1,7 @@
 # Run with --env-file .env.production. See docs/First-Public-Release.md.
 name: cajeerlogs
 x-runtime: &runtime
-  image: cajeerlogs:0.2.1
+  image: cajeerlogs:0.2.2
   build:
     context: .
     dockerfile: deploy/production/Dockerfile
@@ -94,7 +94,7 @@ services:
       app:
         condition: service_healthy
   gateway:
-    image: cajeerlogs-gateway:0.2.1
+    image: cajeerlogs-gateway:0.2.2
     build:
       context: .
       dockerfile: deploy/production/Dockerfile

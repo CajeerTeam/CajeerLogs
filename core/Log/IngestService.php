@@ -63,6 +63,7 @@ final class IngestService
             $rate->enforce('ingest-token:'.$p['id'],$config->get('api.rate_limit'),60);
             $signer->verify($r,$credential['secret'],$key,$config->get('ingest.require_hmac'));
             $events=(new IngestValidator())->parse($r);
+            IngestBatch::checkSize($events,$async?IngestBatch::JOB_BYTES:IngestBatch::SQL_BYTES);
             $budget->check();
             $keyHash=$key===null ? null : hash('sha256',$key);
             $requestHash=hash_hmac('sha256',$r->body(),$credential['secret']);
@@ -83,9 +84,13 @@ final class IngestService
                 if ($async) {
                     if ($repo->receipt($p['id'],$keyHash,$requestHash)!==null) { throw new HttpException(409,'idempotency_conflict','Idempotency-Key already used for synchronous ingest.'); }
                     $queue=$this->app->container()->get(\Cajeer\Logs\Queue\PostgresQueueDriver::class);
-                    if (!$queue->hasKey($p['id'],$keyHash) && ($denied=$this->admit($tx,$pdo,$project,$events,$sources,strlen($r->body())))!==null) return $denied;
-                    $budget->limitSql($pdo,(int)$config->get('database.statement_timeout_ms'));
-                    $job=$queue->enqueue($p['id'],$project,$keyHash,$requestHash,$events,$sources);
+                    $job=$queue->enqueue($p['id'],$project,$keyHash,$requestHash,$events,$sources,
+                        function () use ($tx,$pdo,$project,$events,$sources,$r,$budget,$config) {
+                            $denied=$this->admit($tx,$pdo,$project,$events,$sources,strlen($r->body()));
+                            $budget->limitSql($pdo,(int)$config->get('database.statement_timeout_ms'));
+                            return $denied;
+                        });
+                    if ($job instanceof HttpException) return $job;
                     $response=new JsonResponse(['accepted'=>true,'received'=>count($events)]+$job,$job['replayed']?200:202,['Location'=>$config->get('api.prefix').'/ingest/jobs/'.$job['job_id']]);
                     $budget->limitSql($pdo,(int)$config->get('database.statement_timeout_ms'));
                     return $response;

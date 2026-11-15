@@ -83,30 +83,51 @@ final class SourceRepository
     {
         $this->requireTransaction();
         if (!$counts||$bytes<1||$bytes>1048576) throw new \InvalidArgumentException('Invalid source admission.');
-        ksort($counts,SORT_STRING);
-        foreach ($counts as $id=>$events) {
-            if (!is_int($events)||$events<1||$events>100) throw new \InvalidArgumentException('Invalid source event count.');
-            $row=$this->sql('SELECT status,max_body_bytes,max_batch_events,events_per_minute FROM sources WHERE project_id=:project AND id=:id FOR UPDATE',['project'=>$project,'id'=>$id])->fetch();
-            if (!$row) throw new HttpException(403,'forbidden','Access denied.');
+        $batch=self::admissionRows($counts);
+        // Acquire every source lock in UUID order in one round trip, then check all
+        // policies before modifying any counters. This preserves the project->source
+        // lock hierarchy and prevents opposite-order mixed batches from deadlocking.
+        $rows=$this->sql("SELECT s.id,s.status,s.max_body_bytes,s.max_batch_events,s.events_per_minute,b.events
+            FROM sources s JOIN jsonb_to_recordset(CAST(:batch AS jsonb)) AS b(id uuid,events integer) ON s.id=b.id
+            WHERE s.project_id=:project ORDER BY s.id FOR UPDATE OF s",['project'=>$project,'batch'=>$batch])->fetchAll();
+        if (count($rows)!==count($counts)) throw new HttpException(403,'forbidden','Access denied.');
+        foreach ($rows as $row) {
+            $events=(int)$row['events'];
             if ($row['status']!=='active') throw new HttpException(409,'source_inactive','Source is disabled or archived.');
             if (($row['max_body_bytes']!==null && $bytes>(int)$row['max_body_bytes'])||($row['max_batch_events']!==null && $events>(int)$row['max_batch_events'])) throw new HttpException(413,'source_payload_limit','Source ingestion size limit exceeded.');
-            if ($row['events_per_minute']!==null) {
-                $limit=(int)$row['events_per_minute'];
-                if ($events>$limit) self::quotaExceeded();
-                $hits=$this->sql("INSERT INTO auth_rate_limits(bucket_key,window_start,hits) VALUES (:key,floor(extract(epoch from clock_timestamp())/60)::bigint*60,:events) ON CONFLICT(bucket_key,window_start) DO UPDATE SET hits=auth_rate_limits.hits+EXCLUDED.hits WHERE auth_rate_limits.hits+EXCLUDED.hits<=:quota RETURNING hits",['key'=>hash('sha256','source-events:'.$id.':60'),'events'=>$events,'quota'=>$limit])->fetchColumn();
-                if ($hits===false) self::quotaExceeded();
-            }
-            $this->sql('UPDATE sources SET last_seen_at=clock_timestamp(),accepted_events_total=accepted_events_total+:events WHERE project_id=:project AND id=:id',['events'=>$events,'project'=>$project,'id'=>$id]);
+            if ($row['events_per_minute']!==null && $events>(int)$row['events_per_minute']) self::quotaExceeded();
         }
+        // Quota buckets remain ordered by locked source UUID. Unlimited sources
+        // have no bucket writes. An admission savepoint rolls back the entire set.
+        foreach ($rows as $row) {
+            if ($row['events_per_minute']===null) continue;
+            $hits=$this->sql("INSERT INTO auth_rate_limits(bucket_key,window_start,hits) VALUES (:key,floor(extract(epoch from clock_timestamp())/60)::bigint*60,:events) ON CONFLICT(bucket_key,window_start) DO UPDATE SET hits=auth_rate_limits.hits+EXCLUDED.hits WHERE auth_rate_limits.hits+EXCLUDED.hits<=:quota RETURNING hits",['key'=>hash('sha256','source-events:'.$row['id'].':60'),'events'=>(int)$row['events'],'quota'=>(int)$row['events_per_minute']])->fetchColumn();
+            if ($hits===false) self::quotaExceeded();
+        }
+        $updated=$this->sql("UPDATE sources s SET last_seen_at=clock_timestamp(),accepted_events_total=s.accepted_events_total+b.events
+            FROM jsonb_to_recordset(CAST(:batch AS jsonb)) AS b(id uuid,events integer) WHERE s.project_id=:project AND s.id=b.id",['project'=>$project,'batch'=>$batch])->rowCount();
+        if ($updated!==count($counts)) throw new \RuntimeException('Incomplete source admission; roll back transaction.');
+    }
+    private static function admissionRows(array $counts): string
+    {
+        if (!$counts || count($counts)>100) throw new \InvalidArgumentException('Invalid source admission count.');
+        ksort($counts,SORT_STRING); $rows=[]; $total=0;
+        foreach ($counts as $id=>$events) {
+            if (!is_string($id) || !is_int($events)||$events<1||$events>100 || ($total+=$events)>100) throw new \InvalidArgumentException('Invalid source event count.');
+            $rows[]=['id'=>\Cajeer\Logs\Log\LogQuery::uuid($id),'events'=>$events];
+        }
+        return json_encode($rows,JSON_THROW_ON_ERROR);
     }
     /** Called only after an admission savepoint has rolled back. Counts known, authenticated policy denials. */
     public function recordPolicyRejection(string $project,array $counts): void
     {
-        $this->requireTransaction(); ksort($counts,SORT_STRING);
-        foreach ($counts as $id=>$events) {
-            if (!is_int($events)||$events<1||$events>100) throw new \InvalidArgumentException('Invalid rejected event count.');
-            $this->sql('UPDATE sources SET rejected_events_total=rejected_events_total+:events WHERE project_id=:project AND id=:id',['events'=>$events,'project'=>$project,'id'=>$id]);
-        }
+        $this->requireTransaction(); $batch=self::admissionRows($counts);
+        // UPDATE alone does not guarantee lock order. Lock the exact same source
+        // set in order before the bulk write, including the rejection path.
+        $locked=$this->sql("SELECT s.id FROM sources s JOIN jsonb_to_recordset(CAST(:batch AS jsonb)) AS b(id uuid,events integer) ON s.id=b.id WHERE s.project_id=:project ORDER BY s.id FOR UPDATE OF s",['project'=>$project,'batch'=>$batch])->fetchAll();
+        if (count($locked)!==count($counts)) throw new HttpException(403,'forbidden','Access denied.');
+        $updated=$this->sql("UPDATE sources s SET rejected_events_total=s.rejected_events_total+b.events FROM jsonb_to_recordset(CAST(:batch AS jsonb)) AS b(id uuid,events integer) WHERE s.project_id=:project AND s.id=b.id",['project'=>$project,'batch'=>$batch])->rowCount();
+        if ($updated!==count($counts)) throw new \RuntimeException('Incomplete rejection accounting; roll back transaction.');
     }
     private static function quotaExceeded(): never { throw new HttpException(429,'source_quota_exceeded','Source event quota exceeded.',['Retry-After'=>'60']); }
     public function statistics(string $project,string $id): array

@@ -1,4 +1,4 @@
-# CajeerLogs Java/Kotlin SDK 0.2.1
+# CajeerLogs Java/Kotlin SDK 0.2.2
 
 JVM 17+, Kotlin 2.0; стандартный `java.net.http.HttpClient`, без сторонних HTTP/JSON-библиотек. `gradle -p clients/java-kotlin build` (Gradle 8.10.2) собирает JAR, который можно подключить к Java/Kotlin-приложению. Kotlin stdlib требуется в runtime.
 

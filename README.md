@@ -2,6 +2,10 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.2.2 — Single & Batch Ingestion
+
+Единая нормализация и ограничение пакетов, проверка durable payload, пакетные блокировки и счётчики источников, безопасная обработка lease и dead-letter. [Инструкция](docs/Single-Batch-Ingestion.md).
+
 ## 0.2.1 — Ingest Runtime
 
 Единый ingest-сервис, строгий HTTP envelope, ограничение параллельного приёма, бюджет SQL, безопасные 503 и локальные Prometheus-метрики. [Инструкция](docs/Ingest-Runtime.md).

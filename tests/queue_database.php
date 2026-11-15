@@ -93,6 +93,76 @@ try {
     $pdo->exec('ALTER TABLE scheduler_runs DROP CONSTRAINT test_scheduler_failure');
     verify(isset($scheduler->run()['retention']['removed']),'failed scheduler task succeeds next run');
     $metrics=$app->handle(new Request('GET','/metrics'));verify(str_contains($metrics->body,'cajeerlogs_queue_available 1')&&str_contains($metrics->body,'cajeerlogs_queue_jobs{status="dead"} 0'),'real queue metrics');
+    // Mixed-source single/batch paths share validation, source counters and ordering.
+    $numeric=$sources->create($p,'Numeric','0');
+    $wide=$tokens->create('Mixed writer',['logs:write'],$p,null);
+    $mixedBody=json_encode(['events'=>[json_decode($body),array_replace((array)json_decode($body),['source'=>'0','message'=>'numeric']),json_decode($body)]],JSON_THROW_ON_ERROR);
+    $sourceCounter=fn(string $sid)=>(int)$pdo->query("SELECT accepted_events_total FROM sources WHERE id=".$pdo->quote($sid))->fetchColumn();
+    $beforeApp=$sourceCounter($source);$beforeNumeric=$sourceCounter($numeric);
+    $r=$send('mixed-sync',$mixedBody,$wide['token'],'/api/v1/ingest');$mixedIds=data($r)['event_ids'];
+    verify($r->status===201&&count($mixedIds)===3&&count(array_unique($mixedIds))===3,'mixed sync batch committed all UUIDs');
+    verify($sourceCounter($source)===$beforeApp+2&&$sourceCounter($numeric)===$beforeNumeric+1,'bulk source counters match event multiplicity');
+    verify(data($send('mixed-sync',$mixedBody,$wide['token'],'/api/v1/ingest'))['event_ids']===$mixedIds&&$sourceCounter($source)===$beforeApp+2,'mixed sync replay not charged');
+    $r=$send('mixed-async',$mixedBody,$wide['token']);$mixedJob=data($r)['job_id'];
+    verify($r->status===202&&$sourceCounter($source)===$beforeApp+4&&$sourceCounter($numeric)===$beforeNumeric+2,'mixed async admission charges once');
+    verify($pdo->query("SELECT jsonb_typeof(payload->'sources') FROM jobs WHERE id=".$mixedJob)->fetchColumn()==='object','numeric source mapping persisted as JSON object');
+    verify($send('mixed-async',$mixedBody,$wide['token'])->status===200&&$sourceCounter($numeric)===$beforeNumeric+2,'async replay skips admission');
+    verify($queue->process($queue->claim())==='completed','mixed async batch processed');
+    $result=data($poll($mixedJob,$wide['token']))['result'];
+    $lookup=$pdo->prepare('SELECT source_id FROM log_events WHERE id=:id');$ordered=[];
+    foreach ($result['event_ids'] as $eventId) {$lookup->execute(['id'=>$eventId]);$ordered[]=$lookup->fetchColumn();}
+    verify($ordered===[$source,$numeric,$source]&&$result['stored']===3,'async result preserves source and input order');
+    // PostgreSQL renders finite exponents as long decimals. The compact JSON
+    // fits the HTTP/job limits but the actual JSONB text exceeds the worker cap.
+    $expanded=array_replace((array)json_decode($body),['context'=>['numbers'=>array_fill(0,1500,1e300)]]);
+    $expansionBody=json_encode(['events'=>array_fill(0,30,$expanded)],JSON_THROW_ON_ERROR);
+    $beforeApp=$sourceCounter($source);$beforeJobs=(int)$pdo->query('SELECT count(*) FROM jobs')->fetchColumn();
+    $r=$send('jsonb-expanded',$expansionBody,$token['token']);
+    verify($r->status===413&&$sourceCounter($source)===$beforeApp&&(int)$pdo->query('SELECT count(*) FROM jobs')->fetchColumn()===$beforeJobs,'JSONB expansion refusal rolls back admission and job');
+    // Invalid durable data goes dead on the first attempt without partial storage.
+    $r=$send('malformed',$body2,$token['token']);$badId=data($r)['job_id'];verify($r->status===202,'malformed fixture initially accepted');
+    $pdo->exec("UPDATE jobs SET payload=jsonb_set(payload,'{events,1,message}','123'::jsonb) WHERE id=".$badId);
+    $beforeLogs=(int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn();$beforeHooks=(int)$pdo->query('SELECT count(*) FROM webhook_deliveries')->fetchColumn();
+    verify($queue->process($queue->claim())==='dead','malformed job fails permanently on first attempt');
+    $badStatus=data($poll($badId,$token['token']));
+    verify($badStatus['status']==='dead'&&(int)$badStatus['attempts']===1&&$badStatus['last_error']==='invalid_payload'&&$queue->history($badId)[0]['outcome']==='dead','safe permanent failure and attempt history');
+    verify((int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===$beforeLogs&&(int)$pdo->query('SELECT count(*) FROM webhook_deliveries')->fetchColumn()===$beforeHooks,'malformed batch leaves no log or outbox row');
+    verify($queue->discard($badId),'explicit discard of invalid payload');
+    // A stale claim cannot write even before another worker reclaims it.
+    $r=$send('expired-before-start',$body,$token['token']);$expiredId=data($r)['job_id'];$expiredClaim=$queue->claim();
+    $pdo->exec("UPDATE jobs SET lease_until=clock_timestamp()-interval '1 second' WHERE id=".$expiredId);
+    verify($queue->process($expiredClaim)==='stale'&&(int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===$beforeLogs,'expired claim cannot start processing');
+    verify($queue->process($secondQueue->claim())==='completed','expired job reclaimed by independent session');
+    // Terminate a real backend after INSERT and before COMMIT. A trigger on the
+    // outbox waits on a lock held by the independent session, so the transaction
+    // has already executed LogRepository::storeBatch but cannot commit.
+    $r=$send('terminate-after-insert',$body2,$token['token']);$crashId=data($r)['job_id'];$crashClaim=$queue->claim();
+    verify($r->status===202&&(string)$crashClaim['id']===$crashId,'crash fixture durably claimed');
+    $beforeLogs=(int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn();$beforeHooks=(int)$pdo->query('SELECT count(*) FROM webhook_deliveries')->fetchColumn();
+    $lock=random_int(100000,2000000000);$name='cl_queue_crash_'.bin2hex(random_bytes(6));
+    $pdo->exec('CREATE FUNCTION queue_crash_pause() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_advisory_xact_lock('.$lock.'); RETURN NEW; END; $$');
+    $pdo->exec('CREATE TRIGGER queue_crash_pause BEFORE INSERT ON webhook_deliveries FOR EACH ROW EXECUTE FUNCTION queue_crash_pause()');
+    $second->query('SELECT pg_advisory_lock('.$lock.')')->closeCursor();$child=null;$streams=[];
+    try {
+        $code='require '.var_export($root.'/core/bootstrap.php',true).'; $app=new \\Cajeer\\Logs\\Kernel\\Application('.var_export($root,true).'); $app->boot(); $app->config()->set("database.schema",'.var_export($schema,true).'); $app->config()->set("database.application_name",'.var_export($name,true).'); $pdo=$app->container()->get(PDO::class); try { (new \\Cajeer\\Logs\\Queue\\PostgresQueueDriver($pdo))->process('.var_export($crashClaim,true).'); exit(2); } catch (Throwable $e) { exit(\\Cajeer\\Logs\\Database\\DatabaseFailure::reconnectable($e)?0:3); }';
+        $child=proc_open([PHP_BINARY,'-r',$code],[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$streams,$root);
+        if (!is_resource($child)) throw new RuntimeException('Cannot start fault-injection worker');fclose($streams[0]);unset($streams[0]);
+        $q=$pdo->prepare("SELECT pid FROM pg_stat_activity WHERE application_name=:name AND wait_event_type='Lock' AND wait_event='advisory'");$pid=0;$until=microtime(true)+15;
+        do {$q->execute(['name'=>$name]);$pid=(int)$q->fetchColumn();$q->closeCursor();if($pid)break;usleep(50000);}while(microtime(true)<$until&&proc_get_status($child)['running']);
+        verify($pid>0,'worker reached outbox after log INSERT');
+        $terminate=$pdo->prepare('SELECT pg_terminate_backend(CAST(:pid AS integer),5000)');$terminate->execute(['pid'=>$pid]);verify($terminate->fetchColumn()===true,'worker backend terminated before commit');
+        $out=stream_get_contents($streams[1]);$err=stream_get_contents($streams[2]);fclose($streams[1]);fclose($streams[2]);$streams=[];
+        verify(proc_close($child)===0,'connection loss propagated rather than unsafe retry');$child=null;
+    } finally {
+        if(is_resource($child)){proc_terminate($child);foreach($streams as $stream)if(is_resource($stream))fclose($stream);proc_close($child);}
+        $second->query('SELECT pg_advisory_unlock('.$lock.')')->closeCursor();
+        $pdo->exec('DROP TRIGGER queue_crash_pause ON webhook_deliveries');$pdo->exec('DROP FUNCTION queue_crash_pause()');
+    }
+    verify((int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===$beforeLogs&&(int)$pdo->query('SELECT count(*) FROM webhook_deliveries')->fetchColumn()===$beforeHooks,'connection loss rolled back log and outbox');
+    verify($pdo->query('SELECT status FROM jobs WHERE id='.$crashId)->fetchColumn()==='running','committed claim survives lost processing session');
+    $pdo->exec("UPDATE jobs SET lease_until=clock_timestamp()-interval '1 second' WHERE id=".$crashId);
+    verify($secondQueue->process($secondQueue->claim())==='completed'&&(int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===$beforeLogs+2&&(int)$pdo->query('SELECT count(*) FROM webhook_deliveries')->fetchColumn()===$beforeHooks+1,'recovery commits exactly one batch and outbox');
+    verify($queue->process($crashClaim)==='stale','pre-crash claim fenced after recovery');
     echo "Queue database: $count checks passed\n";
 } finally {
     if (isset($second)&&$second->inTransaction()) $second->rollBack();

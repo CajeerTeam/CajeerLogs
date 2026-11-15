@@ -4,7 +4,7 @@
 
 | Версия | Статус |
 |---|---|
-| 0.2.1 | Ingest Runtime; текущая версия (Public Preview до CI) |
+| 0.2.2 | Single & Batch Ingestion; текущая версия (Public Preview до CI) |
 
 ## Сообщение об уязвимости
 
