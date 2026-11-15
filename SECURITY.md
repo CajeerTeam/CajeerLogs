@@ -4,7 +4,7 @@
 
 | Версия | Статус |
 |---|---|
-| 0.2.3 | Event Validation; текущая версия (Public Preview до CI) |
+| 0.2.4 | Ingest Authorization; текущая версия (Public Preview до CI) |
 
 ## Сообщение об уязвимости
 

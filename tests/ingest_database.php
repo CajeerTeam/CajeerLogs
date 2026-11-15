@@ -160,6 +160,80 @@ WORKER;
             if (is_resource($child)) { proc_close($child); }
         }
     }
+    // All three ingest routes share one IP/token bucket. Alternate peer addresses
+    // to distinguish the token limit from the IP limit; forwarded headers are ignored.
+    $rateToken=$tokens->create('combined-budget',['logs:write'],$project);
+    $rateSecret=$rateToken['token'];
+    if ((float)$pdo->query('SELECT extract(second from clock_timestamp())')->fetchColumn()>50) sleep(10);
+    $app->config()->set('api.rate_limit',2);
+    try {
+        expect($raw,$rateSecret,201,'combined rate: sync request',['Idempotency-Key'=>'shared-sync'],'192.0.2.201');
+        $combined=$app->handle(new Request('POST','/api/v1/ingest/async',['Authorization'=>'Bearer '.$rateSecret,'Content-Type'=>'application/json','Idempotency-Key'=>'shared-async'],[],$raw,'192.0.2.202'));
+        verify($combined->status===202,'combined rate: async request');
+        $combinedId=data($combined)['job_id'];
+        $poll=$app->handle(new Request('GET','/api/v1/ingest/jobs/'.$combinedId,['Authorization'=>'Bearer '.$rateSecret,'X-Forwarded-For'=>'198.51.100.19'],[],'','192.0.2.203'));
+        verify($poll->status===429&&$poll->header('Retry-After')==='60','job polling shares sync/async token rate across IPs');
+        // Complete this job before the later timestamp-policy test expects its own claim.
+        $queue=$app->container()->get(\Cajeer\Logs\Queue\PostgresQueueDriver::class);
+        $claim=$queue->claim(); verify((string)$claim['id']===$combinedId&&$queue->process($claim)==='completed','rate-limited polling does not affect accepted job');
+        $ipToken=$tokens->create('ip-budget',['logs:write'],$project);
+        expect($raw,$ipToken['token'],201,'combined rate: first IP request',['X-Forwarded-For'=>'198.51.100.21'],'192.0.2.211');
+        expect($raw,$ipToken['token'],201,'combined rate: second mapped IP request',['X-Forwarded-For'=>'198.51.100.22'],'::ffff:192.0.2.211');
+        $otherIpToken=$tokens->create('different-token',['logs:write'],$project);
+        $denial=$app->handle(new Request('GET','/api/v1/ingest/jobs/'.$combinedId,['Authorization'=>'Bearer '.$otherIpToken['token'],'X-Forwarded-For'=>'198.51.100.23'],[],'','192.0.2.211'));
+        verify($denial->status===429,'mapped IP and forwarded headers cannot bypass shared IP rate');
+    } finally { $app->config()->set('api.rate_limit',600); }
+    // Preflight has already charged the token when the administrator commits a
+    // revoke. The child must reauthorize under the row lock, never accept work.
+    $revokeProgram = <<<'WORKER'
+$app=require 'core/bootstrap.php';
+$request=new \Cajeer\Logs\Http\Request('POST',getenv('CL_TEST_PATH'),['Authorization'=>'Bearer '.getenv('CL_TEST_TOKEN'),'Content-Type'=>'application/json','Idempotency-Key'=>'revoke-race'],[],getenv('CL_TEST_BODY'),'192.0.2.230');
+$response=$app->handle($request); echo json_encode(['status'=>$response->status,'body'=>json_decode($response->body,true)],JSON_THROW_ON_ERROR);
+WORKER;
+    foreach (['/api/v1/ingest','/api/v1/ingest/async'] as $path) {
+        $race=$tokens->create('revoke-race',['logs:write'],$project,$source);
+        $beforeLogs=(int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn();
+        $beforeJobs=(int)$pdo->query('SELECT count(*) FROM jobs')->fetchColumn();
+        $child=null;$streams=[];
+        $pdo->beginTransaction();
+        try {
+            $tokens->revoke($race['id']); // uncommitted row update; preflight sees old version
+            $env=array_replace(getenv(),['APP_ENV'=>'test','APP_DEBUG'=>'false','DB_SCHEMA'=>$schema,'INGEST_REQUIRE_HMAC'=>'false','API_RATE_LIMIT_PER_MINUTE'=>'600','CL_TEST_TOKEN'=>$race['token'],'CL_TEST_BODY'=>$raw,'CL_TEST_PATH'=>$path]);
+            $child=proc_open([PHP_BINARY,'-r',$revokeProgram],[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$streams,$root,$env);
+            if (!is_resource($child)) throw new RuntimeException('Cannot start revocation race worker.');
+            fclose($streams[0]);unset($streams[0]);
+            $bucket=$pdo->prepare('SELECT EXISTS(SELECT 1 FROM auth_rate_limits WHERE bucket_key=:key)');
+            $seen=false;
+            for($i=0;$i<200;$i++){ $bucket->execute(['key'=>hash('sha256','ingest-token:'.$race['id'].':60')]);$seen=(bool)$bucket->fetchColumn();$bucket->closeCursor();if($seen)break;usleep(25000); }
+            verify($seen,'revocation race reached authenticated preflight '.$path);
+            $pdo->commit();
+            $out=stream_get_contents($streams[1]);$err=stream_get_contents($streams[2]);fclose($streams[1]);fclose($streams[2]);$streams=[];
+            $exit=proc_close($child);$child=null;
+            verify($exit===0&&json_decode($out,true,32,JSON_THROW_ON_ERROR)['status']===401,'committed revoke fences in-flight '.$path);
+            verify((int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===$beforeLogs&&(int)$pdo->query('SELECT count(*) FROM jobs')->fetchColumn()===$beforeJobs,'revocation race writes neither logs nor jobs');
+        } finally {
+            if($pdo->inTransaction())$pdo->rollBack();
+            if(is_resource($child))proc_terminate($child);
+            foreach($streams as $stream)if(is_resource($stream))fclose($stream);
+            if(is_resource($child))proc_close($child);
+        }
+    }
+    // A policy update after preflight requires retry, without charging twice.
+    $policyToken=$tokens->create('policy-race',['logs:write'],$project);
+    $auth=new \Cajeer\Logs\Security\IngestAuthorization($pdo,600);
+    $policyRequest=new Request('POST','/api/v1/ingest',['Authorization'=>'Bearer '.$policyToken['token']],[],'','192.0.2.240');
+    $cred=\Cajeer\Logs\Security\IngestAuthorization::credentials($policyRequest);$snapshot=$auth->begin($policyRequest,$cred);
+    $separate->prepare('UPDATE api_tokens SET requests_per_minute=1 WHERE id=:id')->execute(['id'=>$policyToken['id']]);
+    try { (new \Cajeer\Logs\Database\TransactionManager($pdo))->run(fn()=>$auth->locked($policyRequest,$cred,$snapshot)); throw new RuntimeException('Expected changed credential policy'); }
+    catch(\Cajeer\Logs\Http\HttpException $e){verify($e->status===503&&$e->error==='authorization_changed','changed token policy rejected after preflight');}
+    // JSON objects and duplicate/unknown scopes must be rejected both by HTTP
+    // and by the durable repository, including when the token has no log history.
+    $badToken=$tokens->create('malformed scopes',['logs:write'],$project,$source);
+    foreach(['{"0":"logs:write"}','{"logs:write":true}','["logs:write","logs:write"]','["logs:write","system:read"]'] as $badScopes){
+        $pdo->prepare('UPDATE api_tokens SET scopes=CAST(:scopes AS jsonb) WHERE id=:id')->execute(['scopes'=>$badScopes,'id'=>$badToken['id']]);
+        expect($raw,$badToken['token'],403,'malformed stored scopes denied');
+    }
+    $pdo->prepare('UPDATE api_tokens SET scopes=CAST(:scopes AS jsonb) WHERE id=:id')->execute(['scopes'=>'["logs:write"]','id'=>$badToken['id']]);
     // Strict validation and admission-only timestamp rules through both live routes.
     $oldEvent=encode(array_replace($event,['timestamp'=>'2000-01-01T00:00:00Z','message'=>'validation policy replay']));
     $asyncSend=fn(string $body,string $key)=>$app->handle(new Request('POST','/api/v1/ingest/async',['Authorization'=>'Bearer '.$secret,'Content-Type'=>'application/json','Idempotency-Key'=>$key],[],$body));

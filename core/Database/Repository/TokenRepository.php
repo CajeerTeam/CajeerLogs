@@ -45,7 +45,7 @@ final class TokenRepository
     }
     public static function decode(array $row): array
     {
-        if(is_string($row['scopes']??null)) $row['scopes']=json_decode($row['scopes'],true,32,JSON_THROW_ON_ERROR);
+        if(is_string($row['scopes']??null)) $row['scopes']=json_decode($row['scopes'],false,32,JSON_THROW_ON_ERROR);
         if(isset($row['revision'])) $row['revision']=(string)$row['revision'];
         if(isset($row['requests_per_minute'])) $row['requests_per_minute']=(int)$row['requests_per_minute'];
         return $row;
@@ -72,7 +72,7 @@ final class TokenRepository
         return self::decode($row)+['token'=>$secret];
     }
     /** Lock on write-transaction authentication even when the usage timestamp is fresh. */
-    public function findActive(string $token): ?array
+    public function findActive(string $token, bool $touch=true): ?array
     {
         if (!preg_match('/^cl_[a-f0-9]{64}$/D',$token)) return null;
         // Materialize the row lock before checking wall-clock expiry, even if a
@@ -84,7 +84,7 @@ final class TokenRepository
         $row=$this->sql($prefix."SELECT t.id,t.name,t.scopes,t.project_id,t.source_id,t.expires_at,t.requests_per_minute,t.service_account_id,(t.last_used_at IS NULL OR t.last_used_at<clock_timestamp()-interval '5 minutes') AS usage_due FROM $from t WHERE $where",['hash'=>hash('sha256',$token)])->fetch();
         if(!$row) return null;
         // Avoid a row update and WAL on every request. The conditional SQL handles concurrent first use.
-        if($row['usage_due']) $this->sql("UPDATE api_tokens SET last_used_at=clock_timestamp() WHERE id=:id AND revoked_at IS NULL AND (last_used_at IS NULL OR last_used_at<clock_timestamp()-interval '5 minutes')",['id'=>$row['id']]);
+        if($touch && $row['usage_due']) $this->sql("UPDATE api_tokens SET last_used_at=clock_timestamp() WHERE id=:id AND revoked_at IS NULL AND (last_used_at IS NULL OR last_used_at<clock_timestamp()-interval '5 minutes')",['id'=>$row['id']]);
         unset($row['usage_due']); return self::decode($row);
     }
     public function revoke(string $id): bool

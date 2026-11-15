@@ -42,7 +42,7 @@ class RepoPDO extends PDO {
 }
 $pdo=new RepoPDO();$repo=new LogRepository($pdo);$ids=$repo->storeBatch([$e,$e],$p,['app'=>$s],$t);
 check($ids===array_column(json_decode($pdo->last['events'],true,32,JSON_THROW_ON_ERROR),'id'),'return request order regardless of database row order');
-check(str_contains($pdo->sql,'s.project_id=p.project_id')&&str_contains($pdo->sql,'t.source_id=s.id')&&str_contains($pdo->sql,'jsonb_exists(t.scopes')&&str_contains($pdo->sql,'count(*) FROM eligible'),'all-or-nothing scope SQL');
+check(str_contains($pdo->sql,'s.project_id=p.project_id')&&str_contains($pdo->sql,'t.source_id=s.id')&&str_contains($pdo->sql,"jsonb_typeof(t.scopes)='array'")&&str_contains($pdo->sql,'jsonb_array_length')&&str_contains($pdo->sql,'count(*) FROM eligible'),'all-or-nothing scope SQL');
 foreach(['empty','partial','wrong'] as $result){$pdo->result=$result;check(failure(fn()=>$repo->storeBatch([$e,$e],$p,['app'=>$s],$t)) instanceof RuntimeException,'reject incomplete/mismatched DB receipt '.$result);}
 $pdo->active=false;check(failure(fn()=>$repo->storeBatch([$e],$p,['app'=>$s],$t)) instanceof LogicException,'transaction required');
 check(failure(fn()=>$repo->receipt($t,str_repeat('a',64),str_repeat('b',64))) instanceof LogicException,'receipt lookup requires transaction');

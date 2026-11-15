@@ -103,8 +103,10 @@ final class LogRepository
     {
         $slugs=[];
         foreach ($events as $event) { $slugs[$event->source]=true; }
-        $stmt=$this->sql('SELECT id,slug FROM sources WHERE project_id=CAST(:project AS uuid) AND slug IN (SELECT jsonb_array_elements_text(CAST(:slugs AS jsonb)))',
-            ['project'=>LogQuery::uuid($project),'slugs'=>json_encode(array_map('strval',array_keys($slugs)),JSON_THROW_ON_ERROR)]);
+        $sql='SELECT id,slug FROM sources WHERE project_id=CAST(:project AS uuid) AND slug IN (SELECT jsonb_array_elements_text(CAST(:slugs AS jsonb)))';
+        $params=['project'=>LogQuery::uuid($project),'slugs'=>json_encode(array_map('strval',array_keys($slugs)),JSON_THROW_ON_ERROR)];
+        if ($tokenSource!==null) { $sql.=' AND id=CAST(:source AS uuid)'; $params['source']=LogQuery::uuid($tokenSource); }
+        $stmt=$this->sql($sql,$params);
         $map=[];
         foreach ($stmt as $row) {
             if ($tokenSource!==null && $row['id']!==$tokenSource) { throw new HttpException(403,'forbidden','Access denied.'); }
@@ -142,7 +144,10 @@ final class LogRepository
                 CROSS JOIN batch_scope p
                 JOIN sources s ON s.id=e.source_id AND s.project_id=p.project_id AND s.slug=e.source
                 JOIN api_tokens t ON t.id=p.token_id AND t.project_id=s.project_id
-                    AND (t.source_id IS NULL OR t.source_id=s.id) AND jsonb_exists(t.scopes,'logs:write')
+                    AND (t.source_id IS NULL OR t.source_id=s.id) AND jsonb_typeof(t.scopes)='array' AND t.scopes @> '["logs:write"]'::jsonb
+                    AND t.scopes <@ '["logs:read","logs:write"]'::jsonb
+                    AND jsonb_array_length(CASE WHEN jsonb_typeof(t.scopes)='array' THEN t.scopes ELSE '[]'::jsonb END) =
+                        CASE WHEN t.scopes @> '["logs:read"]'::jsonb THEN 2 ELSE 1 END
             )
             INSERT INTO log_events(id,occurred_at,source,service,host,level,message,context,trace_id,request_id,tags,project_id,source_id,ingest_token_id)
             SELECT id,occurred_at,source,service,host,level,message,context,trace_id,request_id,

@@ -2,7 +2,7 @@
   "openapi": "3.1.1",
   "info": {
     "title": "CajeerLogs API",
-    "version": "0.2.3",
+    "version": "0.2.4",
     "description": "Identity & Access, synchronous and durable asynchronous PostgreSQL ingestion, job status, project-scoped search, statistics and export. Outgoing webhooks and lifecycle administration use the CLI. TOTP enrollment, recovery codes and administrator enrollment policy. Token rotation, scoped service accounts, credential request quotas and bulk revocation."
   },
   "servers": [
@@ -2822,7 +2822,7 @@
       "post": {
         "operationId": "ingestEvents",
         "summary": "Store one or more log events atomically",
-        "description": "Requires project/source-scoped logs:write bearer. No session authentication. HMAC headers are optional unless INGEST_REQUIRE_HMAC=true; send all three together. See docs/Log-Ingestion.md. Limits are measured in UTF-8 bytes. Ingest body max 1 MiB (or lower global limit), each event max 64 KiB. UTF-8 JSON only; compressed bodies are rejected. HTTP 503 with Retry-After indicates temporary capacity or storage failure; retry with the same Idempotency-Key and a fresh HMAC nonce.",
+        "description": "Requires project/source-scoped logs:write bearer. No session authentication. HMAC headers are optional unless INGEST_REQUIRE_HMAC=true; send all three together. See docs/Log-Ingestion.md. Limits are measured in UTF-8 bytes. Ingest body max 1 MiB (or lower global limit), each event max 64 KiB. UTF-8 JSON only; compressed bodies are rejected. HTTP 503 with Retry-After indicates temporary capacity or storage failure; retry with the same Idempotency-Key and a fresh HMAC nonce. Bearer credentials require logs:write in the registered project/source. Sync, async and job polling share the ingest IP and token request budgets. Authorization is rechecked under the token lock before confirmation.",
         "security": [
           {
             "bearer": []
@@ -2912,7 +2912,7 @@
             "$ref": "#/components/responses/InternalError"
           },
           "503": {
-            "description": "Temporary storage failure, ingest concurrency limit or queue capacity; retry safely with the same key.",
+            "description": "Temporary storage failure, ingest concurrency limit or queue capacity; retry safely with the same key. A concurrent credential policy change also requires a retry.",
             "headers": {
               "Retry-After": {
                 "schema": {
@@ -3918,7 +3918,7 @@
       "post": {
         "operationId": "enqueueEvents",
         "summary": "Durably enqueue a validated single event or batch for asynchronous ingestion",
-        "description": "Requires logs:write bearer and Idempotency-Key. HTTP 202 acknowledges a durable job, not stored events. Compact normalized jobs are limited to 2 MiB and PostgreSQL JSONB text to 8 MiB. A job that cannot be decoded or has invalid scope is dead-lettered. Poll the Location with the same token. Same body/key returns existing job; do not reuse a synchronous key. UTF-8 JSON only; compressed bodies are rejected. HTTP 503 with Retry-After indicates temporary capacity or storage failure; retry with the same Idempotency-Key and a fresh HMAC nonce.",
+        "description": "Requires logs:write bearer and Idempotency-Key. HTTP 202 acknowledges a durable job, not stored events. Compact normalized jobs are limited to 2 MiB and PostgreSQL JSONB text to 8 MiB. A job that cannot be decoded or has invalid scope is dead-lettered. Poll the Location with the same token. Same body/key returns existing job; do not reuse a synchronous key. UTF-8 JSON only; compressed bodies are rejected. HTTP 503 with Retry-After indicates temporary capacity or storage failure; retry with the same Idempotency-Key and a fresh HMAC nonce. Bearer credentials require logs:write in the registered project/source. Sync, async and job polling share the ingest IP and token request budgets. Authorization is rechecked under the token lock before confirmation.",
         "security": [
           {
             "bearer": []
@@ -4008,7 +4008,7 @@
             "$ref": "#/components/responses/InternalError"
           },
           "503": {
-            "description": "Temporary storage failure, ingest concurrency limit or queue capacity; retry safely with the same key.",
+            "description": "Temporary storage failure, ingest concurrency limit or queue capacity; retry safely with the same key. A concurrent credential policy change also requires a retry.",
             "headers": {
               "Retry-After": {
                 "schema": {
@@ -4248,7 +4248,7 @@
             "$ref": "#/components/responses/Forbidden"
           },
           "404": {
-            "description": "Job missing or belongs to another token"
+            "description": "Job missing or belongs to another token/project"
           },
           "422": {
             "$ref": "#/components/responses/InvalidPayload"
@@ -4257,9 +4257,24 @@
             "$ref": "#/components/responses/RateLimited"
           },
           "503": {
-            "$ref": "#/components/responses/Unavailable"
+            "description": "Temporary storage failure or changed credential policy.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
-        }
+        },
+        "description": "Requires an active logs:write credential and exact token/project ownership. Uses the same IP and token request budgets as sync and async ingest. Existing jobs survive credential revocation, but revoked credentials cannot poll."
       }
     },
     "/auth/2fa/setup": {

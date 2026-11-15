@@ -2,6 +2,10 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.2.4 — Ingest Authorization
+
+Единый проверенный ingest principal, общие лимиты sync/async/polling, повторная авторизация под блокировкой токена и перед подтверждением, строгие scopes и SQL-проверка доступа очереди. [Инструкция](docs/Ingest-Authorization.md).
+
 ## 0.2.3 — Event Validation
 
 Строгий JSON без повторных ключей, ограниченная структура, сохранение точности чисел context, timestamp admission policies, структурированные ошибки, версионированные durable jobs и клиентская валидация. [Инструкция](docs/Event-Validation.md).

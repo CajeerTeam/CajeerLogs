@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Event Validation 0.2.3 database release gate. Executes real tests on a verified distribution.
+"""Ingest Authorization 0.2.4 database release gate. Executes real tests on a verified distribution.
 
 Database: explicit disposable PostgreSQL credentials and two empty restore targets.
 Release: four trusted CI database reports for this exact archive, then real Docker smoke.
@@ -19,7 +19,7 @@ import time
 
 import release
 
-VERSION = '0.2.3'
+VERSION = '0.2.4'
 DATABASE_TESTS = (
     'database', 'migration_engine_database', 'transaction_database',
     'identity_database', 'ingest_database', 'search_database',
@@ -27,14 +27,14 @@ DATABASE_TESTS = (
     'projects_database', 'sources_database', 'tokens_database',
     'integrity_database', 'security_database',
 )
-STAGES = tuple(DATABASE_TESTS) + ('upgrade-0.1.0', 'upgrade-0.2.2')
+STAGES = tuple(DATABASE_TESTS) + ('upgrade-0.1.0', 'upgrade-0.2.3')
 MATRIX = {(php, pg) for php in ('8.4', '8.5') for pg in ('17', '18')}
 
 
 def archive_info(path):
     meta = release.verify(path)
     if meta['version'] != VERSION:
-        raise ValueError('Expected the 0.2.3 release archive')
+        raise ValueError('Expected the 0.2.4 release archive')
     return {'version': VERSION, 'archive_sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
 
 
@@ -88,7 +88,7 @@ def database_environment():
 
 def database(args, report):
     env = database_environment()
-    previous = {'0.1.0': args.from_010.resolve(), '0.2.2': args.from_022.resolve()}
+    previous = {'0.1.0': args.from_010.resolve(), '0.2.3': args.from_023.resolve()}
     for version,path in previous.items():
         if json.loads((path/'release.json').read_text())['version'] != version:
             raise ValueError(f'Expected actual source tree {version}')
@@ -144,7 +144,7 @@ def final_release(args,report):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     sub=p.add_subparsers(dest='command',required=True)
-    d=sub.add_parser('database'); d.add_argument('archive',type=Path); d.add_argument('--from-010',type=Path,required=True); d.add_argument('--from-022',type=Path,required=True); d.add_argument('--output',type=Path,required=True)
+    d=sub.add_parser('database'); d.add_argument('archive',type=Path); d.add_argument('--from-010',type=Path,required=True); d.add_argument('--from-023',type=Path,required=True); d.add_argument('--output',type=Path,required=True)
     r=sub.add_parser('release'); r.add_argument('archive',type=Path); r.add_argument('--reports',type=Path,required=True); r.add_argument('--output',type=Path,required=True)
     args=p.parse_args()
     report={'format':1,'scope':'database-core' if args.command=='database' else 'database-release-and-production-smoke', 'status':'failed','stages':[], 'created_at':datetime.datetime.now(datetime.timezone.utc).isoformat()}

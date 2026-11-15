@@ -2,6 +2,13 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.2.4] — Ingest Authorization
+
+- Единая авторизация sync/async и polling, общий IP/token request budget; доверие только REMOTE_ADDR.
+- Повторная проверка credential под транзакционной блокировкой и перед подтверждением, без повторного списания request quota.
+- Строгая форма scopes в БД и административном API, SQL-защита записи и enqueue, явная проектная область job status.
+- Метрики отказов polling и временного изменения политики. Миграции 0001–0012 неизменны; Public Preview до фактического release gate.
+
 ## [0.2.3] — Event Validation
 
 - Строгий bounded JSON reader, запрет повторных ключей, контроль исходного и нормализованного размера, Unicode, структуры и чисел.

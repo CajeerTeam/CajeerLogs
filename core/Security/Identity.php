@@ -92,10 +92,10 @@ final class Identity
         $this->sql("INSERT INTO auth_sessions(token_hash,user_id,csrf_token,expires_at) VALUES (:hash,:id,:csrf,now()+CAST(:ttl AS integer)*interval '1 second')",['hash'=>hash('sha256',$secret),'id'=>$user['id'],'csrf'=>$csrf,'ttl'=>$this->ttl]);
         return ['user'=>self::publicUser($user),'csrf_token'=>$csrf,'cookie'=>$this->cookie($secret),'expires_in'=>$this->ttl,'enrollment_required'=>$this->enrollmentRequired($user)];
     }
-    public function authenticate(Request $r, array $credential, bool $allowEnrollment = false, bool $chargeRate = true): array
+    public function authenticate(Request $r, array $credential, bool $allowEnrollment = false, bool $chargeRate = true, bool $touchToken = true): array
     {
         if ($credential['kind'] === 'token') {
-            $row = (new TokenRepository($this->pdo))->findActive($credential['secret']);
+            $row = (new TokenRepository($this->pdo))->findActive($credential['secret'],$touchToken);
             if ($row === null) { self::unauthorized(); }
             // Legacy unscoped log tokens are fail-closed; system tokens must be global only.
             try { TokenRepository::scopes($row['scopes'],$row['project_id']); } catch (HttpException) { self::forbidden(); }
@@ -125,7 +125,8 @@ final class Identity
     {
         if ($p['kind'] === 'token') {
             $t = $p['token'];
-            if (!in_array($permission,$t['scopes'],true) || $t['project_id'] !== $project || ($t['source_id'] !== null && $t['source_id'] !== $source)) { self::forbidden(); }
+            try { $scopes=TokenRepository::scopes($t['scopes']??null,$t['project_id']??null); } catch (HttpException) { self::forbidden(); }
+            if (!in_array($permission,$scopes,true) || $t['project_id'] !== $project || ($t['source_id'] !== null && $t['source_id'] !== $source)) { self::forbidden(); }
             return;
         }
         $role = $project===null?$p['user']['role']:$this->projectRole($p,$project);

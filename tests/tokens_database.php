@@ -30,6 +30,7 @@ try{
  $acc=api('POST',$accounts,$op,['name'=>'Backend'],201)[0];$foreignAcc=api('POST','/projects/'.$other.'/service-accounts',$admin,['name'=>'Other service'],201)[0];
  api('POST',$accounts,$op,['name'=>'Backend'],409);api('POST',$tokens,$op,['name'=>'Foreign account','scopes'=>['logs:read'],'service_account_id'=>$foreignAcc['id']],409);
  api('POST',$tokens,$op,['name'=>'Foreign source','scopes'=>['logs:read'],'source_id'=>$foreign],404);
+ api('POST',$tokens,$op,['name'=>'Object scope','scopes'=>(object)['0'=>'logs:write']],422);
  $writer=api('POST',$tokens,$op,['name'=>'Writer','description'=>'production','scopes'=>['logs:read','logs:write'],'source_id'=>$source,'service_account_id'=>$acc['id'],'expires_in'=>7200],201)[0];$old=$tokens.'/'.$writer['id'];
  check($writer['revision']==='1'&&$writer['service_account_id']===$acc['id']&&$writer['created_by']===$operator,'issued scoped service credential');
  $list=api('GET',$tokens,$op,null,200,['service_account_id'=>$acc['id'],'status'=>'active'])[0];check(count($list['items'])===1&&!isset($list['items'][0]['token_hash'])&&!str_contains(json_encode($list),$writer['token']),'filtered list excludes secrets');
@@ -45,6 +46,7 @@ try{
  api('POST',$old.'/rotate',$op,['revision'=>'3','overlap_seconds'=>0],409);api('POST',$tokens.'/'.$rotated['id'].'/rotate',$op,['revision'=>'1','scopes'=>['logs:read','logs:write']],422);
  api('GET','/auth/token',bearer($writer));api('GET','/auth/token',bearer($rotated));api('GET','/logs',bearer($rotated),null,403,['project_id'=>$p]);
  check(api('POST','/ingest',$bodyHeaders,$event)[0]['event_ids']===$first['event_ids'],'old credential can replay during overlap');
+ api('POST',$old.'/rotate',$op,['revision'=>'3','scopes'=>(object)['0'=>'logs:write']],422);
  api('GET','/ingest/jobs/'.$job,bearer($rotated),null,404);api('GET','/ingest/jobs/'.$job,bearer($writer));
  $app->config()->set('ingest.require_hmac',true);api('POST','/ingest',signed($rotated,$event,'wrong-signing-key',$writer['token']),$event,401);api('POST','/ingest',signed($rotated,$event,'new-signed-key'),$event,201);$app->config()->set('ingest.require_hmac',false);
  // Simulate expiry using DB clock without a long sleep, then verify both credentials.

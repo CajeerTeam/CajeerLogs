@@ -39,6 +39,22 @@ try {
         $before=$count();$err=failure(fn()=>$tx->run(fn()=>$repo->storeBatch([$event,$other],$project,$sourcesMap,$token)));
         verify($err instanceof HttpException && $err->status===403 && $count()===$before,'scope mismatch rejects entire batch '.$i);
     }
+    // Direct repository callers cannot bypass scope checks when enqueuing or writing.
+    $queue=new \Cajeer\Logs\Queue\PostgresQueueDriver($pdo);
+    foreach ([[$scoped['id'],['app'=>$a,'other'=>$b]],[$reader['id'],$map],[$foreignToken['id'],$map]] as $i=>[$tokenId,$sourceMap]) {
+        $err=failure(fn()=>$tx->run(fn()=>$queue->enqueue($tokenId,$p,hash('sha256','denied-'.$i),hash('sha256','body'),[$event,$other],$sourceMap)));
+        verify($err instanceof HttpException&&$err->status===403,'direct enqueue rejects scope mismatch '.$i);
+    }
+    $badToken=$tokens->create('malformed scope',['logs:write'],$p,$a);
+    foreach(['{"logs:write":true}','["logs:write","logs:write"]','["logs:write","system:read"]'] as $badScopes){
+        $pdo->prepare('UPDATE api_tokens SET scopes=CAST(:scopes AS jsonb) WHERE id=:id')->execute(['scopes'=>$badScopes,'id'=>$badToken['id']]);
+        $before=$count();$err=failure(fn()=>$tx->run(fn()=>$repo->storeBatch([$event],$p,['app'=>$a],$badToken['id'])));
+        verify($err instanceof HttpException&&$err->status===403&&$count()===$before,'SQL rejects malformed scope without writing');
+        $err=failure(fn()=>$tx->run(fn()=>$queue->enqueue($badToken['id'],$p,hash('sha256','bad-scope'),hash('sha256','body'),[$event],['app'=>$a])));
+        verify($err instanceof HttpException&&$err->status===403,'queue rejects malformed scope');
+    }
+    $pdo->prepare('UPDATE api_tokens SET scopes=CAST(:scopes AS jsonb) WHERE id=:id')->execute(['scopes'=>'["logs:write"]','id'=>$badToken['id']]);
+    verify((int)$pdo->query("SELECT count(*) FROM jobs WHERE queue='ingest-v1'")->fetchColumn()===0,'denied enqueue leaves no job');
     $before=$count();$pdo->exec("ALTER TABLE log_events ADD CONSTRAINT repo_test_failure CHECK(message<>'db failure')");
     $bad=new IngestEvent('app','info','db failure',(object)[],'2026-01-01T00:00:00Z');
     verify(failure(fn()=>$tx->run(fn()=>$repo->storeBatch([$event,$bad],$p,$map,$writer['id']))) instanceof PDOException && $count()===$before,'SQL constraint rollback of complete batch');

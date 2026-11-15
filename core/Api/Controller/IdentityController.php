@@ -95,6 +95,11 @@ final class IdentityController
     {
         $d=$r->json();
         if (!str_starts_with(ltrim($r->body()),'{') || array_diff(array_keys($d),$allowed)!==[]) { self::invalid(); }
+        // Associative decoding otherwise treats {"0":"logs:write"} as a list.
+        if (array_key_exists('scopes',$d)) {
+            $object=json_decode($r->body(),false,64,JSON_THROW_ON_ERROR);
+            if (!is_array($object->scopes)) self::invalid('scopes must be a JSON array.');
+        }
         return $d;
     }
     private static function str(array $d,string $key,int $max=255): string

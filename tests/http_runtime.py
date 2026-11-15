@@ -67,7 +67,7 @@ with server() as port:
     for path in ("/", "/health", "/api/v1/health?probe=1"):
         status, headers, body = request(port, "GET", path)
         data = json.loads(body)
-        check(status == 200 and data["version"] == "0.2.3" and data["scope"] == "runtime", f"GET {path}")
+        check(status == 200 and data["version"] == "0.2.4" and data["scope"] == "runtime", f"GET {path}")
         check(len(headers["x-request-id"]) == 32 and headers["cache-control"] == "no-store" and headers["x-content-type-options"] == "nosniff", f"headers {path}")
     status, headers, body = request(port, "POST", "/health")
     check(status == 405 and headers["allow"] == "GET, HEAD, OPTIONS" and json.loads(body)["request_id"] == headers["x-request-id"], "405 + Allow + correlation")
@@ -88,6 +88,7 @@ with server() as port:
     check(request(port, "POST", "/api/v1/ingest/async", b'{}', {"Content-Type":"application/json"})[0] == 401, "async requires bearer")
     check(request(port, "POST", "/api/v1/ingest/async", b'{}', {"Authorization":"Bearer cl_"+"a"*64,"Content-Type":"application/json"})[0] == 422, "async requires key")
     check(request(port, "GET", "/api/v1/ingest/jobs/1")[0] == 401, "job status protected")
+    check(request(port, "GET", "/api/v1/ingest/jobs/1", headers={"Cookie":"cajeerlogs_session="+"b"*64})[0] == 403, "job status requires bearer not session")
     check(request(port, "GET", "/api/v1/ingest/jobs/9223372036854775808", headers={"Authorization":"Bearer cl_"+"a"*64})[0] == 422, "job ID bounds")
     check(request(port, "GET", "/api/v1/ingest/async")[0] == 405, "async method restricted")
 
@@ -102,7 +103,7 @@ with server() as port:
     status, headers, body = request(port, "GET", "/admin")
     check(status == 308 and headers["location"] == "/admin/", "admin canonical redirect")
     status, headers, body = request(port, "GET", "/admin/")
-    check(status == 200 and headers["content-type"].startswith("text/html") and b'content="0.2.3"' in body and b'content="/api/v1"' in body, "admin HTML runtime version and API prefix")
+    check(status == 200 and headers["content-type"].startswith("text/html") and b'content="0.2.4"' in body and b'content="/api/v1"' in body, "admin HTML runtime version and API prefix")
     check("script-src 'self'" in headers["content-security-policy"] and "frame-ancestors 'none'" in headers["content-security-policy"] and headers["cache-control"] == "no-store", "admin CSP and no-store")
     check(request(port, "HEAD", "/admin/")[2] == b"", "admin HEAD without body")
     check(request(port, "POST", "/admin/")[0] == 405, "admin unsupported method")
@@ -177,5 +178,6 @@ with server(DB_CONNECTION="unsupported", APP_MAX_BODY_BYTES="16777216") as port:
     metrics=request(port,"GET","/metrics")[2]
     check(b'cajeerlogs_ingest_requests_total{mode="sync",status="503"}' in metrics and b'cajeerlogs_ingest_requests_total{mode="async",status="413"}' in metrics,"real shared HTTP counters include body-read failures")
     check(b'cajeerlogs_ingest_duration_seconds_count{mode="sync"}' in metrics and b'cl_'+b'a'*64 not in metrics,"latency histogram has no token labels")
+    check(b'cajeerlogs_ingest_requests_total{mode="job",status="401"}' in metrics and b'cajeerlogs_ingest_rejections_total{mode="job",reason="forbidden"}' in metrics,"job polling status and rejection counters")
 
 print(f"HTTP integration: {COUNT} checks passed")

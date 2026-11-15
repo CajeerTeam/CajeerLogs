@@ -8,10 +8,11 @@ use Cajeer\Logs\Http\Response;
 final class IngestMetrics
 {
     private const BUCKETS=[0.01,0.05,0.1,0.25,0.5,1,2.5,5,10,30,60];
-    private const REASONS=['unauthorized','forbidden','https_required','invalid_header','invalid_content_length','invalid_body','ambiguous_body','invalid_transfer_encoding','unsupported_media_type','invalid_json','invalid_payload','payload_too_large','event_too_large','invalid_idempotency_key','idempotency_required','idempotency_conflict','rate_limited','project_archived','project_payload_limit','project_quota_exceeded','source_inactive','source_payload_limit','source_quota_exceeded','queue_full','ingest_busy','service_unavailable','internal_error'];
+    private const REASONS=['unauthorized','forbidden','authorization_changed','job_not_found','invalid_job','database_unavailable','https_required','invalid_header','invalid_content_length','invalid_body','ambiguous_body','invalid_transfer_encoding','unsupported_media_type','invalid_json','invalid_payload','payload_too_large','event_too_large','invalid_idempotency_key','idempotency_required','idempotency_conflict','rate_limited','project_archived','project_payload_limit','project_quota_exceeded','source_inactive','source_payload_limit','source_quota_exceeded','queue_full','ingest_busy','service_unavailable','internal_error'];
     public function __construct(private readonly string $directory) {}
     public static function mode(string $method,string $path,string $prefix): ?string
     {
+        if ($method==='GET' && preg_match('~^'.preg_quote($prefix,'~').'/ingest/jobs/[^/]+$~D',$path)) return 'job';
         if ($method!=='POST') return null;
         return match($path) { $prefix.'/ingest'=>'sync',$prefix.'/ingest/async'=>'async',default=>null };
     }
@@ -28,7 +29,7 @@ final class IngestMetrics
     }
     public function record(string $mode,Response $response,float $seconds): void
     {
-        if (!in_array($mode,['sync','async'],true)) return;
+        if (!in_array($mode,['sync','async','job'],true)) return;
         $lock=null; $tmp=null;
         try {
             $path=$this->directory.'/ingest-metrics.lock';
@@ -68,7 +69,7 @@ final class IngestMetrics
             if (!is_dir($this->directory) || !is_writable($this->directory)) throw new \RuntimeException('Metrics directory unavailable.');
             $data=$this->read();
             $out="# TYPE cajeerlogs_ingest_metrics_available gauge\ncajeerlogs_ingest_metrics_available 1\n# TYPE cajeerlogs_ingest_requests_total counter\n# TYPE cajeerlogs_ingest_rejections_total counter\n# TYPE cajeerlogs_ingest_duration_seconds histogram\n";
-            foreach (['sync','async'] as $mode) {
+            foreach (['sync','async','job'] as $mode) {
                 $row=$data[$mode]??null;
                 if ($row===null) continue;
                 $labels='mode="'.$mode.'"';

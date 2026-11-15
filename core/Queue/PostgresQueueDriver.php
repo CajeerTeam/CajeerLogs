@@ -25,12 +25,13 @@ final class PostgresQueueDriver implements QueueDriverInterface
     /** Caller holds the authenticated token lock; enqueue is serialized for a hard global capacity bound. */
     public function enqueue(string $token,string $project,string $key,string $hash,array $events,array $sources,?callable $admit=null): array|HttpException {
         if (!$this->pdo->inTransaction()) { throw new \LogicException('Enqueue requires a transaction.'); }
-        $row=$this->sql("SELECT id,status,request_hash FROM jobs WHERE queue='ingest-v1' AND token_id=:token AND key_hash=:key",['token'=>$token,'key'=>$key])->fetch();
+        $row=$this->sql("SELECT id,status,request_hash FROM jobs WHERE queue='ingest-v1' AND token_id=:token AND project_id=:project AND key_hash=:key",['token'=>$token,'project'=>$project,'key'=>$key])->fetch();
         if ($row) {
             if (!hash_equals($row['request_hash'],$hash)) { throw new HttpException(409,'idempotency_conflict','Idempotency-Key was used for a different request.'); }
             return ['job_id'=>(string)$row['id'],'status'=>$row['status'],'replayed'=>true];
         }
         $body=IngestBatch::encodeJob($events,$sources);
+        $this->assertEnqueueScope($token,$project,$sources);
         // Admission is only needed for a new job, after validation but before the
         // global capacity lock. A policy denial is returned for outer telemetry commit.
         if ($admit!==null && ($denied=$admit())!==null) {
@@ -45,7 +46,34 @@ final class PostgresQueueDriver implements QueueDriverInterface
         $p=$job->payload;
         $raw=json_encode(['events'=>$p['events'],'sources'=>(object)$p['sources']],JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
         [$events,$sources]=IngestBatch::decodeJob($raw);
+        $this->assertEnqueueScope($p['token'],$p['project'],$sources);
         return $this->insertJob($p['token'],$p['project'],$p['key'],$p['hash'],IngestBatch::encodeJob($events,$sources));
+    }
+    /** Defense in depth for direct repository callers. Lock the token before the
+     * capacity lock, and verify the exact source map against registered sources. */
+    private function assertEnqueueScope(string $token,string $project,array $sources): void {
+        $ok=$this->sql(<<<'SQL'
+            WITH locked AS MATERIALIZED (
+                SELECT id,project_id,source_id,scopes,revoked_at,expires_at,service_account_id
+                FROM api_tokens WHERE id=CAST(:token AS uuid) FOR UPDATE
+            ), active AS MATERIALIZED (
+                SELECT t.* FROM locked t WHERE t.revoked_at IS NULL
+                AND (t.expires_at IS NULL OR t.expires_at>clock_timestamp())
+                AND (t.service_account_id IS NULL OR EXISTS (SELECT 1 FROM service_accounts a
+                    WHERE a.id=t.service_account_id AND a.project_id=t.project_id AND a.disabled_at IS NULL))
+                ) SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM active) THEN 'unauthorized'
+            WHEN EXISTS (SELECT 1 FROM active t WHERE t.project_id=CAST(:project AS uuid)
+                AND jsonb_typeof(t.scopes)='array' AND t.scopes @> '["logs:write"]'::jsonb
+                AND t.scopes <@ '["logs:read","logs:write"]'::jsonb
+                AND jsonb_array_length(CASE WHEN jsonb_typeof(t.scopes)='array' THEN t.scopes ELSE '[]'::jsonb END)=
+                    CASE WHEN t.scopes @> '["logs:read"]'::jsonb THEN 2 ELSE 1 END
+                AND NOT EXISTS (SELECT 1 FROM jsonb_each_text(CAST(:sources AS jsonb)) m(slug,source_id)
+                    WHERE NOT EXISTS (SELECT 1 FROM sources s WHERE s.id=CAST(m.source_id AS uuid)
+                        AND s.project_id=t.project_id AND s.slug=m.slug AND (t.source_id IS NULL OR t.source_id=s.id)))
+            ) THEN 'ok' ELSE 'forbidden' END
+            SQL,['token'=>$token,'project'=>$project,'sources'=>json_encode((object)$sources,JSON_THROW_ON_ERROR)])->fetchColumn();
+        if ($ok==='unauthorized') \Cajeer\Logs\Security\Identity::unauthorized();
+        if ($ok!=='ok') \Cajeer\Logs\Security\Identity::forbidden();
     }
     private function insertJob(string $token,string $project,string $key,string $hash,string $body): string {
         $this->pdo->query("SELECT pg_advisory_xact_lock(hashtextextended('cajeerlogs:enqueue:' || current_schema(),0))")->closeCursor();
@@ -63,8 +91,8 @@ final class PostgresQueueDriver implements QueueDriverInterface
     public function hasKey(string $token,string $key): bool {
         return (bool)$this->sql("SELECT 1 FROM jobs WHERE queue='ingest-v1' AND token_id=:token AND key_hash=:key",['token'=>$token,'key'=>$key])->fetchColumn();
     }
-    public function status(string $id,string $token): ?array {
-        $row=$this->sql("SELECT id,status,attempts,max_attempts,created_at,available_at,completed_at,result,last_error FROM jobs WHERE queue='ingest-v1' AND id=:id AND token_id=:token",['id'=>$id,'token'=>$token])->fetch();
+    public function status(string $id,string $token,string $project): ?array {
+        $row=$this->sql("SELECT id,status,attempts,max_attempts,created_at,available_at,completed_at,result,last_error FROM jobs WHERE queue='ingest-v1' AND id=:id AND token_id=:token AND project_id=:project",['id'=>$id,'token'=>$token,'project'=>$project])->fetch();
         if (!$row) { return null; }
         $row['id']=(string)$row['id'];$row['result']=$row['result']===null?null:json_decode($row['result'],true,32,JSON_THROW_ON_ERROR);return $row;
     }
