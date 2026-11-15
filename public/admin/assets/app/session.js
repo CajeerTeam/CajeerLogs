@@ -1,11 +1,12 @@
-import { state, resetWorkspace, render, advanceSession } from './store.js?v=0.4.0';
-import { $, h, field, input, clearModal, form } from '../components/ui.js?v=0.4.0';
-import { refreshProject } from './projects.js?v=0.4.0';
-import { navigation } from './shell.js?v=0.4.0';
-import { request, get } from '../api/client.js?v=0.4.0';
+import { state, resetWorkspace, render, advanceSession } from './store.js?v=0.4.1';
+import { $, h, field, input, clearModal, form } from '../components/ui.js?v=0.4.1';
+import { refreshProject } from './projects.js?v=0.4.1';
+import { navigation } from './shell.js?v=0.4.1';
+import { request, get } from '../api/client.js?v=0.4.1';
 
 const version = document.querySelector('meta[name=cajeer-version]').content;
 let sessionChecking = false;
+let sessionCheckAgain = false;
 let loginAttempt = 0;
 let channel = null;
 try { if (typeof BroadcastChannel === 'function') channel = new BroadcastChannel('cajeerlogs-auth'); } catch { /* Opaque origin or unavailable browser API. Focus/polling still revalidate. */ }
@@ -63,8 +64,10 @@ async function bootstrap() {
         if (epoch === state.authEpoch && e.status !== 401 && e.name !== 'AbortError') renderLogin('Не удалось проверить сессию: ' + e.message);
     }
 }
-async function revalidateSession(force = false) { if (!state.user || sessionChecking || (!force && document.hidden))
-    return; const authEpoch = state.authEpoch; sessionChecking = true; try {
+async function revalidateSession(force = false) {
+    if (!state.user || (!force && document.hidden)) return;
+    if (sessionChecking) { if(force)sessionCheckAgain=true; return; }
+    const authEpoch = state.authEpoch; sessionChecking = true; try {
     const res = await get('/auth/me');
     if (authEpoch !== state.authEpoch)
         return;
@@ -83,6 +86,7 @@ async function revalidateSession(force = false) { if (!state.user || sessionChec
 catch (e) { /* 401 is handled centrally; transient connectivity errors must not imply logout. */ }
 finally {
     sessionChecking = false;
+    if(sessionCheckAgain){sessionCheckAgain=false;if(state.user)void revalidateSession(true);}
 } }
 window.addEventListener('focus', () => void revalidateSession());
 document.addEventListener('visibilitychange', () => { if (!document.hidden) void revalidateSession(); });

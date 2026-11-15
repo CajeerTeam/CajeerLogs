@@ -2,6 +2,10 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.4.1 — Admin Panel Release
+
+Обновление панели: глобальный поиск проектов, согласованная навигация и перепроверка доступа, независимые диагностические проверки. См. [руководство 0.4.1](docs/Admin-Panel-Release.md).
+
 ## 0.4.0 — Admin Panel Release
 
 Интегрированная административная панель: Dashboard, Log Explorer, Saved Views, JSON Inspector, проекты/источники, пользователи, токены, сервисные аккаунты, HMAC, отдельный раздел безопасности и аудит. Централизованная смена проекта и перепроверка доступа. Release gate для точного ZIP требует PostgreSQL-матрицу, браузерный E2E Chromium/Firefox/WebKit и production smoke. [Документация релиза](docs/Admin-Panel-Release.md). Без новых миграций; Public Preview до успешной сертификации CI.

@@ -393,3 +393,10 @@ details .form-grid {
 
 /* Credential metadata and audit values may contain long UUIDs. */
 .credential-value { overflow-wrap: anywhere; white-space: normal; }
+
+/* Workspace switcher: bounded results and keyboard-friendly native controls. */
+.workspace-links { display:flex; flex-wrap:wrap; gap:8px; }
+.workspace-links [aria-current=page] { border-color:var(--accent); color:var(--accent); }
+.workspace-results { display:grid; gap:6px; max-height:40vh; overflow:auto; padding:4px; }
+.workspace-result { text-align:left; width:100%; overflow-wrap:anywhere; }
+.workspace-result small { display:block; color:var(--muted); font-weight:400; margin-top:4px; }

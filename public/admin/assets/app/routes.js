@@ -1,7 +1,7 @@
-import { state, names, admin, render } from './store.js?v=0.4.0';
+import { state, names, admin, render } from './store.js?v=0.4.1';
 
 function currentRoute() { const route = location.hash.slice(1); return Object.hasOwn(names, route) ? route : 'overview'; }
-function navigate(route) { if (!Object.hasOwn(names, route)) throw new Error('Неизвестный раздел.'); if (location.hash === '#' + route) void render({ focus: true }); else location.hash = route; }
+function navigate(route) { if (!Object.hasOwn(names, route)) throw new Error('Неизвестный раздел.'); if (location.hash !== '#' + route) location.hash = route; void render({ focus: true }); }
 function permitted(route) {
     if (!state.user || !Object.hasOwn(names, route)) return false;
     if (state.enrollmentRequired) return route === 'settings';

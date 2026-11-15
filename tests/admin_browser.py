@@ -76,7 +76,7 @@ def login(page, email='admin@example.test', password='admin-password-12345'):
 
 class Fixture:
     def __init__(self):
-        self.user = None; self.project_roles={}; self.denied_projects=set(); self.totp_enabled=False; self.require_totp=False; self.role = 'administrator'; self.projects=[{'id':P1,'name':'Production','slug':'production','revision':'1','status':'active','description':'','metadata':{},'max_body_bytes':1048576,'max_batch_events':100,'created_at':'2026-01-01T00:00:00Z'}]
+        self.system_report_fails=False; self.user = None; self.project_roles={}; self.denied_projects=set(); self.totp_enabled=False; self.require_totp=False; self.role = 'administrator'; self.projects=[{'id':P1,'name':'Production','slug':'production','revision':'1','status':'active','description':'','metadata':{},'max_body_bytes':1048576,'max_batch_events':100,'created_at':'2026-01-01T00:00:00Z'}]
         self.sources=[{'id':S1,'project_id':P1,'name':'Application','slug':'app','created_at':'2026-01-01T00:00:00Z','status':'active','revision':'1','source_type':'application','metadata':{}}]
         self.users=[{'id':U1,'email':'admin@example.test','role':'administrator','blocked_at':None}]
         self.sessions=[{'id':U1,'current':True,'user_agent':'Current browser','remote_address':'127.0.0.1','created_at':'2026-01-01T00:00:00Z','last_seen_at':'2026-01-01T00:00:00Z','expires_at':'2026-01-02T00:00:00Z'},{'id':U2,'current':False,'user_agent':'Other device','remote_address':'192.0.2.3','created_at':'2026-01-01T00:00:00Z','last_seen_at':'2026-01-01T00:00:00Z','expires_at':'2026-01-02T00:00:00Z'}]; self.members=[]; self.tokens=[]; self.accounts=[]; self.calls=[]; self.fail_next=False; self.change_export=False; self.head_changed=False; self.multi_logs=False; self.redaction={}; self.views=[]; self.connection_credentials={}; self.connection_event=None; self.connection_attempts=[]
@@ -95,7 +95,7 @@ class Fixture:
             if self.totp_enabled and body.get('otp')!='123456': return err(401,'unauthorized')
             self.user={'id':U1 if self.role=='administrator' else U2,'email':body['email'],'role':self.role,'two_factor_enabled':self.totp_enabled}
             return send({'user':self.user,'csrf_token':CSRF,'expires_in':28800,'enrollment_required':self.require_totp and not self.totp_enabled},headers={'Set-Cookie':'cajeerlogs_session='+'b'*64+'; Path=/; HttpOnly; SameSite=Strict'})
-        if path=='/health': return send({'status':'ok','version':'0.4.0'})
+        if path=='/health': return send({'status':'ok','version':'0.4.1'})
         if path=='/auth/token':
             credential=self.connection_credentials.get(req.headers.get('authorization','').removeprefix('Bearer '))
             return send({'token':credential['row']}) if credential else err(401,'unauthorized')
@@ -260,6 +260,7 @@ class Fixture:
         if self.connection_event and path=='/logs/'+self.connection_event['id']:
             assert q.get('project_id')==self.connection_event['project_id'] and q.get('source_id')==self.connection_event['source_id'];return send({'data':self.connection_event})
         if path.startswith('/logs/'): return send({'data':{**self.event,'id':E2,'message':'other event'} if path.endswith(E2) else self.event})
+        if path=='/system/report' and self.system_report_fails: return err(500,'internal_error')
         if path=='/system/report': return send({'status':'ok','environment':'test','php':'8.4','database':{'status':'ok'}})
         raise AssertionError('Unexpected fixture request: '+path)
 
@@ -337,7 +338,7 @@ def run():
         browser=browser_for(p); ctx=browser.new_context(accept_downloads=True); page=ctx.new_page(); page.set_default_timeout(8000)
         errors=[]; page.on('pageerror',lambda e: errors.append(str(e)))
         # Actual PHP router, not intercepted, even in offline browser mode.
-        status,headers,body=http(url+'/admin');assert status==200 and b'0.4.0' in body
+        status,headers,body=http(url+'/admin');assert status==200 and b'0.4.1' in body
         assert "script-src 'self'" in {k.lower():v for k,v in headers.items()}['content-security-policy']
         assert http(url+'/api/v1/auth/me')[0]==401
         assert http(url+'/admin/assets/panel.js')[0]==200
@@ -358,6 +359,20 @@ def run():
         expect(page.get_by_role('heading',name='Вход в CajeerLogs')).to_be_visible()
         login(page,password='bad');expect(page.get_by_role('alert')).to_contain_text('Неверные');login(page)
         expect(page.get_by_role('heading',name='Обзор',exact=True)).to_be_visible();expect(page.get_by_text('Всего событий')).to_be_visible()
+        # Search projects via the API, revalidate the selected project, and jump to a section.
+        page.get_by_role('button',name='Быстрый переход').click();dlg=page.get_by_role('dialog')
+        expect(dlg.get_by_role('button',name='Production',exact=False)).to_be_visible()
+        dlg.get_by_label('Поиск проекта для перехода').fill('missing');dlg.get_by_role('button',name='Найти проекты').click();expect(dlg.get_by_text('Проекты не найдены.')).to_be_visible()
+        dlg.get_by_label('Поиск проекта для перехода').fill('production');dlg.get_by_role('button',name='Найти проекты').click();expect(dlg.get_by_role('button',name='Production',exact=False)).to_be_visible()
+        dlg.get_by_label('Открыть раздел').select_option('logs');dlg.get_by_role('button',name='Production',exact=False).click();expect(page.get_by_role('heading',name='Логи',exact=True)).to_be_visible()
+        assert any(m=='GET' and path=='/projects' and q.get('q')=='production' for m,path,q,b in f.calls)
+        page.keyboard.press('Control+k');expect(dlg.get_by_role('heading',name='Быстрый переход')).to_be_visible();dlg.get_by_role('button',name='Обзор',exact=True).click();expect(page.get_by_role('heading',name='Обзор',exact=True)).to_be_visible()
+        # Access can be revoked between listing and opening a project.
+        f.projects.append(dict(f.projects[0],id=P2,name='Switch Target',slug='switch-target'))
+        page.get_by_role('button',name='Быстрый переход').click();dlg.get_by_label('Поиск проекта для перехода').fill('switch-target');dlg.get_by_role('button',name='Найти проекты').click();expect(dlg.get_by_role('button',name='Switch Target',exact=False)).to_be_visible()
+        f.denied_projects.add(P2);dlg.get_by_role('button',name='Switch Target',exact=False).click();expect(dlg.get_by_role('alert')).to_contain_text('Недостаточно прав');page.locator('#close-modal').click();expect(page.get_by_label('Активный проект')).to_have_value(P1)
+        f.denied_projects.remove(P2);f.projects.pop()
+        print('PASS global workspace search, keyboard navigation, project access recheck and revoked selection')
         # Dashboard controls use the actual API client.
         page.get_by_label('Период',exact=True).select_option('15m')
         page.get_by_label('Сравнить с предыдущим периодом').check()
@@ -506,7 +521,8 @@ def run():
         nav(page,'tokens');page.get_by_role('button',name='HMAC',exact=True).click();dlg=page.get_by_role('dialog');dlg.get_by_label('Перекрытие, секунд (только при ротации v2)').fill('3600');dlg.get_by_role('button',name='Сохранить / ротировать ключ').click();expect(dlg).to_contain_text('sk_'+'f'*64);page.locator('#close-modal').click()
         page.get_by_role('button',name='HMAC',exact=True).click();dlg.get_by_role('button',name='Завершить перекрытие HMAC').click();dlg.get_by_role('button',name='Подтвердить').click();expect(dlg).not_to_be_visible();page.get_by_role('button',name='HMAC',exact=True).click();expect(dlg.get_by_role('button',name='Завершить перекрытие HMAC')).to_have_count(0);page.locator('#close-modal').click();assert any(m=='DELETE' and path.endswith('/signing/previous') for m,path,q,b in f.calls)
         print('PASS HMAC key rotation, one-time secret, early overlap retirement fixture')
-        nav(page,'system');expect(page.get_by_role('heading',name='Системный отчёт')).to_be_visible();nav(page,'settings');page.get_by_role('button',name='Тёмная тема').first.click();assert page.locator('html').get_attribute('data-theme')=='dark';page.get_by_label('Цветовая тема',exact=True).select_option('system');page.emulate_media(color_scheme='dark');expect(page.locator('html')).to_have_attribute('data-theme','dark');page.emulate_media(color_scheme='light');expect(page.locator('html')).to_have_attribute('data-theme','light');page.get_by_label('Цветовая тема',exact=True).select_option('dark');expect(page.locator('html')).to_have_attribute('data-theme','dark');page.set_viewport_size({'width':390,'height':844});assert page.evaluate('document.documentElement.scrollWidth <= innerWidth');expect(page.locator('#sidebar')).not_to_be_visible();page.get_by_role('button',name='Меню').click();expect(page.locator('#sidebar')).to_be_visible();page.keyboard.press('Escape');expect(page.locator('#sidebar')).not_to_be_visible();page.get_by_role('button',name='Меню').click();nav(page,'logs');expect(page.locator('#sidebar')).not_to_be_visible();expect(page.get_by_role('heading',name='Логи',exact=True)).to_be_visible();page.set_viewport_size({'width':1280,'height':720});nav(page,'settings');
+        f.system_report_fails=True;nav(page,'system');expect(page.get_by_text('Подробный отчёт недоступен.',exact=False)).to_be_visible();expect(page.get_by_role('row').filter(has_text='Runtime')).to_contain_text('HTTP 200');f.system_report_fails=False;page.get_by_role('button',name='Обновить',exact=True).click();expect(page.get_by_role('button',name='Скопировать отчёт')).to_be_visible();print('PASS partial system diagnostics and recovery')
+        nav(page,'settings');page.get_by_role('button',name='Тёмная тема').first.click();assert page.locator('html').get_attribute('data-theme')=='dark';page.get_by_label('Цветовая тема',exact=True).select_option('system');page.emulate_media(color_scheme='dark');expect(page.locator('html')).to_have_attribute('data-theme','dark');page.emulate_media(color_scheme='light');expect(page.locator('html')).to_have_attribute('data-theme','light');page.get_by_label('Цветовая тема',exact=True).select_option('dark');expect(page.locator('html')).to_have_attribute('data-theme','dark');page.set_viewport_size({'width':390,'height':844});assert page.evaluate('document.documentElement.scrollWidth <= innerWidth');expect(page.locator('#sidebar')).not_to_be_visible();page.get_by_role('button',name='Меню').click();expect(page.locator('#sidebar')).to_be_visible();page.keyboard.press('Escape');expect(page.locator('#sidebar')).not_to_be_visible();page.get_by_role('button',name='Меню').click();nav(page,'logs');expect(page.locator('#sidebar')).not_to_be_visible();expect(page.get_by_role('heading',name='Логи',exact=True)).to_be_visible();page.set_viewport_size({'width':1280,'height':720});nav(page,'settings');
         page.get_by_label('Отображаемое имя').fill('Admin <test>');page.get_by_role('button',name='Сохранить профиль').click();expect(page.locator('#account')).to_contain_text('Admin <test>')
         expect(page.get_by_text('Текущая сессия',exact=True)).to_be_visible();page.get_by_role('row').filter(has_text='Other device').get_by_role('button',name='Завершить',exact=True).click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_text('Other device',exact=True)).to_have_count(0)
         print('PASS profile, current session and individual revoke')

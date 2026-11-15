@@ -97,7 +97,7 @@ def run():
             resp=api.post(url+'/api/v1/projects',headers=headers,data={'name':'Other Project','slug':'other-project'});assert resp.status==201;other_project=resp.json()['id']
             page.get_by_label('Поиск',exact=True).fill('database');page.get_by_role('button',name='Найти').click();expect(page.get_by_text('e2e database error',exact=False)).to_be_visible()
             page.get_by_role('button',name='Обновить проекты').click();expect(page.get_by_label('Активный проект').locator('option[value="'+other_project+'"]')).to_have_count(1)
-            page.get_by_label('Активный проект').select_option(other_project);expect(page.get_by_label('Поиск',exact=True)).to_have_value('');expect(page.get_by_text('e2e database error',exact=False)).to_have_count(0)
+            page.get_by_role('button',name='Быстрый переход').click();dlg=page.get_by_role('dialog');dlg.get_by_label('Поиск проекта для перехода').fill(other_project);dlg.get_by_role('button',name='Найти проекты').click();dlg.get_by_label('Открыть раздел').select_option('logs');dlg.get_by_role('button',name='Other Project',exact=False).click();expect(page.get_by_label('Активный проект')).to_have_value(other_project);expect(page.get_by_label('Поиск',exact=True)).to_have_value('');expect(page.get_by_text('e2e database error',exact=False)).to_have_count(0)
             page.get_by_label('Активный проект').select_option(project);expect(page.get_by_text('e2e database error',exact=False)).to_be_visible()
             resp=api.post(url+'/api/v1/users',headers=headers,data={'email':'operator@example.test','password':'operator-password-12345','role':'operator'});assert resp.status==201;operator=resp.json()['id']
             membership=url+'/api/v1/projects/'+project+'/members/'+operator

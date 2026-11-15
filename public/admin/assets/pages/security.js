@@ -1,7 +1,7 @@
-import { state, admin, manage, projectPath } from '../app/store.js?v=0.4.0';
-import { h, heading, card, empty } from '../components/ui.js?v=0.4.0';
-import { projectSelector } from '../app/projects.js?v=0.4.0';
-import { auditSection } from './tokens.js?v=0.4.0';
+import { state, admin, manage, projectPath } from '../app/store.js?v=0.4.1';
+import { h, heading, card, empty } from '../components/ui.js?v=0.4.1';
+import { projectSelector } from '../app/projects.js?v=0.4.1';
+import { auditSection } from './tokens.js?v=0.4.1';
 
 export async function security(signal,epoch) {
     const root=h('div',{},heading('Безопасность и аудит','История административных операций и доступ к настройкам безопасности.'),projectSelector());

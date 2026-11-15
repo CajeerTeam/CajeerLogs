@@ -1,6 +1,6 @@
-import { state, render, selectProject } from './store.js?v=0.4.0';
-import { h, button, select, notify } from '../components/ui.js?v=0.4.0';
-import { get } from '../api/client.js?v=0.4.0';
+import { state, render, selectProject } from './store.js?v=0.4.1';
+import { h, button, select, notify } from '../components/ui.js?v=0.4.1';
+import { get } from '../api/client.js?v=0.4.1';
 
 async function loadProjects(signal, more = false) {
     const auth=state.authEpoch, selected=state.project;
@@ -47,7 +47,18 @@ finally {
 
 // Refresh the current project's effective role before displaying its protected workspace.
 // Only an actual 403/404 discards the selection; network failures remain retryable.
-export async function refreshProject(signal) {
+// One in-flight access check per navigation scope. Focus/poll and page load must not
+// race each other to overwrite effective_role with an older response.
+let refreshInFlight = null;
+export function refreshProject(signal) {
+    const key=state.project, auth=state.authEpoch;
+    if(!key)return Promise.resolve(false);
+    if(refreshInFlight && refreshInFlight.key===key && refreshInFlight.auth===auth && refreshInFlight.signal===signal) return refreshInFlight.promise;
+    const slot={key,auth,signal};
+    slot.promise=fetchProject(signal).finally(()=>{if(refreshInFlight===slot)refreshInFlight=null;});
+    refreshInFlight=slot;return slot.promise;
+}
+async function fetchProject(signal) {
     const id=state.project, auth=state.authEpoch;
     if(!id) return false;
     const valid=()=>!signal?.aborted && state.authEpoch===auth && state.project===id;

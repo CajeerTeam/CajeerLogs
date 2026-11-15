@@ -110,6 +110,7 @@ REQUIRED.update({
     'tests/admin_browser_database.py',
     'tests/admin_database.php',
     'public/admin/assets/pages/security.js',
+    'public/admin/assets/components/workspace-switcher.js',
     'docs/Admin-Panel-Release.md',
 })
 

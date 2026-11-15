@@ -1,13 +1,13 @@
-import { roles, state, projectPath, admin, manage, active, render, selectProject } from '../app/store.js?v=0.4.0';
-import { h, button, card, field, input, select, badge, date, enc, message, notify, modalEpoch, clearModal, modal, form, heading, needProject, table } from '../components/ui.js?v=0.4.0';
-import { loadProjects, projectSelector } from '../app/projects.js?v=0.4.0';
-import { directoryPicker } from './users.js?v=0.4.0';
-import { pagedList } from '../components/pagination.js?v=0.4.0';
-import { nameFields, nameBody, mutationSuccess, confirmAction } from '../components/mutations.js?v=0.4.0';
-import { get, write } from '../api/client.js?v=0.4.0';
-import { sourceHealth } from '../app/analytics.js?v=0.4.0';
-import { effectivePolicy, testPayload } from '../app/source-connection.js?v=0.4.0';
-import { onboarding, verifyConnection, openSourceLogs } from '../components/source-onboarding.js?v=0.4.0';
+import { roles, state, projectPath, admin, manage, active, render, selectProject } from '../app/store.js?v=0.4.1';
+import { h, button, card, field, input, select, badge, date, enc, message, notify, modalEpoch, clearModal, modal, form, heading, needProject, table } from '../components/ui.js?v=0.4.1';
+import { loadProjects, projectSelector } from '../app/projects.js?v=0.4.1';
+import { directoryPicker } from './users.js?v=0.4.1';
+import { pagedList } from '../components/pagination.js?v=0.4.1';
+import { nameFields, nameBody, mutationSuccess, confirmAction } from '../components/mutations.js?v=0.4.1';
+import { get, write } from '../api/client.js?v=0.4.1';
+import { sourceHealth } from '../app/analytics.js?v=0.4.1';
+import { effectivePolicy, testPayload } from '../app/source-connection.js?v=0.4.1';
+import { onboarding, verifyConnection, openSourceLogs } from '../components/source-onboarding.js?v=0.4.1';
 
 const sourceTypes = [['application','Приложение'],['server','Сервер'],['nginx','Nginx'],['aapanel','aaPanel'],['custom','Другой']];
 const sourceStates = {active:'Активный',disabled:'Отключён',archived:'Архивный'};

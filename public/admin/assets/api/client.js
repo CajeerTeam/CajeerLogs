@@ -1,4 +1,4 @@
-import { state } from '../app/store.js?v=0.4.0';
+import { state } from '../app/store.js?v=0.4.1';
 const errors = { second_factor_required: 'Требуется второй фактор.', invalid_otp: 'Неверный или уже использованный код. Проверьте время устройства.', unauthorized: 'Неверные учётные данные или сессия истекла.', forbidden: 'Недостаточно прав для операции.', csrf_failed: 'Сессия изменилась. Обновите страницу и повторите операцию.', service_unavailable: 'Сервис или база данных временно недоступны.', rate_limited: 'Слишком много запросов. Повторите позже.', last_administrator: 'Нельзя отключить последнего администратора.', conflict: 'Конфликт с существующими данными.', invalid_password: 'Текущий пароль неверен.', not_found: 'Объект не найден.', page_changed: 'Страница изменилась. Обновите поиск перед экспортом.' };
 const statuses = { 401: errors.unauthorized, 403: errors.forbidden, 409: errors.conflict, 422: 'Проверьте введённые данные.', 429: errors.rate_limited, 503: errors.service_unavailable };
 export class ApiError extends Error {
@@ -14,7 +14,7 @@ export function createApiClient({ origin, prefix, fetcher = fetch, session, onUn
     const base = new URL(prefix.replace(/\/$/, '') + '/', origin);
     if (base.origin !== origin) throw new Error('Недопустимый адрес API.');
     // No automatic retries: a lost response does not prove that a write failed.
-    async function send(path, { method = 'GET', body, query, signal, raw = false, wireText = false, login = false, allowStatus = [], ifMatch = null, bearer = null, extraHeaders = {} } = {}, root = false) {
+    async function send(path, { method = 'GET', body, query, signal, raw = false, wireText = false, withStatus = false, login = false, allowStatus = [], ifMatch = null, bearer = null, extraHeaders = {} } = {}, root = false) {
         if (!path.startsWith('/') || path.startsWith('//') || /[?#\\]/.test(path)) throw new Error('Недопустимый адрес API.');
         const url = root ? new URL(path, origin) : new URL(base.pathname + path.slice(1), origin);
         if (url.origin !== origin || (!root && !url.pathname.startsWith(base.pathname))) throw new Error('Недопустимый адрес API.');
@@ -43,7 +43,7 @@ export function createApiClient({ origin, prefix, fetcher = fetch, session, onUn
             if (wireText) { const value = await response.text(); check(); return value; }
             if (response.status === 204) return null;
             let data; try { data = await response.json(); } catch { check(); throw new Error('Сервер вернул некорректный JSON.'); }
-            check(); return data;
+            check(); return withStatus ? {status:response.status,data} : data;
         } catch (error) {
             if (error instanceof ApiError) throw error;
             check();
@@ -51,7 +51,7 @@ export function createApiClient({ origin, prefix, fetcher = fetch, session, onUn
             throw error;
         }
     }
-    return { request: send, get: (path, query, signal) => send(path, { query, signal }), write: (path, method, body) => send(path, { method, body }), ready: async signal => { const r = await send('/ready', { signal, raw: true, allowStatus: [503] }, true); return { status: r.status, data: await r.json() }; } };
+    return { request: send, get: (path, query, signal) => send(path, { query, signal }), write: (path, method, body) => send(path, { method, body }), ready: signal => send('/ready', { signal, withStatus: true, allowStatus: [503] }, true) };
 }
 let client, unauthorized = () => {};
 export function installUnauthorizedHandler(fn) { unauthorized = fn; }

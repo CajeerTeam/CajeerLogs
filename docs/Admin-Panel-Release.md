@@ -1,15 +1,15 @@
-# CajeerLogs 0.4.0 — Admin Panel Release
+# CajeerLogs 0.4.1 — Admin Panel Release
 
-0.4.0 объединяет административные функции 0.3.1–0.3.9 в работающую PHP/PostgreSQL SPA. API v1, PHP 8.4/8.5, PostgreSQL 17/18 и существующие SDK сохранены. Номер релиза не означает прохождения сертификации: канал `public-preview` сохраняется до прохождения CI для точного ZIP.
+0.4.1 объединяет административные функции 0.3.1–0.3.9 в работающую PHP/PostgreSQL SPA. API v1, PHP 8.4/8.5, PostgreSQL 17/18 и существующие SDK сохранены. Номер релиза не означает прохождения сертификации: канал `public-preview` сохраняется до прохождения CI для точного ZIP.
 
-## Обновление с 0.3.9
+## Обновление с 0.4.0
 
 1. Остановить веб-трафик и workers; выполнить `php bin/cajeer backup:create`. Сохранить конфигурацию, ключи шифрования и сертификаты отдельно в защищённом хранилище.
 2. Распаковать changed-files ZIP в корень существующего проекта с заменой файлов. Не менять `.env`, содержимое `storage/` и существующие миграции. При Docker deployment пересобрать образы приложения.
 3. Проверить:
 
 ```sh
-php bin/cajeer version             # 0.4.0
+php bin/cajeer version             # 0.4.1
 php bin/cajeer migrate:status
 php bin/cajeer migrate:verify
 php bin/cajeer db:verify
@@ -18,7 +18,7 @@ php bin/cajeer openapi:lint
 npm --prefix admin run build      # только для проверки, Node не нужен в production
 ```
 
-Миграции 0001–0016 не меняются; новой миграции нет. Если предыдущая установка имеет pending migrations, применить их штатным `php bin/cajeer migrate`. После успешных проверок запустить PHP-FPM/web server/workers. Для возврата использовать сохранённые 0.3.9 файлы и конфигурацию; при восстановлении БД следовать [Backup & Recovery](Database-Core-Release.md), не перезаписывать живую БД.
+Миграции 0001–0016 не меняются; новой миграции нет. Если предыдущая установка имеет pending migrations, применить их штатным `php bin/cajeer migrate`. После успешных проверок запустить PHP-FPM/web server/workers. Для возврата использовать сохранённые 0.4.0 файлы и конфигурацию; при восстановлении БД следовать [Backup & Recovery](Database-Core-Release.md), не перезаписывать живую БД.
 
 ## Рабочие разделы и сквозной сценарий
 
@@ -38,6 +38,12 @@ npm --prefix admin run build      # только для проверки, Node �
 
 Смена проекта проходит через единый `selectProject`: фильтры, курсоры, Dashboard и состояние каталога источников сбрасываются. Переход в защищённый проектный раздел повторно запрашивает метаданные проекта и эффективную роль. При фокусе/возврате в вкладку и периодической проверке сессии повторно проверяется доступ к выбранному проекту. Если он отозван (403/404), выбор удаляется, предыдущий экран и модальные диалоги закрываются, список доступных проектов запрашивается заново. Следующий доступный проект может быть выбран автоматически; если их нет, отображается пустое состояние. Сетевая ошибка не означает отзыв членства. Backend остаётся единственным источником истины и проверяет права на каждом защищённом запросе; уже скопированные/экспортированные данные отозвать невозможно. Пользователь с глобальной ролью Operator и проектной Viewer не видит управления токенами и проектного аудита. Раздел Security не создаёт нового хранилища аудита и не обещает криптографическую неизменяемость.
 
+## Новое в 0.4.1
+
+- «Быстрый переход» в шапке и Ctrl/⌘+K: поиск по имени, slug и UUID через серверный каталог, 25 результатов на страницу, выбор целевого раздела. При выборе выполняется новый запрос карточки проекта; отказ 403/404 не переключает рабочую область. Доступные разделы учитывают текущую роль и обязательную настройку 2FA.
+- Навигация сразу отменяет прежние запросы; последующее событие hashchange не запускает повторную загрузку той же страницы. Параллельные проверки доступа в одной области навигации используют общий запрос; повторное межвкладочное уведомление о сессии не теряется.
+- «Система» показывает независимые результаты runtime, readiness и системного отчёта, включая HTTP-статусы, время проверки и ошибки. Сбой одного endpoint не скрывает успешные результаты других. Повторная загрузка позволяет восстановить отчёт.
+
 ## Безопасность production
 
 - DocumentRoot строго `public/`; HTTPS, `APP_ENV=production`, `APP_DEBUG=false`, внешний `APP_URL` должен совпадать с origin. `SECURITY_2FA_REQUIRED_FOR_ADMINS=true` и случайный 32-байтовый hex `SECURITY_TOTP_KEY`; не менять существующий ключ без процедуры миграции секретов.
@@ -50,12 +56,12 @@ npm --prefix admin run build      # только для проверки, Node �
 Сборка одного детерминированного **полного** ZIP кандидата (не changed-files patch):
 
 ```sh
-python3 scripts/release.py build release-out/CajeerLogs-0.4.0.zip
-(cd release-out && sha256sum -c CajeerLogs-0.4.0.zip.sha256)
-python3 scripts/release.py verify release-out/CajeerLogs-0.4.0.zip
+python3 scripts/release.py build release-out/CajeerLogs-0.4.1.zip
+(cd release-out && sha256sum -c CajeerLogs-0.4.1.zip.sha256)
+python3 scripts/release.py verify release-out/CajeerLogs-0.4.1.zip
 ```
 
-CI использует SHA-256 этого архива. Четыре `database` evidence report (PHP 8.4/8.5 × PostgreSQL 17/18) обязательны. Исторические деревья для upgrade берутся из действительных релизных коммитов, включая 0.3.9; при отсутствии исходного релиза проверка должна завершиться ошибкой. Схема, миграции, очереди, ingest/search, изоляция, HMAC и восстановление проверяются на реальной БД. Upgrade проверяет сохранение старой сессии, токена, событий, job и idempotency receipts.
+CI использует SHA-256 этого архива. Четыре `database` evidence report (PHP 8.4/8.5 × PostgreSQL 17/18) обязательны. Исторические деревья для upgrade берутся из действительных релизных коммитов, включая 0.3.9 и 0.4.0; при отсутствии исходного релиза проверка должна завершиться ошибкой. Схема, миграции, очереди, ingest/search, изоляция, HMAC и восстановление проверяются на реальной БД. Upgrade проверяет сохранение старой сессии, токена, событий, job и idempotency receipts.
 
 Дополнительный gate `admin` запускает проверки именно из распакованного полного ZIP, а не из рабочего checkout. На изолированной тестовой PostgreSQL БД в CI:
 
@@ -65,7 +71,7 @@ python3 -m venv /tmp/cl-browser
 /tmp/cl-browser/bin/python -m playwright install --with-deps chromium firefox webkit
 # APP_ENV=test, CAJEER_TEST_DATABASE=1, DB_* и отдельные restore БД;
 # PG_DUMP_BIN и PG_RESTORE_BIN — пути к matching PostgreSQL binaries.
-/tmp/cl-browser/bin/python scripts/certify.py admin release-out/CajeerLogs-0.4.0.zip \
+/tmp/cl-browser/bin/python scripts/certify.py admin release-out/CajeerLogs-0.4.1.zip \
   --output /tmp/admin-certification.json
 ```
 
@@ -74,7 +80,7 @@ python3 -m venv /tmp/cl-browser
 Финальная проверка требует четыре database reports, отдельный admin report, идентичный хеш кандидата, полный порядок успешных этапов и нулевые exit codes. После этого запускается реальный Docker production smoke с TLS, PHP-FPM, Nginx и PostgreSQL:
 
 ```sh
-python3 scripts/certify.py release release-out/CajeerLogs-0.4.0.zip \
+python3 scripts/certify.py release release-out/CajeerLogs-0.4.1.zip \
   --reports /tmp/database-evidence --admin-report /tmp/admin-certification.json \
   --output release-out/database-certification.json
 ```
