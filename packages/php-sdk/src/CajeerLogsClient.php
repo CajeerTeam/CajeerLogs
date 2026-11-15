@@ -65,8 +65,16 @@ final class CajeerLogsClient
         unset($item);
         $payload = isset($payload['events']) ? ['events'=>$events] : $events[0];
         $body = json_encode($payload, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        $key = $idempotencyKey ?? bin2hex(random_bytes(16));
+        return $this->sendBody($body,$idempotencyKey ?? bin2hex(random_bytes(16)));
+    }
+
+    /** Resume a delivery using the exact persisted UTF-8 JSON bytes and original key. */
+    public function sendBody(string $body,string $key): array
+    {
         if (strlen($body)>1048576 || !preg_match('/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/D',$key)) { throw new \InvalidArgumentException('Invalid body or idempotency key.'); }
+        $decoded=json_decode($body,false,64,JSON_THROW_ON_ERROR);
+        $events=$decoded instanceof \stdClass ? (property_exists($decoded,'events')?$decoded->events:[$decoded]) : null;
+        if (!is_array($events) || !array_is_list($events) || count($events)<1 || count($events)>100) throw new \InvalidArgumentException('Invalid serialized event batch.');
         for ($i=0;$i<$this->attempts;$i++) {
             $headers=['Content-Type: application/json','Authorization: Bearer '.$this->token,'Idempotency-Key: '.$key,'Connection: close'];
             if ($this->signed || $this->signingKeyId!==null) {
@@ -89,7 +97,7 @@ final class CajeerLogsClient
                     $raw=stream_get_contents($stream,65537);
                     if (in_array($status,[200,201],true) && is_string($raw) && strlen($raw)<=65536) {
                         $r=json_decode($raw,true);
-                        if (is_array($r) && ($r['accepted']??null)===true && ($r['received']??null)===count($events) && ($r['stored']??null)===($status===200?0:count($events)) && ($r['rejected']??null)===0 && ($r['replayed']??null)===($status===200) && is_array($r['event_ids']??null) && count($r['event_ids'])===count($events) && array_all($r['event_ids'],static fn($id): bool=>is_string($id)&&$id!=='')) { return $r; }
+                        if (is_array($r) && ($r['accepted']??null)===true && ($r['received']??null)===count($events) && ($r['stored']??null)===($status===200?0:count($events)) && ($r['rejected']??null)===0 && ($r['replayed']??null)===($status===200) && is_array($r['event_ids']??null) && count($r['event_ids'])===count($events) && array_is_list($r['event_ids']) && array_all($r['event_ids'],static fn($id): bool=>is_string($id)&&preg_match('/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/D',$id)===1) && count(array_unique($r['event_ids']))===count($events)) { return $r; }
                     }
                 } finally { fclose($stream); }
             }

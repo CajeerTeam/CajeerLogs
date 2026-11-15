@@ -32,6 +32,7 @@ REQUIRED = {'release.json', 'core/bootstrap.php', 'bin/cajeer', 'public/index.ph
             'deploy/production/environment.example', 'scripts/release.py', 'tests/release.py',
             'tests/release_runtime.php', 'tests/production_smoke.py', 'tests/upgrade_release.py',
             'core/Security/IngestPrincipal.php', 'core/Security/IngestAuthorization.php', 'tests/ingest_authorization.php', 'docs/Ingest-Authorization.md',
+            'core/Log/DeliveryRepository.php', 'migrations/pgsql/0014_delivery_idempotency.sql', 'tests/delivery.php', 'tests/delivery_database.php', 'docs/Idempotency-Delivery-Guarantees.md',
             'core/Log/RedactionPolicy.php', 'core/Log/RedactionPolicies.php', 'tests/redaction.php', 'tests/redaction_database.php', 'docs/Redaction-Data-Privacy.md',
             'core/Log/StrictEventJson.php', 'tests/event_validation.php', 'docs/Event-Validation.md',
             'core/Log/IngestBatch.php', 'tests/batch_ingestion.php', 'docs/Single-Batch-Ingestion.md',

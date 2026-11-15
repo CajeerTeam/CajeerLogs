@@ -56,13 +56,12 @@ final class IngestService
             $principal=$authorization->begin($r,$credential);
             $signer=new IngestSigning($pdo,$config->get('security.totp_key'));
             $signer->verify($r,$principal,$credential['secret'],$key,$config->get('ingest.require_hmac'));
-            $events=(new IngestValidator())->parse($r);
             $receivedAt=time();
-            IngestBatch::checkSize($events,$async?IngestBatch::JOB_BYTES:IngestBatch::SQL_BYTES);
+            // Keyed replays must not be rejected by newer validation rules. Parse only new deliveries.
             $budget->check();
             $keyHash=$key===null ? null : hash('sha256',$key);
             $requestHash=hash_hmac('sha256',$r->body(),$credential['secret']);
-            $result=(new TransactionManager($pdo))->run(function (TransactionManager $tx) use ($pdo,$authorization,$principal,$r,$credential,$events,$signer,$key,$keyHash,$requestHash,$config,$async,$budget,$receivedAt) {
+            $result=(new TransactionManager($pdo))->run(function (TransactionManager $tx) use ($pdo,$authorization,$principal,$r,$credential,$signer,$key,$keyHash,$requestHash,$config,$async,$budget,$receivedAt) {
                 $budget->limitSql($pdo,(int)$config->get('database.statement_timeout_ms'));
                 // Flush the local WAL before acknowledging; normal PostgreSQL fsync settings are required.
                 // Transactional authentication locks the token even when usage telemetry is fresh.
@@ -70,13 +69,30 @@ final class IngestService
                 $project=$p->projectId;
                 $budget->limitSql($pdo,(int)$config->get('database.statement_timeout_ms'));
                 $repo=new LogRepository($pdo);
-                $sources=$repo->resolveSources($events,$project,$p->sourceId);
-                foreach ($sources as $sourceId) $p->assertSource($sourceId);
-                // Verify freshness again after waiting on concurrent writers.
+                // Project lock serializes sync/async and all active members of a rotation family.
                 $nonce=$signer->verify($r,$p,$credential['secret'],$key,$config->get('ingest.require_hmac'),true);
                 if ($nonce!==null) { $repo->claimNonce($p->id,$nonce); }
+                $digest=null;
+                if ($keyHash!==null) {
+                    $delivery=new DeliveryRepository($pdo);
+                    $family=$delivery->namespace($p);
+                    $digest=DeliveryRepository::digest($r->body(),$family['token_hash'],$config->get('security.totp_key'));
+                    $previous=$delivery->lookup($p,$family['id'],$keyHash,$digest,$requestHash,$async);
+                    if ($previous!==null) {
+                        $count=$previous['received']??DeliveryRepository::legacyCount($r->body());
+                        unset($previous['received']);
+                        $budget->limitSql($pdo,(int)$config->get('database.statement_timeout_ms'));
+                        $authorization->locked($r,$credential,$p,false);
+                        if ($async) return new JsonResponse(['accepted'=>true,'received'=>$count]+$previous,200,['Location'=>$config->get('api.prefix').'/ingest/jobs/'.$previous['job_id']]);
+                        return new JsonResponse(['accepted'=>true,'received'=>$count,'stored'=>0,'rejected'=>0,'event_ids'=>$previous['event_ids'],'replayed'=>true],200);
+                    }
+                }
+                $events=(new IngestValidator())->parse($r);
+                IngestBatch::checkSize($events,$async?IngestBatch::JOB_BYTES:IngestBatch::SQL_BYTES);
+                $budget->limitSql($pdo,(int)$config->get('database.statement_timeout_ms'));
+                $sources=$repo->resolveSources($events,$project,$p->sourceId);
+                foreach ($sources as $sourceId) $p->assertSource($sourceId);
                 if ($async) {
-                    if ($repo->receipt($p->id,$keyHash,$requestHash)!==null) { throw new HttpException(409,'idempotency_conflict','Idempotency-Key already used for synchronous ingest.'); }
                     $queue=$this->app->container()->get(\Cajeer\Logs\Queue\PostgresQueueDriver::class);
                     $job=$queue->enqueue($p->id,$project,$keyHash,$requestHash,$events,$sources,
                         function () use ($tx,$pdo,$project,$events,$sources,$r,$budget,$config,$receivedAt) {
@@ -84,7 +100,7 @@ final class IngestService
                             $denied=$this->admit($tx,$pdo,$project,$events,$sources,strlen($r->body()));
                             $budget->limitSql($pdo,(int)$config->get('database.statement_timeout_ms'));
                             return $denied;
-                        });
+                        },$digest,$config->get('ingest.idempotency_seconds'));
                     if ($job instanceof HttpException) return $job;
                     $budget->limitSql($pdo,(int)$config->get('database.statement_timeout_ms'));
                     $authorization->locked($r,$credential,$p,false);
@@ -92,21 +108,15 @@ final class IngestService
                     $budget->limitSql($pdo,(int)$config->get('database.statement_timeout_ms'));
                     return $response;
                 }
-                if ($keyHash!==null && $this->app->container()->get(\Cajeer\Logs\Queue\PostgresQueueDriver::class)->hasKey($p->id,$keyHash)) { throw new HttpException(409,'idempotency_conflict','Idempotency-Key already used for asynchronous ingest.'); }
-                $ids=$keyHash===null ? null : $repo->receipt($p->id,$keyHash,$requestHash);
-                $replayed=$ids!==null;
-                if ($replayed && count($ids)!==count($events)) { throw new DatabaseException('Stored receipt count differs from request.'); }
-                if (!$replayed) {
-                    IngestValidator::checkTime($events,$config->get('ingest.max_event_age_seconds'),$config->get('ingest.max_event_future_seconds'),$receivedAt);
-                    if (($denied=$this->admit($tx,$pdo,$project,$events,$sources,strlen($r->body())))!==null) return $denied;
-                    $budget->limitSql($pdo,(int)$config->get('database.statement_timeout_ms'));
-                    $ids=$repo->storeBatch($events,$project,$sources,$p->id);
-                    (new \Cajeer\Logs\Integration\EventApiDispatcher($pdo))->publishCommittedLogs($project,$ids);
-                    if ($keyHash!==null) { $repo->saveReceipt($p->id,$keyHash,$requestHash,$ids); }
-                }
+                IngestValidator::checkTime($events,$config->get('ingest.max_event_age_seconds'),$config->get('ingest.max_event_future_seconds'),$receivedAt);
+                if (($denied=$this->admit($tx,$pdo,$project,$events,$sources,strlen($r->body())))!==null) return $denied;
+                $budget->limitSql($pdo,(int)$config->get('database.statement_timeout_ms'));
+                $ids=$repo->storeBatch($events,$project,$sources,$p->id);
+                (new \Cajeer\Logs\Integration\EventApiDispatcher($pdo))->publishCommittedLogs($project,$ids);
+                if ($keyHash!==null) { $repo->saveReceipt($p->id,$keyHash,$requestHash,$ids,$digest,$config->get('ingest.idempotency_seconds')); }
                 $budget->limitSql($pdo,(int)$config->get('database.statement_timeout_ms'));
                 $authorization->locked($r,$credential,$p,false);
-                $response=new JsonResponse(['accepted'=>true,'received'=>count($events),'stored'=>$replayed?0:count($ids),'rejected'=>0,'event_ids'=>$ids,'replayed'=>$replayed],$replayed?200:201);
+                $response=new JsonResponse(['accepted'=>true,'received'=>count($events),'stored'=>count($ids),'rejected'=>0,'event_ids'=>$ids,'replayed'=>false],201);
                 $budget->limitSql($pdo,(int)$config->get('database.statement_timeout_ms'));
                 return $response;
             }, maxAttempts: 3);

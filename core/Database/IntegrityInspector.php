@@ -31,12 +31,23 @@ final class IntegrityInspector
             'webhook_attempt_state'=>"SELECT d.id::text FROM webhook_deliveries d WHERE (d.status='sending' AND NOT EXISTS (SELECT 1 FROM webhook_attempts a WHERE a.delivery_id=d.id AND a.attempt=d.attempts AND a.outcome='sending' AND a.finished_at IS NULL)) OR EXISTS (SELECT 1 FROM webhook_attempts a WHERE a.delivery_id=d.id AND (a.attempt>d.attempts OR (a.outcome='sending' AND (d.status<>'sending' OR a.attempt<>d.attempts OR a.finished_at IS NOT NULL)) OR (a.outcome<>'sending' AND a.finished_at IS NULL)))",
         ];
     }
+    public static function deliveryChecks(): array
+    {
+        return [
+            'delivery_family'=>"SELECT t.id::text FROM api_tokens t LEFT JOIN api_tokens p ON p.rotated_to_id=t.id LEFT JOIN api_tokens root ON root.id=t.delivery_family_id WHERE (p.id IS NULL AND t.delivery_family_id IS NOT NULL) OR (p.id IS NOT NULL AND t.delivery_family_id IS DISTINCT FROM COALESCE(p.delivery_family_id,p.id)) OR (root.id IS NOT NULL AND (root.delivery_family_id IS NOT NULL OR root.project_id IS DISTINCT FROM t.project_id OR root.source_id IS DISTINCT FROM t.source_id OR root.service_account_id IS DISTINCT FROM t.service_account_id))",
+            'delivery_key_overlap'=>"WITH deliveries AS (SELECT COALESCE(t.delivery_family_id,t.id) AS family,r.key_hash,r.delivery_digest FROM ingest_receipts r JOIN api_tokens t ON t.id=r.token_id WHERE r.expires_at>statement_timestamp() UNION ALL SELECT COALESCE(t.delivery_family_id,t.id),j.key_hash,j.delivery_digest FROM jobs j JOIN api_tokens t ON t.id=j.token_id WHERE j.queue='ingest-v1') SELECT family::text FROM deliveries GROUP BY family,key_hash HAVING count(*)>1 AND bool_or(delivery_digest IS NOT NULL)",
+            'delivery_job_count'=>"SELECT id::text FROM jobs WHERE delivery_count IS NOT NULL AND ((status IN ('pending','running','dead') AND CASE WHEN jsonb_typeof(payload->'events')='array' THEN jsonb_array_length(payload->'events') IS DISTINCT FROM delivery_count ELSE true END) OR (status='completed' AND CASE WHEN jsonb_typeof(result->'event_ids')='array' THEN jsonb_array_length(result->'event_ids') IS DISTINCT FROM delivery_count ELSE true END))",
+        ];
+    }
     public function inspect(int $limit=20): array
     {
         if ($limit<1 || $limit>100) throw new DatabaseException('Integrity sample limit must be 1..100.');
         return (new TransactionManager($this->pdo))->run(function () use ($limit) {
             $checks=[]; $ok=true;
-            foreach (self::checks() as $name=>$sql) {
+            $queries=self::checks();
+            // Older verified schemas can still run the pre-migration integrity audit.
+            if ($this->pdo->query("SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='api_tokens' AND column_name='delivery_family_id')")->fetchColumn()===true) $queries+=self::deliveryChecks();
+            foreach ($queries as $name=>$sql) {
                 $rows=$this->pdo->query($sql.' LIMIT '.($limit+1))->fetchAll(PDO::FETCH_COLUMN);
                 $more=count($rows)>$limit; if ($more) array_pop($rows);
                 if ($rows!==[]) $ok=false;

@@ -16,7 +16,7 @@ try{
  foreach(glob($root.'/migrations/pgsql/000[1-8]_*.sql') as $f)copy($f,$tmp.'/'.basename($f));(new MigrationRunner($pdo,$tmp,$schema))->migrate();
  $legacy=$pdo->query("INSERT INTO projects(name,slug) VALUES('Legacy','legacy') RETURNING id")->fetchColumn();
  $pdo->exec("INSERT INTO users(email,password_hash,role) VALUES ('admin@example.test',".$pdo->quote(password_hash('test-password-12345',PASSWORD_ARGON2ID)).",'administrator')");
- $runner=$app->container()->get(MigrationRunner::class);check($runner->migrate()===['0009_project_management.sql','0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql','0013_ingest_signing.sql']&&$runner->migrate()===[]&&$runner->status()['integrity']==='verified','upgrade old schema and preserve history');
+ $runner=$app->container()->get(MigrationRunner::class);check($runner->migrate()===['0009_project_management.sql','0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql','0013_ingest_signing.sql','0014_delivery_idempotency.sql']&&$runner->migrate()===[]&&$runner->status()['integrity']==='verified','upgrade old schema and preserve history');
  $repo=new ProjectRepository($pdo);check($repo->find($legacy)['status']==='active'&&$repo->find($legacy)['revision']==='1','existing project defaults');
  $admin=login('admin@example.test');$p=api('POST','/projects',$admin,['name'=>'Project A','slug'=>'project-a'],201)[0]['id'];$path='/projects/'.$p;
  $other=api('POST','/projects',$admin,['name'=>'Project B','slug'=>'project-b'],201)[0]['id'];

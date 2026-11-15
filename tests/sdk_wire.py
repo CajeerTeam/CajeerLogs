@@ -4,6 +4,7 @@ import hmac
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -49,11 +50,14 @@ class Handler(BaseHTTPRequestHandler):
             if key.endswith('-denied'): status=401
             elif key.endswith('-redirect'): status=307
             elif key.endswith('-retry') and len(previous)==1: status=503
-            elif key.endswith('-replay'): status=200
+            elif key.endswith('-lost') and len(previous)==1:
+                # Simulate a committed request whose HTTP response never reaches the caller.
+                self.connection.shutdown(socket.SHUT_RDWR); self.connection.close(); return
+            elif key.endswith('-lost') or key.endswith('-replay'): status=200
             elif key.endswith('-malformed'): status=201
             elif collector_fail: status=503
             else: status=201
-            body=json.dumps({'accepted':True,'received':n,'stored':0 if status==200 else n,'rejected':0,'event_ids':['id']*n,'replayed':status==200}).encode() if status in (200,201) and not key.endswith('-malformed') else b'{}'
+            body=json.dumps({'accepted':True,'received':n,'stored':0 if status==200 else n,'rejected':0,'event_ids':[f'00000000-0000-4000-8000-{i+1:012x}' for i in range(n)] if not key.endswith('-duplicate') else ['00000000-0000-4000-8000-000000000001']*n,'replayed':status==200}).encode() if status in (200,201) and not key.endswith('-malformed') else b'{}'
             self.send_response(status)
             if status==307: self.send_header('Location','/capture')
             if status==503: self.send_header('Retry-After','0')
@@ -74,6 +78,10 @@ try:
     event={'timestamp':'2026-01-01T00:00:00Z','source':'app','level':'info','message':'Привет'}
     check(client.ingest([event,event],idempotency_key='python-retry')['stored']==2,'Python retry and confirmed batch')
     check(client.ingest(event,idempotency_key='python-replay')['replayed'],'Python accepts confirmed replay')
+    raw=json.dumps(event,ensure_ascii=False).encode()
+    check(client.send_body(raw,'python-lost')['replayed'] and len(calls['python-lost'])==2,'Python recovers lost response using same bytes and fresh nonce')
+    try: client.ingest([event,event],idempotency_key='python-duplicate'); raise AssertionError('duplicate receipt accepted')
+    except DeliveryError: check(True,'Python rejects duplicate event IDs')
     try: client.ingest(event,idempotency_key='python-malformed'); raise AssertionError('expected invalid receipt error')
     except DeliveryError: check(True,'Python rejects false 201 receipt')
     for key,status in [('python-denied',401),('python-redirect',307)]:

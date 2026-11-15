@@ -108,7 +108,7 @@ class CajeerLogsClient @JvmOverloads constructor(baseUrl: String, private val to
                     val r = Json.parse(String(response.body(), UTF_8)) as? Map<*, *>
                     val ids = r?.get("event_ids") as? List<*>
                     val replay = status == 200
-                    if (r?.get("accepted") == true && r["received"] == count.toLong() && r["stored"] == (if (replay) 0L else count.toLong()) && r["rejected"] == 0L && r["replayed"] == replay && ids != null && ids.size == count && ids.all { it is String && it.isNotEmpty() }) {
+                    if (r?.get("accepted") == true && r["received"] == count.toLong() && r["stored"] == (if (replay) 0L else count.toLong()) && r["rejected"] == 0L && r["replayed"] == replay && ids != null && ids.size == count && ids.all { it is String && it.matches(Regex("[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}")) } && ids.toSet().size == count) {
                         return IngestReceipt(count, if (replay) 0 else count, ids.map { it as String }, replay)
                     }
                 }

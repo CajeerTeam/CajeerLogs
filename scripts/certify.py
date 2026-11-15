@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Redaction & Data Privacy 0.2.6 database release gate. Executes real tests on a verified distribution.
+"""Idempotency & Delivery Guarantees 0.2.7 database release gate. Executes real tests on a verified distribution.
 
 Database: explicit disposable PostgreSQL credentials and two empty restore targets.
 Release: four trusted CI database reports for this exact archive, then real Docker smoke.
@@ -19,22 +19,22 @@ import time
 
 import release
 
-VERSION = '0.2.6'
+VERSION = '0.2.7'
 DATABASE_TESTS = (
     'database', 'migration_engine_database', 'transaction_database',
-    'identity_database', 'ingest_database', 'hmac_database', 'redaction_database', 'search_database',
+    'identity_database', 'ingest_database', 'delivery_database', 'hmac_database', 'redaction_database', 'search_database',
     'log_repository_database', 'webhook_database', 'queue_database',
     'projects_database', 'sources_database', 'tokens_database',
     'integrity_database', 'security_database',
 )
-STAGES = tuple(DATABASE_TESTS) + ('upgrade-0.1.0', 'upgrade-0.2.5')
+STAGES = tuple(DATABASE_TESTS) + ('upgrade-0.1.0', 'upgrade-0.2.6')
 MATRIX = {(php, pg) for php in ('8.4', '8.5') for pg in ('17', '18')}
 
 
 def archive_info(path):
     meta = release.verify(path)
     if meta['version'] != VERSION:
-        raise ValueError('Expected the 0.2.6 release archive')
+        raise ValueError('Expected the 0.2.7 release archive')
     return {'version': VERSION, 'archive_sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
 
 
@@ -88,7 +88,7 @@ def database_environment():
 
 def database(args, report):
     env = database_environment()
-    previous = {'0.1.0': args.from_010.resolve(), '0.2.5': args.from_025.resolve()}
+    previous = {'0.1.0': args.from_010.resolve(), '0.2.6': args.from_026.resolve()}
     for version,path in previous.items():
         if json.loads((path/'release.json').read_text())['version'] != version:
             raise ValueError(f'Expected actual source tree {version}')
@@ -144,7 +144,7 @@ def final_release(args,report):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     sub=p.add_subparsers(dest='command',required=True)
-    d=sub.add_parser('database'); d.add_argument('archive',type=Path); d.add_argument('--from-010',type=Path,required=True); d.add_argument('--from-025',type=Path,required=True); d.add_argument('--output',type=Path,required=True)
+    d=sub.add_parser('database'); d.add_argument('archive',type=Path); d.add_argument('--from-010',type=Path,required=True); d.add_argument('--from-026',type=Path,required=True); d.add_argument('--output',type=Path,required=True)
     r=sub.add_parser('release'); r.add_argument('archive',type=Path); r.add_argument('--reports',type=Path,required=True); r.add_argument('--output',type=Path,required=True)
     args=p.parse_args()
     report={'format':1,'scope':'database-core' if args.command=='database' else 'database-release-and-production-smoke', 'status':'failed','stages':[], 'created_at':datetime.datetime.now(datetime.timezone.utc).isoformat()}

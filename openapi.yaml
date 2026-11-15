@@ -2,7 +2,7 @@
   "openapi": "3.1.1",
   "info": {
     "title": "CajeerLogs API",
-    "version": "0.2.6",
+    "version": "0.2.7",
     "description": "Identity & Access, synchronous and durable asynchronous PostgreSQL ingestion, job status, project-scoped search, statistics and export. Outgoing webhooks and lifecycle administration use the CLI. TOTP enrollment, recovery codes and administrator enrollment policy. Token rotation, scoped service accounts, credential request quotas and bulk revocation. Mandatory project/token HMAC and separately encrypted rotating signing keys."
   },
   "servers": [
@@ -2829,7 +2829,7 @@
       "post": {
         "operationId": "ingestEvents",
         "summary": "Store one or more log events atomically",
-        "description": "Requires project/source-scoped logs:write bearer. No session authentication. HMAC headers are optional unless INGEST_REQUIRE_HMAC=true; send all three together. See docs/Log-Ingestion.md. Limits are measured in UTF-8 bytes. Ingest body max 1 MiB (or lower global limit), each event max 64 KiB. UTF-8 JSON only; compressed bodies are rejected. HTTP 503 with Retry-After indicates temporary capacity or storage failure; retry with the same Idempotency-Key and a fresh HMAC nonce. Bearer credentials require logs:write in the registered project/source. Sync, async and job polling share the ingest IP and token request budgets. Authorization is rechecked under the token lock before confirmation.",
+        "description": "Requires project/source-scoped logs:write bearer. No session authentication. HMAC headers are optional unless INGEST_REQUIRE_HMAC=true; send all three together. See docs/Log-Ingestion.md. Limits are measured in UTF-8 bytes. Ingest body max 1 MiB (or lower global limit), each event max 64 KiB. UTF-8 JSON only; compressed bodies are rejected. HTTP 503 with Retry-After indicates temporary capacity or storage failure; retry with the same Idempotency-Key and a fresh HMAC nonce. Bearer credentials require logs:write in the registered project/source. Sync, async and job polling share the ingest IP and token request budgets. Authorization is rechecked under the token lock before confirmation. New deliveries share a rotation-family key namespace and a configurable 1-30 day retention (default 7 days), starting at sync commit or async completion/cancellation; pending/running/dead jobs retain their key. Legacy records retain their original guarantees.",
         "security": [
           {
             "bearer": []
@@ -3935,7 +3935,7 @@
       "post": {
         "operationId": "enqueueEvents",
         "summary": "Durably enqueue a validated single event or batch for asynchronous ingestion",
-        "description": "Requires logs:write bearer and Idempotency-Key. HTTP 202 acknowledges a durable job, not stored events. Compact normalized jobs are limited to 2 MiB and PostgreSQL JSONB text to 8 MiB. A job that cannot be decoded or has invalid scope is dead-lettered. Poll the Location with the same token. Same body/key returns existing job; do not reuse a synchronous key. UTF-8 JSON only; compressed bodies are rejected. HTTP 503 with Retry-After indicates temporary capacity or storage failure; retry with the same Idempotency-Key and a fresh HMAC nonce. Bearer credentials require logs:write in the registered project/source. Sync, async and job polling share the ingest IP and token request budgets. Authorization is rechecked under the token lock before confirmation.",
+        "description": "Requires logs:write bearer and Idempotency-Key. HTTP 202 acknowledges a durable job, not stored events. Compact normalized jobs are limited to 2 MiB and PostgreSQL JSONB text to 8 MiB. A job that cannot be decoded or has invalid scope is dead-lettered. Poll the Location with an active logs:write credential of the same rotation family for 0.2.7+ jobs (legacy jobs require exact owner). Same body/key returns existing job; different mode or body returns 409. UTF-8 JSON only; compressed bodies are rejected. HTTP 503 with Retry-After indicates temporary capacity or storage failure; retry with the same Idempotency-Key and a fresh HMAC nonce. Bearer credentials require logs:write in the registered project/source. Sync, async and job polling share the ingest IP and token request budgets. Authorization is rechecked under the token lock before confirmation. New deliveries share a rotation-family key namespace and a configurable 1-30 day retention (default 7 days), starting at sync commit or async completion/cancellation; pending/running/dead jobs retain their key. Legacy records retain their original guarantees.",
         "security": [
           {
             "bearer": []
@@ -4176,7 +4176,7 @@
     "/ingest/jobs/{job}": {
       "get": {
         "operationId": "getIngestJob",
-        "summary": "Read status of a job created by this exact token",
+        "summary": "Read status of a job owned by this credential or its delivery family",
         "security": [
           {
             "bearer": []
@@ -4301,7 +4301,7 @@
             }
           }
         },
-        "description": "Requires an active logs:write credential and exact token/project ownership. Uses the same IP and token request budgets as sync and async ingest. Existing jobs survive credential revocation, but revoked credentials cannot poll."
+        "description": "Requires an active logs:write credential in the same project and source/service scope. New deliveries can be polled by active members of the original credential rotation family; legacy jobs require the original token. Uses the same IP and token request budgets as sync and async ingest. Revoked credentials cannot poll."
       }
     },
     "/auth/2fa/setup": {

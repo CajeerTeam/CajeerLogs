@@ -119,6 +119,7 @@ final class TokenRepository
         if($row['revoked_at']!==null||!$row['unexpired']||$row['rotated_to_id']!==null) throw new HttpException(409,'token_rotation_conflict','Token expired, revoked or already rotated.');
         $scopes=self::narrowedScopes($row['scopes'],$scopes,$project);
         $new=$this->issue($row['name'],$scopes,$project,$row['source_id'],$ttl,$actor,$row['service_account_id'],$row['description'],$row['requests_per_minute']);
+        $this->sql('UPDATE api_tokens SET delivery_family_id=(SELECT COALESCE(delivery_family_id,id) FROM api_tokens WHERE id=:old) WHERE id=:new',['old'=>$id,'new'=>$new['id']]);
         $old=$this->sql("UPDATE api_tokens SET rotated_to_id=:successor,rotated_at=clock_timestamp(),updated_at=clock_timestamp(),revision=revision+1,expires_at=LEAST(expires_at,clock_timestamp()+CAST(:overlap AS integer)*interval '1 second'),revoked_at=CASE WHEN CAST(:immediate AS integer)=0 THEN clock_timestamp() ELSE revoked_at END WHERE id=:id RETURNING ".self::FIELDS,['successor'=>$new['id'],'overlap'=>$overlap,'immediate'=>$overlap,'id'=>$id])->fetch();
         if ($project!==null && in_array('logs:write',$scopes,true)) {
             $signing=(new \Cajeer\Logs\Security\IngestSigning($this->pdo,$signingMaster))->inherit($project,$id,$new['id']);

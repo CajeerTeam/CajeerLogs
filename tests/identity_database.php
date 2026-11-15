@@ -40,7 +40,7 @@ try {
     $stmt=$pdo->prepare("INSERT INTO users(email,password_hash,role) VALUES ('admin@example.test',:hash,'administrator')"); $stmt->execute(['hash'=>password_hash('admin-password-12345',PASSWORD_ARGON2ID)]);
     $adminId=$pdo->query('SELECT id FROM users')->fetchColumn();
     $runner=$app->container()->get(MigrationRunner::class);
-    verify($runner->migrate()===['0003_identity_access.sql','0004_log_ingestion.sql','0005_log_search.sql','0006_sdk_integrations.sql','0007_queue_lifecycle.sql','0008_security_operations.sql','0009_project_management.sql','0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql','0013_ingest_signing.sql']&&$runner->migrate()===[],'0.0.2 upgrade to current schema and idempotent migration');
+    verify($runner->migrate()===['0003_identity_access.sql','0004_log_ingestion.sql','0005_log_search.sql','0006_sdk_integrations.sql','0007_queue_lifecycle.sql','0008_security_operations.sql','0009_project_management.sql','0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql','0013_ingest_signing.sql','0014_delivery_idempotency.sql']&&$runner->migrate()===[],'0.0.2 upgrade to current schema and idempotent migration');
     verify($pdo->query('SELECT id FROM users')->fetchColumn()===$adminId,'upgrade preserves administrator');
     verify($app->handle(new Request('GET','/ready'))->status===200,'identity schema readiness');
     ok('POST','/auth/login',['email'=>'admin@example.test','password'=>'wrong'],[],401);

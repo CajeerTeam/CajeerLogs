@@ -2,6 +2,14 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.2.7] — Idempotency & Delivery Guarantees
+
+- Единый транзакционный поиск sync receipts и async jobs в пределах цепочки ротации credential; точные байты тела и запрет смены режима.
+- Результаты новых доставок доступны с действующим credential той же семьи; legacy hashes проверяются только исходным credential.
+- Настраиваемое окно 1–30 дней (7 по умолчанию), фиксируется при приёме; pending/running/dead jobs сохраняются.
+- Повтор до новой event validation, проверка целостности цепочек и UUID, SDK resume и wire fault-injection.
+- Миграция 0014, неизменные 0001–0013; Public Preview до PostgreSQL release gate.
+
 ## [0.2.6] — Redaction & Data Privacy
 
 - Аддитивные политики системы, проекта и источника, revision и аудит.

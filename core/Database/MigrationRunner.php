@@ -109,7 +109,7 @@ final class MigrationRunner
             RestoreFence::assertAvailable($this->pdo);
             if ($integrityPreflight) {
                 $status=$this->status(false);
-                if ($status['integrity']!=='verified' || !in_array($status['pending'],[[],['0013_ingest_signing.sql'],['0012_database_integrity.sql','0013_ingest_signing.sql']],true)) throw new DatabaseException('Integrity preflight requires the verified 0.1.8 or current schema.');
+                if ($status['integrity']!=='verified' || !in_array($status['pending'],[[],['0014_delivery_idempotency.sql'],['0013_ingest_signing.sql','0014_delivery_idempotency.sql'],['0012_database_integrity.sql','0013_ingest_signing.sql','0014_delivery_idempotency.sql']],true)) throw new DatabaseException('Integrity preflight requires the verified 0.1.8 or current schema.');
             } else $this->assertCurrent();
             return $guard;
         } catch (\Throwable $e) { $guard->release(); throw $e; }

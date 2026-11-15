@@ -4,7 +4,7 @@
 
 | Версия | Статус |
 |---|---|
-| 0.2.6 | Redaction & Data Privacy; текущая версия (Public Preview до CI) |
+| 0.2.7 | Redaction & Data Privacy; текущая версия (Public Preview до CI) |
 | 0.2.5 | HMAC & Replay Protection |
 
 ## Сообщение об уязвимости

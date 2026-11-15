@@ -108,7 +108,8 @@ def validate_receipt(receipt: Any, count: int, status: int) -> dict[str, Any]:
             or type(receipt.get("stored")) is not int or receipt.get("stored") != (0 if replay else count)
             or type(receipt.get("rejected")) is not int or receipt.get("rejected") != 0 or receipt.get("replayed") is not replay
             or not isinstance(receipt.get("event_ids"), list) or len(receipt["event_ids"]) != count
-            or any(not isinstance(i, str) or not i for i in receipt["event_ids"])):
+            or any(not isinstance(i, str) or not re.fullmatch(r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}", i) for i in receipt["event_ids"])
+            or len(set(receipt["event_ids"])) != count):
         raise ValueError("Invalid ingest receipt")
     return receipt
 
@@ -151,7 +152,12 @@ class CajeerLogsClient:
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", key) or not 0 < len(body) <= 1048576:
             raise ValueError("Invalid body or idempotency key")
         payload = json.loads(body)
-        count = len(payload["events"]) if "events" in payload else 1
+        if not isinstance(payload, dict):
+            raise ValueError("Invalid serialized event batch")
+        events = payload.get("events", [payload])
+        if not isinstance(events, list) or not 1 <= len(events) <= 100:
+            raise ValueError("Invalid serialized event batch")
+        count = len(events)
         url = f"{self.base_url.rstrip('/')}{self.api_prefix}/ingest"
         path = urllib.parse.urlsplit(url).path
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())

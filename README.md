@@ -2,6 +2,10 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.2.7 — Idempotency & Delivery Guarantees
+
+Единая область доставки для цепочки ротации credential, согласованные sync/async ключи, настраиваемое окно хранения, повтор после потери ответа и строгие SDK receipts. Миграция 0014. См. [Idempotency & Delivery Guarantees](docs/Idempotency-Delivery-Guarantees.md).
+
 ## 0.2.6 — Redaction & Data Privacy
 
 Настраиваемое аддитивное маскирование системы, проекта и источника; revision, preview и аудит; применение до durable enqueue и INSERT; обработка истории через CLI. См. [Redaction & Data Privacy](docs/Redaction-Data-Privacy.md).

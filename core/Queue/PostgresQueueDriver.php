@@ -23,7 +23,7 @@ final class PostgresQueueDriver implements QueueDriverInterface
         return IngestBatch::decodeEvents($payload);
     }
     /** Caller holds the authenticated token lock; enqueue is serialized for a hard global capacity bound. */
-    public function enqueue(string $token,string $project,string $key,string $hash,array $events,array $sources,?callable $admit=null): array|HttpException {
+    public function enqueue(string $token,string $project,string $key,string $hash,array $events,array $sources,?callable $admit=null,?string $digest=null,int $retention=\Cajeer\Logs\Log\DeliveryRepository::RETENTION_SECONDS): array|HttpException {
         if (!$this->pdo->inTransaction()) { throw new \LogicException('Enqueue requires a transaction.'); }
         $row=$this->sql("SELECT id,status,request_hash FROM jobs WHERE queue='ingest-v1' AND token_id=:token AND project_id=:project AND key_hash=:key",['token'=>$token,'project'=>$project,'key'=>$key])->fetch();
         if ($row) {
@@ -42,6 +42,7 @@ final class PostgresQueueDriver implements QueueDriverInterface
             return $denied;
         }
         $id=$this->insertJob($token,$project,$key,$hash,$body);
+        if ($digest!==null) $this->sql("UPDATE jobs SET delivery_digest=:digest,delivery_count=:count,delivery_retention_seconds=:ttl WHERE id=:id",['digest'=>$digest,'count'=>count($events),'ttl'=>\Cajeer\Logs\Log\DeliveryRepository::retention($retention),'id'=>$id]);
         return ['job_id'=>$id,'status'=>'pending','replayed'=>false];
     }
     public function push(QueuedJob $job): string {
@@ -176,6 +177,6 @@ final class PostgresQueueDriver implements QueueDriverInterface
         return $counts;
     }
     public function cleanup(): int {
-        return (int)$this->pdo->exec("DELETE FROM jobs WHERE id IN (SELECT id FROM jobs WHERE queue='ingest-v1' AND status IN ('completed','cancelled') AND completed_at<statement_timestamp()-interval '7 days' ORDER BY completed_at,id LIMIT 1000 FOR UPDATE SKIP LOCKED)");
+        return (int)$this->pdo->exec("DELETE FROM jobs WHERE id IN (SELECT id FROM jobs WHERE queue='ingest-v1' AND status IN ('completed','cancelled') AND completed_at<statement_timestamp()-COALESCE(delivery_retention_seconds,604800)*interval '1 second' ORDER BY completed_at,id LIMIT 1000 FOR UPDATE SKIP LOCKED)");
     }
 }

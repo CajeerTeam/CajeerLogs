@@ -92,8 +92,15 @@ export class CajeerLogsClient {
     const events = 'events' in payload ? payload.events : [payload]
     if (!Array.isArray(events) || events.length<1 || events.length>100 || ('events' in payload && Object.keys(payload).length!==1)) throw new Error('Invalid batch')
     for (const item of events) validateEvent(item)
-    const count = events.length
-    const body = JSON.stringify(payload)
+    return this.sendBody(JSON.stringify(payload), idempotencyKey)
+  }
+  /** Resume with exact persisted JSON text, without reserializing it. */
+  async sendBody(body: string, idempotencyKey: string): Promise<IngestReceipt> {
+    if (encoder.encode(body).length > 1048576) throw new Error('Invalid body or idempotency key')
+    const payload = JSON.parse(body)
+    if (!object(payload)) throw new Error('Invalid serialized event batch')
+    const events = 'events' in payload ? payload.events : [payload]
+    const count = Array.isArray(events) ? events.length : 0
     if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(idempotencyKey) || count < 1 || count > 100 || encoder.encode(body).length > 1048576) throw new Error('Invalid body or idempotency key')
     for (let attempt = 0; attempt < this.attempts; attempt++) {
       const headers: Record<string, string> = { 'Content-Type': 'application/json', Authorization: `Bearer ${this.token}`, 'Idempotency-Key': idempotencyKey }
@@ -121,7 +128,7 @@ export class CajeerLogsClient {
           try { for (;;) { const {done, value} = await reader.read(); if (done) break; length += value.length; if (length > 65536) throw new Error('Receipt too large'); chunks.push(value) } } finally { await reader.cancel().catch(() => {}); reader.releaseLock() }
           const bytes = new Uint8Array(length); let offset = 0; for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length }
           const r = JSON.parse(new TextDecoder().decode(bytes)) as IngestReceipt
-          if (r.accepted === true && r.received === count && r.stored === (status === 200 ? 0 : count) && r.rejected === 0 && r.replayed === (status === 200) && Array.isArray(r.event_ids) && r.event_ids.length === count && r.event_ids.every(id => typeof id === 'string' && id.length > 0)) return r
+          if (r.accepted === true && r.received === count && r.stored === (status === 200 ? 0 : count) && r.rejected === 0 && r.replayed === (status === 200) && Array.isArray(r.event_ids) && r.event_ids.length === count && r.event_ids.every(id => typeof id === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(id)) && new Set(r.event_ids).size === count) return r
         } else { await response.body?.cancel() }
       } catch { /* network error or invalid receipt: retry same bytes */ } finally { clearTimeout(timer) }
       if (attempt + 1 === this.attempts || wait > 30000 || (status !== null && ![200,201,408,429,500,502,503,504].includes(status))) throw new DeliveryError(status, idempotencyKey)

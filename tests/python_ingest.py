@@ -29,7 +29,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         payload = json.loads(raw)
         count = len(payload["events"]) if "events" in payload else 1
-        body = json.dumps({"accepted": True, "received": count, "stored": count, "rejected": 0, "replayed": False, "event_ids": ["test-id"] * count}).encode()
+        body = json.dumps({"accepted": True, "received": count, "stored": count, "rejected": 0, "replayed": False, "event_ids": [f"00000000-0000-4000-8000-{i+1:012x}" for i in range(count)]}).encode()
         self.send_response(201)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))

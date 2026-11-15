@@ -8,6 +8,8 @@ $event=['timestamp'=>'2026-01-01T00:00:00Z','source'=>'app','level'=>'info','mes
 $r=$c->ingest([$event,$event],'php-retry');
 if ($r['stored']!==2) { throw new RuntimeException('Wrong receipt'); }
 if (!$c->ingest($event,'php-replay')['replayed']) { throw new RuntimeException('Wrong replay'); }
+if (!$c->sendBody(json_encode($event,JSON_THROW_ON_ERROR),'php-lost')['replayed']) throw new RuntimeException('Lost response recovery');
+try { $c->ingest([$event,$event],'php-duplicate'); throw new RuntimeException('Duplicate receipt accepted'); } catch (DeliveryException $e) {}
 foreach (['php-denied'=>401,'php-redirect'=>307,'php-malformed'=>201] as $key=>$status) {
     try { $c->ingest($event,$key);throw new RuntimeException('Expected delivery failure'); }
     catch (DeliveryException $e) { if ($e->status!==$status) { throw $e; } }

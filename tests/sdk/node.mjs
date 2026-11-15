@@ -4,6 +4,8 @@ const event = { timestamp: '2026-01-01T00:00:00Z', source:'app', level:'info', m
 const result = await c.ingest([event,event], 'ts-retry')
 if(result.stored !== 2) throw new Error('Bad receipt')
 if(!(await c.ingest(event,'ts-replay')).replayed) throw new Error('Bad replay')
+if (!(await c.sendBody(JSON.stringify(event),'ts-lost')).replayed) throw new Error('Lost response recovery')
+try { await c.ingest([event,event],'ts-duplicate'); throw new Error('Duplicate receipt accepted') } catch(e) { if(!(e instanceof DeliveryError)) throw e }
 for (const [key,status] of [['ts-denied',401],['ts-redirect',307],['ts-malformed',201]]) {
   try { await c.ingest(event,key); throw new Error('Expected failure') }
   catch(e) { if(!(e instanceof DeliveryError) || e.status !== status) throw e }

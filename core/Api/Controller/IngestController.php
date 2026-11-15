@@ -39,7 +39,8 @@ final class IngestController
             $row=(new TransactionManager($pdo))->run(function () use ($authorization,$principal,$r,$credential,$id,$pdo,$budget,$config) {
                 $budget->limitSql($pdo,(int)$config->get('database.statement_timeout_ms'));
                 $p=$authorization->locked($r,$credential,$principal);
-                $result=$this->app->container()->get(\Cajeer\Logs\Queue\PostgresQueueDriver::class)->status($id,$p->id,$p->projectId);
+                $owner=(new \Cajeer\Logs\Log\DeliveryRepository($pdo))->jobOwner($p,$id);
+                $result=$owner===null?null:$this->app->container()->get(\Cajeer\Logs\Queue\PostgresQueueDriver::class)->status($id,$owner,$p->projectId);
                 $budget->limitSql($pdo,(int)$config->get('database.statement_timeout_ms'));
                 $authorization->locked($r,$credential,$p,false);
                 return $result;

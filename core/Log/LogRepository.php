@@ -327,9 +327,14 @@ final class LogRepository
         return $ids;
     }
 
-    public function saveReceipt(string $token,string $keyHash,string $requestHash,array $ids): void
+    public function saveReceipt(string $token,string $keyHash,string $requestHash,array $ids,?string $digest=null,int $retention=DeliveryRepository::RETENTION_SECONDS): void
     {
         $this->requireTransaction(); self::validateReceiptIds($ids);
+        if ($digest!==null) {
+            $this->sql('DELETE FROM ingest_receipts WHERE token_id=:token AND key_hash=:key AND expires_at<=clock_timestamp()',['token'=>$token,'key'=>$keyHash]);
+            $this->sql("INSERT INTO ingest_receipts(token_id,key_hash,request_hash,event_ids,expires_at,delivery_digest) VALUES (:token,:key,:hash,CAST(:ids AS jsonb),clock_timestamp()+CAST(:ttl AS integer)*interval '1 second',:digest)", ['token'=>$token,'key'=>$keyHash,'hash'=>$requestHash,'ids'=>json_encode($ids,JSON_THROW_ON_ERROR),'digest'=>$digest,'ttl'=>DeliveryRepository::retention($retention)]);
+            return;
+        }
         $this->sql("INSERT INTO ingest_receipts(token_id,key_hash,request_hash,event_ids,expires_at) VALUES (:token,:key,:hash,CAST(:ids AS jsonb),clock_timestamp()+interval '24 hours')",
             ['token'=>$token,'key'=>$keyHash,'hash'=>$requestHash,'ids'=>json_encode($ids,JSON_THROW_ON_ERROR)]);
     }
@@ -338,7 +343,7 @@ final class LogRepository
     {
         if (!$this->pdo->inTransaction()) throw new \LogicException('Ingest receipt and nonce operations require a transaction.');
     }
-    private static function validateReceiptIds(mixed $ids): void
+    public static function validateReceiptIds(mixed $ids): void
     {
         if (!is_array($ids) || !array_is_list($ids) || count($ids)<1 || count($ids)>IngestValidator::MAX_BATCH) throw new DatabaseException('Invalid stored ingest receipt.');
         foreach ($ids as $id) {
