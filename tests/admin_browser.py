@@ -56,7 +56,10 @@ def server(**overrides):
 
 
 def browser_for(p):
-    path = os.environ.get('CHROMIUM_PATH') or shutil.which('chromium')
+    engine=os.environ.get('CAJEER_BROWSER_ENGINE','chromium')
+    if engine not in ('chromium','firefox','webkit'): raise ValueError('Unknown browser engine')
+    if engine!='chromium': return getattr(p,engine).launch(headless=True)
+    path=os.environ.get('CHROMIUM_PATH') or (shutil.which('chromium') if 'CAJEER_BROWSER_ENGINE' not in os.environ else None)
     return p.chromium.launch(executable_path=path, headless=True, args=['--no-sandbox'])
 
 
@@ -73,7 +76,7 @@ def login(page, email='admin@example.test', password='admin-password-12345'):
 
 class Fixture:
     def __init__(self):
-        self.user = None; self.totp_enabled=False; self.require_totp=False; self.role = 'administrator'; self.projects=[{'id':P1,'name':'Production','slug':'production','revision':'1','status':'active','description':'','metadata':{},'max_body_bytes':1048576,'max_batch_events':100,'created_at':'2026-01-01T00:00:00Z'}]
+        self.user = None; self.project_roles={}; self.denied_projects=set(); self.totp_enabled=False; self.require_totp=False; self.role = 'administrator'; self.projects=[{'id':P1,'name':'Production','slug':'production','revision':'1','status':'active','description':'','metadata':{},'max_body_bytes':1048576,'max_batch_events':100,'created_at':'2026-01-01T00:00:00Z'}]
         self.sources=[{'id':S1,'project_id':P1,'name':'Application','slug':'app','created_at':'2026-01-01T00:00:00Z','status':'active','revision':'1','source_type':'application','metadata':{}}]
         self.users=[{'id':U1,'email':'admin@example.test','role':'administrator','blocked_at':None}]
         self.sessions=[{'id':U1,'current':True,'user_agent':'Current browser','remote_address':'127.0.0.1','created_at':'2026-01-01T00:00:00Z','last_seen_at':'2026-01-01T00:00:00Z','expires_at':'2026-01-02T00:00:00Z'},{'id':U2,'current':False,'user_agent':'Other device','remote_address':'192.0.2.3','created_at':'2026-01-01T00:00:00Z','last_seen_at':'2026-01-01T00:00:00Z','expires_at':'2026-01-02T00:00:00Z'}]; self.members=[]; self.tokens=[]; self.accounts=[]; self.calls=[]; self.fail_next=False; self.change_export=False; self.head_changed=False; self.multi_logs=False; self.redaction={}; self.views=[]; self.connection_credentials={}; self.connection_event=None; self.connection_attempts=[]
@@ -92,7 +95,7 @@ class Fixture:
             if self.totp_enabled and body.get('otp')!='123456': return err(401,'unauthorized')
             self.user={'id':U1 if self.role=='administrator' else U2,'email':body['email'],'role':self.role,'two_factor_enabled':self.totp_enabled}
             return send({'user':self.user,'csrf_token':CSRF,'expires_in':28800,'enrollment_required':self.require_totp and not self.totp_enabled},headers={'Set-Cookie':'cajeerlogs_session='+'b'*64+'; Path=/; HttpOnly; SameSite=Strict'})
-        if path=='/health': return send({'status':'ok','version':'0.3.9'})
+        if path=='/health': return send({'status':'ok','version':'0.4.0'})
         if path=='/auth/token':
             credential=self.connection_credentials.get(req.headers.get('authorization','').removeprefix('Bearer '))
             return send({'token':credential['row']}) if credential else err(401,'unauthorized')
@@ -142,12 +145,13 @@ class Fixture:
             return send(policy)
         if path=='/projects':
             if method=='POST': self.projects.append({'id':P2,'revision':'1','status':'active','description':'','metadata':{},'max_body_bytes':1048576,'max_batch_events':100,**body});return send({'id':P2},201)
-            return listing([p for p in self.projects if (q.get('status','all')=='all' or p['status']==q['status']) and q.get('q','').lower() in (p['name']+' '+p['slug']+' '+p['id']).lower()])
+            return listing([dict(p,effective_role=self.project_roles.get(p['id'],self.role)) for p in self.projects if p['id'] not in self.denied_projects and (q.get('status','all')=='all' or p['status']==q['status']) and q.get('q','').lower() in (p['name']+' '+p['slug']+' '+p['id']).lower()])
         if path in ['/projects/'+P1,'/projects/'+P2]:
             project=next(p for p in self.projects if p['id']==path.split('/')[-1])
+            if project['id'] in self.denied_projects:return err(403,'forbidden')
             if method=='PATCH':
                 assert body['revision']==project['revision']; project.update({k:v for k,v in body.items() if k!='revision'}); project['revision']=str(int(project['revision'])+1)
-            return send(project)
+            return send(dict(project,effective_role=self.project_roles.get(project['id'],self.role)))
         if '/saved-views' in path:
             parts=path.split('/'); pid=parts[2]; vid=parts[4] if len(parts)>4 else None
             if method=='POST':
@@ -333,7 +337,7 @@ def run():
         browser=browser_for(p); ctx=browser.new_context(accept_downloads=True); page=ctx.new_page(); page.set_default_timeout(8000)
         errors=[]; page.on('pageerror',lambda e: errors.append(str(e)))
         # Actual PHP router, not intercepted, even in offline browser mode.
-        status,headers,body=http(url+'/admin');assert status==200 and b'0.3.9' in body
+        status,headers,body=http(url+'/admin');assert status==200 and b'0.4.0' in body
         assert "script-src 'self'" in {k.lower():v for k,v in headers.items()}['content-security-policy']
         assert http(url+'/api/v1/auth/me')[0]==401
         assert http(url+'/admin/assets/panel.js')[0]==200
@@ -486,6 +490,10 @@ def run():
         page.get_by_text('Журнал безопасности проекта',exact=True).click();expect(page.get_by_text('token.created',exact=True)).to_be_visible();page.get_by_role('button',name='Запись аудита').click();expect(page.get_by_role('dialog')).to_contain_text('safe-audit-id');page.locator('#close-modal').click()
         page.get_by_label('Действие аудита').first.select_option('token.revoked');page.get_by_role('button',name='Фильтровать аудит').first.click();expect(page.get_by_text('token.created',exact=True)).to_have_count(0)
         print('PASS token/account detail, account filter, scoped audit and credential secrecy')
+        nav(page,'security');expect(page.get_by_role('heading',name='Безопасность и аудит',exact=True)).to_be_visible();expect(page.get_by_text('token.created',exact=True)).to_be_visible()
+        page.get_by_text('Глобальный журнал безопасности',exact=True).click();expect(page.get_by_text('token.created',exact=True)).to_have_count(2)
+        expect(page.get_by_role('link',name='Мой профиль, 2FA и сессии')).to_be_visible()
+        print('PASS integrated security workspace and global/project audit')
         # Full wizard: new source, source-scoped write-only token, v2 signature, lost-response replay, persisted detail and drill-down.
         nav(page,'projects');page.get_by_label('Поиск проектов').fill(P2);page.get_by_role('button',name='Найти проекты').click();expect(page.get_by_role('row').filter(has_text=P2).first).to_be_visible()
         page.get_by_label('Фильтр типа источника').select_option('server');page.get_by_role('button',name='Найти источники').click();expect(page.get_by_role('button',name='Открыть источник')).to_have_count(0)
@@ -509,6 +517,13 @@ def run():
         f.role='viewer';login(page,email='viewer@example.test');expect(page.get_by_role('heading',name='Логи',exact=True)).to_be_visible();expect(page.locator('#nav a[href="#tokens"]')).to_have_count(0);expect(page.locator('#nav a[href="#users"]')).to_have_count(0);page.evaluate("location.hash='users'");expect(page.get_by_role('heading',name='Обзор',exact=True)).to_be_visible();nav(page,'projects');expect(page.get_by_role('button',name='Создать проект')).to_have_count(0);expect(page.get_by_role('button',name='Добавить источник')).to_have_count(0)
         page.get_by_role('button',name='Выйти',exact=True).click();expect(page.get_by_role('heading',name='Вход в CajeerLogs')).to_be_visible();assert not errors, errors
         print('PASS session restore, expiry, viewer restrictions, logout; no uncaught browser errors')
+        f.role='operator';login(page,email='operator@example.test');nav(page,'tokens');expect(page.get_by_role('heading',name='Токены проекта')).to_be_visible()
+        selected=page.get_by_label('Активный проект').input_value();f.project_roles[selected]='viewer';page.evaluate("window.dispatchEvent(new Event('focus'))")
+        expect(page.get_by_text('У вас нет прав управления токенами в этом проекте.')).to_be_visible();expect(page.get_by_role('heading',name='Токены проекта')).to_have_count(0)
+        nav(page,'logs');expect(page.get_by_role('heading',name='Логи',exact=True)).to_be_visible();f.denied_projects.add(selected);page.evaluate("window.dispatchEvent(new Event('focus'))")
+        expect(page.get_by_label('Активный проект')).not_to_have_value(selected);assert not errors,errors
+        page.get_by_role('button',name='Выйти',exact=True).click();expect(page.get_by_role('heading',name='Вход в CajeerLogs')).to_be_visible();f.denied_projects.clear();f.project_roles.clear()
+        print('PASS effective-role downgrade, revoked project eviction and fresh workspace')
         f.role='administrator'; f.require_totp=True; login(page)
         expect(page.get_by_role('heading',name='Настройка 2FA',exact=True)).to_be_visible();expect(page.locator('#nav a[href="#logs"]')).to_have_count(0)
         setup=page.locator('form').filter(has=page.get_by_role('button',name='Настроить 2FA',exact=True));setup.get_by_label('Текущий пароль').fill('admin-password-12345');setup.get_by_role('button',name='Настроить 2FA').click()

@@ -2,6 +2,13 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.4.0] — Admin Panel Release
+
+- Самостоятельный Security & Audit workspace с проектным и глобальным журналом, переходами к credentials, пользователям и сессиям.
+- Единый выбор проекта, сброс проектных фильтров/курсоров, перепроверка эффективных ролей при навигации и проверке сессии; закрытие устаревших диалогов.
+- Browser E2E на точном ZIP (Chromium/Firefox/WebKit), проверка реального TOTP/recovery и изменения membership, обязательное admin evidence в release gate; upgrade 0.3.9.
+- Обновлена документация установки, эксплуатации, ролей и проверки релиза; без новых миграций. Public Preview до полного CI.
+
 ## [0.3.9] — Token Management & Security
 
 - Серверные фильтры, карточки credentials, цепочка ротации и статистика сервисных аккаунтов.

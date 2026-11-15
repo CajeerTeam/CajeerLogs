@@ -107,6 +107,10 @@ REQUIRED.update({
     'admin/verify.mjs',
     'admin/client.test.mjs',
     'tests/admin_browser.py',
+    'tests/admin_browser_database.py',
+    'tests/admin_database.php',
+    'public/admin/assets/pages/security.js',
+    'docs/Admin-Panel-Release.md',
 })
 
 

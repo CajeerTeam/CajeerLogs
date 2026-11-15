@@ -2,6 +2,10 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.4.0 — Admin Panel Release
+
+Интегрированная административная панель: Dashboard, Log Explorer, Saved Views, JSON Inspector, проекты/источники, пользователи, токены, сервисные аккаунты, HMAC, отдельный раздел безопасности и аудит. Централизованная смена проекта и перепроверка доступа. Release gate для точного ZIP требует PostgreSQL-матрицу, браузерный E2E Chromium/Firefox/WebKit и production smoke. [Документация релиза](docs/Admin-Panel-Release.md). Без новых миграций; Public Preview до успешной сертификации CI.
+
 ## 0.3.9 — Token Management & Security
 
 Каталог credentials, карточки токенов и сервисных аккаунтов, досрочное завершение HMAC overlap и журнал безопасности. [Документация](docs/Token-Management-Security.md). Без миграций. Public Preview до CI.

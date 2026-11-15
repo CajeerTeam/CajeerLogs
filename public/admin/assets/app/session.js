@@ -1,7 +1,8 @@
-import { state, resetWorkspace, render, advanceSession } from './store.js?v=0.3.9';
-import { $, h, field, input, clearModal, form } from '../components/ui.js?v=0.3.9';
-import { navigation } from './shell.js?v=0.3.9';
-import { request, get } from '../api/client.js?v=0.3.9';
+import { state, resetWorkspace, render, advanceSession } from './store.js?v=0.4.0';
+import { $, h, field, input, clearModal, form } from '../components/ui.js?v=0.4.0';
+import { refreshProject } from './projects.js?v=0.4.0';
+import { navigation } from './shell.js?v=0.4.0';
+import { request, get } from '../api/client.js?v=0.4.0';
 
 const version = document.querySelector('meta[name=cajeer-version]').content;
 let sessionChecking = false;
@@ -71,7 +72,13 @@ async function revalidateSession(force = false) { if (!state.user || sessionChec
         clearSession('Учётная запись изменилась. Войдите снова.');
         return;
     }
-    state.user = res.user; state.csrf = res.csrf_token; if (state.enrollmentRequired !== Boolean(res.enrollment_required)) { state.enrollmentRequired=Boolean(res.enrollment_required); void render(); }
+    state.user = res.user; state.csrf = res.csrf_token;
+    if (state.enrollmentRequired !== Boolean(res.enrollment_required)) { state.enrollmentRequired=Boolean(res.enrollment_required); void render(); return; }
+    const signal=state.controller?.signal, epoch=state.epoch;
+    if(state.project && signal && await refreshProject(signal) && authEpoch===state.authEpoch && epoch===state.epoch && !signal.aborted) {
+        // Revoke stale DOM, dialogs, and pending requests immediately after discovering access changes.
+        void render();
+    }
 }
 catch (e) { /* 401 is handled centrally; transient connectivity errors must not imply logout. */ }
 finally {

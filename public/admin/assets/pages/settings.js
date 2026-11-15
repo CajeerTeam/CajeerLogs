@@ -1,11 +1,11 @@
-import { roles, state, render, active } from '../app/store.js?v=0.3.9';
-import { h, button, card, field, input, clearModal, modal, form, heading, table, date, copy, notify } from '../components/ui.js?v=0.3.9';
-import { clearSession, startSession, sessionChanged } from '../app/session.js?v=0.3.9';
-import { confirmAction } from '../components/mutations.js?v=0.3.9';
-import { themeSelector } from '../app/theme.js?v=0.3.9';
-import { sessionList } from '../components/session-list.js?v=0.3.9';
-import { qrMatrix } from '../components/qr-encoder.js?v=0.3.9';
-import { write } from '../api/client.js?v=0.3.9';
+import { roles, state, render, active } from '../app/store.js?v=0.4.0';
+import { h, button, card, field, input, clearModal, modal, form, heading, table, date, copy, notify } from '../components/ui.js?v=0.4.0';
+import { clearSession, startSession, sessionChanged } from '../app/session.js?v=0.4.0';
+import { confirmAction } from '../components/mutations.js?v=0.4.0';
+import { themeSelector } from '../app/theme.js?v=0.4.0';
+import { sessionList } from '../components/session-list.js?v=0.4.0';
+import { qrMatrix } from '../components/qr-encoder.js?v=0.4.0';
+import { write } from '../api/client.js?v=0.4.0';
 
 function recoveryDialog(codes) {
     modal('Сохраните recovery-коды',h('div',{},h('p',{},'Каждый код действует один раз. Сохраните их в защищённом месте. Они больше не будут показаны.'),h('pre',{},codes.join('\n')),button('Копировать коды',()=>void copy(codes.join('\n'))),button('Сохранено',clearModal)));
@@ -23,14 +23,17 @@ function twoFactorCard() {
     const section=card(h('h2',{},'Двухфакторная аутентификация'),h('p',{},state.user.two_factor_enabled?'TOTP включён.':'TOTP не включён.'));
     if (state.user.two_factor_enabled) {
         section.append(form('Отключить 2FA',[pw(),otp()],async d=>{await write('/auth/2fa/disable','POST',{password:String(d.get('password')),otp:String(d.get('otp')).trim().toLowerCase()});clearSession('2FA отключена. Войдите снова.');sessionChanged();}));
-        section.append(form('Обновить recovery-коды',[pw(),otp()],async(d,f)=>{const result=await write('/auth/2fa/recovery-codes','POST',{password:String(d.get('password')),otp:String(d.get('otp')).trim().toLowerCase()});f.reset();recoveryDialog(result.recovery_codes);}),h('p',{class:'muted'},'При обновлении все прежние recovery-коды становятся недействительными.'));
+        section.append(form('Обновить recovery-коды',[pw(),otp()],async(d,f)=>{const epoch=state.epoch; const result=await write('/auth/2fa/recovery-codes','POST',{password:String(d.get('password')),otp:String(d.get('otp')).trim().toLowerCase()});f.reset();if(active(epoch)&&section.isConnected)recoveryDialog(result.recovery_codes);else if(state.user)notify('Recovery-коды заменены. Если вы не сохранили их, выпустите новый набор.');}),h('p',{class:'muted'},'При обновлении все прежние recovery-коды становятся недействительными.'));
     } else {
         section.append(form('Настроить 2FA',[pw()],async (d,f)=>{
-            const data=await write('/auth/2fa/setup','POST',{password:String(d.get('password'))}); f.reset();
+            const epoch=state.epoch; const data=await write('/auth/2fa/setup','POST',{password:String(d.get('password'))}); f.reset(); if(!active(epoch)||!section.isConnected)return;
             modal('Настройка TOTP',h('div',{},h('p',{},'Отсканируйте QR-код или добавьте ключ вручную. SHA-1, 6 цифр, 30 секунд. Ключ действителен 10 минут.'),qrImage(data.otpauth_uri),h('pre',{},data.secret),button('Копировать ключ',()=>void copy(data.secret)),form('Подтвердить',[field('6-значный код',input('otp',{required:true,inputmode:'numeric',autocomplete:'one-time-code',maxlength:6,pattern:'[0-9]{6}'}))],async d=>{
+                const epoch=state.epoch;
                 const result=await write('/auth/2fa/enable','POST',{otp:String(d.get('otp'))});
+                const sameView=active(epoch)&&section.isConnected;
                 await startSession(result); sessionChanged();
-                recoveryDialog(result.recovery_codes);
+                if(sameView&&state.user&&state.route==='settings'&&state.epoch===epoch+1)recoveryDialog(result.recovery_codes);
+                else if(state.user)notify('2FA включена. Если recovery-коды не сохранены, выпустите новый набор в настройках.');
             })));
         }));
     }

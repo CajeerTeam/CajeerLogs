@@ -1,29 +1,29 @@
-import { roles, state, projectPath, admin, manage, active, render } from '../app/store.js?v=0.3.9';
-import { h, button, card, field, input, select, badge, date, enc, message, notify, modalEpoch, clearModal, modal, form, heading, needProject, table } from '../components/ui.js?v=0.3.9';
-import { loadProjects, projectSelector } from '../app/projects.js?v=0.3.9';
-import { directoryPicker } from './users.js?v=0.3.9';
-import { pagedList } from '../components/pagination.js?v=0.3.9';
-import { nameFields, nameBody, mutationSuccess, confirmAction } from '../components/mutations.js?v=0.3.9';
-import { get, write } from '../api/client.js?v=0.3.9';
-import { sourceHealth } from '../app/analytics.js?v=0.3.9';
-import { effectivePolicy, testPayload } from '../app/source-connection.js?v=0.3.9';
-import { onboarding, verifyConnection, openSourceLogs } from '../components/source-onboarding.js?v=0.3.9';
+import { roles, state, projectPath, admin, manage, active, render, selectProject } from '../app/store.js?v=0.4.0';
+import { h, button, card, field, input, select, badge, date, enc, message, notify, modalEpoch, clearModal, modal, form, heading, needProject, table } from '../components/ui.js?v=0.4.0';
+import { loadProjects, projectSelector } from '../app/projects.js?v=0.4.0';
+import { directoryPicker } from './users.js?v=0.4.0';
+import { pagedList } from '../components/pagination.js?v=0.4.0';
+import { nameFields, nameBody, mutationSuccess, confirmAction } from '../components/mutations.js?v=0.4.0';
+import { get, write } from '../api/client.js?v=0.4.0';
+import { sourceHealth } from '../app/analytics.js?v=0.4.0';
+import { effectivePolicy, testPayload } from '../app/source-connection.js?v=0.4.0';
+import { onboarding, verifyConnection, openSourceLogs } from '../components/source-onboarding.js?v=0.4.0';
 
 const sourceTypes = [['application','Приложение'],['server','Сервер'],['nginx','Nginx'],['aapanel','aaPanel'],['custom','Другой']];
 const sourceStates = {active:'Активный',disabled:'Отключён',archived:'Архивный'};
 // Rules are edited as JSON; preview uses synthetic sample events and never persists them.
 async function redactionDialog(url, slug='app') {
-    const authEpoch=state.authEpoch, route=state.route, previousModal=modalEpoch;
-    const policy=await get(url); if(authEpoch!==state.authEpoch||!state.user||route!==state.route||previousModal!==modalEpoch)return;
+    const epoch=state.epoch, signal=state.controller?.signal, previousModal=modalEpoch;
+    const policy=await get(url,{},signal); if(!active(epoch)||signal?.aborted||previousModal!==modalEpoch)return;
     const rules=h('textarea',{name:'rules',rows:8,required:true,maxlength:16384},JSON.stringify(policy.rules,null,2));
     const sample=h('textarea',{name:'sample',rows:8,maxlength:65536},JSON.stringify({source:slug,level:'info',message:'Synthetic sample',timestamp:new Date().toISOString(),context:{customer_id:'example-id'}},null,2));
     const output=h('pre',{},'');
     const parseRules=()=>{const value=JSON.parse(rules.value);if(!Array.isArray(value))throw new Error('Правила должны быть JSON-массивом.');return value;};
     modal('Политика маскирования',h('div',{},h('p',{},'До 16 правил: {"type":"path","value":"/context/customer_id"}, key (имя поля), regex (маскирует всю строку). Политики складываются; базовая защита не отключается.'),
-        form('Сохранить политику',[field('Правила JSON',rules)],async()=>{await write(url,'PUT',{revision:policy.revision,rules:parseRules()});if(authEpoch!==state.authEpoch)return;clearModal();}),
-        form('Предпросмотр без записи',[field('Синтетическое событие JSON',sample)],async()=>{output.textContent='';const event=JSON.parse(sample.value);const result=await write(url+'/preview','POST',{rules:parseRules(),event});if(authEpoch===state.authEpoch)output.textContent=JSON.stringify(result.event,null,2);}),output));
+        form('Сохранить политику',[field('Правила JSON',rules)],async()=>{await write(url,'PUT',{revision:policy.revision,rules:parseRules()});if(!active(epoch)||signal?.aborted||!output.isConnected)return;clearModal();}),
+        form('Предпросмотр без записи',[field('Синтетическое событие JSON',sample)],async()=>{output.textContent='';const event=JSON.parse(sample.value);const result=await write(url+'/preview','POST',{rules:parseRules(),event});if(active(epoch)&&!signal?.aborted&&output.isConnected)output.textContent=JSON.stringify(result.event,null,2);}),output));
 }
-function redactionButton(url,slug='app') { return button('Настроить маскирование',()=>redactionDialog(url,slug).catch(e=>modal('Политика маскирования',message(e)))); }
+function redactionButton(url,slug='app') { return button('Настроить маскирование',()=>{const epoch=state.epoch; redactionDialog(url,slug).catch(e=>{if(active(epoch)&&e.name!=='AbortError')modal('Политика маскирования',message(e));});}); }
 function sourceFields(r) {
     const num = (key,label,min,max) => field(label,input(key,{type:'number',min,max,step:1,value:r[key] ?? ''}));
     return [field('Название источника',input('name',{value:r.name,required:true,maxlength:255})),
@@ -59,7 +59,7 @@ function policyTable(project,source) {
 }
 function projectDirectory(signal,epoch) {
     const box=h('div');const cfg=state.projectDirectory||{q:'',status:'all'};state.projectDirectory=cfg;
-    function show(){box.replaceChildren(pagedList({path:'/projects',query:{limit:25,...cfg},signal,epoch,headers:['Проект','Slug / UUID','Статус','Доступ',''],rows:p=>[p.name,h('div',{},p.slug,h('div',{},h('code',{},p.id))),badge(p.status==='archived'?'Архивный':'Активный'),roles[p.effective_role]||p.effective_role||'—',button('Выбрать проект',async e=>{const b=e.currentTarget;b.disabled=true;try{const selected=await get('/projects/'+enc(p.id),{},signal);if(!active(epoch)||signal.aborted)return;state.projects=[...state.projects.filter(x=>x.id!==selected.id),selected];state.project=selected.id;state.filters=null;state.logPosition=null;state.dashboard=null;await render();}catch(err){if(active(epoch)&&err.name!=='AbortError')notify(err.message);}finally{b.disabled=false;}},'',{disabled:p.id===state.project})]}));}
+    function show(){box.replaceChildren(pagedList({path:'/projects',query:{limit:25,...cfg},signal,epoch,headers:['Проект','Slug / UUID','Статус','Доступ',''],rows:p=>[p.name,h('div',{},p.slug,h('div',{},h('code',{},p.id))),badge(p.status==='archived'?'Архивный':'Активный'),roles[p.effective_role]||p.effective_role||'—',button('Выбрать проект',async e=>{const b=e.currentTarget;b.disabled=true;try{const selected=await get('/projects/'+enc(p.id),{},signal);if(!active(epoch)||signal.aborted)return;state.projects=[...state.projects.filter(x=>x.id!==selected.id),selected];selectProject(selected.id);await render();}catch(err){if(active(epoch)&&err.name!=='AbortError')notify(err.message);}finally{b.disabled=false;}},'',{disabled:p.id===state.project})]}));}
     show();return card(h('h2',{},'Каталог проектов'),form('Найти проекты',[field('Поиск проектов',input('q',{value:cfg.q,maxlength:255,placeholder:'Имя, slug или UUID'})),field('Статус проекта',select('status',[['all','Все'],['active','Активные'],['archived','Архивные']],cfg.status))],async d=>{Object.assign(cfg,{q:String(d.get('q')),status:String(d.get('status'))});show();}),box);
 }
 async function sourceDetail(path,id,epoch,signal) {
@@ -95,7 +95,7 @@ async function projects(signal, epoch) {
     if (admin())
         root.append(card(h('h2', {}, 'Создать проект'), form('Создать проект', nameFields(), async (d) => { const r = await write('/projects', 'POST', nameBody(d)); if (!active(epoch))
             return; const created = await get('/projects/' + enc(r.id)); if (!active(epoch))
-            return; state.projectQuery = {}; state.projects.push(created); state.project = created.id; state.filters = null; state.logPosition = null; state.dashboard = null; await mutationSuccess(epoch, 'Проект создан.'); })));
+            return; state.projectQuery = {}; state.projects.push(created); selectProject(created.id); await mutationSuccess(epoch, 'Проект создан.'); })));
     if (!state.project) {
         root.append(needProject());
         return root;

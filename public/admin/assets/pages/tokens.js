@@ -1,9 +1,9 @@
-import { state, projectPath, admin, manage, active, render } from '../app/store.js?v=0.3.9';
-import { h, button, card, field, input, select, checkbox, empty, badge, date, enc, message, clearModal, modal, form, heading, needProject, copy, table, notify } from '../components/ui.js?v=0.3.9';
-import { projectSelector } from '../app/projects.js?v=0.3.9';
-import { pagedList } from '../components/pagination.js?v=0.3.9';
-import { mutationSuccess, confirmAction } from '../components/mutations.js?v=0.3.9';
-import { get, write } from '../api/client.js?v=0.3.9';
+import { state, projectPath, admin, manage, active, render } from '../app/store.js?v=0.4.0';
+import { h, button, card, field, input, select, checkbox, empty, badge, date, enc, message, clearModal, modalEpoch, modal, form, heading, needProject, copy, table, notify } from '../components/ui.js?v=0.4.0';
+import { projectSelector } from '../app/projects.js?v=0.4.0';
+import { pagedList } from '../components/pagination.js?v=0.4.0';
+import { mutationSuccess, confirmAction } from '../components/mutations.js?v=0.4.0';
+import { get, write } from '../api/client.js?v=0.4.0';
 
 let tokenIssuing = false;
 function tokenMetadataFields(r = {}) {
@@ -19,28 +19,30 @@ function signingSecretView(result) {
 function detailsTable(values) { return table(['Поле','Значение'], values.map(([k,v])=>[k,h('span',{class:'credential-value'},v ?? '—')])); }
 function showError(epoch,title,error) { if(active(epoch)&&error.name!=='AbortError') modal(title,message(error)); }
 async function tokenDetails(url,epoch,signal) {
-    const r=await get(url,{},signal); if(!active(epoch)||signal.aborted)return;
+    const previousModal=modalEpoch;
+    const r=await get(url,{},signal); if(!active(epoch)||signal.aborted||previousModal!==modalEpoch)return;
     const s=r.signing;
     modal('Карточка токена',h('div',{},detailsTable([
         ['Название',r.name],['UUID',r.id],['Описание',r.description],['Scopes',r.scopes.join(', ')],['Проект',r.project_id],['Источник',r.source_id||'Весь проект'],['Сервисный аккаунт',r.service_account_id],['Создал',r.created_by],['Создан',date(r.created_at)],['Истекает',date(r.expires_at)],['Последнее использование',date(r.last_used_at)],['Отозван',date(r.revoked_at)],['Квота запросов/мин',r.requests_per_minute],['Предыдущий токен',r.predecessor_id],['Токен-замена',r.rotated_to_id],['Ротация',date(r.rotated_at)],['HMAC',s? (s.mode==='separate'?'v2 / отдельный ключ':s.mode==='bearer'?'v1 / обязательный':'Необязательный'):'Не применяется'],['Текущий ключ HMAC',s?.current_key_id],['Предыдущий ключ HMAC',s?.previous_key_id],['Перекрытие ключей до',date(s?.previous_until)]
     ]),h('p',{class:'muted'},'Секреты недоступны после выпуска. Последнее использование обновляется сервером с интервалом до пяти минут.'),button('Копировать UUID',()=>void copy(r.id)),button('Закрыть',clearModal)));
 }
 async function accountDetails(path,r,epoch,signal,onTokens) {
-    const a=await get(path+'/'+enc(r.id),{},signal); if(!active(epoch)||signal.aborted)return;
+    const previousModal=modalEpoch;
+    const a=await get(path+'/'+enc(r.id),{},signal); if(!active(epoch)||signal.aborted||previousModal!==modalEpoch)return;
     modal('Карточка сервисной учётной записи',h('div',{},detailsTable([['Название',a.name],['UUID',a.id],['Создал',a.created_by],['Создана',date(a.created_at)],['Отключена',date(a.disabled_at)],['Всего токенов',a.total_tokens],['Активных токенов',a.active_tokens],['Последнее использование',date(a.last_used_at)]]),button('Показать токены сервиса',()=>{clearModal();onTokens(a.id);},'primary'),button('Закрыть',clearModal)));
 }
-function auditSection(path,signal,epoch,system=false) {
+export function auditSection(path,signal,epoch,system=false,open=false) {
     const list=h('div');
     const filters=form('Фильтровать аудит',[
         field('Действие аудита',select('action',[['','Все действия'],['token.created','Выпуск токена'],['token.updated','Изменение токена'],['token.rotated','Ротация токена'],['token.revoked','Отзыв токена'],['token.bulk_revoked','Пакетный отзыв'],['token.signing_changed','Изменение HMAC'],['token.signing_previous_retired','Завершение перекрытия HMAC'],['service_account.created','Создание сервиса'],['service_account.disabled','Отключение сервиса'],['project.signing_policy','Политика HMAC'],['project.member_role_set','Изменение роли проекта'],...(system?[['auth.login','Вход'],['auth.login_failed','Неудачный вход'],['user.updated','Изменение пользователя'],['user.totp_reset','Сброс 2FA']]:[])],'')),
         field('UUID инициатора',input('actor_id',{maxlength:36})),field('UUID объекта',input('target',{maxlength:36}))],async d=>load(Object.fromEntries([...d].map(([k,v])=>[k,String(v).trim()]))));
     function load(query={}) {list.replaceChildren(pagedList({path,query:{limit:50,...query},signal,epoch,headers:['Время UTC','Действие','Инициатор / объект','Детали'],rows:r=>[date(r.created_at),r.action,h('div',{},h('code',{},r.actor_id||'Система'),h('div',{},h('code',{},r.target||'—'))),button('Запись аудита',()=>modal('Запись аудита',detailsTable(Object.entries(r).filter(([,v])=>v!==null).map(([k,v])=>[k,k==='created_at'?date(v):v]))))]}));}
     // Lazy initial load: do not query both audit scopes on every visit.
-    const details=h('details',{},h('summary',{},system?'Глобальный журнал безопасности':'Журнал безопасности проекта'),h('p',{class:'muted'},'Только чтение. Секреты и произвольный audit context не возвращаются.'),filters,list);
-    let loaded=false;details.addEventListener('toggle',()=>{if(details.open&&!loaded){loaded=true;load();}});return card(details);
+    const details=h('details',{open},h('summary',{},system?'Глобальный журнал безопасности':'Журнал безопасности проекта'),h('p',{class:'muted'},'Только чтение. Секреты и произвольный audit context не возвращаются.'),filters,list);
+    let loaded=open;if(open)load();details.addEventListener('toggle',()=>{if(details.open&&!loaded){loaded=true;load();}});return card(details);
 }
 async function signingDialog(url,epoch,signal) {
-    const authEpoch=state.authEpoch; const meta=await get(url+'/signing',{},signal); if(!active(epoch)||authEpoch!==state.authEpoch)return;
+    const authEpoch=state.authEpoch, previousModal=modalEpoch; const meta=await get(url+'/signing',{},signal); if(!active(epoch)||signal.aborted||authEpoch!==state.authEpoch||previousModal!==modalEpoch)return;
     const previous=meta.previous_key_id&&meta.previous_until;
     modal('Подпись ingest',h('div',{},h('p',{},meta.current_key_id?'Текущий ключ: '+meta.current_key_id:meta.required?'HMAC v1 обязателен':'Подпись определяется политикой проекта и сервера.'),previous?h('p',{},'Предыдущий ключ '+meta.previous_key_id+' действует до '+date(meta.previous_until)):null,
         previous?button('Завершить перекрытие HMAC',()=>confirmAction('Завершить перекрытие HMAC','Предыдущий ключ перестанет работать. Текущий ключ не изменится.',async()=>{await write(url+'/signing/previous','DELETE',{expected_key_id:meta.current_key_id,expected_previous_key_id:meta.previous_key_id});if(active(epoch)){clearModal();await mutationSuccess(epoch,'Предыдущий ключ отозван.');}}),'danger'):null,
