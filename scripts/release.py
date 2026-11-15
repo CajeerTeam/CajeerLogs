@@ -65,6 +65,7 @@ REQUIRED.update({
     'public/admin/assets/app/source-connection.js',
     'public/admin/assets/components/source-onboarding.js',
     'docs/Project-Source-Management.md',
+    'docs/Token-Management-Security.md',
     'public/admin/assets/components/filter-builder.js',
     'public/admin/assets/components/saved-views.js',
     'docs/Advanced-Filters-Search.md',

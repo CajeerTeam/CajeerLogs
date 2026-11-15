@@ -1,10 +1,10 @@
-import { roles, state, active } from '../app/store.js?v=0.3.8';
-import { h, button, card, field, input, select, roleSelect, checkbox, badge, enc, clearModal, modal, form, heading, date, table, message, text, notify } from '../components/ui.js?v=0.3.8';
-import { clearSession, sessionChanged } from '../app/session.js?v=0.3.8';
-import { pagedList } from '../components/pagination.js?v=0.3.8';
-import { mutationSuccess, confirmAction } from '../components/mutations.js?v=0.3.8';
-import { userSessionDialog } from '../components/session-list.js?v=0.3.8';
-import { get, write } from '../api/client.js?v=0.3.8';
+import { roles, state, active } from '../app/store.js?v=0.3.9';
+import { h, button, card, field, input, select, roleSelect, checkbox, badge, enc, clearModal, modal, form, heading, date, table, message, text, notify } from '../components/ui.js?v=0.3.9';
+import { clearSession, sessionChanged } from '../app/session.js?v=0.3.9';
+import { pagedList } from '../components/pagination.js?v=0.3.9';
+import { mutationSuccess, confirmAction } from '../components/mutations.js?v=0.3.9';
+import { userSessionDialog } from '../components/session-list.js?v=0.3.9';
+import { get, write } from '../api/client.js?v=0.3.9';
 
 const projectRoles = [['','Наследовать глобальную роль'],['operator','Оператор (не повышает глобальную роль)'],['viewer','Наблюдатель']];
 const boolLabel = v => v ? 'Включена' : 'Выключена';

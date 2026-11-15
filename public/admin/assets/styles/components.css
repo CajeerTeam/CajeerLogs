@@ -390,3 +390,6 @@ details .form-grid {
 .inspector-search-results { max-height: 24rem; overflow: auto; }
 .json-result { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; border-bottom: 1px solid var(--line); }
 .inspector-raw { width: 100%; min-height: 22rem; font-family: monospace; white-space: pre; overflow: auto; resize: vertical; }
+
+/* Credential metadata and audit values may contain long UUIDs. */
+.credential-value { overflow-wrap: anywhere; white-space: normal; }

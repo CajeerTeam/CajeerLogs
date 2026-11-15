@@ -2,6 +2,10 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.3.9 — Token Management & Security
+
+Каталог credentials, карточки токенов и сервисных аккаунтов, досрочное завершение HMAC overlap и журнал безопасности. [Документация](docs/Token-Management-Security.md). Без миграций. Public Preview до CI.
+
 ## 0.3.8 — Project & Source Management
 
 Каталог проектов, фильтры и состояние источников, действующие политики, мастер подключения с токеном logs:write, HMAC и проверкой реального события. [Документация](docs/Project-Source-Management.md). Без новых миграций. Public Preview до CI.

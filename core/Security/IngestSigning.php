@@ -84,6 +84,17 @@ final class IngestSigning
             ['token'=>$token,'id'=>$id,'cipher'=>$cipher,'overlap1'=>$overlap,'overlap2'=>$overlap,'overlap3'=>$overlap,'overlap4'=>$overlap]);
         return $this->metadata($project,$token)+['signing_secret'=>$secret];
     }
+    /** End the overlap without replacing the current key. Lock in the same order as ingest. */
+    public function retirePrevious(string $project,string $token,string $current,string $previous): array
+    {
+        $this->lockToken($project,$token);
+        $meta=$this->metadata($project,$token);
+        if ($meta['current_key_id']!==$current || $meta['previous_key_id']!==$previous) {
+            throw new HttpException(409,'signing_key_conflict','Signing key changed; reload metadata before retiring.');
+        }
+        $this->sql('UPDATE ingest_signing SET previous_key_id=NULL,previous_ciphertext=NULL,previous_until=NULL,updated_at=clock_timestamp() WHERE token_id=:id',['id'=>$token]);
+        return $this->metadata($project,$token);
+    }
     /** Token rotation must not silently downgrade the successor to optional bearer signing. */
     public function inherit(string $project,string $old,string $new): array
     {

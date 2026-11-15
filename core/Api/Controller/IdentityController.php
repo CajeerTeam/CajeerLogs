@@ -41,13 +41,15 @@ final class IdentityController
         'GET /projects/{project}/sources/{source}/redaction'=>'redactionSourceGet', 'PUT /projects/{project}/sources/{source}/redaction'=>'redactionSourceSet', 'POST /projects/{project}/sources/{source}/redaction/preview'=>'redactionSourcePreview',
         'GET /projects/{project}/signing'=>'projectSigning', 'PUT /projects/{project}/signing'=>'setProjectSigning',
         'GET /projects/{project}/tokens/{token}/signing'=>'tokenSigning', 'POST /projects/{project}/tokens/{token}/signing'=>'configureSigning',
-        'GET /projects/{project}/tokens'=>'tokens', 'POST /projects/{project}/tokens'=>'createToken',
+        'GET /projects/{project}/tokens'=>'tokens', 'GET /projects/{project}/tokens/{token}'=>'tokenDetail',
+        'DELETE /projects/{project}/tokens/{token}/signing/previous'=>'retireSigningKey',
+        'GET /projects/{project}/security/audit'=>'projectSecurityAudit', 'GET /system/security/audit'=>'systemSecurityAudit', 'POST /projects/{project}/tokens'=>'createToken',
         'DELETE /projects/{project}/tokens/{token}'=>'revokeToken',
         'PATCH /projects/{project}/tokens/{token}'=>'updateToken', 'POST /projects/{project}/tokens/{token}/rotate'=>'rotateToken',
         'POST /projects/{project}/tokens/revoke-all'=>'revokeProjectTokens',
-        'GET /projects/{project}/service-accounts'=>'serviceAccounts', 'POST /projects/{project}/service-accounts'=>'createServiceAccount',
+        'GET /projects/{project}/service-accounts'=>'serviceAccounts', 'GET /projects/{project}/service-accounts/{account}'=>'serviceAccountDetail', 'POST /projects/{project}/service-accounts'=>'createServiceAccount',
         'POST /projects/{project}/service-accounts/{account}/disable'=>'disableServiceAccount',
-        'GET /system/tokens'=>'systemTokens', 'POST /system/tokens'=>'createSystemToken', 'DELETE /system/tokens/{token}'=>'revokeSystemToken',
+        'GET /system/tokens'=>'systemTokens', 'GET /system/tokens/{token}'=>'systemTokenDetail', 'POST /system/tokens'=>'createSystemToken', 'DELETE /system/tokens/{token}'=>'revokeSystemToken',
         'PATCH /system/tokens/{token}'=>'updateSystemToken', 'POST /system/tokens/{token}/rotate'=>'rotateSystemToken',
         'POST /system/tokens/revoke-all'=>'revokeAllSystemTokens',
         'GET /system/report'=>'report',
@@ -649,13 +651,82 @@ final class IdentityController
         $this->audit($r,$p,'token.signing_changed',$id,['project_id'=>$project,'mode'=>$d['mode'],'key_id'=>$result['current_key_id']]);
         return new JsonResponse($result,200,['Cache-Control'=>'no-store']);
     }
+    private function retireSigningKey(Request $r,array $p): Response
+    {
+        $project=$this->tokenProject($r,$p); $id=$this->id($r,'token');
+        $d=$this->body($r,['expected_key_id','expected_previous_key_id']);
+        $current=self::uuid(self::str($d,'expected_key_id',36));
+        $previous=self::uuid(self::str($d,'expected_previous_key_id',36));
+        $result=$this->signing()->retirePrevious($project,$id,$current,$previous);
+        $this->audit($r,$p,'token.signing_previous_retired',$id,['project_id'=>$project,'key_id'=>$previous]);
+        return new JsonResponse($result,200,['Cache-Control'=>'no-store']);
+    }
     private function tokenList(Request $r,?string $project): Response
     {
         $query='SELECT '.TokenRepository::FIELDS.' FROM api_tokens WHERE project_id IS NOT DISTINCT FROM CAST(:project AS uuid)'; $params=['project'=>$project];
         $status=$r->query['status']??'all';
-        $query.=match($status){'all'=>'','active'=>" AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>clock_timestamp())",'revoked'=>' AND revoked_at IS NOT NULL','expired'=>' AND revoked_at IS NULL AND expires_at<=clock_timestamp()',default=>self::invalid('Invalid token status.')};
+        $query.=match($status){'all'=>'','active'=>" AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>clock_timestamp())",'revoked'=>' AND revoked_at IS NOT NULL','expired'=>' AND revoked_at IS NULL AND expires_at<=clock_timestamp()', 'expiring'=>" AND revoked_at IS NULL AND expires_at>clock_timestamp() AND expires_at<=clock_timestamp()+interval '7 days'",default=>self::invalid('Invalid token status.')};
         foreach (['source_id','service_account_id'] as $field) if(isset($r->query[$field])) { if($project===null||!is_string($r->query[$field])) self::invalid($field); $params[$field]=self::uuid($r->query[$field]); $query.=' AND '.$field.'=:'.$field; }
+        if (isset($r->query['q'])) {
+            $q=$r->query['q']; if (!is_string($q)||strlen($q)>255||str_contains($q,"\0")) self::invalid('Invalid token search.');
+            $params['q']=trim($q); $query.=" AND (strpos(lower(name),lower(:q))>0 OR strpos(id::text,lower(:q_id))>0)"; $params['q_id']=$params['q'];
+        }
+        if (isset($r->query['scope'])) {
+            $scope=$r->query['scope']; TokenRepository::scopes([$scope],$project);
+            $query.=' AND jsonb_exists(scopes,CAST(:scope AS text))'; $params['scope']=$scope;
+        }
         return $this->page($r,$query,$params);
+    }
+    private function detailToken(Request $r,?string $project): Response
+    {
+        $id=$this->id($r,'token');
+        $row=TokenRepository::decode($this->one('SELECT '.TokenRepository::FIELDS.' FROM api_tokens WHERE id=:id AND project_id IS NOT DISTINCT FROM CAST(:project AS uuid)',['id'=>$id,'project'=>$project]));
+        $row['predecessor_id']=$this->sql('SELECT id FROM api_tokens WHERE rotated_to_id=:id AND project_id IS NOT DISTINCT FROM CAST(:project AS uuid)',['id'=>$id,'project'=>$project])->fetchColumn()?:null;
+        $row['signing']=null;
+        if ($project!==null && in_array('logs:write',$row['scopes'],true)) {
+            $meta=$this->signing()->metadata($project,$id);
+            $policy=$this->one('SELECT require_ingest_hmac FROM projects WHERE id=:id',['id'=>$project]);
+            $meta['effective_required']=$meta['required']||$policy['require_ingest_hmac']||$this->app->config()->get('ingest.require_hmac');
+            $meta['mode']=$meta['current_key_id']!==null?'separate':($meta['effective_required']?'bearer':'optional');
+            $row['signing']=$meta;
+        }
+        return new JsonResponse($row,200,['Cache-Control'=>'no-store']);
+    }
+    private function tokenDetail(Request $r,array $p): Response { return $this->detailToken($r,$this->tokenProject($r,$p)); }
+    private function systemTokenDetail(Request $r,array $p): Response { return $this->detailToken($r,$this->tokenProject($r,$p,true)); }
+    private function projectSecurityAudit(Request $r,array $p): Response { return $this->securityAudit($r,$this->tokenProject($r,$p)); }
+    private function systemSecurityAudit(Request $r,array $p): Response { return $this->securityAudit($r,$this->tokenProject($r,$p,true)); }
+    private function securityAudit(Request $r,?string $project): Response
+    {
+        // Explicit event families, never return raw audit context. Project operators
+        // see only events explicitly attributed to their project (including legacy policy/member events).
+        $families="(a.action LIKE 'token.%' OR a.action LIKE 'service_account.%' OR a.action LIKE 'project.%' OR a.action LIKE 'source.%' OR a.action='redaction.policy_changed'";
+        $where=$families.($project===null?" OR a.action LIKE 'auth.%' OR a.action LIKE 'user.%')":')');
+        $params=[];
+        if ($project!==null) {
+            $where.=" AND (a.context->>'project_id'=:project OR (a.action='token.bulk_revoked' AND a.target=:bulk_project) OR (a.action IN ('project.created','project.updated','project.archived','project.restored','project.signing_policy') AND a.target=:project_target) OR (a.action IN ('project.member_added','project.member_role_set','project.member_removed') AND left(a.target,37)=:member_prefix))";
+            $params=['project'=>$project,'project_target'=>$project,'bulk_project'=>$project,'member_prefix'=>$project.':'];
+        }
+        foreach (['actor_id','target'] as $field) if (isset($r->query[$field])) {
+            if (!is_string($r->query[$field])) self::invalid($field);
+            $params[$field]=self::uuid($r->query[$field]); $where.=" AND a.$field=:$field";
+        }
+        if (isset($r->query['action'])) {
+            $action=$r->query['action']; if (!is_string($action)||!preg_match('/^[a-z_]+\.[a-z_]+$/D',$action)||strlen($action)>80) self::invalid('Invalid audit action.');
+            $where.=' AND a.action=:action'; $params['action']=$action;
+        }
+        $limit=filter_var($r->query['limit']??50,FILTER_VALIDATE_INT,['options'=>['min_range'=>1,'max_range'=>100]]);
+        if ($limit===false) self::invalid('limit must be 1..100.');
+        if (isset($r->query['cursor'])) {
+            if (!is_string($r->query['cursor'])) self::invalid('Invalid cursor.');
+            $anchor=$this->one('SELECT a.created_at,a.id FROM audit_log a WHERE '.$where.' AND a.id=:cursor',$params+['cursor'=>self::uuid($r->query['cursor'])]);
+            $where.=' AND (a.created_at,a.id)<(CAST(:anchor_time AS timestamptz),CAST(:anchor_id AS uuid))';
+            $params+=['anchor_time'=>$anchor['created_at'],'anchor_id'=>$anchor['id']];
+        }
+        $query="SELECT a.id,a.actor_id,a.action,a.target,a.created_at,a.context->>'request_id' AS request_id,a.context->>'project_id' AS project_id,a.context->>'key_id' AS key_id,a.context->>'successor_id' AS successor_id,a.context->>'source_id' AS source_id,a.context->>'service_account_id' AS service_account_id,a.context->>'overlap_seconds' AS overlap_seconds,a.context->>'mode' AS mode,a.context->>'count' AS count,a.context->>'revoked' AS revoked,a.context->>'role_before' AS role_before,a.context->>'role_after' AS role_after,a.context->>'project_role' AS project_role,a.context->>'required' AS required,a.context->>'blocked_before' AS blocked_before,a.context->>'blocked_after' AS blocked_after,a.context->>'password_reset' AS password_reset,a.context->>'sessions_revoked' AS sessions_revoked FROM audit_log a WHERE ";
+        $rows=$this->sql($query.$where.' ORDER BY a.created_at DESC,a.id DESC LIMIT '.($limit+1),$params)->fetchAll();
+        $next=null; if (count($rows)>$limit) { array_pop($rows); $next=end($rows)['id']; }
+        return new JsonResponse(['items'=>$rows,'next_cursor'=>$next],200,['Cache-Control'=>'no-store']);
     }
     private function tokenProject(Request $r,array $p,bool $system=false): ?string
     {
@@ -712,13 +783,24 @@ final class IdentityController
         if(array_key_exists('source_id',$d)) { if($project===null||!is_string($d['source_id'])) self::invalid('source_id'); $source=self::uuid($d['source_id']); $this->one('SELECT id FROM sources WHERE project_id=:project AND id=:id',['project'=>$project,'id'=>$source]); }
         if(array_key_exists('service_account_id',$d)) { if($project===null||$source!==null||!is_string($d['service_account_id'])) self::invalid('service_account_id'); $account=self::uuid($d['service_account_id']); $this->one('SELECT id FROM service_accounts WHERE project_id=:project AND id=:id',['project'=>$project,'id'=>$account]); }
         $count=(new TokenRepository($this->pdo))->revokeAll($project,$source,$account);
-        $this->audit($r,$p,'token.bulk_revoked',$project,['source_id'=>$source,'service_account_id'=>$account,'count'=>$count]); return new JsonResponse(['revoked'=>$count]);
+        $this->audit($r,$p,'token.bulk_revoked',$project,['project_id'=>$project,'source_id'=>$source,'service_account_id'=>$account,'count'=>$count]); return new JsonResponse(['revoked'=>$count]);
     }
     private function revokeProjectTokens(Request $r,array $p): Response { return $this->bulkRevoke($r,$p,$this->tokenProject($r,$p)); }
     private function revokeAllSystemTokens(Request $r,array $p): Response { return $this->bulkRevoke($r,$p,$this->tokenProject($r,$p,true)); }
     private function serviceAccounts(Request $r,array $p): Response
     {
-        $project=$this->tokenProject($r,$p); return $this->page($r,'SELECT id,project_id,name,created_by,created_at,disabled_at FROM service_accounts WHERE project_id=:project',['project'=>$project]);
+        $project=$this->tokenProject($r,$p); $query='SELECT id,project_id,name,created_by,created_at,disabled_at FROM service_accounts WHERE project_id=:project'; $params=['project'=>$project];
+        $query.=match($r->query['status']??'all') {'all'=>'','active'=>' AND disabled_at IS NULL','disabled'=>' AND disabled_at IS NOT NULL',default=>self::invalid('Invalid account status.')};
+        if (isset($r->query['q'])) { $q=$r->query['q']; if(!is_string($q)||strlen($q)>255||str_contains($q,"\0")) self::invalid('Invalid account search.'); $query.=' AND (strpos(lower(name),lower(:q))>0 OR strpos(id::text,lower(:qid))>0)'; $params+=['q'=>trim($q),'qid'=>trim($q)]; }
+        return $this->page($r,$query,$params);
+    }
+    private function serviceAccountDetail(Request $r,array $p): Response
+    {
+        $project=$this->tokenProject($r,$p); $id=$this->id($r,'account');
+        $row=$this->one('SELECT id,project_id,name,created_by,created_at,disabled_at FROM service_accounts WHERE id=:id AND project_id=:project',['id'=>$id,'project'=>$project]);
+        $stats=$this->one("SELECT count(*) AS total_tokens,count(*) FILTER (WHERE revoked_at IS NULL AND (expires_at IS NULL OR expires_at>clock_timestamp())) AS active_tokens,max(last_used_at) AS last_used_at FROM api_tokens WHERE service_account_id=:id AND project_id=:project",['id'=>$id,'project'=>$project]);
+        foreach (['total_tokens','active_tokens'] as $key) $stats[$key]=(int)$stats[$key];
+        return new JsonResponse($row+$stats,200,['Cache-Control'=>'no-store']);
     }
     private function createServiceAccount(Request $r,array $p): Response
     {

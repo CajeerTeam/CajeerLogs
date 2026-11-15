@@ -59,5 +59,10 @@ $activeToken=['id'=>$token,'scopes'=>'["logs:write"]','revoked_at'=>null,'active
 $db->rows=[$activeToken,['current_key_id'=>$kid,'required'=>true]];check(rejects(fn()=>$keys->configure($project,$token,'separate',0,$old),409),'stale expected key cannot rotate');
 $db->rows=[$activeToken,['current_key_id'=>$kid,'required'=>true]];check(rejects(fn()=>$keys->configure($project,$token,'bearer',0,$kid),409),'separate mode cannot downgrade');
 $db->rows=[$activeToken,['current_key_id'=>null,'required'=>false]];check(rejects(fn()=>$keys->configure($project,$token,'separate',1,null),422),'first key requires zero overlap');
+// Explicit retirement is guarded by both key IDs and never changes the current key.
+$meta=['current_key_id'=>$kid,'previous_key_id'=>$old,'previous_until'=>'2099-01-01T00:00:00Z','required'=>true];
+$db->calls=[];$db->rows=[$activeToken,$meta];check(rejects(fn()=>$keys->retirePrevious($project,$token,$kid,$token),409)&&count($db->calls)===2,'stale previous key cannot retire current overlap');
+$db->calls=[];$retired=array_replace($meta,['previous_key_id'=>null,'previous_until'=>null]);$db->rows=[$activeToken,$meta,false,$retired];check($keys->retirePrevious($project,$token,$kid,$old)===$retired&&str_contains($db->calls[2][0],'previous_ciphertext=NULL')&&!str_contains($db->calls[2][0],'current_ciphertext'),'retirement clears only previous key material');
+$db->active=false;try{$keys->retirePrevious($project,$token,$kid,$old);check(false,'transaction required');}catch(LogicException){check(true,'retirement requires transaction');}
 $m=\Cajeer\Logs\Database\MigrationSql::parse(file_get_contents(dirname(__DIR__).'/migrations/pgsql/0013_ingest_signing.sql'));check($m['mode']==='transactional'&&count($m['statements'])===2,'atomic signing migration');
 echo "HMAC & Replay Protection: $n checks passed\n";

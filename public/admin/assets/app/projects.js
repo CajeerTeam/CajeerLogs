@@ -1,6 +1,6 @@
-import { state, render } from './store.js?v=0.3.8';
-import { h, button, select, notify } from '../components/ui.js?v=0.3.8';
-import { get } from '../api/client.js?v=0.3.8';
+import { state, render } from './store.js?v=0.3.9';
+import { h, button, select, notify } from '../components/ui.js?v=0.3.9';
+import { get } from '../api/client.js?v=0.3.9';
 
 async function loadProjects(signal, more = false) {
     const auth=state.authEpoch, selected=state.project;

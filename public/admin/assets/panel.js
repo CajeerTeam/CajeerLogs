@@ -1,9 +1,9 @@
 // CajeerLogs administration entry point. The browser loads the versioned ES module graph.
-import './app/router.js?v=0.3.8';
-import { bootstrap, clearSession } from './app/session.js?v=0.3.8';
-import { installUnauthorizedHandler } from './api/client.js?v=0.3.8';
-import { initTheme } from './app/theme.js?v=0.3.8';
-import { initShell } from './app/shell.js?v=0.3.8';
+import './app/router.js?v=0.3.9';
+import { bootstrap, clearSession } from './app/session.js?v=0.3.9';
+import { installUnauthorizedHandler } from './api/client.js?v=0.3.9';
+import { initTheme } from './app/theme.js?v=0.3.9';
+import { initShell } from './app/shell.js?v=0.3.9';
 
 installUnauthorizedHandler(() => clearSession('Сессия истекла. Войдите снова.'));
 initTheme();

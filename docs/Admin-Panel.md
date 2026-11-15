@@ -1,4 +1,4 @@
-# Admin Panel — 0.3.8
+# Admin Panel — 0.3.9
 
 Новый Dashboard: [Dashboard & Analytics](Dashboard-Analytics.md).
 
@@ -104,3 +104,5 @@ CAJEER_TEST_DATABASE=1 .browser-venv/bin/python tests/admin_browser_database.py
 - [User & Access Management 0.3.7](User-Access-Management.md) — каталог, карточка, роли, членство и аудит.
 
 - [Project & Source Management 0.3.8](Project-Source-Management.md) — каталог, политики, статистика и подключение.
+
+- [Token Management & Security 0.3.9](Token-Management-Security.md) — каталог credentials, HMAC overlap и аудит.

@@ -2,6 +2,12 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.3.9] — Token Management & Security
+
+- Серверные фильтры, карточки credentials, цепочка ротации и статистика сервисных аккаунтов.
+- Досрочный отзыв предыдущего HMAC-ключа с проверкой обоих UUID, проектный и глобальный журнал безопасности.
+- Без миграций; Public Preview до CI.
+
 ## [0.3.8] — Project & Source Management
 
 - Каталог проектов и источников: поиск по UUID, фильтр типа, пагинация, состояние поступлений и счётчики.

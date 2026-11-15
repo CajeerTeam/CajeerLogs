@@ -1,7 +1,7 @@
-import { state, resetWorkspace, render, advanceSession } from './store.js?v=0.3.8';
-import { $, h, field, input, clearModal, form } from '../components/ui.js?v=0.3.8';
-import { navigation } from './shell.js?v=0.3.8';
-import { request, get } from '../api/client.js?v=0.3.8';
+import { state, resetWorkspace, render, advanceSession } from './store.js?v=0.3.9';
+import { $, h, field, input, clearModal, form } from '../components/ui.js?v=0.3.9';
+import { navigation } from './shell.js?v=0.3.9';
+import { request, get } from '../api/client.js?v=0.3.9';
 
 const version = document.querySelector('meta[name=cajeer-version]').content;
 let sessionChecking = false;

@@ -92,7 +92,7 @@ class Fixture:
             if self.totp_enabled and body.get('otp')!='123456': return err(401,'unauthorized')
             self.user={'id':U1 if self.role=='administrator' else U2,'email':body['email'],'role':self.role,'two_factor_enabled':self.totp_enabled}
             return send({'user':self.user,'csrf_token':CSRF,'expires_in':28800,'enrollment_required':self.require_totp and not self.totp_enabled},headers={'Set-Cookie':'cajeerlogs_session='+'b'*64+'; Path=/; HttpOnly; SameSite=Strict'})
-        if path=='/health': return send({'status':'ok','version':'0.3.8'})
+        if path=='/health': return send({'status':'ok','version':'0.3.9'})
         if path=='/auth/token':
             credential=self.connection_credentials.get(req.headers.get('authorization','').removeprefix('Bearer '))
             return send({'token':credential['row']}) if credential else err(401,'unauthorized')
@@ -193,10 +193,15 @@ class Fixture:
         if path=='/users/'+U2:
             if method=='GET': return send({'user':self.users[-1]})
             self.users[-1].update(email=body['email'],role=body['role'],blocked_at='2026-01-01' if body['blocked'] else None);return send({'id':U2})
+        if path.endswith('/security/audit'):
+            rows=[{'id':E1,'action':'token.created','actor_id':U1,'target':T1,'created_at':'2026-11-15T00:00:00Z','request_id':'safe-audit-id','project_id':P1}]
+            return listing([r for r in rows if not q.get('action') or r['action']==q['action']])
+        if '/service-accounts/' in path and method=='GET':
+            a=next(x for x in self.accounts if x['id']==path.split('/')[-1]);ts=[x for x in self.tokens if x.get('service_account_id')==a['id']];return send(dict(a,total_tokens=len(ts),active_tokens=len([x for x in ts if not x.get('revoked_at')]),last_used_at=None))
         if path.endswith('/service-accounts'):
             if method=='POST':
                 row={'id':'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','name':body['name'],'project_id':P1,'disabled_at':None}; self.accounts.append(row); return send(row,201)
-            return listing(self.accounts)
+            return listing([a for a in self.accounts if not q.get('q') or q['q'].lower() in a['name'].lower()])
         if '/service-accounts/' in path and path.endswith('/disable'):
             self.accounts[0]['disabled_at']='2026-01-01'; selected=[row for row in self.tokens if row.get('service_account_id')==self.accounts[0]['id'] and not row.get('revoked_at')];
             for row in selected: row['revoked_at']='2026-01-01'
@@ -210,10 +215,19 @@ class Fixture:
                     kid=str(uuid.uuid4()); secret='sk_'+'e'*64;credential.update(kid=kid,secret=secret);result['signing']={'current_key_id':kid,'signing_secret':secret}
                 self.connection_credentials[token]=credential;self.tokens.append(row);return send(result,201)
             if method=='POST': self.tokens.append({'id':T1,'name':body['name'],'scopes':body['scopes'],'source_id':body.get('source_id'),'expires_at':'2099-01-01T00:00:00Z','revoked_at':None,'revision':'1','description':body.get('description',''),'requests_per_minute':body.get('requests_per_minute'),'service_account_id':body.get('service_account_id')});return send({'id':T1,'token':TOKEN},201)
-            return listing(self.tokens if path.startswith('/projects/') else [])
+            return listing([t for t in self.tokens if (not q.get('q') or q['q'].lower() in t['name'].lower()) and (not q.get('scope') or q['scope'] in t['scopes']) and (not q.get('service_account_id') or t.get('service_account_id')==q['service_account_id'])] if path.startswith('/projects/') else [])
+        signing_match=re.search(r'/tokens/([^/]+)/signing(/previous)?$',path)
+        if signing_match:
+            token_id=signing_match.group(1); credential=next(c for c in self.connection_credentials.values() if c['row']['id']==token_id); meta=credential.setdefault('meta',{'current_key_id':credential['kid'],'previous_key_id':None,'previous_until':None,'required':True})
+            if method=='GET': return send(meta)
+            if method=='POST':
+                assert body['expected_key_id']==meta['current_key_id'];old=meta['current_key_id'];meta.update(current_key_id=str(uuid.uuid4()),previous_key_id=old,previous_until='2099-01-01T00:00:00Z');return send(dict(meta,signing_secret='sk_'+'f'*64))
+            if method=='DELETE' and signing_match.group(2):
+                assert body=={'expected_key_id':meta['current_key_id'],'expected_previous_key_id':meta['previous_key_id']};meta.update(previous_key_id=None,previous_until=None);return send(meta)
         if path.endswith('/tokens/'+T1+'/rotate'):
             old=self.tokens[0]; old['rotated_to_id']='99999999-9999-4999-8999-999999999999'; old['revision']=str(int(old['revision'])+1); old['expires_at']='2099-01-01T00:00:00Z'; new=dict(old,id=old['rotated_to_id'],scopes=body['scopes'],revision='1',rotated_to_id=None); self.tokens.append(new); return send(dict(new,token='cl_'+'b'*64,previous=old),201)
         if path.endswith('/tokens/'+T1):
+            if method=='GET': return send(dict(self.tokens[0],predecessor_id=None,signing=None))
             if method=='PATCH':
                 row=self.tokens[0]; row.update({k:v for k,v in body.items() if k!='revision'}); row['revision']=str(int(row['revision'])+1); return send(row)
             self.tokens[0]['revoked_at']='2026-01-01';return send(status=204)
@@ -319,7 +333,7 @@ def run():
         browser=browser_for(p); ctx=browser.new_context(accept_downloads=True); page=ctx.new_page(); page.set_default_timeout(8000)
         errors=[]; page.on('pageerror',lambda e: errors.append(str(e)))
         # Actual PHP router, not intercepted, even in offline browser mode.
-        status,headers,body=http(url+'/admin');assert status==200 and b'0.3.8' in body
+        status,headers,body=http(url+'/admin');assert status==200 and b'0.3.9' in body
         assert "script-src 'self'" in {k.lower():v for k,v in headers.items()}['content-security-policy']
         assert http(url+'/api/v1/auth/me')[0]==401
         assert http(url+'/admin/assets/panel.js')[0]==200
@@ -466,6 +480,12 @@ def run():
         print('PASS user directory, account detail, audit, membership picker, 2FA reset fixture')
         print('PASS create project/source/user, role update, project membership')
         nav(page,'tokens');page.get_by_label('Название сервиса').fill('Backend service');page.get_by_role('button',name='Создать сервисную учётную запись').click();expect(page.get_by_role('row').filter(has_text='Backend service')).to_be_visible();form=page.locator('form').filter(has=page.get_by_label('logs:read'));form.get_by_label('Название').fill('Reader');form.get_by_label('Сервисная учётная запись (UUID, необязательно)').fill('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');form.get_by_role('button',name='Выпустить токен').click();expect(page.get_by_role('dialog')).to_contain_text(TOKEN);assert TOKEN not in page.evaluate('JSON.stringify(localStorage)+JSON.stringify(sessionStorage)');page.locator('#close-modal').click();expect(page.get_by_text(TOKEN,exact=True)).to_have_count(0);page.get_by_role('button',name='Изменить токен').click();dlg=page.get_by_role('dialog');dlg.get_by_label('Название',exact=True).fill('Renamed Reader');dlg.get_by_label('Запросов в минуту (необязательно)').fill('60');dlg.get_by_role('button',name='Сохранить токен').click();expect(page.get_by_role('row').filter(has_text='Renamed Reader')).to_be_visible();page.get_by_role('button',name='Ротация',exact=True).click();dlg=page.get_by_role('dialog');dlg.get_by_role('button',name='Выпустить замену').click();expect(dlg).to_contain_text('cl_'+'b'*64);page.locator('#close-modal').click();expect(page.get_by_text('Перекрытие',exact=True)).to_be_visible();page.get_by_role('button',name='Отозвать',exact=True).first.click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_text('Отозван',exact=True)).to_be_visible();page.get_by_role('button',name='Отключить сервис').click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_text('Отключена',exact=True)).to_be_visible()
+        # Security management: real modules with fixture API responses.
+        page.get_by_label('Поиск сервиса').fill('Backend');page.get_by_role('button',name='Найти сервис').click();page.get_by_role('button',name='Карточка сервиса').click();dlg=page.get_by_role('dialog');expect(dlg).to_contain_text('Всего токенов');dlg.get_by_role('button',name='Показать токены сервиса').click();expect(page.get_by_label('Фильтр UUID сервиса')).to_have_value('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')
+        page.get_by_role('button',name='Карточка токена').first.click();expect(page.get_by_role('dialog')).to_contain_text('Предыдущий токен');assert TOKEN not in page.get_by_role('dialog').inner_text();page.locator('#close-modal').click()
+        page.get_by_text('Журнал безопасности проекта',exact=True).click();expect(page.get_by_text('token.created',exact=True)).to_be_visible();page.get_by_role('button',name='Запись аудита').click();expect(page.get_by_role('dialog')).to_contain_text('safe-audit-id');page.locator('#close-modal').click()
+        page.get_by_label('Действие аудита').first.select_option('token.revoked');page.get_by_role('button',name='Фильтровать аудит').first.click();expect(page.get_by_text('token.created',exact=True)).to_have_count(0)
+        print('PASS token/account detail, account filter, scoped audit and credential secrecy')
         # Full wizard: new source, source-scoped write-only token, v2 signature, lost-response replay, persisted detail and drill-down.
         nav(page,'projects');page.get_by_label('Поиск проектов').fill(P2);page.get_by_role('button',name='Найти проекты').click();expect(page.get_by_role('row').filter(has_text=P2).first).to_be_visible()
         page.get_by_label('Фильтр типа источника').select_option('server');page.get_by_role('button',name='Найти источники').click();expect(page.get_by_role('button',name='Открыть источник')).to_have_count(0)
@@ -475,6 +495,9 @@ def run():
         dlg.get_by_role('button',name='Проверить подключение').click();expect(dlg.get_by_role('alert')).to_be_visible();dlg.get_by_role('button',name='Проверить подключение').click();expect(dlg).to_contain_text('Тестовое событие сохранено и найдено:');assert len(f.connection_attempts)==2
         dlg.get_by_role('button',name='Открыть тестовое событие в логах').click();expect(page.get_by_role('heading',name='Логи',exact=True)).to_be_visible();expect(page.get_by_text('CajeerLogs source connection test',exact=True)).to_be_visible();expect(page.get_by_text('cl_'+'d'*64,exact=True)).to_have_count(0)
         page.get_by_role('button',name='Сбросить',exact=True).click();print('PASS project/source directory, HMAC v2 onboarding, receipt replay and Explorer drill-down fixture')
+        nav(page,'tokens');page.get_by_role('button',name='HMAC',exact=True).click();dlg=page.get_by_role('dialog');dlg.get_by_label('Перекрытие, секунд (только при ротации v2)').fill('3600');dlg.get_by_role('button',name='Сохранить / ротировать ключ').click();expect(dlg).to_contain_text('sk_'+'f'*64);page.locator('#close-modal').click()
+        page.get_by_role('button',name='HMAC',exact=True).click();dlg.get_by_role('button',name='Завершить перекрытие HMAC').click();dlg.get_by_role('button',name='Подтвердить').click();expect(dlg).not_to_be_visible();page.get_by_role('button',name='HMAC',exact=True).click();expect(dlg.get_by_role('button',name='Завершить перекрытие HMAC')).to_have_count(0);page.locator('#close-modal').click();assert any(m=='DELETE' and path.endswith('/signing/previous') for m,path,q,b in f.calls)
+        print('PASS HMAC key rotation, one-time secret, early overlap retirement fixture')
         nav(page,'system');expect(page.get_by_role('heading',name='Системный отчёт')).to_be_visible();nav(page,'settings');page.get_by_role('button',name='Тёмная тема').first.click();assert page.locator('html').get_attribute('data-theme')=='dark';page.get_by_label('Цветовая тема',exact=True).select_option('system');page.emulate_media(color_scheme='dark');expect(page.locator('html')).to_have_attribute('data-theme','dark');page.emulate_media(color_scheme='light');expect(page.locator('html')).to_have_attribute('data-theme','light');page.get_by_label('Цветовая тема',exact=True).select_option('dark');expect(page.locator('html')).to_have_attribute('data-theme','dark');page.set_viewport_size({'width':390,'height':844});assert page.evaluate('document.documentElement.scrollWidth <= innerWidth');expect(page.locator('#sidebar')).not_to_be_visible();page.get_by_role('button',name='Меню').click();expect(page.locator('#sidebar')).to_be_visible();page.keyboard.press('Escape');expect(page.locator('#sidebar')).not_to_be_visible();page.get_by_role('button',name='Меню').click();nav(page,'logs');expect(page.locator('#sidebar')).not_to_be_visible();expect(page.get_by_role('heading',name='Логи',exact=True)).to_be_visible();page.set_viewport_size({'width':1280,'height':720});nav(page,'settings');
         page.get_by_label('Отображаемое имя').fill('Admin <test>');page.get_by_role('button',name='Сохранить профиль').click();expect(page.locator('#account')).to_contain_text('Admin <test>')
         expect(page.get_by_text('Текущая сессия',exact=True)).to_be_visible();page.get_by_role('row').filter(has_text='Other device').get_by_role('button',name='Завершить',exact=True).click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_text('Other device',exact=True)).to_have_count(0)

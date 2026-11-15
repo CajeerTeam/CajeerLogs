@@ -34,6 +34,17 @@ try{
  $writer=api('POST',$tokens,$op,['name'=>'Writer','description'=>'production','scopes'=>['logs:read','logs:write'],'source_id'=>$source,'service_account_id'=>$acc['id'],'expires_in'=>7200],201)[0];$old=$tokens.'/'.$writer['id'];
  check($writer['revision']==='1'&&$writer['service_account_id']===$acc['id']&&$writer['created_by']===$operator,'issued scoped service credential');
  $list=api('GET',$tokens,$op,null,200,['service_account_id'=>$acc['id'],'status'=>'active'])[0];check(count($list['items'])===1&&!isset($list['items'][0]['token_hash'])&&!str_contains(json_encode($list),$writer['token']),'filtered list excludes secrets');
+ $details=api('GET',$old,$op)[0];check($details['id']===$writer['id']&&$details['predecessor_id']===null&&$details['signing']['mode']==='optional'&&!str_contains(json_encode($details),$writer['token']),'token detail returns metadata only');
+ api('GET',$old,$view,null,403);api('GET','/projects/'.$other.'/tokens/'.$writer['id'],$admin,null,404);api('GET',$old,bearer($writer),null,403);
+ $list=api('GET',$tokens,$op,null,200,['q'=>'wRiTeR','scope'=>'logs:write','status'=>'expiring','source_id'=>$source,'service_account_id'=>$acc['id']])[0];check(count($list['items'])===1&&$list['items'][0]['id']===$writer['id'],'combined credential filters');
+ api('GET',$tokens,$op,null,422,['scope'=>'system:read']);api('GET',$tokens,$op,null,422,['q'=>['bad']]);
+ $account=api('GET',$accounts.'/'.$acc['id'],$op)[0];check((int)$account['total_tokens']===1&&(int)$account['active_tokens']===1,'account detail counts');api('GET',$accounts.'/'.$foreignAcc['id'],$op,null,404);
+ $accountsFiltered=api('GET',$accounts,$op,null,200,['q'=>'backend','status'=>'active'])[0];check(count($accountsFiltered['items'])===1&&$accountsFiltered['items'][0]['id']===$acc['id'],'account filters');
+ $auditPath=$path.'/security/audit';$auditPage=api('GET',$auditPath,$op,null,200,['action'=>'token.created','limit'=>1])[0];check(count($auditPage['items'])===1&&$auditPage['items'][0]['target']===$writer['id']&&!str_contains(json_encode($auditPage),$writer['token']),'scoped token audit');
+ api('GET',$auditPath,$view,null,403);api('GET','/system/security/audit',$op,null,403);api('GET','/projects/'.$other.'/security/audit',$op,null,403);api('GET',$auditPath,bearer($writer),null,403);
+ $foreignAudit=api('GET','/projects/'.$other.'/security/audit',$admin,null,200,['action'=>'service_account.created'])[0];check(count($foreignAudit['items'])===1,'foreign audit fixture');api('GET',$auditPath,$op,null,404,['cursor'=>$foreignAudit['items'][0]['id']]);
+ $global=api('GET','/system/security/audit',$admin,null,200,['action'=>'service_account.created','limit'=>1])[0];check($global['next_cursor']!==null,'global audit cursor');$nextAudit=api('GET','/system/security/audit',$admin,null,200,['action'=>'service_account.created','limit'=>1,'cursor'=>$global['next_cursor']])[0];check(count($nextAudit['items'])===1&&$nextAudit['items'][0]['id']!==$global['items'][0]['id'],'audit pagination stable');
+ api('GET',$auditPath,$op,null,422,['action'=>['bad']]);
  $stmt=$pdo->prepare('SELECT token_hash,last_used_at FROM api_tokens WHERE id=:id');$stmt->execute(['id'=>$writer['id']]);check($stmt->fetch()['token_hash']===hash('sha256',$writer['token']),'only digest persisted');
  api('GET','/auth/token',bearer($writer));$stmt->execute(['id'=>$writer['id']]);$used=$stmt->fetch()['last_used_at'];api('GET','/auth/token',bearer($writer));$stmt->execute(['id'=>$writer['id']]);check($used!==null&&$stmt->fetch()['last_used_at']===$used,'fresh last_used_at not rewritten');
  api('PATCH',$old,$view,['revision'=>'1','name'=>'Denied'],403);api('PATCH',$old,['Cookie'=>$op['Cookie']],['revision'=>'1','name'=>'No CSRF'],403);api('PATCH','/projects/'.$other.'/tokens/'.$writer['id'],$admin,['revision'=>'1','name'=>'Denied'],404);
@@ -42,6 +53,7 @@ try{
  $first=api('POST','/ingest',$bodyHeaders,$event,201)[0];$job=api('POST','/ingest/async',bearer($writer)+['Idempotency-Key'=>'pending-before-rotation'],$event,202)[0]['job_id'];
  $rotated=api('POST',$old.'/rotate',$op,['revision'=>'2','expires_in'=>3600,'overlap_seconds'=>600,'scopes'=>['logs:write']],201)[0];
  check($rotated['id']!==$writer['id']&&$rotated['token']!==$writer['token']&&$rotated['source_id']===$source&&$rotated['service_account_id']===$acc['id']&&$rotated['scopes']===['logs:write']&&$rotated['previous']['rotated_to_id']===$rotated['id'],'successor narrowed, same source and account');
+ $successor=api('GET',$tokens.'/'.$rotated['id'],$op)[0];check($successor['predecessor_id']===$writer['id'],'rotation predecessor metadata');
  check(strtotime($rotated['previous']['expires_at'])<=time()+601&&strtotime($rotated['previous']['expires_at'])>time(),'bounded overlap expiry');
  api('POST',$old.'/rotate',$op,['revision'=>'3','overlap_seconds'=>0],409);api('POST',$tokens.'/'.$rotated['id'].'/rotate',$op,['revision'=>'1','scopes'=>['logs:read','logs:write']],422);
  api('GET','/auth/token',bearer($writer));api('GET','/auth/token',bearer($rotated));api('GET','/logs',bearer($rotated),null,403,['project_id'=>$p]);

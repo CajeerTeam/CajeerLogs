@@ -42,7 +42,15 @@ try{
     check(call('POST',$tp.'/signing',['mode'=>'separate','expected_key_id'=>$a['current_key_id']],$admin)->status===409,'stale key rotation rejected');
     ingest($body,headers($body,$bearer,$a,'overlap-old'),201,'old key overlap');ingest($body,headers($body,$bearer,$b,'overlap-new'),201,'new key overlap');
     $nonce=bin2hex(random_bytes(16));ingest($body,headers($body,$bearer,$a,'same-nonce-old','/api/v1/ingest',$nonce),201,'nonce used by previous key');ingest($body,headers($body,$bearer,$b,'same-nonce-new','/api/v1/ingest',$nonce),409,'nonce shared across key IDs');
-    $pdo->exec('UPDATE ingest_signing SET previous_until=clock_timestamp()-interval \'1 second\' WHERE token_id='.$pdo->quote($t['id']));ingest($body,headers($body,$bearer,$a,'expired-old'),401,'expired overlap rejected');
+    $retire=['expected_key_id'=>$b['current_key_id'],'expected_previous_key_id'=>$a['current_key_id']];
+    check(call('DELETE',$tp.'/signing/previous',['expected_key_id'=>$a['current_key_id'],'expected_previous_key_id'=>$a['current_key_id']],$admin)->status===409,'stale retirement rejected');
+    check(call('DELETE',$tp.'/signing/previous',$retire,['Cookie'=>$admin['Cookie']])->status===403,'retirement requires CSRF');
+    $retired=ok('DELETE',$tp.'/signing/previous',$retire,$admin);check($retired['current_key_id']===$b['current_key_id']&&$retired['previous_key_id']===null&&$retired['previous_until']===null,'old key retired without changing current');
+    ingest($body,headers($body,$bearer,$a,'retired-old'),401,'retired key no longer accepted');ingest($body,headers($body,$bearer,$b,'retired-new'),201,'current key still works');
+    $c=ok('POST',$tp.'/signing',['mode'=>'separate','overlap_seconds'=>3600,'expected_key_id'=>$b['current_key_id']],$admin);
+    check(call('DELETE',$tp.'/signing/previous',$retire,$admin)->status===409,'old retirement cannot clear new overlap');
+    $pdo->exec('UPDATE ingest_signing SET previous_until=clock_timestamp()-interval \'1 second\' WHERE token_id='.$pdo->quote($t['id']));ingest($body,headers($body,$bearer,$b,'expired-old'),401,'expired overlap rejected');$b=$c;
+
     $async='/api/v1/ingest/async';$job=data(ingest($body,headers($body,$bearer,$b,'signed-job',$async),202,'v2 async accepted',$async));
     $h=headers($body,$bearer,$b,'race-same-nonce');$before=(int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn();
     $program=<<<'WORKER'
