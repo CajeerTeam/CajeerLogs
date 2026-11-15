@@ -1,43 +1,14 @@
-import { levels, state, projectPath, active, render } from '../app/store.js?v=0.3.4';
-import { h, button, card, field, input, select, date, message, notify, form, heading, needProject, clearModal } from '../components/ui.js?v=0.3.4';
-import { projectSelector } from '../app/projects.js?v=0.3.4';
-import { logTable } from '../components/log-table.js?v=0.3.4';
-import { columns, defaultLayout, normalizeLayout, moveColumn, pageChanged } from '../app/explorer.js?v=0.3.4';
-import { request, get } from '../api/client.js?v=0.3.4';
+import { levels, state, projectPath, active, render } from '../app/store.js?v=0.3.5';
+import { h, button, card, field, input, select, date, message, notify, form, heading, needProject, clearModal } from '../components/ui.js?v=0.3.5';
+import { projectSelector } from '../app/projects.js?v=0.3.5';
+import { logTable } from '../components/log-table.js?v=0.3.5';
+import { columns, defaultLayout, normalizeLayout, moveColumn, pageChanged } from '../app/explorer.js?v=0.3.5';
+import { request, get } from '../api/client.js?v=0.3.5';
 
-function defaultFilters() { return { limit: '50', consistency: 'live' }; }
-function logFilters(sources) { const f = state.filters || defaultFilters(); const val = k => f[k] || ''; const fields = [field('Поиск', input('q', { value: val('q'), maxlength: 512, placeholder: 'database OR timeout' })), field('Уровень', select('level', [['', 'Все'], ...levels.map(l => [l, l])], val('level'))), field('Источник', input('source', { value: val('source'), list: 'log-sources', maxlength: 100, placeholder: 'slug' })), field('Сервис', input('service', { value: val('service'), maxlength: 255 })), field('С (UTC)', input('from', { type: 'datetime-local', step: '0.001', value: val('from') })), field('До (UTC)', input('to', { type: 'datetime-local', step: '0.001', value: val('to') })), field('На странице', select('limit', [['25', '25'], ['50', '50'], ['100', '100']], val('limit') || '50')), field('Режим страницы', select('consistency', [['live', 'Живой поиск'], ['snapshot', 'Ограниченный снимок']], val('consistency') || 'live'))]; const extra = h('details', {}, h('summary', {}, 'Дополнительные фильтры'), h('div', { class: 'form-grid' }, field('Источник UUID', input('source_id', { value: val('source_id'), list: 'log-source-ids', maxlength: 36 })), field('Host', input('host', { value: val('host'), maxlength: 255 })), field('Trace ID', input('trace_id', { value: val('trace_id'), maxlength: 128 })), field('Request ID', input('request_id', { value: val('request_id'), maxlength: 128 })), field('Тег', input('tag', { value: val('tag'), maxlength: 128 })), field('JSON context', h('textarea', { name: 'context', maxlength: 4096, placeholder: '{"error_code":"DB_DOWN"}' }, val('context'))), field('Режим поиска', select('q_mode', [['', 'Web (по умолчанию)'], ['plain', 'Все слова'], ['phrase', 'Фраза']], val('q_mode'))), ...[['levels','Уровни (JSON-массив)','["error","warning"]'],['sources','Источники (JSON-массив)','["app","worker"]'],['services','Сервисы (JSON-массив)','["api","worker"]'],['hosts','Hosts (JSON-массив)','["host1","host2"]'],['trace_ids','Trace IDs (JSON-массив)','["trace-1","trace-2"]'],['request_ids','Request IDs (JSON-массив)','["req-1","req-2"]'],['source_ids','UUID источников (JSON-массив)','["UUID"]'],['tags_all','Все теги (JSON-массив)','["db","prod"]'],['tags_any','Любой тег (JSON-массив)','["db","queue"]'],['context_path','JSON-путь context','["nested","region"]']].map(([key,title,example]) => field(title,input(key,{value:val(key),maxlength:4096,placeholder:example}))), field('Значение JSON-пути (scalar)',input('context_equals',{value:val('context_equals'),maxlength:4096,placeholder:'"eu"'})))); if (['source_id', 'host', 'trace_id', 'request_id', 'tag', 'context','q_mode','levels','sources','services','hosts','source_ids','trace_ids','request_ids','tags_all','tags_any','context_path','context_equals'].some(k => val(k)))
-    extra.open = true; const filter = form('Найти', fields, async (d) => { const next = Object.fromEntries(d); for (const key of ['from', 'to'])
-    if (next[key]) {
-        if (!Number.isFinite(Date.parse(next[key] + 'Z')))
-            throw new Error('Некорректная дата.');
-    } if (next.from && next.to && next.from >= next.to)
-    throw new Error('Начало периода должно быть раньше конца.'); if (next.context) {
-    let obj;
-    try {
-        obj = JSON.parse(next.context);
-    }
-    catch {
-        throw new Error('JSON context: некорректный JSON.');
-    }
-    if (!obj || Array.isArray(obj) || typeof obj !== 'object')
-        throw new Error('JSON context должен быть объектом.');
-} for (const key of ['levels','sources','services','hosts','source_ids','trace_ids','request_ids','tags_all','tags_any','context_path']) {
-    if (!next[key]) continue;
-    let values; try { values = JSON.parse(next[key]); } catch { throw new Error('Некорректный JSON-массив: ' + key); }
-    if (!Array.isArray(values) || !values.length || values.length > (key === 'context_path' ? 8 : 16) || values.some(v => typeof v !== 'string' || !v.trim())) throw new Error('Ожидается непустой массив строк: ' + key);
-    next[key] = JSON.stringify(values);
-} if (next.q_mode && !next.q) throw new Error('Для режима поиска введите текст.');
-if (next.context_path && (!next.from || !next.to)) throw new Error('Для JSON-пути укажите начало и конец периода.');
-if (next.context_equals) {
-    if (!next.context_path) throw new Error('Укажите JSON-путь.');
-    let v; try { v = JSON.parse(next.context_equals); } catch { throw new Error('Некорректное JSON-значение.'); }
-    if (v !== null && typeof v === 'object') throw new Error('Значение JSON-пути должно быть скаляром.');
-    // Keep the original text; JavaScript may lose decimal precision.
-} state.filters = next; state.logPosition = null; await render(); }, { after: [button('Сбросить', () => { state.filters = null; state.logPosition = null; void render(); })] }); filter.insertBefore(extra, filter.querySelector('.actions')); filter.append(h('datalist', { id: 'log-sources' }, sources.map(s => h('option', { value: s.slug }, s.name))), h('datalist', { id: 'log-source-ids' }, sources.map(s => h('option', { value: s.id }, s.name)))); return filter; }
-function queryFilters() { const f = { ...(state.filters || defaultFilters()), project_id: state.project }; for (const k of ['from', 'to'])
-    if (f[k])
-        f[k] = new Date(f[k] + 'Z').toISOString(); return f; }
+import { filterBuilder } from '../components/filter-builder.js?v=0.3.5';
+import { savedViews } from '../components/saved-views.js?v=0.3.5';
+import { queryFilters as buildQuery } from '../app/filters.js?v=0.3.5';
+function queryFilters() { return buildQuery(state.filters,state.project); }
 function logPager(query, signal, epoch) {
     const signature = JSON.stringify(query), project = state.project;
     const saved = state.logPosition?.signature === signature ? state.logPosition : null;
@@ -113,6 +84,6 @@ function logPager(query, signal, epoch) {
 async function logs(signal, epoch) { const root = h('div', {}, heading('Логи', 'Поиск, фильтры и просмотр сохранённых событий.'), projectSelector()); if (!state.project) {
     root.append(needProject());
     return root;
-} const src = await get(projectPath() + '/sources', { limit: 100 }, signal); root.append(card(logFilters(src.items)), card(h('h2', {}, 'События'), logPager(queryFilters(), signal, epoch))); return root; }
+} const src = await get(projectPath() + '/sources', { limit: 100 }, signal); root.append(card(savedViews(signal,epoch), filterBuilder(src.items,signal,epoch)), card(h('h2', {}, 'События'), logPager(queryFilters(), signal, epoch))); return root; }
 
 export { logs };

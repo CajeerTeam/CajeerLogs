@@ -53,4 +53,9 @@ check(substr_count(LogExport::csv([]),"\r\n")===1,'empty CSV header');
 foreach (['/logs','/logs/stats','/logs/export','/logs/'.$id] as $path) { check($app->handle(new Request('GET','/api/v1'.$path,query:$base))->status===401,'protected '.$path); }
 $app->config()->set('app.env','production'); $app->config()->set('app.url','https://logs.example.test');
 check($app->handle(new Request('GET','/api/v1/logs',query:$base))->status===403,'TLS required');
+$layout=['order'=>\Cajeer\Logs\Log\SavedView::COLUMNS,'visible'=>['timestamp','message'],'widths'=>['message'=>500],'density'=>'compact','wrap'=>true,'zone'=>'utc'];
+$input=['name'=>'Test view','filters'=>['levels'=>'["warning","error"]','context'=>'{"n":12345678901234567890}'],'layout'=>$layout];
+$saved=\Cajeer\Logs\Log\SavedView::validate($input,$p);
+check($saved['filters']['levels']==='["error","warning"]'&&$saved['filters']['context']===$input['filters']['context']&&!isset($saved['filters']['project_id'])&&$saved['filters']['limit']==='50','saved view canonical search and exact JSON');
+foreach ([['filters'=>['project_id'=>$p]],['filters'=>['cursor'=>'test']],['filters'=>['levels'=>'["fatal"]']],['layout'=>array_replace($layout,['visible'=>[]])],['layout'=>array_replace($layout,['widths'=>['message'=>801]])],['name'=>' ']] as $bad) check(invalid(fn()=>\Cajeer\Logs\Log\SavedView::validate(array_replace($input,$bad),$p)),'invalid saved view rejected');
 echo "Log search: $count checks passed\n";

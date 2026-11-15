@@ -59,6 +59,12 @@ REQUIRED = {'release.json', 'core/bootstrap.php', 'bin/cajeer', 'public/index.ph
 # Runtime module graph is required even for an unstaged changed-files overlay.
 REQUIRED.update({
     'migrations/pgsql/0015_authentication_sessions.sql',
+    'migrations/pgsql/0016_saved_log_views.sql',
+    'core/Log/SavedView.php',
+    'public/admin/assets/app/filters.js',
+    'public/admin/assets/components/filter-builder.js',
+    'public/admin/assets/components/saved-views.js',
+    'docs/Advanced-Filters-Search.md',
     'public/admin/assets/components/session-list.js',
     'public/admin/assets/components/qr-encoder.js',
     'docs/Authentication-Sessions.md',

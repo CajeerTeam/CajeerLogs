@@ -1,4 +1,4 @@
-import { roles, levels } from '../app/store.js?v=0.3.4';
+import { roles, levels } from '../app/store.js?v=0.3.5';
 
 const $ = id => document.getElementById(id);
 function h(tag, attrs = {}, ...children) { const n = document.createElement(tag); for (const [k, v] of Object.entries(attrs)) {

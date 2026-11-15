@@ -1,9 +1,18 @@
-import { state, active } from '../app/store.js?v=0.3.4';
-import { $, h, button, empty, badge, text, date, enc, message, modalEpoch, modal, table, copy } from './ui.js?v=0.3.4';
-import { get } from '../api/client.js?v=0.3.4';
+import { state, active, render } from '../app/store.js?v=0.3.5';
+import { $, h, button, empty, badge, text, date, enc, message, modalEpoch, modal, table, copy } from './ui.js?v=0.3.5';
+import { get } from '../api/client.js?v=0.3.5';
 
-import { visibleColumns, normalizeLayout, timestampLabel, highlightParts } from '../app/explorer.js?v=0.3.4';
+import { visibleColumns, normalizeLayout, timestampLabel, highlightParts } from '../app/explorer.js?v=0.3.5';
 
+function quickFilter(key,value,project) {
+    if(state.project!==project||!state.user||state.route!=='logs')return;
+    const f={...state.filters}; f[key]=String(value);
+    const plural={level:'levels',source:'sources',source_id:'source_ids',service:'services',host:'hosts',trace_id:'trace_ids',request_id:'request_ids'}[key];if(plural)delete f[plural];
+    // An explicit source selection replaces both slug and UUID restrictions.
+    if(key==='source'){delete f.source_id;delete f.source_ids;}if(key==='source_id'){delete f.source;delete f.sources;}
+    state.filters=f;state.logPosition=null;void render();
+}
+const filterable=['level','source','source_id','service','host','trace_id','request_id'];
 function logTable(items, project, options = null) {
     if (!items.length) return empty('События не найдены.');
     if (!options) return h('div', { class: 'table-wrap', tabindex: '0', role: 'region', 'aria-label': 'Таблица событий' }, h('table', {}, h('thead', {}, h('tr', {}, ['Время (UTC)', 'Уровень', 'Источник / сервис', 'Сообщение', ''].map(t => h('th', { scope: 'col' }, t)))), h('tbody', {}, items.map(row => h('tr', {}, h('td', {}, date(row.timestamp)), h('td', {}, badge(row.level)), h('td', {}, text(row.source), h('div', { class: 'muted' }, text(row.service))), h('td', { class: 'message' }, String(row.message ?? '').slice(0, 600) + (String(row.message ?? '').length > 600 ? '…' : '')), h('td', {}, button('Подробнее', () => void detail(row.id, project))))))));
@@ -22,6 +31,7 @@ function logTable(items, project, options = null) {
             const contents=c.key==='level'?badge(v):c.key==='message'?highlightParts(truncated,options.query).map(p=>p.match?h('mark',{},p.text):p.text):truncated;
             const cell=h('td',{class:'explorer-cell col-'+c.key,title:time?String(v??''):null},h('div',{class:'explorer-value'},contents));
             if(['message','id','trace_id','request_id'].includes(c.key)&&v!==null&&v!==undefined&&v!=='') cell.append(button('Копировать',()=>void copy(String(v)),'explorer-copy',{'aria-label':'Копировать '+c.label}));
+            if(filterable.includes(c.key)&&v!==null&&v!==undefined&&v!=='') cell.append(button('Фильтр',()=>quickFilter(c.key,v,project),'explorer-copy',{'aria-label':'Фильтр по '+c.label}));
             return cell;
         }),h('td',{class:'explorer-action'},open));
     });
@@ -39,7 +49,7 @@ async function detail(id, project, navigation = null) { const epoch = state.epoc
         button('Предыдущее событие',()=>void detail(navigation.items[navigation.index-1].id,project,{...navigation,index:navigation.index-1,continued:true}),'',{disabled:navigation.index===0}),
         h('span',{class:'muted'},`${navigation.index+1} / ${navigation.items.length}`),
         button('Следующее событие',()=>void detail(navigation.items[navigation.index+1].id,project,{...navigation,index:navigation.index+1,continued:true}),'',{disabled:navigation.index===navigation.items.length-1})) : null;
-    $('modal-body').replaceChildren(...(adjacent?[adjacent]:[]), h('div', { class: 'inline' }, badge(row.level), date(row.timestamp)), h('h3', {}, 'Сообщение'), h('pre', {}, text(row.message)), table(['Поле', 'Значение'], ['id', 'project_id', 'source_id', 'source', 'service', 'host', 'trace_id', 'request_id', 'received_at', 'tags'].map(k => [k, k === 'received_at' ? date(row[k]) : Array.isArray(row[k]) ? row[k].join(', ') : text(row[k])])), h('h3', {}, 'JSON context'), h('pre', {}, JSON.stringify(row.context, null, 2)), button('Скопировать JSON', () => void copy(JSON.stringify(row, null, 2))));
+    $('modal-body').replaceChildren(...(adjacent?[adjacent]:[]), h('div', { class: 'inline' }, badge(row.level), date(row.timestamp)), h('h3', {}, 'Сообщение'), h('pre', {}, text(row.message)), table(['Поле', 'Значение'], ['id', 'project_id', 'source_id', 'source', 'service', 'host', 'trace_id', 'request_id', 'received_at', 'tags'].map(k => [k, h('div',{},k === 'received_at' ? date(row[k]) : Array.isArray(row[k]) ? row[k].join(', ') : text(row[k]),state.route==='logs'&&filterable.includes(k)&&row[k]!=null&&row[k]!==''?button('Фильтр',()=>quickFilter(k,row[k],project),'explorer-copy',{'aria-label':'Фильтр по '+k}):null)])), h('h3', {}, 'JSON context'), h('pre', {}, JSON.stringify(row.context, null, 2)), button('Скопировать JSON', () => void copy(JSON.stringify(row, null, 2))));
     if(navigation?.continued) (adjacent?.querySelector('button:not(:disabled)') || $('close-modal')).focus();
 }
 catch (e) {

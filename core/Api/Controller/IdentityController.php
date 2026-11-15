@@ -28,6 +28,8 @@ final class IdentityController
         'PATCH /projects/{project}'=>'updateProject', 'POST /projects/{project}/archive'=>'archiveProject', 'POST /projects/{project}/restore'=>'restoreProject', 'GET /projects/{project}/stats'=>'projectStats',
         'GET /projects/{project}/members'=>'members', 'PUT /projects/{project}/members/{user}'=>'addMember',
         'DELETE /projects/{project}/members/{user}'=>'removeMember',
+        'GET /projects/{project}/saved-views'=>'savedViews', 'POST /projects/{project}/saved-views'=>'createSavedView',
+        'GET /projects/{project}/saved-views/{view}'=>'savedView', 'PATCH /projects/{project}/saved-views/{view}'=>'updateSavedView', 'DELETE /projects/{project}/saved-views/{view}'=>'deleteSavedView',
         'GET /projects/{project}/sources'=>'sources', 'POST /projects/{project}/sources'=>'createSource',
         'GET /projects/{project}/sources/{source}'=>'source',
         'PATCH /projects/{project}/sources/{source}'=>'updateSource', 'POST /projects/{project}/sources/{source}/disable'=>'disableSource',
@@ -383,6 +385,65 @@ final class IdentityController
         $d=$this->body($r,array_merge(self::SOURCE_OPTIONS,$extra));
         if (array_key_exists('metadata',$d)) $d['metadata']=json_decode($r->body(),false,64,JSON_THROW_ON_ERROR)->metadata;
         return $d;
+    }
+    private function viewScope(Request $r,array $p): array
+    {
+        $this->session($p); $project=$this->id($r,'project'); $this->allow($p,'logs:read',$project);
+        $this->one('SELECT id FROM projects WHERE id=:id',['id'=>$project]);
+        return ['project'=>$project,'owner'=>$p['id']];
+    }
+    private const VIEW_FIELDS='id,name,filters,layout,revision,created_at,updated_at';
+    private function decodeView(array $row,string $project): array
+    {
+        $row['filters']=json_decode($row['filters'],true,32,JSON_THROW_ON_ERROR);
+        $row['layout']=json_decode($row['layout'],false,32,JSON_THROW_ON_ERROR);
+        $row['revision']=(int)$row['revision'];
+        // Recheck stored filters against the current search contract.
+        \Cajeer\Logs\Log\LogQuery::parse(['project_id'=>$project]+$row['filters']);
+        return $row;
+    }
+    private function savedViews(Request $r,array $p): Response
+    {
+        $scope=$this->viewScope($r,$p);
+        $rows=$this->sql('SELECT '.self::VIEW_FIELDS.' FROM saved_log_views WHERE project_id=:project AND owner_id=:owner ORDER BY name,id LIMIT 100',$scope)->fetchAll();
+        return new JsonResponse(['items'=>array_map(fn($row)=>$this->decodeView($row,$scope['project']),$rows)],200,['Cache-Control'=>'no-store']);
+    }
+    private function savedView(Request $r,array $p): Response
+    {
+        $scope=$this->viewScope($r,$p); $scope['id']=$this->id($r,'view');
+        return new JsonResponse($this->decodeView($this->one('SELECT '.self::VIEW_FIELDS.' FROM saved_log_views WHERE project_id=:project AND owner_id=:owner AND id=:id',$scope),$scope['project']),200,['Cache-Control'=>'no-store']);
+    }
+    private function viewData(Request $r,string $project,bool $update): array
+    {
+        $d=$this->body($r,$update?['name','filters','layout','revision']:['name','filters','layout']);
+        $v=\Cajeer\Logs\Log\SavedView::validate($d,$project);
+        return ['name'=>$v['name'],'filters'=>json_encode($v['filters'],JSON_THROW_ON_ERROR),'layout'=>json_encode($v['layout'],JSON_THROW_ON_ERROR)];
+    }
+    private function createSavedView(Request $r,array $p): Response
+    {
+        $scope=$this->viewScope($r,$p); $data=$this->viewData($r,$scope['project'],false);
+        if ((int)$this->sql('SELECT count(*) FROM saved_log_views WHERE project_id=:project AND owner_id=:owner',$scope)->fetchColumn()>=100) throw new HttpException(409,'conflict','Saved view limit reached (100).');
+        $row=$this->one('INSERT INTO saved_log_views(project_id,owner_id,name,filters,layout) VALUES(:project,:owner,:name,CAST(:filters AS jsonb),CAST(:layout AS jsonb)) RETURNING '.self::VIEW_FIELDS,$scope+$data);
+        $this->audit($r,$p,'saved_view.created',$row['id'],['project_id'=>$scope['project']]);
+        return new JsonResponse($this->decodeView($row,$scope['project']),201,['Cache-Control'=>'no-store']);
+    }
+    private function updateSavedView(Request $r,array $p): Response
+    {
+        $scope=$this->viewScope($r,$p); $scope['id']=$this->id($r,'view');
+        $old=$this->one('SELECT revision FROM saved_log_views WHERE project_id=:project AND owner_id=:owner AND id=:id',$scope);
+        $data=$this->viewData($r,$scope['project'],true); $rev=$r->json()['revision']??null;
+        if (!is_int($rev)||$rev<1) self::invalid('Invalid revision.');
+        if ((int)$old['revision']!==$rev) throw new HttpException(409,'conflict','Saved view changed. Reload it before updating.');
+        $row=$this->one('UPDATE saved_log_views SET name=:name,filters=CAST(:filters AS jsonb),layout=CAST(:layout AS jsonb),revision=revision+1,updated_at=now() WHERE project_id=:project AND owner_id=:owner AND id=:id RETURNING '.self::VIEW_FIELDS,$scope+$data);
+        $this->audit($r,$p,'saved_view.updated',$scope['id'],['project_id'=>$scope['project']]);
+        return new JsonResponse($this->decodeView($row,$scope['project']),200,['Cache-Control'=>'no-store']);
+    }
+    private function deleteSavedView(Request $r,array $p): Response
+    {
+        $scope=$this->viewScope($r,$p); $scope['id']=$this->id($r,'view');
+        $this->one('DELETE FROM saved_log_views WHERE project_id=:project AND owner_id=:owner AND id=:id RETURNING id',$scope);
+        $this->audit($r,$p,'saved_view.deleted',$scope['id'],['project_id'=>$scope['project']]);
+        return new Response('',204,['Cache-Control'=>'no-store']);
     }
     private function sources(Request $r,array $p): Response
     {

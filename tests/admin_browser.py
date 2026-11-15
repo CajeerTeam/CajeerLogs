@@ -73,7 +73,7 @@ class Fixture:
         self.user = None; self.totp_enabled=False; self.require_totp=False; self.role = 'administrator'; self.projects=[{'id':P1,'name':'Production','slug':'production','revision':'1','status':'active','description':'','metadata':{},'max_body_bytes':1048576,'max_batch_events':100,'created_at':'2026-01-01T00:00:00Z'}]
         self.sources=[{'id':S1,'project_id':P1,'name':'Application','slug':'app','created_at':'2026-01-01T00:00:00Z','status':'active','revision':'1','source_type':'application','metadata':{}}]
         self.users=[{'id':U1,'email':'admin@example.test','role':'administrator','blocked_at':None}]
-        self.sessions=[{'id':U1,'current':True,'user_agent':'Current browser','remote_address':'127.0.0.1','created_at':'2026-01-01T00:00:00Z','last_seen_at':'2026-01-01T00:00:00Z','expires_at':'2026-01-02T00:00:00Z'},{'id':U2,'current':False,'user_agent':'Other device','remote_address':'192.0.2.3','created_at':'2026-01-01T00:00:00Z','last_seen_at':'2026-01-01T00:00:00Z','expires_at':'2026-01-02T00:00:00Z'}]; self.members=[]; self.tokens=[]; self.accounts=[]; self.calls=[]; self.fail_next=False; self.change_export=False; self.head_changed=False; self.multi_logs=False; self.redaction={}
+        self.sessions=[{'id':U1,'current':True,'user_agent':'Current browser','remote_address':'127.0.0.1','created_at':'2026-01-01T00:00:00Z','last_seen_at':'2026-01-01T00:00:00Z','expires_at':'2026-01-02T00:00:00Z'},{'id':U2,'current':False,'user_agent':'Other device','remote_address':'192.0.2.3','created_at':'2026-01-01T00:00:00Z','last_seen_at':'2026-01-01T00:00:00Z','expires_at':'2026-01-02T00:00:00Z'}]; self.members=[]; self.tokens=[]; self.accounts=[]; self.calls=[]; self.fail_next=False; self.change_export=False; self.head_changed=False; self.multi_logs=False; self.redaction={}; self.views=[]
         self.event={'id':E1,'project_id':P1,'source_id':S1,'source':'app','service':'api','host':'host-1','level':'error','message':'<img src=x onerror="window.pwned=1"> database error','context':{'secret':'[redacted]','html':'<script>window.pwned=1</script>'},'trace_id':'trace-1','request_id':'req-1','tags':['prod'],'timestamp':'2026-11-14T00:00:00Z','received_at':'2026-11-14T00:00:01Z'}
     def route(self,r):
         req=r.request; path=urlsplit(req.url).path.removeprefix('/api/v1'); method=req.method; q={k:v[0] for k,v in parse_qs(urlsplit(req.url).query).items()}; body=req.post_data_json if req.post_data else None
@@ -89,7 +89,7 @@ class Fixture:
             if self.totp_enabled and body.get('otp')!='123456': return err(401,'unauthorized')
             self.user={'id':U1 if self.role=='administrator' else U2,'email':body['email'],'role':self.role,'two_factor_enabled':self.totp_enabled}
             return send({'user':self.user,'csrf_token':CSRF,'expires_in':28800,'enrollment_required':self.require_totp and not self.totp_enabled},headers={'Set-Cookie':'cajeerlogs_session='+'b'*64+'; Path=/; HttpOnly; SameSite=Strict'})
-        if path=='/health': return send({'status':'ok','version':'0.3.4'})
+        if path=='/health': return send({'status':'ok','version':'0.3.5'})
         if self.user is None: return err(401,'unauthorized')
         if method!='GET': assert req.headers.get('x-csrf-token')==CSRF, (method,path,req.headers)
         if path=='/auth/me': return send({'user':self.user,'csrf_token':CSRF,'enrollment_required':self.require_totp and not self.totp_enabled})
@@ -128,6 +128,18 @@ class Fixture:
             if method=='PATCH':
                 assert body['revision']==project['revision']; project.update({k:v for k,v in body.items() if k!='revision'}); project['revision']=str(int(project['revision'])+1)
             return send(project)
+        if '/saved-views' in path:
+            parts=path.split('/'); pid=parts[2]; vid=parts[4] if len(parts)>4 else None
+            if method=='POST':
+                row={'id':'88888888-8888-4888-8888-888888888888','revision':1,'project_id':pid,**body};self.views.append(row);return send(row,201)
+            if vid is None: return listing([v for v in self.views if v['project_id']==pid])
+            row=next((v for v in self.views if v['id']==vid and v['project_id']==pid),None)
+            if row is None:return err(404,'not_found')
+            if method=='PATCH':
+                if body['revision']!=row['revision']:return err(409,'conflict')
+                row.update(body);row['revision']+=1;return send(row)
+            if method=='DELETE':self.views.remove(row);return send(status=204)
+            return send(row)
         if '/sources/' in path:
             parts=path.split('/'); source=next(x for x in self.sources if x['id']==parts[4] and x['project_id']==parts[2]); action=parts[5] if len(parts)>5 else None
             if action=='stats': return send({'events':2,'events_24h':2,'events_60s':2,'active_tokens':1,'accepted_events_total':'2','rejected_events_total':'0','last_seen_at':None,'last_received_at':None})
@@ -263,7 +275,7 @@ def run():
         browser=browser_for(p); ctx=browser.new_context(accept_downloads=True); page=ctx.new_page(); page.set_default_timeout(8000)
         errors=[]; page.on('pageerror',lambda e: errors.append(str(e)))
         # Actual PHP router, not intercepted, even in offline browser mode.
-        status,headers,body=http(url+'/admin');assert status==200 and b'0.3.4' in body
+        status,headers,body=http(url+'/admin');assert status==200 and b'0.3.5' in body
         assert "script-src 'self'" in {k.lower():v for k,v in headers.items()}['content-security-policy']
         assert http(url+'/api/v1/auth/me')[0]==401
         assert http(url+'/admin/assets/panel.js')[0]==200
@@ -297,7 +309,7 @@ def run():
         expect(page.locator('.analytics-chart-detail')).to_contain_text('событий')
         page.keyboard.press('Enter')
         expect(page.get_by_role('heading',name='Логи',exact=True)).to_be_visible()
-        expect(page.get_by_label('Источник UUID')).to_have_value(S1)
+        expect(page.get_by_label('Источник UUID',exact=True)).to_have_value(S1)
         expect(page.get_by_text('database error',exact=False)).to_be_visible()
         assert any(c[1]=='/logs' and c[2].get('source_id')==S1 and c[2].get('from') and c[2].get('to') for c in f.calls)
         page.get_by_role('button',name='Сбросить',exact=True).click()
@@ -341,8 +353,17 @@ def run():
         print('PASS Explorer column settings, layout, live notification without moving page, cursor refresh, keyboard detail navigation, focus restoration and recovery')
         page.get_by_label('Поиск',exact=True).fill('database');page.get_by_label('Уровень',exact=True).select_option('error');page.get_by_label('Режим страницы',exact=True).select_option('snapshot');page.get_by_role('button',name='Найти').click()
         expect(page.get_by_text('database error',exact=False)).to_be_visible();assert any(c[1]=='/logs' and c[2].get('q')=='database' and c[2].get('level')=='error' for c in f.calls)
-        page.get_by_text('Дополнительные фильтры',exact=True).click();page.get_by_label('Режим поиска',exact=True).select_option('phrase');page.get_by_label('Уровни (JSON-массив)',exact=True).fill('["error","warning"]');page.get_by_label('Любой тег (JSON-массив)',exact=True).fill('["db","queue"]');page.get_by_role('button',name='Найти').click()
+        page.get_by_text('Дополнительные фильтры',exact=True).click();page.get_by_label('Режим поиска',exact=True).select_option('phrase');page.get_by_label('Добавить Уровни',exact=True).select_option('error');page.get_by_role('button',name='Добавить значение: Уровни',exact=True).click();page.get_by_label('Добавить Уровни',exact=True).select_option('warning');page.get_by_role('button',name='Добавить значение: Уровни',exact=True).click();page.get_by_label('Добавить Любой тег (ANY)',exact=True).fill('db');page.get_by_label('Добавить Любой тег (ANY)',exact=True).press('Enter');page.get_by_label('Добавить Любой тег (ANY)',exact=True).fill('queue');page.get_by_label('Добавить Любой тег (ANY)',exact=True).press('Enter');page.get_by_role('button',name='Найти').click()
         expect(page.get_by_text('database error',exact=False)).to_be_visible();assert any(c[1]=='/logs' and c[2].get('q_mode')=='phrase' and c[2].get('levels')=='["error","warning"]' and c[2].get('tags_any')=='["db","queue"]' for c in f.calls)
+        page.get_by_text('Сохранённые представления',exact=True).click();page.get_by_role('button',name='Сохранить текущее').click();page.get_by_label('Название',exact=True).fill('Error investigation');page.get_by_role('dialog').get_by_role('button',name='Сохранить',exact=True).click();expect(page.get_by_label('Сохранённое представление')).to_have_value('88888888-8888-4888-8888-888888888888')
+        assert f.views[0]['filters']['levels']=='["error","warning"]' and f.views[0]['layout']['visible'] and 'cursor' not in f.views[0]['filters']
+        page.get_by_role('button',name='Переименовать',exact=True).click();page.get_by_label('Название',exact=True).fill('Renamed search');page.get_by_role('dialog').get_by_role('button',name='Сохранить',exact=True).click();expect(page.get_by_label('Сохранённое представление').locator('option').last).to_have_text('Renamed search')
+        page.get_by_role('button',name='Сбросить',exact=True).click();expect(page.get_by_label('Поиск',exact=True)).to_have_value('');page.get_by_text('Сохранённые представления',exact=True).click();page.get_by_label('Сохранённое представление').select_option('88888888-8888-4888-8888-888888888888');page.get_by_role('button',name='Применить',exact=True).click();expect(page.get_by_label('Поиск',exact=True)).to_have_value('database')
+        page.get_by_text('Сохранённые представления',exact=True).click();page.get_by_label('Сохранённое представление').select_option('88888888-8888-4888-8888-888888888888');page.get_by_role('button',name='Удалить',exact=True).click();page.get_by_role('dialog').get_by_role('button',name='Удалить',exact=True).click();expect(page.get_by_label('Сохранённое представление').locator('option')).to_have_count(1);assert not f.views
+        # Build a path using ordered segments and a registry-backed source, then remove one active filter.
+        page.get_by_label('С (UTC)',exact=True).fill('2026-11-13T00:00');page.get_by_label('До (UTC)',exact=True).fill('2026-11-15T00:00');page.get_by_label('Добавить JSON-путь context',exact=True).fill('nested');page.get_by_label('Добавить JSON-путь context',exact=True).press('Enter');page.get_by_label('Добавить JSON-путь context',exact=True).fill('0');page.get_by_label('Добавить JSON-путь context',exact=True).press('Enter');page.get_by_label('Значение JSON-пути (scalar)',exact=True).fill('12345678901234567890');page.get_by_role('button',name='Найти').click();expect(page.get_by_text('database error',exact=False)).to_be_visible();assert any(c[1]=='/logs' and c[2].get('context_path')=='["nested","0"]' and c[2].get('context_equals')=='12345678901234567890' for c in f.calls)
+        page.get_by_role('button',name='Снять фильтр JSON-путь',exact=True).click();expect(page.get_by_label('Значение JSON-пути (scalar)',exact=True)).to_have_value('');assert any(c[1]=='/logs' and 'context_path' not in c[2] for c in f.calls)
+        print('PASS saved view create, rename, restore and delete through UI')
         print('PASS expanded search filters fixture')
         page.get_by_role('button',name='Подробнее').click();expect(page.get_by_role('dialog')).to_be_visible();expect(page.get_by_role('heading',name='JSON context',exact=True)).to_be_visible();assert page.evaluate('window.pwned') is None;assert page.locator('#modal img, #modal script').count()==0
         page.locator('#close-modal').click();page.get_by_role('button',name='Далее',exact=True).click();expect(page.get_by_text('second page event')).to_be_visible();nav(page,'overview');nav(page,'logs');expect(page.get_by_text('second page event')).to_be_visible();page.get_by_role('button',name='Назад',exact=True).click();expect(page.get_by_text('database error',exact=False)).to_be_visible();expect(page.get_by_text('Снимок по received_at:',exact=False)).to_be_visible();assert any(c[1]=='/logs' and c[2].get('cursor')=='page-two' for c in f.calls)

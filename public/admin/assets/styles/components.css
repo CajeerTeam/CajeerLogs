@@ -356,3 +356,17 @@ details .form-grid {
 .explorer-table tr:focus-within td { background:var(--soft); }
 .explorer-table mark { background:var(--warning-bg); color:var(--warning); text-decoration:underline; }
 .explorer-detail-nav { margin:0 0 12px; }
+
+/* Advanced Explorer filters and saved views */
+.filter-builder,.saved-views,.filter-list { min-width:0; }
+.saved-views { margin-bottom:1rem; }
+.saved-views > div { padding-block:.75rem; }
+.filter-list { display:grid; gap:.45rem; align-content:start; }
+.filter-entry { display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; }
+.filter-entry > input,.filter-entry > select { flex:1 1 12rem; min-width:0; }
+.filter-label { font-weight:600; font-size:.875rem; }
+.filter-chips { display:flex; flex-wrap:wrap; gap:.35rem; margin-block:.45rem; }
+.filter-chip { display:inline-flex; align-items:center; gap:.35rem; max-width:100%; overflow-wrap:anywhere; border:1px solid var(--line); border-radius:.5rem; padding:.2rem .4rem; font-size:.85rem; }
+.filter-chip button { padding:.1rem .35rem; min-height:0; }
+.filter-source-results { display:flex; flex-wrap:wrap; gap:.3rem; max-height:12rem; overflow:auto; margin-block:.4rem; }
+.filter-source-choice { max-width:100%; overflow-wrap:anywhere; }

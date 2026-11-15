@@ -1,10 +1,10 @@
-import { roles, state } from '../app/store.js?v=0.3.4';
-import { h, button, card, field, input, roleSelect, checkbox, badge, enc, clearModal, modal, form, heading } from '../components/ui.js?v=0.3.4';
-import { clearSession } from '../app/session.js?v=0.3.4';
-import { pagedList } from '../components/pagination.js?v=0.3.4';
-import { mutationSuccess } from '../components/mutations.js?v=0.3.4';
-import { userSessionDialog } from '../components/session-list.js?v=0.3.4';
-import { write } from '../api/client.js?v=0.3.4';
+import { roles, state } from '../app/store.js?v=0.3.5';
+import { h, button, card, field, input, roleSelect, checkbox, badge, enc, clearModal, modal, form, heading } from '../components/ui.js?v=0.3.5';
+import { clearSession } from '../app/session.js?v=0.3.5';
+import { pagedList } from '../components/pagination.js?v=0.3.5';
+import { mutationSuccess } from '../components/mutations.js?v=0.3.5';
+import { userSessionDialog } from '../components/session-list.js?v=0.3.5';
+import { write } from '../api/client.js?v=0.3.5';
 
 function userFields(user = null) { return [field('Email', input('email', { type: 'email', required: true, maxlength: 255, value: user?.email ?? '' })), field('Роль', roleSelect(user?.role)), field(user ? 'Новый пароль (необязательно)' : 'Пароль', input('password', { type: 'password', minlength: 12, maxlength: 1024, required: !user, autocomplete: 'new-password' })), user ? checkbox('blocked', 'Заблокирован', !!user.blocked_at) : null]; }
 function editUser(user, epoch) { modal('Редактировать пользователя', h('div', {}, h('p', { class: 'muted' }, 'Изменение пользователя отзывает все его сессии.'), form('Сохранить', userFields(user), async (d) => { const body = { email: String(d.get('email')), role: String(d.get('role')), blocked: d.has('blocked') }; if (d.get('password'))

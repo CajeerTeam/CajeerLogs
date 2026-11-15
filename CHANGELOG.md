@@ -2,6 +2,13 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.3.5] — Advanced Filters & Search
+
+- Visual filter lists, source registry lookup, JSON path builder, presets and removable active filters.
+- Private PostgreSQL saved views with validated filters, table layout, revision checking and audit.
+- Additive migration 0016; previous migrations and search/cursor/export contracts preserved.
+- Release gate includes upgrade from 0.3.4. Public Preview until CI passes.
+
 ## 0.3.4 — Log Explorer & Table
 
 - Настраиваемые колонки, ширина, порядок, плотность, перенос текста и часовой пояс; безопасная подсветка и копирование полей.

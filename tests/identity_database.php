@@ -39,13 +39,13 @@ try {
     (new MigrationRunner($pdo,$tmp,$schema))->migrate();
     $stmt=$pdo->prepare("INSERT INTO users(email,password_hash,role) VALUES ('admin@example.test',:hash,'administrator')"); $stmt->execute(['hash'=>password_hash('admin-password-12345',PASSWORD_ARGON2ID)]);
     $adminId=$pdo->query('SELECT id FROM users')->fetchColumn();
-    foreach (glob($root.'/migrations/pgsql/*.sql') as $file) { if (basename($file)!=='0015_authentication_sessions.sql') copy($file,$tmp.'/'.basename($file)); }
+    foreach (glob($root.'/migrations/pgsql/*.sql') as $file) { if (!in_array(basename($file),['0015_authentication_sessions.sql','0016_saved_log_views.sql'],true)) copy($file,$tmp.'/'.basename($file)); }
     (new MigrationRunner($pdo,$tmp,$schema))->migrate();
     $legacySecret=bin2hex(random_bytes(32)); $legacyCsrf=bin2hex(random_bytes(32));
     $stmt=$pdo->prepare("INSERT INTO auth_sessions(token_hash,user_id,csrf_token,expires_at) VALUES (:hash,:user,:csrf,now()+interval '1 hour')");
     $stmt->execute(['hash'=>hash('sha256',$legacySecret),'user'=>$adminId,'csrf'=>$legacyCsrf]);
     $runner=$app->container()->get(MigrationRunner::class);
-    verify($runner->migrate()===['0015_authentication_sessions.sql']&&$runner->migrate()===[],'0.3.1 session migration and idempotent replay');
+    verify($runner->migrate()===['0015_authentication_sessions.sql','0016_saved_log_views.sql']&&$runner->migrate()===[],'0.3.1 session migration and idempotent replay');
     $legacy=['Cookie'=>'cajeerlogs_session='.$legacySecret,'X-CSRF-Token'=>$legacyCsrf];
     $legacyPage=data(ok('GET','/auth/sessions',null,$legacy));
     verify(count($legacyPage['items'])===1&&$legacyPage['items'][0]['current']===true&&$legacyPage['items'][0]['user_agent']===null&&!str_contains(json_encode($legacyPage),$legacySecret)&&!str_contains(json_encode($legacyPage),$legacyCsrf),'legacy session survives, public UUID, no credentials');
@@ -74,6 +74,21 @@ try {
     ok('PUT','/projects/'.$p1.'/members/'.$viewer,null,$admin,204);
     verify(count(data(ok('GET','/projects/'.$p1.'/members',null,$admin))['items'])===2,'membership listing');
     $operator=login('operator@example.test','operator-password-123'); $view=login('viewer@example.test','viewer-password-123');
+    $views='/projects/'.$p1.'/saved-views';
+    $layout=['order'=>\Cajeer\Logs\Log\SavedView::COLUMNS,'visible'=>['timestamp','message'],'widths'=>(object)['message'=>500],'density'=>'compact','wrap'=>true,'zone'=>'utc'];
+    $payload=['name'=>'Errors','filters'=>['levels'=>'["error","warning"]','limit'=>'25','consistency'=>'snapshot'],'layout'=>$layout];
+    $saved=data(ok('POST',$views,$payload,$operator,201)); $vid=$saved['id'];
+    verify($saved['revision']===1&&$saved['filters']['levels']==='["error","warning"]'&&$saved['layout']['widths']['message']===500,'saved filters and layout persist');
+    verify(count(data(ok('GET',$views,null,$operator))['items'])===1&&data(ok('GET',$views,null,$view))['items']===[],'private saved view listing');
+    ok('GET',$views.'/'.$vid,null,$admin,404); ok('GET',$views.'/'.$vid,null,$view,404);ok('GET','/projects/'.$p2.'/saved-views',null,$operator,403);
+    ok('POST',$views,$payload,['Cookie'=>$operator['Cookie']],403);
+    ok('POST',$views,$payload,$operator,409);
+    ok('POST',$views,array_replace($payload,['filters'=>['cursor'=>'forbidden']]),$operator,422);
+    ok('POST',$views,array_replace($payload,['filters'=>['context_path'=>'["a"]']]),$operator,422);
+    $updated=data(ok('PATCH',$views.'/'.$vid,array_replace($payload,['name'=>'Updated','revision'=>1]),$operator));
+    verify($updated['revision']===2&&data(ok('GET',$views.'/'.$vid,null,$operator))['name']==='Updated','view updates and revision persisted');
+    ok('PATCH',$views.'/'.$vid,$payload+['revision'=>1],$operator,409);
+    ok('DELETE',$views.'/'.$vid,null,$view,404); ok('DELETE',$views.'/'.$vid,null,$operator,204);ok('GET',$views.'/'.$vid,null,$operator,404);
     $device=login('operator@example.test','operator-password-123',['User-Agent'=>'Test Browser 123']);
     $own=data(ok('GET','/auth/sessions',null,$operator));
     verify(count($own['items'])===2&&count(array_filter($own['items'],fn($s)=>$s['current']))===1,'own sessions and unique current marker');
