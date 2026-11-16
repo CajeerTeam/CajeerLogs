@@ -2,6 +2,11 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## 0.4.7 — Secure Installer
+- Private file and lock validation, atomic durable configuration publishing, file-backed runtime and migration secrets.
+- Read-only installation dry run, verified backup and schema upgrade preflight, existing encryption key validation.
+- Installer regression and PostgreSQL upgrade 0.4.6 certification; no new migrations.
+
 ## 0.4.6 — HTTPS & Deployment Security
 - Trusted last-hop IPv4/IPv6 proxies with strict overwritten client address and scheme, production Host and HTTPS enforcement before body parsing.
 - Nginx public origin allowlist, hardened headers, verified certificate CLI and optional enforced PostgreSQL verify-full.

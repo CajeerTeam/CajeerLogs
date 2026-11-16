@@ -26,7 +26,7 @@ final class AdministratorPassword
         try {
             $stat = fstat($f);
             $named = lstat($path);
-            if ($stat === false || $named === false || $stat['ino'] !== $named['ino'] || $stat['dev'] !== $named['dev'] || ($stat['mode'] & 0170000) !== 0100000 || ($stat['mode'] & 0077) !== 0 || $stat['size'] > 1026) {
+            if ($stat === false || $named === false || $stat['ino'] !== $named['ino'] || $stat['dev'] !== $named['dev'] || ($stat['mode'] & 0170000) !== 0100000 || ($stat['mode'] & 0077) !== 0 || $stat['nlink'] !== 1 || (function_exists('posix_geteuid') && $stat['uid'] !== posix_geteuid()) || $stat['size'] > 1026) {
                 throw new DatabaseException('Password file must be private (0600/0400), regular and at most 1026 bytes.');
             }
             $password = stream_get_contents($f, 1027);

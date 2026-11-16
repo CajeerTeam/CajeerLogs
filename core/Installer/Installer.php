@@ -39,6 +39,7 @@ final class Installer
                 $state = $runner->status(false);
                 $current = $state['integrity'] === 'verified' && $state['pending'] === [];
                 // A completed split-role install can be verified without DDL credentials.
+                if ($state['integrity']==='drift') { throw new DatabaseException('Installation refuses migration drift; restore the original migration files.'); }
                 if (!$current) {
                     $preflight = $this->app->container()->get(DatabaseStatus::class)->check(false);
                     if ($preflight['status'] !== 'ok') { throw new DatabaseException('PostgreSQL installation preflight failed; run install:check.'); }
@@ -49,12 +50,19 @@ final class Installer
                 $users = $this->app->container()->get(UserRepository::class);
                 // Existing credentials must match before touching the persistent configuration.
                 if ($pdo->query("SELECT to_regclass('users') IS NOT NULL")->fetchColumn() === true) {
-                    $users->verifyInstallerAdministrator($email, $password);
+                    $existingAdmin=$users->verifyInstallerAdministrator($email, $password);
+                    if ($existingAdmin!==null) {
+                        foreach (['SECURITY_HMAC_SECRET','SECURITY_TOKEN_PEPPER','SECURITY_PRIVACY_HASH_PEPPER'] as $secret) {
+                            $value=env_raw($secret);
+                            if (strlen($value)<32 || str_starts_with($value,'change_me')) throw new DatabaseException('Existing installation requires its original secret: '.$secret);
+                        }
+                    }
                 }
                 (new EnvironmentWriter($this->app))->write(function (array $values) use ($pdo): void {
                     // Do not persist a key that cannot decrypt existing enrollments.
-                    if ($pdo->query("SELECT to_regclass('user_totp') IS NOT NULL")->fetchColumn() !== true) { return; }
+                    
                     $key = ($values['SECURITY_TOTP_KEY'] ?? '') ?: $values['SECURITY_HMAC_SECRET'];
+                    if ($pdo->query("SELECT to_regclass('user_totp') IS NOT NULL")->fetchColumn() === true) {
                     $manager = new \Cajeer\Logs\Security\TwoFactorManager($pdo,$key,false,$values['SECURITY_TOTP_ACTIVE_KEY']??'',$values['SECURITY_TOTP_PREVIOUS_KEY']??'');
                     $rows = $pdo->query('SELECT user_id,secret_ciphertext FROM user_totp');
                     while ($row = $rows->fetch()) {
@@ -62,6 +70,18 @@ final class Installer
                         catch (\Throwable) { throw new DatabaseException('Installation configuration cannot decrypt an existing TOTP enrollment. Restore the original key.'); }
                     }
                     $rows->closeCursor();
+                    }
+                    if ($pdo->query("SELECT to_regclass('ingest_signing') IS NOT NULL")->fetchColumn()===true) {
+                        $signing=new \Cajeer\Logs\Security\IngestSigning($pdo,$key);
+                        $rows=$pdo->query("SELECT token_id,current_key_id,current_ciphertext,previous_key_id,previous_ciphertext FROM ingest_signing WHERE current_key_id IS NOT NULL");
+                        while ($row=$rows->fetch()) {
+                            try {
+                                $signing->open($row['token_id'],$row['current_key_id'],$row['current_ciphertext']);
+                                if ($row['previous_key_id']!==null) $signing->open($row['token_id'],$row['previous_key_id'],$row['previous_ciphertext']);
+                            } catch (\Throwable) { throw new DatabaseException('Installation configuration cannot decrypt an existing signing key. Restore the original key.'); }
+                        }
+                        $rows->closeCursor();
+                    }
                 });
                 $applied = $current ? [] : (new MigrationRunner($factory->make('migration'), $this->app->basePath('migrations/pgsql'), $schema, ...\Cajeer\Logs\Console\Command\MigrateCommand::limits()))->migrate();
                 $guard = $this->app->container()->get(MigrationRunner::class)->guard();
@@ -82,13 +102,13 @@ final class Installer
 
     private static function lockFile(string $path)
     {
-        if (is_link($path) || (file_exists($path) && !is_file($path))) { throw new DatabaseException('Invalid installer lock path.'); }
+        SecureFile::assertDirectory(dirname($path));
+        SecureFile::assertPrivate($path,true);
         $mask=umask(0077);
         try { $lock=fopen($path,'c'); } finally { umask($mask); }
         if ($lock===false) { throw new DatabaseException('Cannot open installer lock.'); }
         try {
-            $stat=fstat($lock); $named=lstat($path);
-            if ($stat===false || $named===false || ($named['mode'] & 0170000)!==0100000 || $named['ino']!==$stat['ino'] || $named['dev']!==$stat['dev']) { throw new DatabaseException('Invalid installer lock file.'); }
+            SecureFile::verifyHandle($lock,$path);
             if (!flock($lock,LOCK_EX|LOCK_NB)) { throw new DatabaseException('Another local installation is running.'); }
             return $lock;
         } catch (\Throwable $e) { fclose($lock); throw $e; }

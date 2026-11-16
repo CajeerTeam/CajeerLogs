@@ -12,6 +12,7 @@ final class InstallCommand
 
     public function handle(array $args): int
     {
+        if ($args===['--dry-run']) return (new InstallCheckCommand($this->app))->handle();
         $email = (string)(getenv('CAJEER_ADMIN_EMAIL') ?: '');
         $nonInteractive = false;
         foreach ($args as $arg) {

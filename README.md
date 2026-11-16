@@ -2,6 +2,10 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.4.7 — Secure Installer
+
+Защищённые файловые секреты, строгие права конфигурации, read-only preflight и проверка резервной копии перед обновлением. Без новых миграций. [Secure Installer](docs/Secure-Installer.md). Public Preview до CI.
+
 ## 0.4.6 — HTTPS & Deployment Security
 
 Проверка публичного Host, доверенные reverse proxy, TLS-проверка сертификата, усиление Nginx и опциональный обязательный TLS PostgreSQL. Без новых миграций. [Production Security](docs/Production-Security.md). Public Preview до CI.

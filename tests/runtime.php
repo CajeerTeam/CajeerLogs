@@ -24,7 +24,7 @@ function throws(callable $action, string $class, ?int $status = null): bool {
     return false;
 }
 $app->boot();
-check($app->version() === '0.4.6', 'release version');
+check($app->version() === '0.4.7', 'release version');
 check($app->config()->get('app.version') === $app->version(), 'config version');
 $oldEnv = $app->config()->get('app.env'); $oldUrl = $app->config()->get('app.url');
 $app->config()->set('app.env', 'production'); $app->config()->set('app.url', 'https://logs.example.test');

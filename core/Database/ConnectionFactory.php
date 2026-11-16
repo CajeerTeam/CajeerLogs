@@ -40,6 +40,11 @@ final class ConnectionFactory implements ConnectionFactoryInterface
             if (PHP_SAPI !== 'cli') { throw new DatabaseException('Migration connections require CLI.'); }
             $user = getenv('DB_MIGRATION_USERNAME');
             $secret = getenv('DB_MIGRATION_PASSWORD');
+            $file=getenv('DB_MIGRATION_PASSWORD_FILE');
+            if ($file!==false) {
+                if ($secret!==false) throw new DatabaseException('Supply either DB_MIGRATION_PASSWORD or DB_MIGRATION_PASSWORD_FILE, not both.');
+                $secret=\Cajeer\Logs\Config\SecretFile::read($file);
+            }
             if ($connection === 'migration-bootstrap' && ($user === false || $secret === false)) { throw new DatabaseException('Schema preparation requires explicit migration credentials.'); }
             if ($user !== false || $secret !== false) {
                 if ($user === false || $user === '' || $secret === false || $secret === '') { throw new DatabaseException('Set both DB_MIGRATION_USERNAME and DB_MIGRATION_PASSWORD.'); }

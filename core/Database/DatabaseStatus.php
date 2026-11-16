@@ -9,7 +9,7 @@ final class DatabaseStatus
 {
     public function __construct(private readonly Application $app) {}
 
-    public function check(bool $requireMigrations = true): array
+    public function check(bool $requireMigrations = true, bool $installing = false): array
     {
         try {
             $pdo = $this->app->container()->get(PDO::class);
@@ -21,7 +21,7 @@ final class DatabaseStatus
                 return ['status' => 'down', 'server_version' => $version, 'error' => 'Database session is read-only.'];
             }
             if ($pdo->query('SHOW fsync')->fetchColumn() !== 'on') { return ['status'=>'down','server_version'=>$version,'error'=>'PostgreSQL fsync must be enabled for durable ingest.']; }
-            $migrationPdo = !$requireMigrations && PHP_SAPI==='cli' && (getenv('DB_MIGRATION_USERNAME')!==false || getenv('DB_MIGRATION_PASSWORD')!==false) ? $factory->make('migration') : $pdo;
+            $migrationPdo = !$requireMigrations && PHP_SAPI==='cli' && (getenv('DB_MIGRATION_USERNAME')!==false || getenv('DB_MIGRATION_PASSWORD')!==false || getenv('DB_MIGRATION_PASSWORD_FILE')!==false) ? $factory->make('migration') : $pdo;
             $priv = $migrationPdo->prepare("SELECT pg_catalog.has_schema_privilege(current_user, CAST(:schema AS text), 'CREATE')");
             $priv->execute(['schema' => $schema]);
             $canMigrate = (bool) $priv->fetchColumn();
@@ -54,10 +54,10 @@ final class DatabaseStatus
             if ($sequence->fetchColumn() !== true) { return ['status'=>'down','server_version'=>$version,'error'=>'Runtime role needs USAGE on the jobs ID sequence.']; }
             $totpKey = $this->app->config()->get('security.totp_key');
             if ($this->app->config()->get('app.env') === 'production') {
-                if (!$pdo->query("SELECT EXISTS(SELECT 1 FROM users WHERE role='administrator' AND blocked_at IS NULL)")->fetchColumn()) {
+                if (!$installing && !$pdo->query("SELECT EXISTS(SELECT 1 FROM users WHERE role='administrator' AND blocked_at IS NULL)")->fetchColumn()) {
                     return ['status'=>'down','server_version'=>$version,'error'=>'Installation has no active administrator.'];
                 }
-                if (($this->app->config()->get('security.require_admin_totp') || \Cajeer\Logs\Security\IdentityPolicy::fromConfig($this->app->config())->requiresEnrollmentPolicy()) && !\Cajeer\Logs\Security\TwoFactorManager::keyValid($totpKey)) {
+                if (!$installing && ($this->app->config()->get('security.require_admin_totp') || \Cajeer\Logs\Security\IdentityPolicy::fromConfig($this->app->config())->requiresEnrollmentPolicy()) && !\Cajeer\Logs\Security\TwoFactorManager::keyValid($totpKey)) {
                     return ['status'=>'down','server_version'=>$version,'error'=>'Required TOTP encryption key is unavailable.'];
                 }
             }

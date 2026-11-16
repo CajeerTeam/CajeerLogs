@@ -33,6 +33,10 @@ final class SchemaPreparation
             $role->execute(['name'=>$runtime]);
             if ($role->fetchColumn()!==true) { throw new DatabaseException('Runtime role must exist, have LOGIN/CONNECT and no elevated cluster privileges.'); }
             $role->closeCursor();
+            $membership=$pdo->prepare("SELECT EXISTS(SELECT 1 FROM pg_roles r WHERE r.rolname<>:runtime AND (r.rolname=current_user OR r.rolsuper OR r.rolcreatedb OR r.rolcreaterole OR r.rolreplication OR r.rolbypassrls OR r.rolname IN ('pg_read_all_data','pg_write_all_data','pg_execute_server_program','pg_read_server_files','pg_write_server_files')) AND pg_has_role(CAST(:member AS name),r.oid,'MEMBER'))");
+            $membership->execute(['runtime'=>$runtime,'member'=>$runtime]);
+            if ($membership->fetchColumn()===true) throw new DatabaseException('Runtime role must not inherit or assume migration or privileged roles.');
+            $membership->closeCursor();
             $owner=$pdo->prepare('SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname=:schema');
             $owner->execute(['schema'=>$schema]); $current=$owner->fetchColumn(); $owner->closeCursor();
             $created=$current===false;

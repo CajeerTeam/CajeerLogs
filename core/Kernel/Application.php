@@ -49,13 +49,17 @@ final class Application
     public function environmentPath(): string
     {
         $path = getenv('CAJEER_ENV_FILE');
-        if ($path === false || $path === '') { return $this->basePath('.env'); }
+        if ($path === false || $path === '') {
+            $path=$this->basePath('.env');
+            if (is_link($path)) throw new \Cajeer\Logs\Database\DatabaseException('Refusing to read a symlinked .env file.');
+            return $path;
+        }
         if (!str_starts_with($path, '/') || str_contains($path, "\0") || basename($path) !== '.env' || is_link($path)) {
             throw new \RuntimeException('Invalid CAJEER_ENV_FILE (absolute .env path required, no symlink).');
         }
         $directory = realpath(dirname($path));
         $public = realpath($this->basePath('public'));
-        if ($directory === false || ($public !== false && ($directory === $public || str_starts_with($directory, $public . '/')))) {
+        if ($directory === false || $directory !== dirname($path) || ($public !== false && ($directory === $public || str_starts_with($directory, $public . '/')))) {
             throw new \RuntimeException('Invalid CAJEER_ENV_FILE directory.');
         }
         return $directory . '/.env';
@@ -69,6 +73,14 @@ final class Application
         if ($this->booted) { return; }
         if (PHP_VERSION_ID < 80400) { throw new \RuntimeException('PHP 8.4 or newer is required.'); }
         $GLOBALS['cajeer_environment'] = Environment::load($this->environmentPath());
+        $public=realpath($this->basePath('public'));
+        foreach (\Cajeer\Logs\Config\SecretFile::KEYS as $key) {
+            $reference=\Cajeer\Logs\Config\SecretFile::reference($key,$GLOBALS['cajeer_environment']);
+            if ($reference!==null) {
+                if ($public!==false && ($reference===$public || str_starts_with($reference,$public.'/'))) throw new \RuntimeException('Invalid secret file location: '.$key.'_FILE must be outside public/.');
+                \Cajeer\Logs\Config\SecretFile::raw($key,$GLOBALS['cajeer_environment']);
+            }
+        }
         $items = [];
         $files = glob($this->basePath('config/*.php'));
         if ($files === false || $files === []) { throw new \RuntimeException('Configuration files are missing.'); }

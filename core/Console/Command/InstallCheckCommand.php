@@ -11,17 +11,8 @@ final class InstallCheckCommand
 
     public function handle(): int
     {
-        $checks = (new \Cajeer\Logs\Installer\InstallPreflight($this->app))->checks();
-        echo 'CajeerLogs ' . $this->app->version() . " runtime checks\n";
-        foreach ($checks as $name => $passed) {
-            echo ($passed ? '[OK] ' : '[FAIL] ') . $name . PHP_EOL;
-        }
-        $db = $this->app->container()->get(\Cajeer\Logs\Database\DatabaseStatus::class)->check(false);
-        echo ($db['status'] === 'ok' ? '[OK] ' : '[FAIL] ') . 'PostgreSQL preflight: ' . json_encode($db, JSON_THROW_ON_ERROR) . PHP_EOL;
-        $argon = defined('PASSWORD_ARGON2ID');
-        echo ($argon ? '[OK] ' : '[FAIL] ') . 'Argon2id' . PHP_EOL;
-        $key=\Cajeer\Logs\Security\TwoFactorManager::keyValid($this->app->config()->get('security.totp_key'));
-        echo ($key ? '[OK] ' : '[INFO] ') . 'TOTP encryption key (installer generates legacy fallback; required before enrollment)' . PHP_EOL;
-        return in_array(false, $checks, true) || $db['status'] !== 'ok' || !$argon ? 1 : 0;
+        $report=(new \Cajeer\Logs\Installer\InstallPreflight($this->app))->report();
+        echo json_encode($report,JSON_THROW_ON_ERROR|JSON_PRETTY_PRINT).PHP_EOL;
+        return $report['status']==='ok'?0:1;
     }
 }

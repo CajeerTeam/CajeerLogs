@@ -65,3 +65,5 @@ php bin/cajeer admin:reset-password admin@example.com --confirm
 ## Проверки
 
 `php tests/installer.php` — локальные проверки защищённого файла, secret preservation, preflight и отсутствия ложного успеха. `CAJEER_TEST_DATABASE=1 php tests/database.php` на отдельной PostgreSQL-БД — частичная установка, реальный advisory lock, создание администратора, marker/audit, повторная установка, неверные credentials, password recovery и сохранение TOTP/token. `tests/postgres_split_role.php` с CI provisioning — создание схемы, default privileges, runtime connection, миграции, повторный install без DDL-role и runtime doctor. CI запускает PostgreSQL 17/18 и PHP 8.4/8.5. Не запускайте интеграционные тесты на production-БД.
+
+See [Secure Installer 0.4.7](Secure-Installer.md) for file-backed credentials, dry-run and upgrade preflight.

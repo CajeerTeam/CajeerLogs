@@ -56,4 +56,4 @@ GitHub Actions проверяет существующие PHP/SDK/browser/Postg
 - Проверяйте `db:doctor`, `queue:status`, `scheduler:run`, `webhook:history`, `backup:verify`. Readiness проверяет PostgreSQL WAL fsync, историю миграций, таблицы и корректность TOTP-ключа для одного enrolled пользователя (не полный криптографический аудит всех записей).
 - Отдельный мониторинг доступности, свободного диска, backup и очередей обязателен. Retention по умолчанию отключён. ClickHouse, Redis queue, RabbitMQ, OpenSearch, Incidents, Marketplace и HA не входят в 0.1.0.
 
-For 0.4.6 Host validation, trusted proxies, TLS verification and renewal, see [Production Security](Production-Security.md).
+For 0.4.7 Host validation, trusted proxies, TLS verification and renewal, see [Production Security](Production-Security.md).

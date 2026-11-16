@@ -22,7 +22,6 @@ if (!function_exists('env_raw')) {
     /** Secrets and connection settings must not be coerced into booleans or null. */
     function env_raw(string $key, string $default = ''): string
     {
-        $process = getenv($key);
-        return $process !== false ? $process : (string) ($_ENV[$key] ?? $GLOBALS['cajeer_environment'][$key] ?? $default);
+        return \Cajeer\Logs\Config\SecretFile::raw($key, $GLOBALS['cajeer_environment'] ?? [], $default);
     }
 }

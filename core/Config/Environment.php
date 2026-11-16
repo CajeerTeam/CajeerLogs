@@ -8,6 +8,9 @@ final class Environment
     /** @return array<string,string> */
     public static function load(string $file): array
     {
+        if (is_link($file) || (file_exists($file) && !is_file($file))) {
+            throw new \RuntimeException('Environment must be a regular file.');
+        }
         if (!file_exists($file)) {
             return [];
         }
