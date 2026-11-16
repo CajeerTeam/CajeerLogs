@@ -1,18 +1,18 @@
-import { state, names, active, render, installRenderer } from './store.js?v=0.4.4';
-import { $, h, button, message, clearModal, heading } from '../components/ui.js?v=0.4.4';
-import { clearSession, bootstrap } from './session.js?v=0.4.4';
-import { loadProjects, refreshProject } from './projects.js?v=0.4.4';
-import { navigation } from './shell.js?v=0.4.4';
-import { currentRoute, permitted } from './routes.js?v=0.4.4';
-import { overview } from '../pages/overview.js?v=0.4.4';
-import { logs } from '../pages/logs.js?v=0.4.4';
-import { projects } from '../pages/projects.js?v=0.4.4';
-import { tokens } from '../pages/tokens.js?v=0.4.4';
-import { security } from '../pages/security.js?v=0.4.4';
-import { users } from '../pages/users.js?v=0.4.4';
-import { system } from '../pages/system.js?v=0.4.4';
-import { rbac } from '../pages/rbac.js?v=0.4.4';
-import { settings } from '../pages/settings.js?v=0.4.4';
+import { state, names, active, render, installRenderer } from './store.js?v=0.4.5';
+import { $, h, button, message, clearModal, heading } from '../components/ui.js?v=0.4.5';
+import { clearSession, bootstrap } from './session.js?v=0.4.5';
+import { loadProjects, refreshProject } from './projects.js?v=0.4.5';
+import { navigation } from './shell.js?v=0.4.5';
+import { currentRoute, permitted } from './routes.js?v=0.4.5';
+import { overview } from '../pages/overview.js?v=0.4.5';
+import { logs } from '../pages/logs.js?v=0.4.5';
+import { projects } from '../pages/projects.js?v=0.4.5';
+import { tokens } from '../pages/tokens.js?v=0.4.5';
+import { security } from '../pages/security.js?v=0.4.5';
+import { users } from '../pages/users.js?v=0.4.5';
+import { system } from '../pages/system.js?v=0.4.5';
+import { rbac } from '../pages/rbac.js?v=0.4.5';
+import { settings } from '../pages/settings.js?v=0.4.5';
 
 async function renderRoute({ focus = false, background = false } = {}) {
     if (!state.user)

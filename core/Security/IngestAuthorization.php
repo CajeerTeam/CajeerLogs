@@ -10,7 +10,7 @@ final class IngestAuthorization
 {
     private readonly Identity $identity;
     private readonly RateLimiter $rate;
-    public function __construct(private readonly PDO $pdo, private readonly int $limit)
+    public function __construct(private readonly PDO $pdo, private readonly int $limit, private readonly ?RateLimitPolicy $policy=null)
     {
         $this->identity=new Identity($pdo,true,'');
         $this->rate=new RateLimiter($pdo);
@@ -36,9 +36,11 @@ final class IngestAuthorization
     public function begin(Request $request,array $credential): IngestPrincipal
     {
         if ($this->pdo->inTransaction()) throw new \LogicException('Ingest preflight requires autocommit.');
+        $this->policy?->peer($this->rate,$request);
         $this->rate->enforce('ingest-ip:'.self::peerKey($request),$this->limit,60);
         // Do not update last_used_at here: a row lock could wait outside the ingest SQL budget.
         $p=IngestPrincipal::fromIdentity($this->identity->authenticate($request,$credential,false,false,false));
+        $this->policy?->principal($this->rate,'token',$p->id);
         $this->rate->enforce('ingest-token:'.$p->id,$this->limit,60);
         if ($p->requestsPerMinute!==null) $this->rate->enforce('credential:'.$p->id,$p->requestsPerMinute,60);
         return $p;

@@ -134,6 +134,7 @@ final class Application
         $rate = !is_bool($config->get('api.rate_limit')) ? filter_var($config->get('api.rate_limit'), FILTER_VALIDATE_INT, ['options'=>['min_range'=>1,'max_range'=>100000]]) : false;
         if ($rate === false) { throw new \RuntimeException('Invalid API_RATE_LIMIT_PER_MINUTE.'); }
         $config->set('api.rate_limit', $rate);
+        \Cajeer\Logs\Security\RateLimitPolicy::fromConfig($config);
         foreach (['security.session_ttl_seconds'=>[300,604800], 'security.session_idle_seconds'=>[0,604800], 'security.reauth_seconds'=>[0,3600], 'api.search_timeout_ms'=>[100,60000], 'ingest.idempotency_seconds'=>[86400,2592000], 'ingest.max_inflight'=>[0,128], 'ingest.budget_ms'=>[100,120000], 'ingest.max_event_age_seconds'=>[0,315576000], 'ingest.max_event_future_seconds'=>[0,315576000]] as $key=>[$min,$max]) {
             $value=is_bool($config->get($key)) ? false : filter_var($config->get($key),FILTER_VALIDATE_INT,['options'=>['min_range'=>$min,'max_range'=>$max]]);
             if ($value===false) throw new \RuntimeException('Invalid configuration: '.$key);
@@ -198,17 +199,19 @@ final class Application
     public function handle(Request $request): Response
     {
         $started=hrtime(true);
-        $mode=null; $searchMode=null;
+        $mode=null; $searchMode=null; $identityMode=null;
         try {
             $this->boot();
             $mode=\Cajeer\Logs\Observability\IngestMetrics::mode($request->method,$request->path,$this->config()->get('api.prefix'));
             $searchMode=\Cajeer\Logs\Observability\IngestMetrics::searchMode($request->method,$request->path,$this->config()->get('api.prefix'));
+            $identityMode=\Cajeer\Logs\Observability\IngestMetrics::identityMode($request->method,$request->path,$this->config()->get('api.prefix'));
             $response = $this->container->get(Router::class)->dispatch($request);
         } catch (\Throwable $error) {
             $response = ErrorHandler::response($error, $request->requestId);
         }
         if ($mode!==null) (new \Cajeer\Logs\Observability\IngestMetrics($this->basePath('storage/cache')))->record($mode,$response,(hrtime(true)-$started)/1e9);
         if ($searchMode!==null) (new \Cajeer\Logs\Observability\IngestMetrics($this->basePath('storage/cache'),'search'))->record($searchMode,$response,(hrtime(true)-$started)/1e9);
+        if ($identityMode!==null) (new \Cajeer\Logs\Observability\IngestMetrics($this->basePath('storage/cache'),'identity'))->record($identityMode,$response,(hrtime(true)-$started)/1e9);
         return ErrorHandler::decorate($response, $request->requestId, $request->secureTransport);
     }
 }

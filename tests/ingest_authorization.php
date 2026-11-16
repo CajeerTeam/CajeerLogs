@@ -40,7 +40,7 @@ final class AuthStmt extends PDOStatement {
     public function __construct(private AuthPDO $pdo,private string $sql){}
     public function execute(?array $params=null):bool{
         $this->pdo->calls[]=[$this->sql,$params];
-        if(str_contains($this->sql,'INSERT INTO auth_rate_limits')){$key=$params['key'];$this->value=$this->pdo->hits[$key]=($this->pdo->hits[$key]??0)+1;}
+        if(str_contains($this->sql,'INSERT INTO auth_rate_limits')){$key=$params['key'];$this->pdo->hits[$key]=($this->pdo->hits[$key]??0)+1;$this->value=['hits'=>$this->pdo->hits[$key],'retry_after'=>17];}
         elseif(str_contains($this->sql,'FROM jobs'))$this->value=$this->pdo->job;
         elseif(str_contains($this->sql,'FROM api_tokens'))$this->value=$this->pdo->row;
         return true;
@@ -63,4 +63,9 @@ check(denied(fn()=>$auth->begin($r('::ffff:192.0.2.1','GET','/api/v1/ingest/jobs
 $db->calls=[];$q=new PostgresQueueDriver($db);check($q->status('7',$t,$p)===null&&str_contains($db->calls[0][0],'project_id=:project')&&$db->calls[0][1]===['id'=>'7','token'=>$t,'project'=>$p],'job status query binds both owner and project');
 check(IngestMetrics::mode('GET','/api/v1/ingest/jobs/7','/api/v1')==='job'&&IngestMetrics::mode('GET','/api/v1/logs','/api/v1')===null,'job polling included in bounded metrics');
 $tmp=sys_get_temp_dir().'/cl-auth-'.bin2hex(random_bytes(8));mkdir($tmp,0700);try{$m=new IngestMetrics($tmp);$m->record('job',new JsonResponse(['error'=>'unauthorized'],401),0.01);$m->record('sync',new JsonResponse(['error'=>'authorization_changed'],503),0.01);$out=$m->render();check(str_contains($out,'mode="job",reason="unauthorized"')&&str_contains($out,'mode="sync",reason="authorization_changed"'),'bounded authentication/policy rejection metrics');}finally{foreach(glob($tmp.'/*') as $file)unlink($file);rmdir($tmp);}
+$pol=\Cajeer\Logs\Security\RateLimitPolicy::fromConfig(new \Cajeer\Logs\Config\ConfigRepository(['api'=>['rate_limit'=>600,'rate_burst_percent'=>25]]));
+check($pol->snapshot()['global']===['per_minute'=>600,'burst'=>150]&&$pol->snapshot()['export']===['per_minute'=>10,'burst'=>2],'policy validates configured burst and distinct operation budgets');
+foreach([0,101,true,'invalid'] as $invalid){try{\Cajeer\Logs\Security\RateLimitPolicy::fromConfig(new \Cajeer\Logs\Config\ConfigRepository(['api'=>['rate_limit'=>600,'rate_burst_percent'=>$invalid]]));throw new RuntimeException('invalid accepted');}catch(InvalidArgumentException){check(true,'invalid burst rejected');}}
+try{(new \Cajeer\Logs\Security\RateLimiter($db))->enforce('fixed-test',1,60);(new \Cajeer\Logs\Security\RateLimiter($db))->enforce('fixed-test',1,60);throw new RuntimeException('Expected denial');}catch(HttpException $e){check($e->status===429&&$e->headers['Retry-After']==='17'&&$e->headers['Cache-Control']==='no-store','fixed-window Retry-After uses database remainder');}
+check(IngestMetrics::identityMode('POST','/api/v1/auth/login','/api/v1')==='login'&&IngestMetrics::identityMode('GET','/api/v1/projects/secret','/api/v1')==='read'&&IngestMetrics::identityMode('POST','/api/v1/ingest','/api/v1')===null,'bounded identity metrics categories');
 echo "Ingest Authorization: $n checks passed\n";

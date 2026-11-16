@@ -32,10 +32,13 @@ final class LogsController
             $pdo=$this->app->container()->get(PDO::class);
             $schemaGuard=$this->app->container()->get(\Cajeer\Logs\Database\MigrationRunner::class)->guard();
             $rate=new RateLimiter($pdo);
+            $policy=\Cajeer\Logs\Security\RateLimitPolicy::fromConfig($config);
+            $policy->peer($rate,$r);
             $rate->enforce('logs-ip:'.\Cajeer\Logs\Security\IngestAuthorization::peerKey($r),$config->get('api.rate_limit'),60);
             $identity=Identity::fromConfig($pdo,true,'',$config);
             $p=$identity->authenticate($r,$credential);
             $rate->enforce('logs-'.$p['kind'].':'.$p['id'],$config->get('api.rate_limit'),60);
+            $policy->principal($rate,$p['kind'],$p['id'],match($mode){'stats'=>'analytics','export'=>'export',default=>'search'});
             $project=$query->filters['project_id']; $source=$query->filters['source_id']??null;
             if ($p['kind']==='token' && $p['token']['source_id']!==null) {
                 if ($source!==null && $source!==$p['token']['source_id']) { Identity::forbidden(); }

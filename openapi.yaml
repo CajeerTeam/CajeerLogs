@@ -2,7 +2,7 @@
   "openapi": "3.1.1",
   "info": {
     "title": "CajeerLogs API",
-    "version": "0.4.4",
+    "version": "0.4.5",
     "description": "Identity & Access, synchronous and durable asynchronous PostgreSQL ingestion, job status, project-scoped search, statistics and export. Outgoing webhooks and lifecycle administration use the CLI. TOTP enrollment, recovery codes and administrator enrollment policy. Token rotation, scoped service accounts, credential request quotas and bulk revocation. Mandatory project/token HMAC and separately encrypted rotating signing keys. Session lifecycle, account profile and recovery-code regeneration. Private saved log views with canonical search filters and table layout. Administrator user directory, effective project access, scoped access audit and reauthenticated 2FA reset. Token detail, service account statistics, filtered security audit and explicit HMAC overlap retirement. Append-only audit chain with result/actor/time filters and bounded NDJSON export."
   },
   "servers": [
@@ -3844,7 +3844,7 @@
             }
           },
           "429": {
-            "description": "Rate limit exceeded",
+            "description": "Shared request or event quota exceeded. Retry-After is the request limiter delay in whole seconds; additional budgets may still apply.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4244,7 +4244,7 @@
             }
           },
           "429": {
-            "description": "Rate limit exceeded",
+            "description": "Shared request or event quota exceeded. Retry-After is the request limiter delay in whole seconds; additional budgets may still apply.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4714,7 +4714,7 @@
             }
           },
           "429": {
-            "description": "Rate limit exceeded",
+            "description": "Shared request or event quota exceeded. Retry-After is the request limiter delay in whole seconds; additional budgets may still apply.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4882,7 +4882,7 @@
             }
           },
           "429": {
-            "description": "Rate limit exceeded",
+            "description": "Shared request or event quota exceeded. Retry-After is the request limiter delay in whole seconds; additional budgets may still apply.",
             "content": {
               "application/json": {
                 "schema": {
@@ -13667,7 +13667,7 @@
         }
       },
       "RateLimited": {
-        "description": "Rate limit exceeded",
+        "description": "Shared request or event quota exceeded. Retry-After is the request limiter delay in whole seconds; additional budgets may still apply.",
         "content": {
           "application/json": {
             "schema": {

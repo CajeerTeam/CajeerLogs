@@ -2,6 +2,11 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## 0.4.5 — Rate Limiting & Abuse Protection
+- Shared PostgreSQL token buckets across API routes, per-operation budgets and configurable burst.
+- Precise request Retry-After, gateway admission limits, identity metrics and Admin diagnostics.
+- Migration 0020, bounded cleanup, concurrent PostgreSQL tests and 0.4.4 upgrade gate.
+
 ## 0.4.4 — Audit Log & Accountability
 
 - Append-only audit chain with explicit project scope, actor type, result, indexed filters and bounded NDJSON export.

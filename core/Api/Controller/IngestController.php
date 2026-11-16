@@ -34,7 +34,7 @@ final class IngestController
             $budget=new IngestBudget($config->get('ingest.budget_ms'));
             $pdo=$this->app->container()->get(PDO::class);
             $schemaGuard=$this->app->container()->get(\Cajeer\Logs\Database\MigrationRunner::class)->guard();
-            $authorization=new IngestAuthorization($pdo,$config->get('api.rate_limit'));
+            $authorization=new IngestAuthorization($pdo,$config->get('api.rate_limit'),\Cajeer\Logs\Security\RateLimitPolicy::fromConfig($config));
             $principal=$authorization->begin($r,$credential);
             $row=(new TransactionManager($pdo))->run(function () use ($authorization,$principal,$r,$credential,$id,$pdo,$budget,$config) {
                 $budget->limitSql($pdo,(int)$config->get('database.statement_timeout_ms'));

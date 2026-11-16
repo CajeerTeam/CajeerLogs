@@ -52,7 +52,7 @@ final class IngestService
             $budget->check();
             $schemaGuard=$this->app->container()->get(\Cajeer\Logs\Database\MigrationRunner::class)->guard();
             $budget->check();
-            $authorization=new IngestAuthorization($pdo,$config->get('api.rate_limit'));
+            $authorization=new IngestAuthorization($pdo,$config->get('api.rate_limit'),\Cajeer\Logs\Security\RateLimitPolicy::fromConfig($config));
             $principal=$authorization->begin($r,$credential);
             $signer=new IngestSigning($pdo,$config->get('security.totp_key'));
             $signer->verify($r,$principal,$credential['secret'],$key,$config->get('ingest.require_hmac'));

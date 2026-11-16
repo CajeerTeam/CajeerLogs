@@ -1,10 +1,12 @@
-import { state } from '../app/store.js?v=0.4.4';
+import { state } from '../app/store.js?v=0.4.5';
 const errors = { reauthentication_required: 'Подтвердите личность в разделе Настройки → Подтверждение личности, затем повторите операцию.', totp_enrollment_required: 'Необходимо подключить второй фактор в настройках.', second_factor_required: 'Требуется второй фактор.', invalid_otp: 'Неверный или уже использованный код. Проверьте время устройства.', unauthorized: 'Неверные учётные данные или сессия истекла.', forbidden: 'Недостаточно прав для операции.', csrf_failed: 'Сессия изменилась. Обновите страницу и повторите операцию.', service_unavailable: 'Сервис или база данных временно недоступны.', rate_limited: 'Слишком много запросов. Повторите позже.', last_administrator: 'Нельзя отключить последнего администратора.', conflict: 'Конфликт с существующими данными.', invalid_password: 'Текущий пароль неверен.', not_found: 'Объект не найден.', page_changed: 'Страница изменилась. Обновите поиск перед экспортом.' };
 const statuses = { 401: errors.unauthorized, 403: errors.forbidden, 409: errors.conflict, 422: 'Проверьте введённые данные.', 429: errors.rate_limited, 503: errors.service_unavailable };
 export class ApiError extends Error {
     constructor(status, data = {}, headers = new Headers()) {
         const id = data?.request_id || headers.get('X-Request-ID');
-        super((errors[data?.error] || data?.message || statuses[status] || `HTTP ${status}`) + (id ? ` (ID: ${id})` : ''));
+        const retry = headers.get('Retry-After');
+        const wait = status === 429 && /^[0-9]{1,6}$/.test(retry || '') ? ` Повторите не ранее чем через ${retry} с.` : '';
+        super((errors[data?.error] || data?.message || statuses[status] || `HTTP ${status}`) + wait + (id ? ` (ID: ${id})` : ''));
         this.name = 'ApiError'; this.status = status; this.data = data; this.requestId = id; this.retryAfter = headers.get('Retry-After');
     }
 }

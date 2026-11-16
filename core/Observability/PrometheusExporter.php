@@ -32,6 +32,7 @@ final class PrometheusExporter
         }
         $output.=(new IngestMetrics($this->app->basePath('storage/cache')))->render();
         $output.=(new IngestMetrics($this->app->basePath('storage/cache'),'search'))->render();
+        $output.=(new IngestMetrics($this->app->basePath('storage/cache'),'identity'))->render();
         return $output.($pdo===null ? "# TYPE cajeerlogs_operations_available gauge\ncajeerlogs_operations_available 0\n" : (new OperationsMetrics($this->app))->render()).(new DatabaseRuntimeMetrics($this->app))->render($pdo);
     }
 }

@@ -2,6 +2,10 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.4.5 — Rate Limiting & Abuse Protection
+
+Общие PostgreSQL token buckets, независимые бюджеты поиска, аналитики, экспорта и административных изменений, настраиваемый burst, точный Retry-After, Nginx admission и диагностика лимитов. Миграция 0020. [Rate Limiting](docs/Rate-Limiting.md). Public Preview до CI.
+
 ## 0.4.4 — Audit Log & Accountability
 
 Append-only audit, PostgreSQL hash chain, explicit scope and results, time filters, bounded NDJSON export and CLI verification. Migration 0019. [Audit Log & Accountability](docs/Audit-Log-Accountability.md). Public Preview до CI.
@@ -194,3 +198,4 @@ composer analyse
 ```
 
 См. [Database & Installer](docs/Database-Installer.md), [Core Runtime](docs/Core-Runtime.md), [Nginx](docs/Nginx-deployment.md), [Apache](docs/Apache-optional.md) и [реализованный OpenAPI](api/openapi.yaml). Планируемый API находится отдельно в `docs/openapi-planned.yaml`.
+

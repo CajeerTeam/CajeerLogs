@@ -23,7 +23,7 @@ try {
     foreach (glob($root.'/migrations/pgsql/000[1-7]_*.sql') as $f) copy($f,$tmp.'/migrations/'.basename($f));
     (new MigrationRunner($pdo,$tmp.'/migrations',$schema))->migrate();
     $id=(new UserRepository($pdo))->create('security@example.test','admin-sec-password-123','administrator');
-    $runner=$app->container()->get(MigrationRunner::class); verify($runner->migrate()===['0008_security_operations.sql','0009_project_management.sql','0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql','0013_ingest_signing.sql','0014_delivery_idempotency.sql','0015_authentication_sessions.sql','0016_saved_log_views.sql','0017_rbac_roles_permissions.sql','0018_identity_security.sql','0019_audit_accountability.sql']&&$runner->migrate()===[],'0.0.8 upgrade and migration replay');
+    $runner=$app->container()->get(MigrationRunner::class); verify($runner->migrate()===['0008_security_operations.sql','0009_project_management.sql','0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql','0013_ingest_signing.sql','0014_delivery_idempotency.sql','0015_authentication_sessions.sql','0016_saved_log_views.sql','0017_rbac_roles_permissions.sql','0018_identity_security.sql','0019_audit_accountability.sql','0020_rate_limit_buckets.sql']&&$runner->migrate()===[],'0.0.8 upgrade and migration replay');
     $password=['email'=>'security@example.test','password'=>'admin-sec-password-123'];
     $login=call('POST','/auth/login',$password); $session=credentials($login); verify(json_decode($login->body,true)['enrollment_required']===true,'mandatory administrator restricted login');
     data(call('GET','/projects',null,$session),403); data(call('GET','/auth/me',null,$session));
@@ -57,7 +57,7 @@ try {
     $targetSecret=$t->open($targetUser,$stmt->fetchColumn());
     $targetEnabled=call('POST','/auth/2fa/enable',['otp'=>T::code($targetSecret,intdiv(time(),30))],$targetSession);
     $targetSession=credentials($targetEnabled); $targetCodes=json_decode($targetEnabled->body,true)['recovery_codes'];
-    $pdo->exec('DELETE FROM auth_rate_limits');
+    $pdo->exec('DELETE FROM auth_rate_limits'); $pdo->exec('DELETE FROM api_rate_buckets');
     data(call('POST','/users/'.$targetUser.'/2fa/reset',['password'=>$password['password'],'otp'=>'invalid'],$rec),403);
     data(call('GET','/auth/me',null,$targetSession));
     data(call('POST','/users/'.$targetUser.'/2fa/reset',['password'=>$password['password'],'otp'=>$replacement[1]],$rec),204);
@@ -68,7 +68,7 @@ try {
     $stmt=$pdo->prepare('DELETE FROM users WHERE id=:id'); $stmt->execute(['id'=>$targetUser]);
     $cfg->set('security.require_admin_totp',false);
     // Separate password rate window for testing the following disable operation.
-    $pdo->exec('DELETE FROM auth_rate_limits');
+    $pdo->exec('DELETE FROM auth_rate_limits'); $pdo->exec('DELETE FROM api_rate_buckets');
     data(call('POST','/auth/2fa/disable',['password'=>$password['password'],'otp'=>$replacement[0]],$rec),204); data(call('GET','/auth/me',null,$rec),401);
     verify((int)$pdo->query('SELECT count(*) FROM user_totp')->fetchColumn()===0&&(int)$pdo->query('SELECT count(*) FROM user_recovery_codes')->fetchColumn()===0,'disable removes secret and codes');
     $new=credentials(call('POST','/auth/login',$password));

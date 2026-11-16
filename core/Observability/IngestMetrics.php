@@ -11,9 +11,16 @@ final class IngestMetrics
     private const REASONS=['unauthorized','forbidden','authorization_changed','job_not_found','invalid_job','database_unavailable','https_required','invalid_header','invalid_content_length','invalid_body','ambiguous_body','invalid_transfer_encoding','unsupported_media_type','invalid_json','invalid_payload','payload_too_large','event_too_large','invalid_idempotency_key','idempotency_required','idempotency_conflict','rate_limited','project_archived','project_payload_limit','project_quota_exceeded','source_inactive','source_payload_limit','source_quota_exceeded','queue_full','redaction_failed','ingest_busy','service_unavailable','internal_error','invalid_query','page_changed','search_timeout','not_found','totp_enrollment_required'];
     public function __construct(private readonly string $directory,private readonly string $group='ingest')
     {
-        if (!in_array($group,['ingest','search'],true)) throw new \InvalidArgumentException('Invalid metrics group.');
+        if (!in_array($group,['ingest','search','identity'],true)) throw new \InvalidArgumentException('Invalid metrics group.');
     }
-    private function modes(): array { return $this->group==='ingest'?['sync','async','job']:['list','stats','export','detail']; }
+    private function modes(): array { return match($this->group){'ingest'=>['sync','async','job'],'search'=>['list','stats','export','detail'],default=>['login','read','write']}; }
+    public static function identityMode(string $method,string $path,string $prefix): ?string
+    {
+        if (!str_starts_with($path,$prefix.'/')) return null;
+        $route=substr($path,strlen($prefix));
+        if (!preg_match('~^/(auth|users|roles|projects|system)(/|$)~D',$route)) return null;
+        return $route==='/auth/login'?'login':(in_array($method,['GET','HEAD'],true)?'read':'write');
+    }
     public static function searchMode(string $method,string $path,string $prefix): ?string
     {
         if (!in_array($method,['GET','HEAD'],true)) return null;

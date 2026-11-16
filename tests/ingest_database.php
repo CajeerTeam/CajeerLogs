@@ -39,7 +39,7 @@ try {
     $writer=$tokens->create('project writer',['logs:write'],$project); $scoped=$tokens->create('source writer',['logs:write'],$project,$source); $reader=$tokens->create('reader',['logs:read'],$project,$source);
     $legacy=$pdo->query("INSERT INTO log_events(occurred_at,source,level,message) VALUES(now(),'legacy','info','historic event') RETURNING id")->fetchColumn();
     $runner=$app->container()->get(MigrationRunner::class);
-    verify($runner->migrate()===['0004_log_ingestion.sql','0005_log_search.sql','0006_sdk_integrations.sql','0007_queue_lifecycle.sql','0008_security_operations.sql','0009_project_management.sql','0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql','0013_ingest_signing.sql','0014_delivery_idempotency.sql','0015_authentication_sessions.sql','0016_saved_log_views.sql','0017_rbac_roles_permissions.sql','0018_identity_security.sql','0019_audit_accountability.sql']&&$runner->migrate()===[],'0.0.3 -> current upgrade and repeat');
+    verify($runner->migrate()===['0004_log_ingestion.sql','0005_log_search.sql','0006_sdk_integrations.sql','0007_queue_lifecycle.sql','0008_security_operations.sql','0009_project_management.sql','0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql','0013_ingest_signing.sql','0014_delivery_idempotency.sql','0015_authentication_sessions.sql','0016_saved_log_views.sql','0017_rbac_roles_permissions.sql','0018_identity_security.sql','0019_audit_accountability.sql','0020_rate_limit_buckets.sql']&&$runner->migrate()===[],'0.0.3 -> current upgrade and repeat');
     verify($pdo->query("SELECT id FROM log_events WHERE source='legacy'")->fetchColumn()===$legacy,'historic unscoped row preserved');
     verify($app->handle(new Request('GET','/ready'))->status===200,'readiness after migration');
     $event=['timestamp'=>'2026-01-02T03:04:05.123456+03:00','source'=>'app','level'=>'ERROR','message'=>'login password=hidden-value','service'=>'backend','host'=>'host1','trace_id'=>'trace-1','request_id'=>'req-1','context'=>(object)['password'=>'hidden-context','nested'=>(object)['apiKey'=>'another-secret'],'empty'=>(object)[],'list'=>[]],'tags'=>['one','two','one']];
@@ -125,7 +125,7 @@ try {
     expect($raw,$expiring['token'],401,'expired token'); $tokens->revoke($scoped['id']); expect($raw,$scoped['token'],401,'revoked token');
     $limited=$tokens->create('limited',['logs:write'],$project); $app->config()->set('api.rate_limit',1);
     expect($raw,$limited['token'],201,'first rate-limited request',[],'192.0.2.100');
-    $r=expect($raw,$limited['token'],429,'token rate limit across IPs',[],'192.0.2.101'); verify($r->header('Retry-After')==='60','retry-after header');
+    $r=expect($raw,$limited['token'],429,'token rate limit across IPs',[],'192.0.2.101'); verify((int)$r->header('Retry-After')>=1&&(int)$r->header('Retry-After')<=60,'retry-after header');
     $app->config()->set('api.rate_limit',600);
     // Two independent PHP processes race the same token/key, held initially on its row lock.
     $program = <<<'WORKER'
@@ -172,7 +172,7 @@ WORKER;
         verify($combined->status===202,'combined rate: async request');
         $combinedId=data($combined)['job_id'];
         $poll=$app->handle(new Request('GET','/api/v1/ingest/jobs/'.$combinedId,['Authorization'=>'Bearer '.$rateSecret,'X-Forwarded-For'=>'198.51.100.19'],[],'','192.0.2.203'));
-        verify($poll->status===429&&$poll->header('Retry-After')==='60','job polling shares sync/async token rate across IPs');
+        verify($poll->status===429&&(int)$poll->header('Retry-After')>=1&&(int)$poll->header('Retry-After')<=60,'job polling shares sync/async token rate across IPs');
         // Complete this job before the later timestamp-policy test expects its own claim.
         $queue=$app->container()->get(\Cajeer\Logs\Queue\PostgresQueueDriver::class);
         $claim=$queue->claim(); verify((string)$claim['id']===$combinedId&&$queue->process($claim)==='completed','rate-limited polling does not affect accepted job');

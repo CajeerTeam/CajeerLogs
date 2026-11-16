@@ -31,7 +31,7 @@ try {
  $q=$pdo->prepare("UPDATE auth_sessions SET reauthenticated_at=clock_timestamp()-interval '10 minutes' WHERE token_hash=:hash");$q->execute(['hash'=>hashOf($a)]);
  $r=call('POST','/roles',$a,['name'=>'Step up role','scope'=>'global','permissions'=>['projects:read']],403);check(data($r)['error']==='reauthentication_required','stale session cannot mutate roles');
  call('POST','/auth/reauthenticate',$a,['password'=>'wrong'],403);call('POST','/auth/reauthenticate',$a,['password'=>$password]);call('POST','/roles',$a,['name'=>'Step up role','scope'=>'global','permissions'=>['projects:read']],201);
- $pdo->exec('DELETE FROM auth_rate_limits');
+ $pdo->exec('DELETE FROM auth_rate_limits'); $pdo->exec('DELETE FROM api_rate_buckets');
  $q->execute(['hash'=>hashOf($o)]);call('POST','/auth/reauthenticate',$o,['password'=>$password,'otp'=>'00000000000000000000000000000000'],403);call('POST','/auth/reauthenticate',$o,['password'=>$password,'otp'=>$codes[0]]);call('POST','/auth/reauthenticate',$o,['password'=>$password,'otp'=>$codes[0]],403);
  // Rotation to a second key preserves the enrolled secret, replay fence and recovery code set.
  $previous=$cfg->get('security.totp_active_key');$cfg->set('security.totp_previous_key',$previous);$cfg->set('security.totp_active_key',bin2hex(random_bytes(32)));$t=T::fromConfig($pdo,$cfg);check($t->rotateBatch(1)['rotated']===1,'second rotation migrates enrolled factor');check($t->rotateBatch(1)['rotated']===0,'rotation is idempotent');$cfg->set('security.totp_previous_key','');$stmt->execute(['id'=>$id]);check(hash_equals($secret,T::fromConfig($pdo,$cfg)->open($id,$stmt->fetchColumn())),'new key decrypts same enrollment without previous key');$stmt->closeCursor();

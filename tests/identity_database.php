@@ -39,13 +39,13 @@ try {
     (new MigrationRunner($pdo,$tmp,$schema))->migrate();
     $stmt=$pdo->prepare("INSERT INTO users(email,password_hash,role) VALUES ('admin@example.test',:hash,'administrator')"); $stmt->execute(['hash'=>password_hash('admin-password-12345',PASSWORD_ARGON2ID)]);
     $adminId=$pdo->query('SELECT id FROM users')->fetchColumn();
-    foreach (glob($root.'/migrations/pgsql/*.sql') as $file) { if (!in_array(basename($file),['0015_authentication_sessions.sql','0016_saved_log_views.sql','0017_rbac_roles_permissions.sql','0018_identity_security.sql','0019_audit_accountability.sql'],true)) copy($file,$tmp.'/'.basename($file)); }
+    foreach (glob($root.'/migrations/pgsql/*.sql') as $file) { if (!in_array(basename($file),['0015_authentication_sessions.sql','0016_saved_log_views.sql','0017_rbac_roles_permissions.sql','0018_identity_security.sql','0019_audit_accountability.sql','0020_rate_limit_buckets.sql'],true)) copy($file,$tmp.'/'.basename($file)); }
     (new MigrationRunner($pdo,$tmp,$schema))->migrate();
     $legacySecret=bin2hex(random_bytes(32)); $legacyCsrf=bin2hex(random_bytes(32));
     $stmt=$pdo->prepare("INSERT INTO auth_sessions(token_hash,user_id,csrf_token,expires_at) VALUES (:hash,:user,:csrf,now()+interval '1 hour')");
     $stmt->execute(['hash'=>hash('sha256',$legacySecret),'user'=>$adminId,'csrf'=>$legacyCsrf]);
     $runner=$app->container()->get(MigrationRunner::class);
-    verify($runner->migrate()===['0015_authentication_sessions.sql','0016_saved_log_views.sql','0017_rbac_roles_permissions.sql','0018_identity_security.sql','0019_audit_accountability.sql']&&$runner->migrate()===[],'0.3.1 session migration and idempotent replay');
+    verify($runner->migrate()===['0015_authentication_sessions.sql','0016_saved_log_views.sql','0017_rbac_roles_permissions.sql','0018_identity_security.sql','0019_audit_accountability.sql','0020_rate_limit_buckets.sql']&&$runner->migrate()===[],'0.3.1 session migration and idempotent replay');
     $legacy=['Cookie'=>'cajeerlogs_session='.$legacySecret,'X-CSRF-Token'=>$legacyCsrf];
     $legacyPage=data(ok('GET','/auth/sessions',null,$legacy));
     verify(count($legacyPage['items'])===1&&$legacyPage['items'][0]['current']===true&&$legacyPage['items'][0]['user_agent']===null&&!str_contains(json_encode($legacyPage),$legacySecret)&&!str_contains(json_encode($legacyPage),$legacyCsrf),'legacy session survives, public UUID, no credentials');
@@ -103,7 +103,7 @@ try {
     ok('POST','/users/'.$resetUser.'/2fa/reset',['password'=>'admin-password-12345'],['Cookie'=>$admin['Cookie']],403);
     ok('POST','/users/'.$resetUser.'/2fa/reset',['password'=>'admin-password-12345'],$admin,204); ok('GET','/auth/me',null,$resetSession,401);
     verify(data(ok('GET','/users/'.$resetUser,null,$admin))['user']['two_factor_enabled']===false,'reset disables second factor');
-    $pdo->exec('DELETE FROM auth_rate_limits');
+    $pdo->exec('DELETE FROM auth_rate_limits'); $pdo->exec('DELETE FROM api_rate_buckets');
     $views='/projects/'.$p1.'/saved-views';
     $layout=['order'=>\Cajeer\Logs\Log\SavedView::COLUMNS,'visible'=>['timestamp','message'],'widths'=>(object)['message'=>500],'density'=>'compact','wrap'=>true,'zone'=>'utc'];
     $payload=['name'=>'Errors','filters'=>['levels'=>'["error","warning"]','limit'=>'25','consistency'=>'snapshot'],'layout'=>$layout];
@@ -147,7 +147,7 @@ try {
     $device=login('operator@example.test','operator-password-123');
     ok('POST','/users/'.$op.'/sessions/revoke-all',null,$admin,204); ok('GET','/auth/me',null,$operator,401); ok('GET','/auth/me',null,$device,401);
     // Reset the isolated rate bucket before the remaining existing scenarios.
-    $pdo->exec('DELETE FROM auth_rate_limits');
+    $pdo->exec('DELETE FROM auth_rate_limits'); $pdo->exec('DELETE FROM api_rate_buckets');
     $operator=login('operator@example.test','operator-password-123');
 
     verify(count(data(ok('GET','/projects',null,$operator))['items'])===1,'project list scoped');
@@ -205,7 +205,7 @@ try {
     $rate=new RateLimiter($pdo); verify($rate->hit('test-rate',2,60)&&$rate->hit('test-rate',2,60)&&!$rate->hit('test-rate',2,60),'atomic rate limit blocks excess');
     for ($i=0;$i<10;$i++) { $rate->hit('login-email:throttled@example.test',10,300); }
     $limited=callApi('POST','/auth/login',['email'=>'throttled@example.test','password'=>'wrong'],[],[],'192.0.2.52');
-    verify($limited->status===429&&$limited->header('Retry-After')==='300','login rate limit through runtime');
+    verify($limited->status===429&&(int)$limited->header('Retry-After')>=1&&(int)$limited->header('Retry-After')<=300,'login rate limit through runtime');
     $pdo->exec("INSERT INTO auth_rate_limits(bucket_key,window_start,hits) VALUES (repeat('a',64),1,1)");
     verify((new AuthCleanupCommand($app))->handle()===0 && !$pdo->query("SELECT EXISTS(SELECT 1 FROM auth_rate_limits WHERE window_start=1)")->fetchColumn() && !$pdo->query("SELECT EXISTS(SELECT 1 FROM auth_sessions WHERE expires_at<=now())")->fetchColumn(),'expired session and rate bucket cleanup');
     verify((int)$pdo->query("SELECT count(*) FROM audit_log WHERE action='token.created'")->fetchColumn()===3,'audit writes persisted');

@@ -90,10 +90,14 @@ final class IdentityController
     private function dispatch(string $action, Request $r, ?array $credential): Response
     {
         $rate=new RateLimiter($this->pdo);
-        $rate->enforce('identity-ip:'.$r->remoteAddress,$this->app->config()->get('api.rate_limit'),60);
+        $policy=\Cajeer\Logs\Security\RateLimitPolicy::fromConfig($this->app->config());
+        $policy->peer($rate,$r);
+        $rate->enforce('identity-ip:'.\Cajeer\Logs\Security\IngestAuthorization::peerKey($r),$this->app->config()->get('api.rate_limit'),60);
         if ($action==='login') { return $this->login($r); }
         $p=$this->identity->authenticate($r,$credential ?? [],in_array($action,['me','logout','logoutAll','totpSetup','totpEnable'],true));
         $rate->enforce('identity-'.$p['kind'].':'.$p['id'],300,60);
+        $operation=in_array($action,['projectStats','sourceStats'],true)?'analytics':(in_array($action,['projectSecurityAudit','systemSecurityAudit'],true)&&($r->query['format']??null)==='ndjson'?'export':(in_array($r->method,['GET','HEAD'],true)||in_array($action,['logout','logoutAll'],true)?null:'admin_write'));
+        $policy->principal($rate,$p['kind'],$p['id'],$operation);
         if (in_array($action,['reauthenticate','password','totpSetup','totpEnable','totpDisable','recoveryCodes','resetUserTotp'],true)) { $rate->enforce('password:'.$p['id'],5,300); }
         // Serialize authorization changes with administrative writes. Recheck after lock.
         if (in_array($r->method,['GET','HEAD'],true)) {

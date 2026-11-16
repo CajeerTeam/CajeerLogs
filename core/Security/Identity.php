@@ -55,7 +55,7 @@ final class Identity
     {
         $this->origin($r);
         $rate = new RateLimiter($this->pdo);
-        $rate->enforce('login-ip:' . $r->remoteAddress, 20, 300);
+        $rate->enforce('login-ip:' . IngestAuthorization::peerKey($r), 20, 300);
         $rate->enforce('login-email:' . $email, 10, 300);
         $users = new UserRepository($this->pdo);
         $user = $users->findByEmail($email);
