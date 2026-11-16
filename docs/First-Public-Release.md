@@ -55,3 +55,5 @@ GitHub Actions проверяет существующие PHP/SDK/browser/Postg
 - Compose автоматически запускает queue, scheduler и webhook worker; backup запускайте регулярно через `docker compose ... exec app php bin/cajeer backup:create`, выносите копии на отдельное зашифрованное хранилище. Для хоста используйте systemd timers из `examples/systemd`.
 - Проверяйте `db:doctor`, `queue:status`, `scheduler:run`, `webhook:history`, `backup:verify`. Readiness проверяет PostgreSQL WAL fsync, историю миграций, таблицы и корректность TOTP-ключа для одного enrolled пользователя (не полный криптографический аудит всех записей).
 - Отдельный мониторинг доступности, свободного диска, backup и очередей обязателен. Retention по умолчанию отключён. ClickHouse, Redis queue, RabbitMQ, OpenSearch, Incidents, Marketplace и HA не входят в 0.1.0.
+
+For 0.4.6 Host validation, trusted proxies, TLS verification and renewal, see [Production Security](Production-Security.md).

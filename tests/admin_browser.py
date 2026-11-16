@@ -106,7 +106,7 @@ class Fixture:
             if body['revision']!=row['revision']:return err(409,'role_changed')
             if method=='DELETE':self.rbac_roles.remove(row);return send(status=204)
             row.update(name=body['name'],permissions=body['permissions'],revision=row['revision']+1);return send(row)
-        if path=='/health': return send({'status':'ok','version':'0.4.5'})
+        if path=='/health': return send({'status':'ok','version':'0.4.6'})
         if path=='/auth/token':
             credential=self.connection_credentials.get(req.headers.get('authorization','').removeprefix('Bearer '))
             return send({'token':credential['row']}) if credential else err(401,'unauthorized')
@@ -277,7 +277,7 @@ class Fixture:
             assert q.get('project_id')==self.connection_event['project_id'] and q.get('source_id')==self.connection_event['source_id'];return send({'data':self.connection_event})
         if path.startswith('/logs/'): return send({'data':{**self.event,'id':E2,'message':'other event'} if path.endswith(E2) else self.event})
         if path=='/system/report' and self.system_report_fails: return err(500,'internal_error')
-        if path=='/system/report': return send({'status':'ok','environment':'test','php':'8.4','database':{'status':'ok'},'rate_limits':{'global':{'per_minute':600,'burst':150},'search':{'per_minute':120,'burst':30}}})
+        if path=='/system/report': return send({'status':'ok','environment':'test','php':'8.4','database':{'status':'ok'},'deployment_security':{'https_configured':True,'trusted_proxy_count':1,'production_host_validation':True,'database_tls_required':False,'database_sslmode':'disable'},'rate_limits':{'global':{'per_minute':600,'burst':150},'search':{'per_minute':120,'burst':30}}})
         raise AssertionError('Unexpected fixture request: '+path)
 
 
@@ -354,7 +354,7 @@ def run():
         browser=browser_for(p); ctx=browser.new_context(accept_downloads=True); page=ctx.new_page(); page.set_default_timeout(8000)
         errors=[]; page.on('pageerror',lambda e: errors.append(str(e)))
         # Actual PHP router, not intercepted, even in offline browser mode.
-        status,headers,body=http(url+'/admin');assert status==200 and b'0.4.5' in body
+        status,headers,body=http(url+'/admin');assert status==200 and b'0.4.6' in body
         assert "script-src 'self'" in {k.lower():v for k,v in headers.items()}['content-security-policy']
         assert http(url+'/api/v1/auth/me')[0]==401
         assert http(url+'/admin/assets/panel.js')[0]==200
@@ -554,7 +554,7 @@ def run():
         nav(page,'tokens');page.get_by_role('button',name='HMAC',exact=True).click();dlg=page.get_by_role('dialog');dlg.get_by_label('Перекрытие, секунд (только при ротации v2)').fill('3600');dlg.get_by_role('button',name='Сохранить / ротировать ключ').click();expect(dlg).to_contain_text('sk_'+'f'*64);page.locator('#close-modal').click()
         page.get_by_role('button',name='HMAC',exact=True).click();dlg.get_by_role('button',name='Завершить перекрытие HMAC').click();dlg.get_by_role('button',name='Подтвердить').click();expect(dlg).not_to_be_visible();page.get_by_role('button',name='HMAC',exact=True).click();expect(dlg.get_by_role('button',name='Завершить перекрытие HMAC')).to_have_count(0);page.locator('#close-modal').click();assert any(m=='DELETE' and path.endswith('/signing/previous') for m,path,q,b in f.calls)
         print('PASS HMAC key rotation, one-time secret, early overlap retirement fixture')
-        f.system_report_fails=True;nav(page,'system');expect(page.get_by_text('Подробный отчёт недоступен.',exact=False)).to_be_visible();expect(page.get_by_role('row').filter(has_text='Runtime')).to_contain_text('HTTP 200');f.system_report_fails=False;page.get_by_role('button',name='Обновить',exact=True).click();expect(page.get_by_role('button',name='Скопировать отчёт')).to_be_visible();expect(page.get_by_role('heading',name='Ограничения запросов')).to_be_visible();expect(page.get_by_role('row').filter(has_text='global')).to_contain_text('150');print('PASS partial system diagnostics, rate policies and recovery')
+        f.system_report_fails=True;nav(page,'system');expect(page.get_by_text('Подробный отчёт недоступен.',exact=False)).to_be_visible();expect(page.get_by_role('row').filter(has_text='Runtime')).to_contain_text('HTTP 200');f.system_report_fails=False;page.get_by_role('button',name='Обновить',exact=True).click();expect(page.get_by_role('button',name='Скопировать отчёт')).to_be_visible();expect(page.get_by_role('heading',name='Ограничения запросов')).to_be_visible();expect(page.get_by_role('row').filter(has_text='global')).to_contain_text('150');expect(page.get_by_role('heading',name='Безопасность развёртывания')).to_be_visible();expect(page.get_by_role('row').filter(has_text='Доверенные proxy')).to_contain_text('1');print('PASS partial system diagnostics, rate policies, deployment security and recovery')
         nav(page,'settings');page.get_by_role('button',name='Тёмная тема').first.click();assert page.locator('html').get_attribute('data-theme')=='dark';page.get_by_label('Цветовая тема',exact=True).select_option('system');page.emulate_media(color_scheme='dark');expect(page.locator('html')).to_have_attribute('data-theme','dark');page.emulate_media(color_scheme='light');expect(page.locator('html')).to_have_attribute('data-theme','light');page.get_by_label('Цветовая тема',exact=True).select_option('dark');expect(page.locator('html')).to_have_attribute('data-theme','dark');page.set_viewport_size({'width':390,'height':844});assert page.evaluate('document.documentElement.scrollWidth <= innerWidth');expect(page.locator('#sidebar')).not_to_be_visible();page.get_by_role('button',name='Меню').click();expect(page.locator('#sidebar')).to_be_visible();page.keyboard.press('Escape');expect(page.locator('#sidebar')).not_to_be_visible();page.get_by_role('button',name='Меню').click();nav(page,'logs');expect(page.locator('#sidebar')).not_to_be_visible();expect(page.get_by_role('heading',name='Логи',exact=True)).to_be_visible();page.set_viewport_size({'width':1280,'height':720});nav(page,'settings');
         page.get_by_label('Отображаемое имя').fill('Admin <test>');page.get_by_role('button',name='Сохранить профиль').click();expect(page.locator('#account')).to_contain_text('Admin <test>')
         expect(page.get_by_text('Текущая сессия',exact=True)).to_be_visible();page.get_by_role('row').filter(has_text='Other device').get_by_role('button',name='Завершить',exact=True).click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_text('Other device',exact=True)).to_have_count(0)

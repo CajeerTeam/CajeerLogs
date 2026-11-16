@@ -9,6 +9,7 @@ return [
     'username' => env_raw('DB_USERNAME', 'cajeer_logs'),
     'password' => env_raw('DB_PASSWORD', ''),
     'schema' => env_raw('DB_SCHEMA', 'public'),
+    'require_tls' => env('DB_REQUIRE_TLS', false),
     'sslmode' => env_raw('DB_SSLMODE', 'prefer'),
     'sslrootcert' => env_raw('DB_SSLROOTCERT', ''),
     'connect_timeout' => env_raw('DB_CONNECT_TIMEOUT', '5'),

@@ -33,7 +33,7 @@ final class Request
         $this->requestId = bin2hex(random_bytes(16));
     }
 
-    public static function fromGlobals(int $maxBodyBytes, ?string $ingestPrefix = null): self
+    public static function fromGlobals(int $maxBodyBytes, ?string $ingestPrefix = null, ?\Cajeer\Logs\Security\DeploymentSecurity $deployment = null, ?array $resolvedTransport = null): self
     {
         $uri = (string) ($_SERVER['REQUEST_URI'] ?? '/');
         $path = explode('?', $uri, 2)[0];
@@ -44,6 +44,13 @@ final class Request
             if (str_starts_with($name, 'HTTP_') && is_string($value)) {
                 $headers[str_replace('_', '-', substr($name, 5))] = $value;
             }
+        }
+        $peer=(string) ($_SERVER['REMOTE_ADDR'] ?? 'unknown');
+        $secure=in_array(strtolower((string) ($_SERVER['HTTPS'] ?? '')), ['on','1'], true);
+        if ($deployment!==null) {
+            $transport=$resolvedTransport??$deployment->transport($peer,$secure,$headers);
+            $peer=$transport['address']; $secure=$transport['secure'];
+            $deployment->assertRequest((string)($_SERVER['REQUEST_METHOD']??'GET'),$path,$headers['HOST']??null,$secure);
         }
         foreach (['CONTENT_TYPE', 'CONTENT_LENGTH'] as $name) {
             if (isset($_SERVER[$name]) && $_SERVER[$name] !== '') {
@@ -83,7 +90,7 @@ final class Request
         if ($ingestPrefix!==null && in_array($_SERVER['REQUEST_METHOD']??'', ['GET','HEAD'],true) && preg_match('~^'.preg_quote($ingestPrefix,'~').'/logs(?:/[^/]+)?$~D',$path)) {
             $query=self::searchQuery(explode('?', $uri, 2)[1]??'');
         }
-        return new self((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'), $path, $headers, $query, $body, (string) ($_SERVER['REMOTE_ADDR'] ?? 'unknown'), in_array(strtolower((string) ($_SERVER['HTTPS'] ?? '')), ['on','1'], true));
+        return new self((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'), $path, $headers, $query, $body, $peer, $secure);
     }
 
     /** Parse raw search parameters before PHP normalizes names or overwrites duplicates. */

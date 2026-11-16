@@ -25,5 +25,6 @@ CMD ["php-fpm", "-F"]
 
 FROM nginx:stable-alpine AS gateway
 COPY deploy/production/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --chmod=0755 deploy/production/gateway-origin.sh /docker-entrypoint.d/40-cajeer-origin.sh
 COPY public/admin/assets /app/public/admin/assets
 COPY public/assets /app/public/assets

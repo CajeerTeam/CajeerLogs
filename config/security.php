@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 return [
+    'trusted_proxies' => env_raw('SECURITY_TRUSTED_PROXIES'),
     'rbac' => true,
     'permission_scopes' => true,
     'api_token_scopes' => true,

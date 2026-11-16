@@ -13,7 +13,7 @@ final class Diagnostics
     public function checks(): array
     {
         $checks = ['php_8_4_or_newer' => PHP_VERSION_ID >= 80400];
-        foreach (['json', 'pdo', 'ctype', 'filter', 'pcre','sodium'] as $extension) {
+        foreach (['json', 'pdo', 'ctype', 'filter', 'pcre','sodium','openssl'] as $extension) {
             $checks['extension_' . $extension] = extension_loaded($extension);
         }
         foreach (['core/bootstrap.php', 'public/index.php', 'release.json', 'config/app.php'] as $file) {

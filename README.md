@@ -2,6 +2,10 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.4.6 — HTTPS & Deployment Security
+
+Проверка публичного Host, доверенные reverse proxy, TLS-проверка сертификата, усиление Nginx и опциональный обязательный TLS PostgreSQL. Без новых миграций. [Production Security](docs/Production-Security.md). Public Preview до CI.
+
 ## 0.4.5 — Rate Limiting & Abuse Protection
 
 Общие PostgreSQL token buckets, независимые бюджеты поиска, аналитики, экспорта и административных изменений, настраиваемый burst, точный Retry-After, Nginx admission и диагностика лимитов. Миграция 0020. [Rate Limiting](docs/Rate-Limiting.md). Public Preview до CI.

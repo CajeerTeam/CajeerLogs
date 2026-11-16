@@ -17,7 +17,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL);
 $command = $argv[1] ?? 'help';
 if ($command === 'help' || $command === '--help') {
-    echo "CajeerLogs CLI\nUsage: php bin/cajeer <command>\nCommands: version, install, install:check, install:status, install:prepare-schema --confirm, admin:reset-password EMAIL --confirm [--unblock], migrate, migrate:status, migrate:plan, migrate:verify, db:doctor, doctor, system:report, openapi:lint, auth:cleanup, import:aapanel, webhook:add, webhook:list, webhook:history, webhook:disable, webhook:retry, webhook:work, webhook:cleanup\nQueue: queue:work [limit], queue:status, queue:list STATUS, queue:history ID, queue:retry ID, queue:discard ID, scheduler:run, retention:list, retention:set PROJECT DAYS|off, retention:run [limit]\nLogs: logs:export-jsonl PROJECT [SOURCE_UUID], logs:import-jsonl --file FILE --state STATE --source SLUG [--signed], logs:legacy-count, logs:legacy-list [LIMIT [AFTER_UUID]], logs:legacy-adopt EVENT PROJECT SOURCE_UUID --confirm, logs:redact-history PROJECT --dry-run|--apply --confirm [LIMIT [AFTER_UUID]]\nDatabase: db:verify [limit], db:integrity [limit], db:performance, db:explain PROJECT [--trace TRACE] [--filters JSON] [--analyze]\nOperations: audit:verify [POSITION HASH], backup:create, backup:list, backup:verify ID, backup:restore ID EMPTY_DB, update:check FILE, auth:2fa-reset EMAIL --confirm, auth:totp-key-rotate --confirm [LIMIT], auth:totp-key-verify\n";
+    echo "CajeerLogs CLI\nUsage: php bin/cajeer <command>\nCommands: version, install, install:check, install:status, install:prepare-schema --confirm, admin:reset-password EMAIL --confirm [--unblock], migrate, migrate:status, migrate:plan, migrate:verify, db:doctor, doctor, system:report, openapi:lint, auth:cleanup, import:aapanel, webhook:add, webhook:list, webhook:history, webhook:disable, webhook:retry, webhook:work, webhook:cleanup\nQueue: queue:work [limit], queue:status, queue:list STATUS, queue:history ID, queue:retry ID, queue:discard ID, scheduler:run, retention:list, retention:set PROJECT DAYS|off, retention:run [limit]\nLogs: logs:export-jsonl PROJECT [SOURCE_UUID], logs:import-jsonl --file FILE --state STATE --source SLUG [--signed], logs:legacy-count, logs:legacy-list [LIMIT [AFTER_UUID]], logs:legacy-adopt EVENT PROJECT SOURCE_UUID --confirm, logs:redact-history PROJECT --dry-run|--apply --confirm [LIMIT [AFTER_UUID]]\nDatabase: db:verify [limit], db:integrity [limit], db:performance, db:explain PROJECT [--trace TRACE] [--filters JSON] [--analyze]\nOperations: tls:check [CA_FILE [WARNING_DAYS]], audit:verify [POSITION HASH], backup:create, backup:list, backup:verify ID, backup:restore ID EMPTY_DB, update:check FILE, auth:2fa-reset EMAIL --confirm, auth:totp-key-rotate --confirm [LIMIT], auth:totp-key-verify\n";
     exit(0);
 }
 $pending = ['alert:dispatch' => '0.3.x'];
@@ -36,7 +36,7 @@ if ($command === 'import:aapanel' || $command === 'logs:import-jsonl') {
     passthru('python3 ' . escapeshellarg(dirname(__DIR__) . '/clients/python/cajeer_logs_collector.py') . ' ' . implode(' ', $args), $code);
     exit($code);
 }
-if (!in_array($command, ['version','--version','install:check','install:status','install:prepare-schema','admin:reset-password','doctor','system:report','openapi:lint','install','migrate','migrate:status','migrate:plan','migrate:verify','db:doctor','db:verify','db:integrity','db:performance','db:explain','auth:cleanup','webhook:add','webhook:list','webhook:history','webhook:disable','webhook:retry','webhook:work','webhook:cleanup','queue:work','queue:status','queue:list','queue:history','queue:retry','queue:discard','scheduler:run','retention:list','retention:set','retention:run','audit:verify','backup:create','backup:list','backup:verify','backup:restore','update:check','auth:2fa-reset','auth:totp-key-rotate','auth:totp-key-verify','logs:export-jsonl','logs:legacy-count','logs:legacy-list','logs:legacy-adopt','logs:redact-history'], true)) {
+if (!in_array($command, ['version','--version','install:check','install:status','install:prepare-schema','admin:reset-password','doctor','system:report','openapi:lint','install','migrate','migrate:status','migrate:plan','migrate:verify','db:doctor','db:verify','db:integrity','db:performance','db:explain','auth:cleanup','webhook:add','webhook:list','webhook:history','webhook:disable','webhook:retry','webhook:work','webhook:cleanup','queue:work','queue:status','queue:list','queue:history','queue:retry','queue:discard','scheduler:run','retention:list','retention:set','retention:run','tls:check','audit:verify','backup:create','backup:list','backup:verify','backup:restore','update:check','auth:2fa-reset','auth:totp-key-rotate','auth:totp-key-verify','logs:export-jsonl','logs:legacy-count','logs:legacy-list','logs:legacy-adopt','logs:redact-history'], true)) {
     fwrite(STDERR, "Unknown command. Run php bin/cajeer help.\n");
     exit(64);
 }
@@ -51,6 +51,14 @@ try {
         exit(0);
     }
     $app->boot();
+    if ($command==='tls:check') {
+        $args=array_slice($argv,2);
+        $days=filter_var($args[1]??14,FILTER_VALIDATE_INT,['options'=>['min_range'=>0,'max_range'=>365]]);
+        if (count($args)>2 || $days===false) throw new DatabaseException('Usage: tls:check [CA_FILE [WARNING_DAYS]]');
+        $report=\Cajeer\Logs\Security\TlsProbe::check($app->config()->get('app.url'),$args[0]??null,$days);
+        echo json_encode($report,JSON_THROW_ON_ERROR|JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES).PHP_EOL;
+        exit($report['status']==='ok'?0:1);
+    }
     if (in_array($command,['auth:totp-key-rotate','auth:totp-key-verify'],true)) {
         $args=array_slice($argv,2);
         if ($command==='auth:totp-key-rotate' && (array_shift($args)!=='--confirm' || count($args)>1)) throw new DatabaseException('Usage: auth:totp-key-rotate --confirm [LIMIT]');

@@ -1,10 +1,10 @@
-import { roles, state, names } from './store.js?v=0.4.5';
-import { $, h, button, notify } from '../components/ui.js?v=0.4.5';
-import { clearSession, sessionChanged } from './session.js?v=0.4.5';
-import { permitted } from './routes.js?v=0.4.5';
-import { themeButton } from './theme.js?v=0.4.5';
-import { openWorkspaceSwitcher } from '../components/workspace-switcher.js?v=0.4.5';
-import { write } from '../api/client.js?v=0.4.5';
+import { roles, state, names } from './store.js?v=0.4.6';
+import { $, h, button, notify } from '../components/ui.js?v=0.4.6';
+import { clearSession, sessionChanged } from './session.js?v=0.4.6';
+import { permitted } from './routes.js?v=0.4.6';
+import { themeButton } from './theme.js?v=0.4.6';
+import { openWorkspaceSwitcher } from '../components/workspace-switcher.js?v=0.4.6';
+import { write } from '../api/client.js?v=0.4.6';
 
 function header() { const a = $('account'); a.replaceChildren(themeButton()); if (state.user) {
     if (!state.enrollmentRequired) a.append(button('Быстрый переход', openWorkspaceSwitcher, '', {'aria-keyshortcuts':'Control+K Meta+K', title:'Ctrl/⌘ + K'}));

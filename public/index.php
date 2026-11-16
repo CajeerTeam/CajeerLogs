@@ -17,7 +17,9 @@ $started=hrtime(true);
 try {
     $app = require dirname(__DIR__) . '/core/bootstrap.php';
     $app->boot();
-    $request = Request::fromGlobals($app->config()->get('app.max_body_bytes'),$app->config()->get('api.prefix'));
+    $deployment=new \Cajeer\Logs\Security\DeploymentSecurity($app->config());
+    $transport=$deployment->transport((string)($_SERVER['REMOTE_ADDR']??'unknown'),in_array(strtolower((string)($_SERVER['HTTPS']??'')),['on','1'],true),['X-FORWARDED-FOR'=>(string)($_SERVER['HTTP_X_FORWARDED_FOR']??''),'X-FORWARDED-PROTO'=>(string)($_SERVER['HTTP_X_FORWARDED_PROTO']??'')]);
+    $request = Request::fromGlobals($app->config()->get('app.max_body_bytes'),$app->config()->get('api.prefix'),$deployment,$transport);
     $response = $app->handle($request);
 } catch (Throwable $error) {
     $id = bin2hex(random_bytes(16));
@@ -34,7 +36,7 @@ try {
         }
         return;
     }
-    $response = ErrorHandler::decorate(ErrorHandler::response($error, $id), $id, in_array(strtolower((string)($_SERVER['HTTPS']??'')),['on','1'],true));
+    $response = ErrorHandler::decorate(ErrorHandler::response($error, $id), $id, ($transport['secure']??false));
     // Body/framing failures before Request construction are also counted when boot succeeded.
     if (isset($app)) {
         try {

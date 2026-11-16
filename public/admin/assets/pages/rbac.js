@@ -1,7 +1,7 @@
-import { state, active, render } from '../app/store.js?v=0.4.5';
-import { h, button, card, field, input, select, checkbox, empty, table, heading, form, modal, modalEpoch, clearModal, message, notify, enc } from '../components/ui.js?v=0.4.5';
-import { get, write } from '../api/client.js?v=0.4.5';
-import { confirmAction } from '../components/mutations.js?v=0.4.5';
+import { state, active, render } from '../app/store.js?v=0.4.6';
+import { h, button, card, field, input, select, checkbox, empty, table, heading, form, modal, modalEpoch, clearModal, message, notify, enc } from '../components/ui.js?v=0.4.6';
+import { get, write } from '../api/client.js?v=0.4.6';
+import { confirmAction } from '../components/mutations.js?v=0.4.6';
 
 const descriptions = {
     'projects:read':'Просмотр проектов, источников и их агрегированной статистики',

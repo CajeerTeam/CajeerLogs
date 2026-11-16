@@ -28,7 +28,7 @@ REQUIRED = {'release.json', 'core/bootstrap.php', 'bin/cajeer', 'public/index.ph
             'admin/index.html', 'public/admin/assets/panel.js', 'public/admin/assets/panel.css',
             'api/openapi.yaml', 'openapi.yaml', 'compose.production.yaml', 'deploy/production/Dockerfile',
             'deploy/dev/init-db.sh', '.env.example', 'storage/.gitkeep', 'docs/First-Public-Release.md',
-            'deploy/production/nginx.conf', 'deploy/production/pool.conf', 'deploy/production/maintenance.sh',
+            'deploy/production/nginx.conf', 'deploy/production/gateway-origin.sh', 'core/Security/DeploymentSecurity.php', 'core/Security/TlsProbe.php', 'tests/deployment_security.php', 'tests/deployment_tls.py', 'tests/deployment_gateway.py', 'docs/Production-Security.md', 'deploy/production/pool.conf', 'deploy/production/maintenance.sh',
             'deploy/production/environment.example', 'scripts/release.py', 'tests/release.py',
             'tests/release_runtime.php', 'tests/production_smoke.py', 'tests/upgrade_release.py',
             'core/Security/IngestPrincipal.php', 'core/Security/IngestAuthorization.php', 'tests/ingest_authorization.php', 'docs/Ingest-Authorization.md',

@@ -2,6 +2,11 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## 0.4.6 — HTTPS & Deployment Security
+- Trusted last-hop IPv4/IPv6 proxies with strict overwritten client address and scheme, production Host and HTTPS enforcement before body parsing.
+- Nginx public origin allowlist, hardened headers, verified certificate CLI and optional enforced PostgreSQL verify-full.
+- Live TLS tests and 0.4.5 upgrade certification; no new migration.
+
 ## 0.4.5 — Rate Limiting & Abuse Protection
 - Shared PostgreSQL token buckets across API routes, per-operation budgets and configurable burst.
 - Precise request Retry-After, gateway admission limits, identity metrics and Admin diagnostics.

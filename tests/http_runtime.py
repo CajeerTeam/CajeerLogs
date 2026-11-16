@@ -67,7 +67,7 @@ with server() as port:
     for path in ("/", "/health", "/api/v1/health?probe=1"):
         status, headers, body = request(port, "GET", path)
         data = json.loads(body)
-        check(status == 200 and data["version"] == "0.4.5" and data["scope"] == "runtime", f"GET {path}")
+        check(status == 200 and data["version"] == "0.4.6" and data["scope"] == "runtime", f"GET {path}")
         check(len(headers["x-request-id"]) == 32 and headers["cache-control"] == "no-store" and headers["x-content-type-options"] == "nosniff", f"headers {path}")
     status, headers, body = request(port, "POST", "/health")
     check(status == 405 and headers["allow"] == "GET, HEAD, OPTIONS" and json.loads(body)["request_id"] == headers["x-request-id"], "405 + Allow + correlation")
@@ -110,7 +110,7 @@ with server() as port:
     status, headers, body = request(port, "GET", "/admin")
     check(status == 308 and headers["location"] == "/admin/", "admin canonical redirect")
     status, headers, body = request(port, "GET", "/admin/")
-    check(status == 200 and headers["content-type"].startswith("text/html") and b'content="0.4.5"' in body and b'content="/api/v1"' in body, "admin HTML runtime version and API prefix")
+    check(status == 200 and headers["content-type"].startswith("text/html") and b'content="0.4.6"' in body and b'content="/api/v1"' in body, "admin HTML runtime version and API prefix")
     check("script-src 'self'" in headers["content-security-policy"] and "frame-ancestors 'none'" in headers["content-security-policy"] and headers["cache-control"] == "no-store", "admin CSP and no-store")
     check(request(port, "HEAD", "/admin/")[2] == b"", "admin HEAD without body")
     check(request(port, "POST", "/admin/")[0] == 405, "admin unsupported method")
@@ -158,6 +158,15 @@ with server(APP_ENV="production", APP_URL="https://logs.example.test") as port:
     check(request(port, "GET", "/admin/", headers={"X-Forwarded-Proto":"https"})[0] == 403, "admin rejects spoofed HTTPS")
     check(request(port, "POST", "/api/v1/ingest", b'{}', {"Authorization":"Bearer cl_"+"a"*64,"X-Forwarded-Proto":"https"})[0] == 403, "ingest rejects insecure production request")
     check(request(port, "POST", "/api/v1/auth/login", b'{}', {"Content-Type":"application/json", "X-Forwarded-Proto":"https"})[0] == 403, "production rejects HTTP and spoofed forwarded proto")
+
+with server(APP_ENV="production", APP_URL="https://logs.example.test", SECURITY_TRUSTED_PROXIES="127.0.0.1/32") as port:
+    h={"Host":"logs.example.test","X-Forwarded-For":"203.0.113.10","X-Forwarded-Proto":"https"}
+    status,headers,_=request(port,"GET","/admin/",headers=h)
+    check(status==200 and headers.get("strict-transport-security")=="max-age=31536000", "trusted proxy HTTPS admin and HSTS")
+    check(request(port,"GET","/admin/",headers=h|{"Host":"evil.example.test"})[0]==400,"production Host mismatch")
+    check(request(port,"GET","/admin/",headers=h|{"X-Forwarded-Proto":"http"})[0]==403,"trusted external HTTP rejected")
+    check(request(port,"GET","/admin/",headers=h|{"X-Forwarded-For":"203.0.113.1, 127.0.0.1"})[0]==400,"trusted proxy rejects appended chains")
+    check(request(port,"GET","/admin/",headers={"Host":"logs.example.test"})[0]==400,"trusted proxy missing headers rejected")
 
 with server(DB_CONNECTION="unsupported") as port:
     check(request(port, "POST", "/api/v1/auth/login", b'{"email":"admin@example.test","password":"secret-test"}', {"Content-Type":"application/json"})[0] == 503, "identity fails closed without database")
