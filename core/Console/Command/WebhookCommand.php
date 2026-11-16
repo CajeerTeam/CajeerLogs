@@ -14,7 +14,7 @@ final class WebhookCommand
         $result=match($command) {
             'webhook:add'=>count($args)===3?['id'=>$outbox->add($uuid($args[0]),$args[1],$args[2])]:null,
             'webhook:list'=>$args===[]?$outbox->list():null,
-            'webhook:cleanup'=>$args===[]?['removed'=>$outbox->cleanup()]:null,
+            'webhook:cleanup'=>$args===[]?['removed'=>$outbox->cleanup($this->app->config()->get('operations.webhook_retention_days'))]:null,
             'webhook:history'=>count($args)===1?$outbox->history($uuid($args[0])):null,
             'webhook:disable'=>count($args)===1?['changed'=>$outbox->disable($uuid($args[0]))]:null,
             'webhook:retry'=>count($args)===1?['changed'=>$outbox->retry($uuid($args[0]))]:null,

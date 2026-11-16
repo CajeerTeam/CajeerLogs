@@ -31,7 +31,7 @@ final class DatabaseStatus
             // Check every expected relation and its read/write privileges in one round trip.
             $relations = $pdo->prepare(<<<'SQL'
                 WITH expected(name) AS (VALUES ('users'), ('projects'), ('sources'), ('api_tokens'), ('service_accounts'),
-                    ('project_members'), ('auth_sessions'), ('auth_rate_limits'), ('api_rate_buckets'), ('ingest_receipts'), ('ingest_nonces'), ('ingest_signing'), ('log_events'), ('audit_log'), ('jobs'), ('settings'), ('webhooks'), ('extensions'), ('integration_webhooks'), ('webhook_deliveries'), ('webhook_attempts'), ('job_attempts'), ('scheduler_runs'), ('user_totp'), ('user_recovery_codes')),
+                    ('project_members'), ('auth_sessions'), ('auth_rate_limits'), ('api_rate_buckets'), ('ingest_receipts'), ('ingest_nonces'), ('ingest_signing'), ('log_events'), ('audit_log'), ('jobs'), ('settings'), ('webhooks'), ('extensions'), ('integration_webhooks'), ('webhook_deliveries'), ('webhook_attempts'), ('job_attempts'), ('scheduler_runs'), ('retention_runs'), ('user_totp'), ('user_recovery_codes')),
                 checked AS (
                     SELECT name, pg_catalog.to_regclass(pg_catalog.format('%I.%I', CAST(:schema AS text), name))::oid AS relation
                     FROM expected
@@ -40,7 +40,7 @@ final class DatabaseStatus
                     OR NOT pg_catalog.has_table_privilege(current_user, relation, 'SELECT')
                     OR NOT pg_catalog.has_table_privilege(current_user, relation, 'INSERT')
                     OR (name<>'audit_log' AND NOT pg_catalog.has_table_privilege(current_user, relation, 'UPDATE'))
-                    OR (name IN ('project_members','auth_sessions','auth_rate_limits','api_rate_buckets','ingest_receipts','ingest_nonces','jobs','job_attempts','log_events','webhook_deliveries','webhook_attempts','user_totp','user_recovery_codes') AND NOT pg_catalog.has_table_privilege(current_user, relation, 'DELETE'))
+                    OR (name IN ('project_members','auth_sessions','auth_rate_limits','api_rate_buckets','ingest_receipts','ingest_nonces','jobs','job_attempts','log_events','webhook_deliveries','webhook_attempts','user_totp','user_recovery_codes','retention_runs') AND NOT pg_catalog.has_table_privilege(current_user, relation, 'DELETE'))
                 ORDER BY name
                 SQL);
             $relations->execute(['schema' => $schema]);
@@ -52,6 +52,9 @@ final class DatabaseStatus
             $sequence = $pdo->prepare("SELECT pg_catalog.has_sequence_privilege(current_user, pg_catalog.pg_get_serial_sequence(pg_catalog.format('%I.jobs',CAST(:schema AS text)),'id'), 'USAGE')");
             $sequence->execute(['schema'=>$schema]);
             if ($sequence->fetchColumn() !== true) { return ['status'=>'down','server_version'=>$version,'error'=>'Runtime role needs USAGE on the jobs ID sequence.']; }
+            $sequence=$pdo->prepare("SELECT pg_catalog.has_sequence_privilege(current_user, pg_catalog.pg_get_serial_sequence(pg_catalog.format('%I.retention_runs',CAST(:schema AS text)),'id'), 'USAGE')");
+            $sequence->execute(['schema'=>$schema]);
+            if ($sequence->fetchColumn() !== true) return ['status'=>'down','server_version'=>$version,'error'=>'Runtime role needs USAGE on retention history sequence.'];
             $totpKey = $this->app->config()->get('security.totp_key');
             if ($this->app->config()->get('app.env') === 'production') {
                 if (!$installing && !$pdo->query("SELECT EXISTS(SELECT 1 FROM users WHERE role='administrator' AND blocked_at IS NULL)")->fetchColumn()) {

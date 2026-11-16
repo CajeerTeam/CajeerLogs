@@ -18,7 +18,10 @@ final class SystemReport
             try { $queue=$this->app->container()->get(\Cajeer\Logs\Queue\PostgresQueueDriver::class)->counts(); } catch (\Throwable) {}
         }
         try { if ($db['status']==='ok') { $operations=(new OperationsMetrics($this->app))->snapshot(); } } catch (\Throwable) {}
+        $retention=null; if ($db['status']==='ok') {try { $history=(new \Cajeer\Logs\Lifecycle\Retention($this->app->container()->get(\PDO::class)))->history(10); $retention=['scheduler_enabled'=>$this->app->config()->get('operations.retention_scheduler_enabled'),'window_utc'=>$this->app->config()->get('operations.retention_window_utc'),'window_open'=>\Cajeer\Logs\Lifecycle\Retention::windowOpen($this->app->config()->get('operations.retention_window_utc')),'batch_size'=>$this->app->config()->get('operations.retention_batch_size'),'timeout_ms'=>$this->app->config()->get('operations.retention_timeout_ms'),'history'=>$history]; } catch (\Throwable) {}}
         $backup=null; try { $backup=(new \Cajeer\Logs\Operations\BackupOperations($this->app))->status(); } catch (\Throwable) {}
+        $free=is_dir($this->app->basePath('storage'))?@disk_free_space($this->app->basePath('storage')):false;
+        $threshold=$this->app->config()->get('operations.storage_warn_bytes');
         return [
             'service' => $this->app->config()->get('app.name'),
             'version' => $this->app->version(),
@@ -36,9 +39,12 @@ final class SystemReport
             'queue' => $queue,
             'operations' => $operations,
             'backup' => $backup,
+            'retention' => $retention,
             'log_repository_metrics_local' => \Cajeer\Logs\Log\LogRepository::metrics(),
             'transaction_metrics_local' => \Cajeer\Logs\Database\TransactionManager::metrics(),
-            'storage_free_bytes' => is_dir($this->app->basePath('storage')) ? (disk_free_space($this->app->basePath('storage')) ?: null) : null,
+            'storage_free_bytes' => $free===false?null:(int)$free,
+            'storage_warning' => $free===false?null:($threshold>0&&$free<$threshold),
+            'storage_warn_bytes' => $threshold,
             'deployment_security' => (new \Cajeer\Logs\Security\DeploymentSecurity($this->app->config()))->snapshot(),
             'rate_limits' => \Cajeer\Logs\Security\RateLimitPolicy::fromConfig($this->app->config())->snapshot(),
             'security' => ['admin_totp_required'=>$this->app->config()->get('security.require_admin_totp'), 'required_totp_roles'=>\Cajeer\Logs\Security\IdentityPolicy::fromConfig($this->app->config())->roles, 'required_totp_permissions'=>\Cajeer\Logs\Security\IdentityPolicy::fromConfig($this->app->config())->permissions, 'session_idle_seconds'=>$this->app->config()->get('security.session_idle_seconds'), 'reauth_seconds'=>$this->app->config()->get('security.reauth_seconds'), 'totp_key_ready'=>\Cajeer\Logs\Security\TwoFactorManager::keyValid($this->app->config()->get('security.totp_key')), 'metrics_protected'=>$this->app->config()->get('operations.metrics_token')!==''],

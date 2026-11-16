@@ -60,7 +60,7 @@ REQUIRED = {'release.json', 'core/bootstrap.php', 'bin/cajeer', 'public/index.ph
 # Runtime module graph is required even for an unstaged changed-files overlay.
 REQUIRED.update({
     'core/Operations/BackupVault.php', 'core/Operations/BackupOperations.php', 'tests/backup_operations.php', 'docs/Backup-Disaster-Recovery.md', 
-    'migrations/pgsql/0020_rate_limit_buckets.sql', 'core/Security/RateLimitPolicy.php', 'tests/rate_limit_database.php', 'docs/Rate-Limiting.md',
+    'migrations/pgsql/0021_retention_execution_history.sql', 'docs/Retention-Storage-Lifecycle.md', 'migrations/pgsql/0020_rate_limit_buckets.sql', 'core/Security/RateLimitPolicy.php', 'tests/rate_limit_database.php', 'docs/Rate-Limiting.md',
     'migrations/pgsql/0019_audit_accountability.sql', 'core/Audit/AuditLogger.php', 'tests/audit_database.php', 'docs/Audit-Log-Accountability.md',
     'migrations/pgsql/0015_authentication_sessions.sql',
     'migrations/pgsql/0016_saved_log_views.sql',

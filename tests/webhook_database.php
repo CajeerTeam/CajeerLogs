@@ -37,6 +37,6 @@ try {
     verify($outbox->retry($row['id'])&&$outbox->work(1,fn()=>204)['delivered']===1,'manual retry keeps history and delivers');
     verify($send('third',$raw)->status===201&&$outbox->disable($hook)&&$outbox->claim()===null,'disabled hook cancels pending notifications');
     verify($send('fourth',$raw)->status===201&&(int)$pdo->query('SELECT count(*) FROM webhook_deliveries')->fetchColumn()===3,'disabled hook creates no new notifications');
-    $pdo->exec("UPDATE webhook_deliveries SET completed_at=now()-interval '31 days'");verify($outbox->cleanup()===3&&(int)$pdo->query('SELECT count(*) FROM webhook_attempts')->fetchColumn()===0,'bounded retention cascades attempt history');
+    $pdo->exec("UPDATE webhook_deliveries SET completed_at=now()-interval '31 days'");verify($outbox->cleanup(60)===0,'configured retention preserves terminal deliveries');verify($outbox->cleanup()===3&&(int)$pdo->query('SELECT count(*) FROM webhook_attempts')->fetchColumn()===0,'bounded retention cascades attempt history');
     echo "Webhook database: $count checks passed\n";
 } finally { $db->exec('DROP SCHEMA "'.$schema.'" CASCADE');putenv('CAJEER_WEBHOOK_TEST'); }

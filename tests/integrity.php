@@ -42,6 +42,8 @@ check($plans['trace'][1]['trace_id']===$trace&&!str_contains($plans['trace'][0],
 check(!isset(PerformanceInspector::queries($p)['trace']),'trace plan optional');
 check(failure(fn()=>PerformanceInspector::queries('invalid')) instanceof Throwable,'invalid project UUID rejected');
 $sql=Retention::pruneSql();check(substr_count($sql,':limit')===1&&str_contains($sql,'UNION SELECT')&&str_contains($sql,'FOR UPDATE OF l SKIP LOCKED'),'retention has shared budget, deduplication and row fencing');
-check(str_contains($sql,'l.project_id=p.id')&&str_contains($sql,'l.source_id=s.id')&&substr_count($sql,'LIMIT (SELECT n FROM budget)')===3,'indexable bounded per-policy candidates');
+check(str_contains($sql,'l.project_id=p.id')&&str_contains($sql,'l.source_id=s.id')&&substr_count($sql,'LIMIT (SELECT n+1 FROM budget)')===3&&substr_count($sql,'LIMIT (SELECT n FROM budget)')===1,'indexable bounded per-policy candidates');
+check(Retention::windowOpen('',0)&&Retention::windowOpen('23:00-02:00',0)&&!Retention::windowOpen('23:00-02:00',7200)&&Retention::windowOpen('00:00-01:00',0),'UTC maintenance window and midnight boundary');
+check(failure(fn()=>Retention::windowOpen('12:00-12:00')) instanceof Throwable&&failure(fn()=>Retention::windowOpen('24:00-01:00')) instanceof Throwable,'invalid retention windows refused');
 $m=MigrationSql::parse(file_get_contents(dirname(__DIR__).'/migrations/pgsql/0012_database_integrity.sql'));check($m['mode']==='transactional'&&count($m['statements'])>=8,'integrity migration parses as atomic DDL');
 echo "Database integrity: $n checks passed\n";

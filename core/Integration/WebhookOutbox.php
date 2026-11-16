@@ -67,9 +67,10 @@ final class WebhookOutbox
             return $changed===1?$result:'unknown';
         }, maxAttempts: 3);
     }
-    public function cleanup(): int
+    public function cleanup(int $days=30): int
     {
-        return $this->pdo->exec("DELETE FROM webhook_deliveries WHERE id IN (SELECT id FROM webhook_deliveries WHERE status IN ('delivered','failed','cancelled') AND completed_at<now()-interval '30 days' ORDER BY completed_at LIMIT 10000 FOR UPDATE SKIP LOCKED)");
+        if ($days<1 || $days>3650) throw new \InvalidArgumentException('Invalid webhook retention.');
+        return $this->pdo->exec("DELETE FROM webhook_deliveries WHERE id IN (SELECT id FROM webhook_deliveries WHERE status IN ('delivered','failed','cancelled') AND completed_at<now()-interval '$days days' ORDER BY completed_at LIMIT 10000 FOR UPDATE SKIP LOCKED)");
     }
     /** A bounded batch for cron/systemd. Transport injection is used only by integration tests. */
     public function work(int $limit=20,?callable $transport=null): array

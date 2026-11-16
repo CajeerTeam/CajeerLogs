@@ -176,7 +176,8 @@ final class PostgresQueueDriver implements QueueDriverInterface
         foreach ($this->pdo->query("SELECT status,count(*) AS count FROM jobs WHERE queue='ingest-v1' GROUP BY status")->fetchAll() as $row) { $counts[$row['status']]=(int)$row['count']; }
         return $counts;
     }
-    public function cleanup(): int {
-        return (int)$this->pdo->exec("DELETE FROM jobs WHERE id IN (SELECT id FROM jobs WHERE queue='ingest-v1' AND status IN ('completed','cancelled') AND completed_at<statement_timestamp()-COALESCE(delivery_retention_seconds,604800)*interval '1 second' ORDER BY completed_at,id LIMIT 1000 FOR UPDATE SKIP LOCKED)");
+    public function cleanup(int $floor=0): int {
+        if ($floor<0 || $floor>31536000) throw new \InvalidArgumentException('Invalid queue retention floor.');
+        return (int)$this->pdo->exec("DELETE FROM jobs WHERE id IN (SELECT id FROM jobs WHERE queue='ingest-v1' AND status IN ('completed','cancelled') AND completed_at<statement_timestamp()-GREATEST(COALESCE(delivery_retention_seconds,604800),$floor)*interval '1 second' ORDER BY completed_at,id LIMIT 1000 FOR UPDATE SKIP LOCKED)");
     }
 }

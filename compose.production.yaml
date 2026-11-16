@@ -1,7 +1,7 @@
 # Run with --env-file .env.production. See docs/First-Public-Release.md.
 name: cajeerlogs
 x-runtime: &runtime
-  image: cajeerlogs:0.4.8
+  image: cajeerlogs:0.4.9
   build:
     context: .
     dockerfile: deploy/production/Dockerfile
@@ -27,6 +27,16 @@ x-runtime: &runtime
     API_RATE_EXPORT_PER_MINUTE: ${API_RATE_EXPORT_PER_MINUTE:-10}
     API_RATE_ADMIN_WRITE_PER_MINUTE: ${API_RATE_ADMIN_WRITE_PER_MINUTE:-60}
     API_RATE_BURST_PERCENT: ${API_RATE_BURST_PERCENT:-100}
+    RETENTION_SCHEDULER_ENABLED: ${RETENTION_SCHEDULER_ENABLED:-true}
+    RETENTION_WINDOW_UTC: ${RETENTION_WINDOW_UTC:-}
+    STORAGE_WARN_BYTES: ${STORAGE_WARN_BYTES:-1073741824}
+    RETENTION_BATCH_SIZE: ${RETENTION_BATCH_SIZE:-1000}
+    RETENTION_TIMEOUT_MS: ${RETENTION_TIMEOUT_MS:-5000}
+    RETENTION_CYCLE_BATCHES: ${RETENTION_CYCLE_BATCHES:-10}
+    RETENTION_CYCLE_BUDGET_MS: ${RETENTION_CYCLE_BUDGET_MS:-30000}
+    RETENTION_PAUSE_MS: ${RETENTION_PAUSE_MS:-100}
+    WEBHOOK_RETENTION_DAYS: ${WEBHOOK_RETENTION_DAYS:-30}
+    QUEUE_RETENTION_FLOOR_SECONDS: ${QUEUE_RETENTION_FLOOR_SECONDS:-0}
     SEARCH_TIMEOUT_MS: ${SEARCH_TIMEOUT_MS:-5000}
     INGEST_MAX_INFLIGHT: ${INGEST_MAX_INFLIGHT:-16}
     INGEST_BUDGET_MS: ${INGEST_BUDGET_MS:-25000}
@@ -126,7 +136,7 @@ services:
       app:
         condition: service_healthy
   gateway:
-    image: cajeerlogs-gateway:0.4.8
+    image: cajeerlogs-gateway:0.4.9
     build:
       context: .
       dockerfile: deploy/production/Dockerfile

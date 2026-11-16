@@ -2,6 +2,10 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.4.9 — Retention & Storage Lifecycle
+
+Read-only preview, ограниченные транзакции, история выполнения, Prometheus и политики служебных данных. Миграция 0021. [Retention & Storage Lifecycle](docs/Retention-Storage-Lifecycle.md). Public Preview до CI.
+
 ## 0.4.8 — Backup & Disaster Recovery
 
 Плановые PostgreSQL backup, аутентифицированные шифрованные offsite-копии, импорт, проверяемое восстановление и безопасная ротация локальных архивов. Без новых миграций. [Backup & Disaster Recovery](docs/Backup-Disaster-Recovery.md). Public Preview до CI.
