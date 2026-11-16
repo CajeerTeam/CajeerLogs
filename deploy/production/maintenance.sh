@@ -3,8 +3,9 @@
 set -eu
 case "${1:-}" in
   scheduler) shift; set -- scheduler:run; delay=30 ;;
+  backup) shift; set -- backup:run; delay=900 ;;
   webhook) shift; set -- webhook:work 20; delay=5 ;;
-  *) echo 'Usage: cajeer-maintenance scheduler|webhook' >&2; exit 64 ;;
+  *) echo 'Usage: cajeer-maintenance scheduler|webhook|backup' >&2; exit 64 ;;
 esac
 child=
 stop() { if [ -n "$child" ]; then kill -TERM "$child" 2>/dev/null || :; wait "$child" 2>/dev/null || :; fi; exit 0; }

@@ -68,10 +68,10 @@ def main():
             compose('up','-d','--wait','--wait-timeout','180')
             for _ in range(60):
                 try:
-                    data,_=http('GET','/ready'); assert data['version']=='0.4.7' and data['status']=='ok'; break
+                    data,_=http('GET','/ready'); assert data['version']=='0.4.8' and data['status']=='ok'; break
                 except (OSError, AssertionError, urllib.error.URLError): time.sleep(1)
             else: raise AssertionError('HTTPS readiness did not become healthy')
-            panel,h=http('GET','/admin/'); assert b'0.4.7' in panel and 'frame-ancestors' in h['Content-Security-Policy']
+            panel,h=http('GET','/admin/'); assert b'0.4.8' in panel and 'frame-ancestors' in h['Content-Security-Policy']
             assert b'app/router.js' in http('GET','/admin/assets/panel.js')[0]
             assert b'createApiClient' in http('GET','/admin/assets/api/client.js')[0]
             http('GET','/.env',expected=404)
@@ -117,10 +117,13 @@ def main():
             d,_=http('GET',f'/api/v1/logs/{eventid}?project_id={pid}',headers=bearer); assert d['data']['context']['password']=='[redacted]'
             csv,_=http('GET','/api/v1/logs/export?'+query+'&format=csv',headers=bearer); assert eventid.encode() in csv
             print('PASS real TOTP, recovery, token, synchronous and async ingest, worker, search and export',flush=True)
-            m=json.loads(cli('backup:create')); assert m['bytes']>0
+            scheduled=json.loads(cli('backup:run')); assert scheduled['status']=='completed' and scheduled['offsite'] is None
+            m=scheduled['backup']; assert m['bytes']>0
+            assert json.loads(cli('backup:run'))['status']=='not_due'
             assert json.loads(cli('backup:verify',m['id']))['sha256']==m['sha256']
             compose('exec','-T','db','psql','-U','postgres','-d','postgres','-v','ON_ERROR_STOP=1','-c','CREATE DATABASE cajeer_restore_smoke OWNER cajeer_logs')
-            restored=json.loads(cli('backup:restore',m['id'],'cajeer_restore_smoke')); assert restored['api_tokens_revoked'] and restored['integrity_verified']
+            restored=json.loads(cli('backup:rehearse',m['id'],'cajeer_restore_smoke')); assert restored['api_tokens_revoked'] and restored['integrity_verified']
+            history=json.loads(cli('backup:history')); assert history['state']['last_restore_id']==m['id'] and history['state']['last_success_id']==m['id']
             # Independent target connection: check actual restored events, credentials and source isolation.
             proof=compose('exec','-T','-e','DB_DATABASE=cajeer_restore_smoke','app','php','-r',
                 '$a=require "core/bootstrap.php"; $a->boot(); $p=$a->container()->get(PDO::class); echo json_encode([$p->query("SELECT count(*) FROM log_events")->fetchColumn(),$p->query("SELECT count(*) FROM api_tokens WHERE revoked_at IS NULL")->fetchColumn()]);',capture=True)

@@ -1,10 +1,10 @@
-import { levels, state, render, hasPermission } from '../app/store.js?v=0.4.7';
-import { h, button, card, empty, date, heading, needProject, table, field, select, input, form, checkbox, message } from '../components/ui.js?v=0.4.7';
-import { projectSelector } from '../app/projects.js?v=0.4.7';
-import { navigate } from '../app/routes.js?v=0.4.7';
-import { logTable } from '../components/log-table.js?v=0.4.7';
-import { get, request } from '../api/client.js?v=0.4.7';
-import { rangeFor, previousRange, denseBuckets, sourceHealth, delta, explorerFilters, utcInput, errorLevels } from '../app/analytics.js?v=0.4.7';
+import { levels, state, render, hasPermission } from '../app/store.js?v=0.4.8';
+import { h, button, card, empty, date, heading, needProject, table, field, select, input, form, checkbox, message } from '../components/ui.js?v=0.4.8';
+import { projectSelector } from '../app/projects.js?v=0.4.8';
+import { navigate } from '../app/routes.js?v=0.4.8';
+import { logTable } from '../components/log-table.js?v=0.4.8';
+import { get, request } from '../api/client.js?v=0.4.8';
+import { rangeFor, previousRange, denseBuckets, sourceHealth, delta, explorerFilters, utcInput, errorLevels } from '../app/analytics.js?v=0.4.8';
 
 const format = n => Number(n).toLocaleString('ru-RU',{maximumFractionDigits:2});
 const labels = {'15m':'15 минут','1h':'1 час','6h':'6 часов','24h':'24 часа','7d':'7 дней','30d':'30 дней','custom':'Свой период'};

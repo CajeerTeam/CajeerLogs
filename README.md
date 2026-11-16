@@ -2,9 +2,13 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.4.8 — Backup & Disaster Recovery
+
+Плановые PostgreSQL backup, аутентифицированные шифрованные offsite-копии, импорт, проверяемое восстановление и безопасная ротация локальных архивов. Без новых миграций. [Backup & Disaster Recovery](docs/Backup-Disaster-Recovery.md). Public Preview до CI.
+
 ## 0.4.7 — Secure Installer
 
-Защищённые файловые секреты, строгие права конфигурации, read-only preflight и проверка резервной копии перед обновлением. Без новых миграций. [Secure Installer](docs/Secure-Installer.md). Public Preview до CI.
+Защищённые файловые секреты, строгие права конфигурации, read-only preflight и проверка резервной копии перед обновлением. Без новых миграций. [Secure Installer](docs/Secure-Installer.md).
 
 ## 0.4.6 — HTTPS & Deployment Security
 

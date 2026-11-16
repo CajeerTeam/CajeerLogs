@@ -19,8 +19,8 @@
     "ext-sodium": "*"
   },
   "suggest": {
-    "ext-pdo_mysql": "Future support; not implemented in 0.4.7",
-    "ext-pdo_sqlite": "Future support; not implemented in 0.4.7",
+    "ext-pdo_mysql": "Future support; not implemented in 0.4.8",
+    "ext-pdo_sqlite": "Future support; not implemented in 0.4.8",
     "ext-redis": "Reserved for future optional Redis support",
     "ext-curl": "Required for outgoing webhook worker; future ClickHouse and OTLP support",
     "ext-pcntl": "Required for continuous queue worker signal handling"

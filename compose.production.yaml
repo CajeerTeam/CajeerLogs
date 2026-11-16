@@ -1,12 +1,12 @@
 # Run with --env-file .env.production. See docs/First-Public-Release.md.
 name: cajeerlogs
 x-runtime: &runtime
-  image: cajeerlogs:0.4.7
+  image: cajeerlogs:0.4.8
   build:
     context: .
     dockerfile: deploy/production/Dockerfile
     target: app
-  environment:
+  environment: &runtime-env
     CAJEER_ENV_FILE: /config/.env
     APP_ENV: production
     APP_DEBUG: 'false'
@@ -103,6 +103,19 @@ services:
     depends_on:
       app:
         condition: service_healthy
+  backup:
+    <<: *runtime
+    profiles: [backup]
+    command: [cajeer-maintenance, backup]
+    environment:
+      <<: *runtime-env
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+      BACKUP_TIMEOUT_SECONDS: ${BACKUP_TIMEOUT_SECONDS:-3600}
+      BACKUP_MIN_FREE_BYTES: ${BACKUP_MIN_FREE_BYTES:-104857600}
+    stop_grace_period: 90s
+    depends_on:
+      app:
+        condition: service_healthy
   webhook:
     <<: *runtime
     command: [cajeer-maintenance, webhook]
@@ -113,7 +126,7 @@ services:
       app:
         condition: service_healthy
   gateway:
-    image: cajeerlogs-gateway:0.4.7
+    image: cajeerlogs-gateway:0.4.8
     build:
       context: .
       dockerfile: deploy/production/Dockerfile

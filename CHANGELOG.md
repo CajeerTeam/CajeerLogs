@@ -2,6 +2,11 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## 0.4.8 — Backup & Disaster Recovery
+- Bounded PostgreSQL client processes, disk-space preflight and durable local publication.
+- Encrypted authenticated streaming offsite copies, verified import, scheduled backup with retry and history, explicit safe pruning and restore rehearsal.
+- Exact archive certification includes backup tests and upgrade from 0.4.7; no database migration.
+
 ## 0.4.7 — Secure Installer
 - Private file and lock validation, atomic durable configuration publishing, file-backed runtime and migration secrets.
 - Read-only installation dry run, verified backup and schema upgrade preflight, existing encryption key validation.

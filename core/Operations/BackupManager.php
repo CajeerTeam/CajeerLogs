@@ -13,21 +13,21 @@ use Cajeer\Logs\Database\{IntegrityInspector,RestoreFence};
 final class BackupManager
 {
     public function __construct(private readonly Application $app) {}
-    private function root(bool $create=true): string
+    public function root(bool $create=true): string
     {
         $path=$this->app->config()->get('operations.backup_dir');
         if ($path==='') { $path=$this->app->basePath('storage/backups/private'); }
         if (!is_string($path) || !str_starts_with($path,'/') || str_contains($path,"\0") || is_link($path)) { throw new DatabaseException('Backup directory must be an absolute private directory.'); }
         if (!is_dir($path) && (!$create || !mkdir($path,0700,true))) { throw new DatabaseException('Cannot create backup directory.'); }
         $real=realpath($path); $public=realpath($this->app->basePath('public'));
-        if ($real===false || $real==='/' || ($public!==false && ($real===$public || str_starts_with($real,$public.'/'))) || (fileperms($real)&0077)!==0 || !is_writable($real)) { throw new DatabaseException('Backup directory must be private (0700), writable and outside public/.'); }
+        if ($real===false || $real!==rtrim($path,'/') || $real==='/' || ($public!==false && ($real===$public || str_starts_with($real,$public.'/'))) || (fileperms($real)&0077)!==0 || !\Cajeer\Logs\Installer\SecureFile::directory($real)) { throw new DatabaseException('Backup directory must be private (0700), writable and outside public/.'); }
         return $real;
     }
-    private function location(string $id): string
+    public function location(string $id): string
     {
         if (!preg_match('/^backup-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{16}$/D',$id)) { throw new DatabaseException('Invalid backup ID.'); }
         $path=$this->root(false).'/'.$id;
-        if (!is_dir($path) || is_link($path) || (fileperms($path)&0077)!==0) { throw new DatabaseException('Backup directory missing or unsafe.'); }
+        if (!\Cajeer\Logs\Installer\SecureFile::directory($path) || (fileperms($path)&0077)!==0) { throw new DatabaseException('Backup directory missing or unsafe.'); }
         return $path;
     }
     private function env(string $database): array
@@ -44,15 +44,29 @@ final class BackupManager
         if (!is_string($bin)||!str_starts_with($bin,'/')||!is_file($bin)||!is_executable($bin)) { throw new DatabaseException('Missing PostgreSQL client executable: '.$tool); }
         $process=proc_open([$bin,...$args],[0=>['file','/dev/null','r'],1=>['file','/dev/null','w'],2=>['file','/dev/null','w']],$pipes,null,$this->env($database),['bypass_shell'=>true]);
         if (!is_resource($process)) { throw new DatabaseException('Cannot start PostgreSQL client.'); }
-        if (proc_close($process)!==0) { throw new DatabaseException($tool.' failed; check client version, permissions, disk space and PostgreSQL logs.'); }
+        $deadline=hrtime(true)+(int)$this->app->config()->get('operations.backup_timeout_seconds')*1000000000;
+        $exit=-1;
+        try {
+            do {
+                $status=proc_get_status($process);
+                if (!$status['running']) { $exit=$status['exitcode']; break; }
+                if (hrtime(true)>=$deadline) {
+                    proc_terminate($process); usleep(200000);
+                    if (proc_get_status($process)['running']) proc_terminate($process,9);
+                    throw new DatabaseException($tool.' exceeded backup process timeout.');
+                }
+                usleep(50000);
+            } while (true);
+        } finally { $closed=proc_close($process); }
+        if (($exit===-1?$closed:$exit)!==0) { throw new DatabaseException($tool.' failed; check client version, permissions, disk space and PostgreSQL logs.'); }
     }
     private function regular(string $path): void
     {
-        if (!is_file($path)||is_link($path)||!is_readable($path)||(fileperms($path)&0077)!==0) { throw new DatabaseException('Backup file missing or unsafe.'); }
+        if (!\Cajeer\Logs\Installer\SecureFile::privateFile($path)||!is_readable($path)) { throw new DatabaseException('Backup file missing or unsafe.'); }
     }
     public function create(): array
     {
-        $root=$this->root(); $id='backup-'.gmdate('Ymd\THis\Z').'-'.bin2hex(random_bytes(8)); $temp=$root.'/.'.$id.'.partial';
+        $root=$this->root(); $free=disk_free_space($root); if ($free===false || $free<(int)$this->app->config()->get('operations.backup_min_free_bytes')) throw new DatabaseException('Insufficient free space for backup.'); $id='backup-'.gmdate('Ymd\THis\Z').'-'.bin2hex(random_bytes(8)); $temp=$root.'/.'.$id.'.partial';
         if (!mkdir($temp,0700)) { throw new DatabaseException('Cannot create temporary backup.'); }
         $guard=null;
         try {
@@ -70,16 +84,23 @@ final class BackupManager
             $file=$temp.'/manifest.json'; $json=json_encode($meta,JSON_THROW_ON_ERROR|JSON_PRETTY_PRINT)."\n";
             if (file_put_contents($file,$json)!==strlen($json)||!chmod($file,0600)) { throw new DatabaseException('Cannot write backup manifest.'); }
             $handle=fopen($file,'r+b'); if ($handle===false) { throw new DatabaseException('Cannot synchronize manifest.'); } try { if (!fsync($handle)) { throw new DatabaseException('Cannot synchronize manifest.'); } } finally { fclose($handle); }
+            self::syncDirectory($temp);
             if (!rename($temp,$root.'/'.$id)) { throw new DatabaseException('Cannot publish backup.'); }
+            self::syncDirectory($root);
             return $meta;
         } finally {
             $guard?->release();
             if (is_dir($temp)) { foreach (['database.dump','manifest.json'] as $file) { if (is_file($temp.'/'.$file)) { unlink($temp.'/'.$file); } } rmdir($temp); }
         }
     }
-    public function verify(string $id): array
+    public static function syncDirectory(string $path): void
     {
-        $path=$this->location($id); $manifest=$path.'/manifest.json'; $archive=$path.'/database.dump'; $this->regular($manifest); $this->regular($archive);
+        $f=@fopen($path,'r'); if ($f===false) throw new DatabaseException('Cannot open backup directory for synchronization.');
+        try { if (!fsync($f)) throw new DatabaseException('Cannot synchronize backup directory.'); } finally { fclose($f); }
+    }
+    public function verify(string $id): array { return $this->verifyDirectory($this->location($id),$id); }
+    public function verifyDirectory(string $path,string $id): array
+    { $manifest=$path.'/manifest.json'; $archive=$path.'/database.dump'; $this->regular($manifest); $this->regular($archive);
         if (filesize($manifest)>16384) { throw new DatabaseException('Invalid backup manifest.'); }
         $m=json_decode(file_get_contents($manifest),true,8,JSON_THROW_ON_ERROR); clearstatcache(true,$archive);
         if (!is_array($m)||($m['format']??null)!==1||($m['id']??null)!==$id||!is_int($m['bytes']??null)||$m['bytes']!==filesize($archive)||!is_string($m['sha256']??null)||!hash_equals($m['sha256'],hash_file('sha256',$archive))||!is_string($m['schema']??null)||!preg_match('/^[a-z_][a-z0-9_]{0,62}$/D',$m['schema'])) { throw new DatabaseException('Backup checksum or manifest mismatch.'); }
@@ -89,16 +110,16 @@ final class BackupManager
     /** Explicit supported release histories, no acceptance of unknown versions. */
     public static function compatibleRelease(mixed $backup, string $current): bool
     {
-        $versions=['0.0.9','0.1.0','0.1.1','0.1.2','0.1.3','0.1.4','0.1.5','0.1.6','0.1.7','0.1.8','0.1.9','0.2.0','0.2.1','0.2.2','0.2.3','0.2.4','0.2.5','0.2.6','0.2.7','0.2.8','0.2.9','0.3.0','0.3.1','0.3.2','0.3.3','0.3.4','0.3.5','0.3.6','0.3.7','0.3.8','0.3.9','0.4.0','0.4.1','0.4.2','0.4.3','0.4.4','0.4.5','0.4.6','0.4.7'];
+        $versions=['0.0.9','0.1.0','0.1.1','0.1.2','0.1.3','0.1.4','0.1.5','0.1.6','0.1.7','0.1.8','0.1.9','0.2.0','0.2.1','0.2.2','0.2.3','0.2.4','0.2.5','0.2.6','0.2.7','0.2.8','0.2.9','0.3.0','0.3.1','0.3.2','0.3.3','0.3.4','0.3.5','0.3.6','0.3.7','0.3.8','0.3.9','0.4.0','0.4.1','0.4.2','0.4.3','0.4.4','0.4.5','0.4.6','0.4.7','0.4.8'];
         $from=array_search($backup,$versions,true); $to=array_search($current,$versions,true);
         return $from!==false && $to!==false && $from<=$to;
     }
 
     public static function expectedPending(string $version): array
     {
-        if (!self::compatibleRelease($version,'0.4.7')) throw new DatabaseException('Unsupported backup release.');
+        if (!self::compatibleRelease($version,'0.4.8')) throw new DatabaseException('Unsupported backup release.');
         $migrations=['0009_project_management.sql','0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql','0013_ingest_signing.sql','0014_delivery_idempotency.sql','0015_authentication_sessions.sql','0016_saved_log_views.sql','0017_rbac_roles_permissions.sql','0018_identity_security.sql','0019_audit_accountability.sql','0020_rate_limit_buckets.sql'];
-        return array_slice($migrations,match($version) {'0.4.5','0.4.6','0.4.7'=>12,'0.4.4'=>11,'0.4.3'=>10,'0.4.2'=>9,'0.3.5','0.3.6','0.3.7','0.3.8','0.3.9','0.4.0','0.4.1'=>8,'0.3.4','0.3.3','0.3.2'=>7,'0.3.1','0.3.0','0.2.9','0.2.8','0.2.7'=>6,'0.2.6','0.2.5'=>5,'0.2.4','0.2.3','0.2.2','0.2.1','0.2.0','0.1.9'=>4,'0.1.8'=>3,'0.1.7'=>2,'0.1.6'=>1,default=>0});
+        return array_slice($migrations,match($version) {'0.4.5','0.4.6','0.4.7','0.4.8'=>12,'0.4.4'=>11,'0.4.3'=>10,'0.4.2'=>9,'0.3.5','0.3.6','0.3.7','0.3.8','0.3.9','0.4.0','0.4.1'=>8,'0.3.4','0.3.3','0.3.2'=>7,'0.3.1','0.3.0','0.2.9','0.2.8','0.2.7'=>6,'0.2.6','0.2.5'=>5,'0.2.4','0.2.3','0.2.2','0.2.1','0.2.0','0.1.9'=>4,'0.1.8'=>3,'0.1.7'=>2,'0.1.6'=>1,default=>0});
     }
     public function restore(string $id,string $target): array
     {

@@ -13,16 +13,26 @@ final class OperationsCommand
     {
         $backup=new BackupManager($this->app);
         $n=count($args);
-        $result=match($command) {
+        $ops=new \Cajeer\Logs\Operations\BackupOperations($this->app);
+        $execute=fn()=>match($command) {
             'audit:verify'=>$this->verifyAudit($args),
-            'backup:create'=>$n===0?$backup->create():throw new DatabaseException('Usage: backup:create'),
+            'backup:run'=>$n===0?$ops->run():throw new DatabaseException('Usage: backup:run'),
+            'backup:history'=>$n===0?$ops->history():throw new DatabaseException('Usage: backup:history'),
+            'backup:replicate'=>$n===1?$ops->record('replicate',fn()=>$ops->replicate($args[0])):throw new DatabaseException('Usage: backup:replicate ID'),
+            'backup:offsite-list'=>$n===0?$ops->offsiteList():throw new DatabaseException('Usage: backup:offsite-list'),
+            'backup:offsite-verify'=>$n===1?$ops->offsiteVerify($args[0]):throw new DatabaseException('Usage: backup:offsite-verify ID'),
+            'backup:fetch'=>$n===1?$ops->record('fetch',fn()=>$ops->fetch($args[0])):throw new DatabaseException('Usage: backup:fetch ID'),
+            'backup:rehearse'=>$n===2?$ops->rehearse($args[0],$args[1]):throw new DatabaseException('Usage: backup:rehearse ID EMPTY_DB'),
+            'backup:prune'=>$n===0||$args===['--confirm']?($n===1?$ops->record('prune',fn()=>$ops->prune(true)):$ops->prune(false)):throw new DatabaseException('Usage: backup:prune [--confirm]'),
+            'backup:create'=>$n===0?$ops->record('manual_backup',fn()=>$backup->create()):throw new DatabaseException('Usage: backup:create'),
             'backup:list'=>$n===0?$backup->list():throw new DatabaseException('Usage: backup:list'),
             'backup:verify'=>$n===1?$backup->verify($args[0]):throw new DatabaseException('Usage: backup:verify BACKUP_ID'),
-            'backup:restore'=>$n===2?$backup->restore($args[0],$args[1]):throw new DatabaseException('Usage: backup:restore BACKUP_ID EMPTY_TARGET_DATABASE'),
+            'backup:restore'=>$n===2?$ops->record('manual_restore',fn()=>$backup->restore($args[0],$args[1])):throw new DatabaseException('Usage: backup:restore BACKUP_ID EMPTY_TARGET_DATABASE'),
             'auth:2fa-reset'=>$n===2 && $args[1]==='--confirm'?$this->reset($args[0]):throw new DatabaseException('Usage: auth:2fa-reset EMAIL --confirm'),
             'update:check'=>$n===1?$this->update($args[0]):throw new DatabaseException('Usage: update:check TRUSTED_RELEASE_JSON'),
             default=>throw new DatabaseException('Unknown operations command.'),
         };
+        $result=str_starts_with($command,'backup:')?$ops->locked($execute,!in_array($command,['backup:verify','backup:restore','backup:rehearse','backup:replicate','backup:prune'],true)):$execute();
         echo json_encode($result,JSON_THROW_ON_ERROR|JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES).PHP_EOL;
         return $command==='audit:verify' && !$result['valid'] ? 1 : 0;
     }

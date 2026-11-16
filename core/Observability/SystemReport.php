@@ -18,6 +18,7 @@ final class SystemReport
             try { $queue=$this->app->container()->get(\Cajeer\Logs\Queue\PostgresQueueDriver::class)->counts(); } catch (\Throwable) {}
         }
         try { if ($db['status']==='ok') { $operations=(new OperationsMetrics($this->app))->snapshot(); } } catch (\Throwable) {}
+        $backup=null; try { $backup=(new \Cajeer\Logs\Operations\BackupOperations($this->app))->status(); } catch (\Throwable) {}
         return [
             'service' => $this->app->config()->get('app.name'),
             'version' => $this->app->version(),
@@ -34,6 +35,7 @@ final class SystemReport
             'database' => $db,
             'queue' => $queue,
             'operations' => $operations,
+            'backup' => $backup,
             'log_repository_metrics_local' => \Cajeer\Logs\Log\LogRepository::metrics(),
             'transaction_metrics_local' => \Cajeer\Logs\Database\TransactionManager::metrics(),
             'storage_free_bytes' => is_dir($this->app->basePath('storage')) ? (disk_free_space($this->app->basePath('storage')) ?: null) : null,
