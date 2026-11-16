@@ -1,0 +1,55 @@
+rule_files: [alerts.yml]
+evaluation_interval: 30s
+tests:
+  - interval: 30s
+    input_series:
+      - series: 'cajeerlogs_worker_healthy{job="cajeerlogs",instance="logs.example:443",role="queue"}'
+        values: '0+0x20'
+      - series: 'cajeerlogs_worker_expected{job="cajeerlogs",instance="logs.example:443",role="queue"}'
+        values: '1+0x20'
+      - series: 'cajeerlogs_worker_healthy{job="cajeerlogs",instance="logs.example:443",role="backup"}'
+        values: '0+0x20'
+      - series: 'cajeerlogs_worker_expected{job="cajeerlogs",instance="logs.example:443",role="backup"}'
+        values: '0+0x20'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: CajeerLogsWorkerStale
+        exp_alerts:
+          - exp_labels: {job: cajeerlogs, instance: 'logs.example:443', role: queue, severity: warning}
+            exp_annotations: {summary: 'Worker has not made successful progress: queue'}
+  - interval: 30s
+    input_series:
+      - series: 'cajeerlogs_retention_last_run_timestamp_seconds{job="cajeerlogs",instance="logs.example:443"}'
+        values: '0+0x20'
+      - series: 'cajeerlogs_retention_scheduler_enabled{job="cajeerlogs",instance="logs.example:443"}'
+        values: '1+0x20'
+      - series: 'cajeerlogs_retention_window_open{job="cajeerlogs",instance="logs.example:443"}'
+        values: '0+0x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: CajeerLogsRetentionOverdue
+        exp_alerts: []
+  - interval: 30s
+    input_series:
+      - series: 'cajeerlogs_backup_last_success_timestamp_seconds{job="cajeerlogs",instance="logs.example:443"}'
+        values: '0+0x30'
+      - series: 'cajeerlogs_worker_expected{job="cajeerlogs",instance="logs.example:443",role="backup"}'
+        values: '1+0x30'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: CajeerLogsBackupOverdue
+        exp_alerts:
+          - exp_labels: {job: cajeerlogs, instance: 'logs.example:443', severity: critical}
+            exp_annotations: {summary: 'Scheduled backup missing, stale or unavailable'}
+  - interval: 30s
+    input_series:
+      - series: 'probe_success{job="cajeerlogs-ready",instance="https://logs.example/ready"}'
+        values: '0+0x10'
+      - series: 'up{job="cajeerlogs-ready",instance="https://logs.example/ready"}'
+        values: '1+0x10'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: CajeerLogsDatabaseNotReady
+        exp_alerts:
+          - exp_labels: {job: cajeerlogs-ready, instance: 'https://logs.example/ready', severity: critical}
+            exp_annotations: {summary: 'CajeerLogs readiness failed'}

@@ -1,0 +1,45 @@
+# Run prepare.py first; use an absolute, private MONITOR_CONFIG_DIR.
+name: cajeerlogs-monitoring
+services:
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command: [--config.file=/etc/cajeer/prometheus.json, --storage.tsdb.path=/prometheus, --storage.tsdb.retention.time=30d]
+    volumes:
+      - ${MONITOR_CONFIG_DIR:?Prepare monitoring config}:/etc/cajeer:ro
+      - prometheus-data:/prometheus
+    ports: ['127.0.0.1:9090:9090']
+    restart: unless-stopped
+  blackbox:
+    image: prom/blackbox-exporter:v0.27.0
+    command: [--config.file=/etc/cajeer/blackbox.json]
+    volumes:
+      - ${MONITOR_CONFIG_DIR:?Prepare monitoring config}:/etc/cajeer:ro
+    restart: unless-stopped
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    command: [--config.file=/etc/cajeer/alertmanager.json, --storage.path=/alertmanager]
+    volumes:
+      - ${MONITOR_CONFIG_DIR:?Prepare monitoring config}:/etc/cajeer:ro
+      - alertmanager-data:/alertmanager
+    ports: ['127.0.0.1:9093:9093']
+    restart: unless-stopped
+  grafana:
+    image: grafana/grafana:12.1.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_password
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_AUTH_ANONYMOUS_ENABLED: 'false'
+    secrets: [grafana_password]
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/cajeer-dashboards:ro
+    ports: ['127.0.0.1:3000:3000']
+    restart: unless-stopped
+secrets:
+  grafana_password:
+    file: ${MONITOR_GRAFANA_PASSWORD_FILE:?Set grafana password file}
+volumes:
+  prometheus-data: {}
+  alertmanager-data: {}
+  grafana-data: {}

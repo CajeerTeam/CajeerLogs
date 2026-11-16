@@ -1,0 +1,277 @@
+{
+  "uid": "cajeer-operations",
+  "title": "CajeerLogs Operations",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Runtime / readiness",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cajeer-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "cajeerlogs_up or cajeerlogs_ready",
+          "refId": "A",
+          "legendFormat": "{{role}} {{mode}} {{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Worker progress",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cajeer-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "cajeerlogs_worker_healthy",
+          "refId": "A",
+          "legendFormat": "{{role}} {{mode}} {{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Queue pending age (s)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cajeer-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "cajeerlogs_queue_oldest_pending_seconds",
+          "refId": "A",
+          "legendFormat": "{{role}} {{mode}} {{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Ingest requests per second",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cajeer-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (mode) (rate(cajeerlogs_ingest_requests_total[5m]))",
+          "refId": "A",
+          "legendFormat": "{{role}} {{mode}} {{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Search p95 (s)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cajeer-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95,sum by (le,mode) (rate(cajeerlogs_search_duration_seconds_bucket[5m])))",
+          "refId": "A",
+          "legendFormat": "{{role}} {{mode}} {{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Rate-limit rejections",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cajeer-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (mode) (rate(cajeerlogs_identity_rejections_total{reason=\"rate_limited\"}[5m]))",
+          "refId": "A",
+          "legendFormat": "{{role}} {{mode}} {{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Backup age (s)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cajeer-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "(time() - cajeerlogs_backup_last_success_timestamp_seconds) and (cajeerlogs_backup_last_success_timestamp_seconds > 0)",
+          "refId": "A",
+          "legendFormat": "{{role}} {{mode}} {{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Retention removed",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cajeer-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "increase(cajeerlogs_retention_deleted_events_total[1h])",
+          "refId": "A",
+          "legendFormat": "{{role}} {{mode}} {{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "PostgreSQL connections",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cajeer-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "cajeerlogs_postgres_connections",
+          "refId": "A",
+          "legendFormat": "{{role}} {{mode}} {{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Storage free bytes",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cajeer-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 32,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "cajeerlogs_app_storage_free_bytes",
+          "refId": "A",
+          "legendFormat": "{{role}} {{mode}} {{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "Certificate days remaining",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cajeer-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "(probe_ssl_earliest_cert_expiry{job=\"cajeerlogs-health\"} - time()) / 86400",
+          "refId": "A",
+          "legendFormat": "{{role}} {{mode}} {{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "Webhook pending",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cajeer-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 40,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "cajeerlogs_webhook_pending",
+          "refId": "A",
+          "legendFormat": "{{role}} {{mode}} {{instance}}"
+        }
+      ]
+    }
+  ]
+}

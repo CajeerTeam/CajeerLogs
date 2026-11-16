@@ -2,6 +2,13 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## 0.4.10 — Health Checks & Prometheus
+
+- Separate bounded readiness/scrape PostgreSQL sessions; no-cache health responses.
+- Worker progress heartbeats, CLI health probes, backup freshness and explicit never-run scheduler metrics.
+- Optional authenticated HTTPS Prometheus, Blackbox Exporter, Alertmanager and Grafana stack; tested configuration and alert rules.
+- No schema changes; 0.4.9 backup/upgrade compatibility; public-preview until CI certification.
+
 ## 0.4.9 — Retention & Storage Lifecycle
 - Bounded scoped read-only preview, atomic batch history, cumulative deletion counter and configurable retention cycle.
 - Configurable terminal webhook retention and queue floor without shortening accepted delivery guarantees.

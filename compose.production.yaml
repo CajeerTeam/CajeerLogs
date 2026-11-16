@@ -1,7 +1,7 @@
 # Run with --env-file .env.production. See docs/First-Public-Release.md.
 name: cajeerlogs
 x-runtime: &runtime
-  image: cajeerlogs:0.4.9
+  image: cajeerlogs:0.4.10
   build:
     context: .
     dockerfile: deploy/production/Dockerfile
@@ -51,6 +51,7 @@ x-runtime: &runtime
     SECURITY_TOTP_ACTIVE_KEY: ${SECURITY_TOTP_ACTIVE_KEY:-}
     SECURITY_TOTP_PREVIOUS_KEY: ${SECURITY_TOTP_PREVIOUS_KEY:-}
     SECURITY_SESSION_TTL_SECONDS: ${SECURITY_SESSION_TTL_SECONDS:-28800}
+    MONITOR_BACKUP_ENABLED: ${MONITOR_BACKUP_ENABLED:-false}
     PROMETHEUS_TOKEN: ${PROMETHEUS_TOKEN:?Set PROMETHEUS_TOKEN}
   volumes:
     - config:/config:ro
@@ -94,7 +95,7 @@ services:
   app:
     <<: *runtime
     healthcheck:
-      test: [CMD, php, bin/cajeer, doctor]
+      test: [CMD, php, bin/cajeer, health:ready]
       interval: 15s
       timeout: 12s
       retries: 10
@@ -102,6 +103,12 @@ services:
   queue:
     <<: *runtime
     command: [php, bin/cajeer, 'queue:work']
+    healthcheck:
+      test: [CMD, php, bin/cajeer, health:worker, queue]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     stop_grace_period: 90s
     depends_on:
       app:
@@ -109,6 +116,12 @@ services:
   scheduler:
     <<: *runtime
     command: [cajeer-maintenance, scheduler]
+    healthcheck:
+      test: [CMD, php, bin/cajeer, health:worker, scheduler]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     stop_grace_period: 90s
     depends_on:
       app:
@@ -117,6 +130,12 @@ services:
     <<: *runtime
     profiles: [backup]
     command: [cajeer-maintenance, backup]
+    healthcheck:
+      test: [CMD, php, bin/cajeer, health:worker, backup]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 14400s
     environment:
       <<: *runtime-env
       BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
@@ -129,6 +148,12 @@ services:
   webhook:
     <<: *runtime
     command: [cajeer-maintenance, webhook]
+    healthcheck:
+      test: [CMD, php, bin/cajeer, health:worker, webhook]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     stop_grace_period: 360s
     # Separate egress network for outbound webhook HTTPS. No host port.
     networks: [backend, egress]
@@ -136,7 +161,7 @@ services:
       app:
         condition: service_healthy
   gateway:
-    image: cajeerlogs-gateway:0.4.9
+    image: cajeerlogs-gateway:0.4.10
     build:
       context: .
       dockerfile: deploy/production/Dockerfile

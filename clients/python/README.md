@@ -1,4 +1,4 @@
-# CajeerLogs Python SDK (0.4.9)
+# CajeerLogs Python SDK (0.4.10)
 
 Python 3.10+, без runtime-зависимостей. Из корня репозитория `python3 -m pip install ./clients/python` либо добавьте `clients/python` в PYTHONPATH. Для коллектора требуется Unix/Linux, SQLite и `fcntl`.
 

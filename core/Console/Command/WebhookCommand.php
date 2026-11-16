@@ -22,6 +22,7 @@ final class WebhookCommand
             default=>null,
         };
         if ($result===null) { fwrite(STDERR,"Invalid webhook arguments; see docs/SDK-Integrations.md.\n");return 64; }
+        if ($command==='webhook:work') (new \Cajeer\Logs\Observability\WorkerHeartbeat($this->app->basePath('storage/cache')))->record('webhook');
         echo json_encode($result,JSON_THROW_ON_ERROR|JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES).PHP_EOL;
         return ($result['changed']??true)===false?1:0;
     }

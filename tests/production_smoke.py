@@ -21,6 +21,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pipeline_scenario import exercise
+from monitoring_stack import monitoring_smoke
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -68,10 +69,10 @@ def main():
             compose('up','-d','--wait','--wait-timeout','180')
             for _ in range(60):
                 try:
-                    data,_=http('GET','/ready'); assert data['version']=='0.4.9' and data['status']=='ok'; break
+                    data,_=http('GET','/ready'); assert data['version']=='0.4.10' and data['status']=='ok'; break
                 except (OSError, AssertionError, urllib.error.URLError): time.sleep(1)
             else: raise AssertionError('HTTPS readiness did not become healthy')
-            panel,h=http('GET','/admin/'); assert b'0.4.9' in panel and 'frame-ancestors' in h['Content-Security-Policy']
+            panel,h=http('GET','/admin/'); assert b'0.4.10' in panel and 'frame-ancestors' in h['Content-Security-Policy']
             assert b'app/router.js' in http('GET','/admin/assets/panel.js')[0]
             assert b'createApiClient' in http('GET','/admin/assets/api/client.js')[0]
             http('GET','/.env',expected=404)
@@ -153,6 +154,22 @@ def main():
             assert json.loads(cli('db:verify'))['status']=='ok'
             assert json.loads(cli('db:performance'))['tables']
             assert json.loads(cli('db:explain',pid,'--analyze'))['plans']['latest']
+            # Actual Prometheus and Blackbox scrape this exact TLS deployment, then observe stopped processes.
+            with monitoring_smoke(url,metrics,tls/'fullchain.pem') as monitor:
+                compose('stop','queue')
+                monitor.expect('cajeerlogs_worker_healthy{role="queue"}',0,timeout=180)
+                monitor.expect('ALERTS{alertname="CajeerLogsWorkerStale",role="queue",alertstate="pending"}',1,timeout=30)
+                monitor.expect('cajeerlogs_ready',1)
+                monitor.expect('probe_success{job="cajeerlogs-health"}',1)
+                print('PASS queue stopped; actual Prometheus detects stale heartbeat without API outage',flush=True)
+                compose('stop','db')
+                monitor.expect('cajeerlogs_ready',0,timeout=90)
+                monitor.expect('probe_success{job="cajeerlogs-ready"}',0,timeout=90)
+                monitor.expect('probe_success{job="cajeerlogs-health"}',1)
+                http('GET','/health'); http('GET','/ready',expected=503)
+                monitor.expect('ALERTS{alertname="CajeerLogsDatabaseNotReady",job="cajeerlogs-ready",alertstate="firing"}',1,timeout=170)
+                print('PASS PostgreSQL stopped; real HTTPS liveness survives and readiness/metrics report outage',flush=True)
+
 
         except BaseException:
             compose('ps',check=False); compose('logs','--tail','80',check=False); raise

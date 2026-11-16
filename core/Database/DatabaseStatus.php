@@ -9,10 +9,10 @@ final class DatabaseStatus
 {
     public function __construct(private readonly Application $app) {}
 
-    public function check(bool $requireMigrations = true, bool $installing = false): array
+    public function check(bool $requireMigrations = true, bool $installing = false, ?PDO $probe = null): array
     {
         try {
-            $pdo = $this->app->container()->get(PDO::class);
+            $pdo = $probe ?? $this->app->container()->get(PDO::class);
             $factory = $this->app->container()->get(ConnectionFactory::class);
             $schema = $factory->schema();
             RestoreFence::assertAvailable($pdo);
@@ -26,7 +26,7 @@ final class DatabaseStatus
             $priv->execute(['schema' => $schema]);
             $canMigrate = (bool) $priv->fetchColumn();
             if (!$requireMigrations) { return ['status' => $canMigrate ? 'ok' : 'down', 'server_version' => $version, 'schema_create' => $canMigrate, 'separate_migration_role' => $migrationPdo !== $pdo]; }
-            $status = $this->app->container()->get(MigrationRunner::class)->status();
+            $status = ($probe===null?$this->app->container()->get(MigrationRunner::class):new MigrationRunner($pdo,$this->app->basePath('migrations/pgsql'),$schema))->status($probe===null);
             if ($status['pending'] !== [] || $status['integrity'] !== 'verified') { return ['status' => 'down', 'server_version' => $version, 'migrations' => $status]; }
             // Check every expected relation and its read/write privileges in one round trip.
             $relations = $pdo->prepare(<<<'SQL'

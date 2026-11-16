@@ -2,6 +2,10 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.4.10 — Health Checks & Prometheus
+
+Readiness с отдельным PostgreSQL probe, heartbeat фоновых процессов, метрики backup, TLS/HTTP probes и опциональный monitoring stack. [Prometheus](docs/Prometheus.md). Без новых миграций. Public Preview до CI.
+
 ## 0.4.9 — Retention & Storage Lifecycle
 
 Read-only preview, ограниченные транзакции, история выполнения, Prometheus и политики служебных данных. Миграция 0021. [Retention & Storage Lifecycle](docs/Retention-Storage-Lifecycle.md). Public Preview до CI.

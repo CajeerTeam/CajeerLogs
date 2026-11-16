@@ -1,0 +1,87 @@
+groups:
+  - name: cajeerlogs
+    rules:
+      - alert: CajeerLogsMetricsUnavailable
+        expr: up{job="cajeerlogs"} == 0 or absent(up{job="cajeerlogs"})
+        for: 2m
+        labels: {severity: critical}
+        annotations: {summary: 'CajeerLogs metrics scrape unavailable'}
+      - alert: CajeerLogsApplicationUnavailable
+        expr: probe_success{job="cajeerlogs-health"} == 0 or up{job="cajeerlogs-health"} == 0 or absent(up{job="cajeerlogs-health"})
+        for: 2m
+        labels: {severity: critical}
+        annotations: {summary: 'HTTPS liveness probe failed'}
+      - alert: CajeerLogsDatabaseNotReady
+        expr: probe_success{job="cajeerlogs-ready"} == 0 or up{job="cajeerlogs-ready"} == 0 or absent(up{job="cajeerlogs-ready"}) or cajeerlogs_ready == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations: {summary: 'CajeerLogs readiness failed'}
+      - alert: CajeerLogsWorkerStale
+        expr: (cajeerlogs_worker_healthy == 0) and on(job,instance,role) (cajeerlogs_worker_expected == 1)
+        for: 3m
+        labels: {severity: warning}
+        annotations: {summary: 'Worker has not made successful progress: {{ $labels.role }}'}
+      - alert: CajeerLogsQueueBacklog
+        expr: cajeerlogs_queue_oldest_pending_seconds > 300 or cajeerlogs_expired_leases > 0
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: 'Queue backlog or expired leases'}
+      - alert: CajeerLogsSchedulerOverdue
+        expr: (cajeerlogs_scheduler_last_success_timestamp_seconds{task!="retention"} == 0) or (cajeerlogs_scheduler_overdue_seconds{task!="retention"} > 300)
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: 'Scheduler task missing or overdue: {{ $labels.task }}'}
+      - alert: CajeerLogsRetentionOverdue
+        expr: ((cajeerlogs_retention_last_run_timestamp_seconds == 0) or (time() - cajeerlogs_retention_last_run_timestamp_seconds > 300) or (cajeerlogs_retention_last_run_success == 0)) and on(job,instance) (cajeerlogs_retention_scheduler_enabled == 1) and on(job,instance) (cajeerlogs_retention_window_open == 1)
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: 'Retention not making successful progress in the maintenance window'}
+      - alert: CajeerLogsRetentionBacklog
+        expr: cajeerlogs_retention_backlog_lower_bound > 0 and on(job,instance) (cajeerlogs_retention_window_open == 1) and on(job,instance) (cajeerlogs_retention_scheduler_enabled == 1)
+        for: 30m
+        labels: {severity: warning}
+        annotations: {summary: 'Retention backlog persists'}
+      - alert: CajeerLogsBackupOverdue
+        expr: ((cajeerlogs_backup_last_success_timestamp_seconds == 0) or (time() - cajeerlogs_backup_last_success_timestamp_seconds > cajeerlogs_backup_interval_seconds + 1800) or (cajeerlogs_backup_status_available == 0)) and on(job,instance) (cajeerlogs_worker_expected{role="backup"} == 1)
+        for: 10m
+        labels: {severity: critical}
+        annotations: {summary: 'Scheduled backup missing, stale or unavailable'}
+      - alert: CajeerLogsBackupReplicationPending
+        expr: cajeerlogs_backup_replication_pending == 1
+        for: 30m
+        labels: {severity: warning}
+        annotations: {summary: 'Backup replication pending'}
+      - alert: CajeerLogsRestoreVerificationOverdue
+        expr: ((cajeerlogs_restore_last_success_timestamp_seconds == 0) or (time() - cajeerlogs_restore_last_success_timestamp_seconds > 604800)) and on(job,instance) (cajeerlogs_worker_expected{role="backup"} == 1)
+        for: 10m
+        labels: {severity: warning}
+        annotations: {summary: 'Restore rehearsal missing or older than seven days'}
+      - alert: CajeerLogsDiskSpaceCritical
+        expr: cajeerlogs_app_storage_low_space == 1
+        for: 5m
+        labels: {severity: critical}
+        annotations: {summary: 'Application storage below configured free space threshold'}
+      - alert: CajeerLogsCertificateExpiring
+        expr: probe_ssl_earliest_cert_expiry{job="cajeerlogs-health"} - time() < 1209600
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: 'HTTPS certificate expires within 14 days'}
+      - alert: CajeerLogsAuthenticationAttack
+        expr: sum by(job,instance) (rate(cajeerlogs_identity_rejections_total{mode="login",reason=~"unauthorized|rate_limited"}[5m])) > 1
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: 'Elevated login rejections'}
+      - alert: CajeerLogsAuditWriteFailure
+        expr: increase(cajeerlogs_audit_write_failures_total[5m]) > 0
+        labels: {severity: critical}
+        annotations: {summary: 'Audit write failure detected'}
+      - alert: CajeerLogsAuditMetricsUnavailable
+        expr: cajeerlogs_audit_metrics_available == 0
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: 'Audit failure counter unavailable'}
+      - alert: CajeerLogsOperationsUnavailable
+        expr: cajeerlogs_operations_available == 0
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: 'PostgreSQL operations metrics unavailable'}

@@ -148,6 +148,7 @@ final class Application
         $config->set('api.rate_limit', $rate);
         \Cajeer\Logs\Security\RateLimitPolicy::fromConfig($config);
         new \Cajeer\Logs\Security\DeploymentSecurity($config);
+        if (!is_bool($config->get('observability.monitor_backup'))) throw new \RuntimeException('Invalid MONITOR_BACKUP_ENABLED.');
         foreach (['security.session_ttl_seconds'=>[300,604800], 'security.session_idle_seconds'=>[0,604800], 'security.reauth_seconds'=>[0,3600], 'api.search_timeout_ms'=>[100,60000], 'ingest.idempotency_seconds'=>[86400,2592000], 'ingest.max_inflight'=>[0,128], 'ingest.budget_ms'=>[100,120000], 'ingest.max_event_age_seconds'=>[0,315576000], 'ingest.max_event_future_seconds'=>[0,315576000]] as $key=>[$min,$max]) {
             $value=is_bool($config->get($key)) ? false : filter_var($config->get($key),FILTER_VALIDATE_INT,['options'=>['min_range'=>$min,'max_range'=>$max]]);
             if ($value===false) throw new \RuntimeException('Invalid configuration: '.$key);
@@ -185,15 +186,15 @@ final class Application
         $router->add('GET', '/health', $health);
         $router->add('GET', $config->get('api.prefix') . '/health', $health);
         $router->add('GET', '/ready', function (): Response {
-            $ok = ($this->config()->get('app.env') !== 'production' || parse_url($this->config()->get('app.url'), PHP_URL_SCHEME) === 'https') && (!($this->config()->get('security.require_admin_totp') || \Cajeer\Logs\Security\IdentityPolicy::fromConfig($this->config())->requiresEnrollmentPolicy()) || \Cajeer\Logs\Security\TwoFactorManager::keyValid($this->config()->get('security.totp_key'))) && $this->container->get(Diagnostics::class)->ok() && $this->container->get(DatabaseStatus::class)->check()['status'] === 'ok';
-            return new JsonResponse(['status' => $ok ? 'ok' : 'down', 'service' => $this->config()->get('app.name'), 'version' => $this->version(), 'scope' => 'database'], $ok ? 200 : 503);
+            $result=(new \Cajeer\Logs\Observability\Readiness($this))->check();
+            return new JsonResponse(['status' => $result['status'], 'service' => $this->config()->get('app.name'), 'version' => $this->version(), 'scope' => 'database'], $result['status']==='ok'?200:503,['Cache-Control'=>'no-store']);
         });
         if ($config->get('observability.prometheus_enabled')) {
             $router->add('GET', $config->get('observability.prometheus_path'), function(Request $r) use ($config): Response {
                 $token=$config->get('operations.metrics_token');
                 if ($token!=='' && $config->get('app.env')==='production' && !$r->secureTransport) { throw new HttpException(403,'https_required','HTTPS is required for metrics authentication.'); }
                 if ($token!=='' && !hash_equals('Bearer '.$token,$r->header('Authorization','')??'')) { throw new HttpException(401,'unauthorized','Metrics authentication required.',['WWW-Authenticate'=>'Bearer']); }
-                return new Response($this->container->get(PrometheusExporter::class)->render(),200,['Content-Type'=>'text/plain; version=0.0.4; charset=utf-8']);
+                return new Response($this->container->get(PrometheusExporter::class)->render(),200,['Content-Type'=>'text/plain; version=0.0.4; charset=utf-8','Cache-Control'=>'no-store']);
             });
         }
         \Cajeer\Logs\Http\AdminPanel::register($router, $this);

@@ -8,7 +8,7 @@ final class Worker
 {
     private bool $stop=false;
     // Direct driver remains supported for finite/test use. The production CLI owns a reconnectable session.
-    public function __construct(private readonly PostgresQueueDriver|ConnectionManager $connection, private readonly int $maxJobs=1000, private readonly ?string $migrationDirectory=null, private readonly ?string $schema=null) {}
+    public function __construct(private readonly PostgresQueueDriver|ConnectionManager $connection, private readonly int $maxJobs=1000, private readonly ?string $migrationDirectory=null, private readonly ?string $schema=null, private readonly ?\Closure $heartbeat=null) {}
     public function stop(): void { $this->stop=true; }
     /** Limit 0 means run until SIGTERM/SIGINT; finite batches never sleep when empty. */
     public function run(int $limit=0): array {
@@ -29,9 +29,10 @@ final class Worker
                 } else { $queue=$this->connection; }
                 if ($this->stop) { break; }
                 $claim=$queue->claim();
-                if ($claim===null) { if ($guard!==null) $guard->release(); $failures=0; if ($limit!==0) break; usleep(500000);continue; }
+                if ($claim===null) { if ($this->heartbeat!==null) ($this->heartbeat)(); if ($guard!==null) $guard->release(); $failures=0; if ($limit!==0) break; usleep(500000);continue; }
                 $outcome=isset($claim['skipped'])?'skipped':$queue->process($claim);
                 $counts[$outcome]++;$processed++;$failures=0;
+                if ($this->heartbeat!==null) ($this->heartbeat)();
                 if ($limit===0 && $outcome!=='completed') { fwrite(STDERR,'Queue job outcome: '.$outcome.PHP_EOL); }
             } catch (\Throwable $error) {
                 if (!$this->connection instanceof ConnectionManager || !DatabaseFailure::reconnectable($error)) { throw $error; }

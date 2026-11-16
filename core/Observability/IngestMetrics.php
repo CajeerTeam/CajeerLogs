@@ -87,16 +87,20 @@ final class IngestMetrics
         try {
             if (!is_dir($this->directory) || !is_writable($this->directory)) throw new \RuntimeException('Metrics directory unavailable.');
             $data=$this->read();
-            $out="# TYPE cajeerlogs_{$this->group}_metrics_available gauge\ncajeerlogs_{$this->group}_metrics_available 1\n# TYPE cajeerlogs_{$this->group}_requests_total counter\n# TYPE cajeerlogs_{$this->group}_rejections_total counter\n# TYPE cajeerlogs_{$this->group}_duration_seconds histogram\n";
+            $out="# TYPE cajeerlogs_{$this->group}_metrics_available gauge\ncajeerlogs_{$this->group}_metrics_available 1\n";
+            $requests="# TYPE cajeerlogs_{$this->group}_requests_total counter\n";
+            $rejections="# TYPE cajeerlogs_{$this->group}_rejections_total counter\n";
+            $duration="# TYPE cajeerlogs_{$this->group}_duration_seconds histogram\n";
             foreach ($this->modes() as $mode) {
                 $row=$data[$mode]??null;
                 if ($row===null) continue;
                 $labels='mode="'.$mode.'"';
-                foreach ($row['statuses'] as $status=>$count) if (preg_match('/^[2-5][0-9]{2}$/D',(string)$status)) $out.="cajeerlogs_{$this->group}_requests_total{{$labels},status=\"$status\"} ".(int)$count."\n";
-                foreach ($row['reasons'] as $reason=>$count) if (in_array($reason,self::REASONS,true)||$reason==='other') $out.="cajeerlogs_{$this->group}_rejections_total{{$labels},reason=\"$reason\"} ".(int)$count."\n";
-                foreach (self::BUCKETS as $i=>$bound) $out.="cajeerlogs_{$this->group}_duration_seconds_bucket{{$labels},le=\"$bound\"} ".(int)$row['buckets'][$i]."\n";
-                $out.="cajeerlogs_{$this->group}_duration_seconds_bucket{{$labels},le=\"+Inf\"} ".(int)$row['count']."\ncajeerlogs_{$this->group}_duration_seconds_count{{$labels}} ".(int)$row['count']."\ncajeerlogs_{$this->group}_duration_seconds_sum{{$labels}} ".(float)$row['sum']."\n";
+                foreach ($row['statuses'] as $status=>$count) if (preg_match('/^[2-5][0-9]{2}$/D',(string)$status)) $requests.="cajeerlogs_{$this->group}_requests_total{{$labels},status=\"$status\"} ".(int)$count."\n";
+                foreach ($row['reasons'] as $reason=>$count) if (in_array($reason,self::REASONS,true)||$reason==='other') $rejections.="cajeerlogs_{$this->group}_rejections_total{{$labels},reason=\"$reason\"} ".(int)$count."\n";
+                foreach (self::BUCKETS as $i=>$bound) $duration.="cajeerlogs_{$this->group}_duration_seconds_bucket{{$labels},le=\"$bound\"} ".(int)$row['buckets'][$i]."\n";
+                $duration.="cajeerlogs_{$this->group}_duration_seconds_bucket{{$labels},le=\"+Inf\"} ".(int)$row['count']."\ncajeerlogs_{$this->group}_duration_seconds_count{{$labels}} ".(int)$row['count']."\ncajeerlogs_{$this->group}_duration_seconds_sum{{$labels}} ".(float)$row['sum']."\n";
             }
+            $out.=$requests.$rejections.$duration;
             return $out;
         } catch (\Throwable) { return "# TYPE cajeerlogs_{$this->group}_metrics_available gauge\ncajeerlogs_{$this->group}_metrics_available 0\n"; }
     }

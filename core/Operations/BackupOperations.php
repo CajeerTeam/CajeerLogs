@@ -57,7 +57,7 @@ final class BackupOperations
         $s=[];
         if (is_dir($path)) { $this->manager->root(false); $s=$this->state(); }
         return ['interval_seconds'=>$this->config('backup_interval_seconds'),'offsite_configured'=>$this->config('backup_offsite_dir')!=='',
-            'last_success_at'=>isset($s['last_success_epoch'])?gmdate(DATE_ATOM,$s['last_success_epoch']):null,
+            'last_success_at'=>isset($s['last_success_epoch'])?gmdate(DATE_ATOM,$s['last_success_epoch']):null,'last_success_seconds'=>$s['last_success_seconds']??null,
             'last_offsite_verified'=>$s['last_offsite_verified']??false,'replication_pending'=>isset($s['pending_id']),
             'last_restore_at'=>isset($s['last_restore_epoch'])?gmdate(DATE_ATOM,$s['last_restore_epoch']):null,'last_restore_seconds'=>$s['last_restore_seconds']??null];
     }
@@ -110,13 +110,14 @@ final class BackupOperations
     public function run(): array {
         $s=$this->state(); $now=time(); $interval=$this->config('backup_interval_seconds');
         if (($s['pending_id']??null)===null && ($s['last_success_epoch']??0)+$interval>$now) return ['status'=>'not_due','next_run_at'=>gmdate(DATE_ATOM,$s['last_success_epoch']+$interval)];
-        return $this->record('scheduled_backup',function() use ($s) {
+        $started=hrtime(true);
+        return $this->record('scheduled_backup',function() use ($s,$started) {
             if (($s['pending_requires_offsite']??false) && $this->config('backup_offsite_dir')==='') throw new DatabaseException('Pending backup requires offsite replication; restore its configuration.');
             if ($this->config('backup_offsite_dir')!=='') { $this->remote(); $this->vault(); }
             if (isset($s['pending_id'])) { $m=$this->manager->verify($s['pending_id']); }
             else { $m=$this->manager->create(); $s['pending_id']=$m['id']; $s['pending_requires_offsite']=$this->config('backup_offsite_dir')!==''; $this->save($s); }
             $remote=$this->config('backup_offsite_dir')!==''?$this->replicate($m['id']):null;
-            $s['last_success_epoch']=time(); $s['last_success_id']=$m['id']; $s['last_offsite_verified']=$remote!==null; unset($s['pending_id'],$s['pending_requires_offsite']); $this->save($s);
+            $s['last_success_epoch']=time(); $s['last_success_seconds']=round((hrtime(true)-$started)/1e9,3); $s['last_success_id']=$m['id']; $s['last_offsite_verified']=$remote!==null; unset($s['pending_id'],$s['pending_requires_offsite']); $this->save($s);
             return ['status'=>'completed','backup'=>$m,'offsite'=>$remote];
         });
     }

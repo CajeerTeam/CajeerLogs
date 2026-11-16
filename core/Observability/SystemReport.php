@@ -39,6 +39,7 @@ final class SystemReport
             'queue' => $queue,
             'operations' => $operations,
             'backup' => $backup,
+            'workers' => (new WorkerHeartbeat($this->app->basePath('storage/cache')))->snapshot(),
             'retention' => $retention,
             'log_repository_metrics_local' => \Cajeer\Logs\Log\LogRepository::metrics(),
             'transaction_metrics_local' => \Cajeer\Logs\Database\TransactionManager::metrics(),

@@ -13,6 +13,6 @@ final class HealthController
     public function __invoke(): JsonResponse
     {
         $result = $this->health->run();
-        return new JsonResponse($result, $result['status'] === 'ok' ? 200 : 503);
+        return new JsonResponse($result, $result['status'] === 'ok' ? 200 : 503,['Cache-Control'=>'no-store']);
     }
 }

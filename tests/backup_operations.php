@@ -59,6 +59,7 @@ try {
     $c->set('operations.backup_offsite_dir',''); check(rejects(fn()=>$ops->run()) && $ops->status()['replication_pending'],'pending remote copy cannot silently become local-only');
     $c->set('operations.backup_offsite_dir',$dir.'/absent'); check(rejects(fn()=>$ops->run()) && $ops->status()['replication_pending'],'failed replica remains pending');
     $c->set('operations.backup_offsite_dir',$remote); check($ops->run()['status']==='completed' && $ops->run()['status']==='not_due' && $ops->status()['last_offsite_verified'],'scheduled retry completes existing backup without another dump');
+    check(is_numeric($ops->status()['last_success_seconds'])&&$ops->status()['last_success_seconds']>=0,'successful backup duration measured and persisted');
     $slow=$dir.'/slow'; file_put_contents($slow,"#!/bin/sh\nexec sleep 5\n"); chmod($slow,0700); $c->set('operations.pg_restore',$slow); $c->set('operations.backup_timeout_seconds',1);
     $start=microtime(true); check(rejects(fn()=>$manager->verify($id)) && microtime(true)-$start<4,'PostgreSQL client timeout terminates child');
     $c->set('operations.pg_restore',$tool); $c->set('operations.backup_min_free_bytes',PHP_INT_MAX); check(rejects(fn()=>$manager->create()),'disk reserve rejects before dump');

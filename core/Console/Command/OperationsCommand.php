@@ -33,6 +33,7 @@ final class OperationsCommand
             default=>throw new DatabaseException('Unknown operations command.'),
         };
         $result=str_starts_with($command,'backup:')?$ops->locked($execute,!in_array($command,['backup:verify','backup:restore','backup:rehearse','backup:replicate','backup:prune'],true)):$execute();
+        if ($command==='backup:run') (new \Cajeer\Logs\Observability\WorkerHeartbeat($this->app->basePath('storage/cache')))->record('backup');
         echo json_encode($result,JSON_THROW_ON_ERROR|JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES).PHP_EOL;
         return $command==='audit:verify' && !$result['valid'] ? 1 : 0;
     }

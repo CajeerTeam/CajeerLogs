@@ -12,12 +12,13 @@ final class AuditLogger
         // Callers supply explicit metadata, never the request body, credentials or log payload.
         $result ??= in_array($action,['auth.login_failed','auth.reauthentication_failed'],true)?'failure':'success';
         $actorType ??= $actorId!==null?'user':($action==='auth.login_failed'?'anonymous':'system');
-        $stmt = $this->pdo->prepare('INSERT INTO audit_log(actor_id,actor_type,action,target,result,context) VALUES (:actor,:kind,:action,:target,:result,CAST(:context AS jsonb))');
         try {
+            $stmt = $this->pdo->prepare('INSERT INTO audit_log(actor_id,actor_type,action,target,result,context) VALUES (:actor,:kind,:action,:target,:result,CAST(:context AS jsonb))');
             $stmt->execute(['actor'=>$actorId,'kind'=>$actorType,'action'=>$action,'target'=>$target,'result'=>$result,'context'=>json_encode((object)$context,JSON_THROW_ON_ERROR)]);
         } catch (\Throwable $e) {
             // Do not log SQL, exception text or context: these can contain private metadata.
             error_log('CajeerLogs audit_write_failed');
+            (new \Cajeer\Logs\Observability\AuditFailureMetrics(dirname(__DIR__,2).'/storage/cache'))->increment();
             throw $e;
         }
     }

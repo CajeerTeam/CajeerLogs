@@ -23,7 +23,7 @@ final class SchedulerRunCommand
         };
         if ($result===null) { fwrite(STDERR,"Invalid lifecycle arguments; see docs/Queue-Lifecycle.md.\n");return 64; }
         echo json_encode($result,JSON_THROW_ON_ERROR|JSON_PRETTY_PRINT).PHP_EOL;
-        if ($command==='scheduler:run') { foreach ($result as $task) { if (isset($task['error'])) return 1; } }
+        if ($command==='scheduler:run') { foreach ($result as $task) { if (isset($task['error'])) return 1; } (new \Cajeer\Logs\Observability\WorkerHeartbeat($this->app->basePath('storage/cache')))->record('scheduler'); }
         return ($result['changed']??true)===false?1:0;
     }
 }

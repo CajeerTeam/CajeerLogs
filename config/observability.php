@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 return [
+    'monitor_backup' => env('MONITOR_BACKUP_ENABLED', false),
     'health' => true,
     'system_report' => true,
     'metrics' => 'prometheus',
