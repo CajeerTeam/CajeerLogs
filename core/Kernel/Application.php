@@ -159,6 +159,7 @@ final class Application
         $queueMax=filter_var($config->get('queue.max_jobs'),FILTER_VALIDATE_INT,['options'=>['min_range'=>1,'max_range'=>100000]]);
         if ($queueMax===false) { throw new \RuntimeException('Invalid QUEUE_MAX_JOBS.'); }
         $config->set('queue.max_jobs',$queueMax);
+        \Cajeer\Logs\Queue\WorkerPolicy::fromConfig($config);
         foreach (['api.prefix', 'observability.prometheus_path'] as $key) {
             if (!preg_match('~^/[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*$~D', $config->get($key))) {
                 throw new \RuntimeException("Invalid route configuration: $key");

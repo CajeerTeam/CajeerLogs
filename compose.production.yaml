@@ -1,7 +1,7 @@
 # Run with --env-file .env.production. See docs/First-Public-Release.md.
 name: cajeerlogs
 x-runtime: &runtime
-  image: cajeerlogs:0.5.1
+  image: cajeerlogs:0.5.2
   build:
     context: .
     dockerfile: deploy/production/Dockerfile
@@ -36,6 +36,16 @@ x-runtime: &runtime
     RETENTION_CYCLE_BUDGET_MS: ${RETENTION_CYCLE_BUDGET_MS:-30000}
     RETENTION_PAUSE_MS: ${RETENTION_PAUSE_MS:-100}
     WEBHOOK_RETENTION_DAYS: ${WEBHOOK_RETENTION_DAYS:-30}
+    QUEUE_WORKER_PROCESSES: ${QUEUE_WORKER_PROCESSES:-2}
+    QUEUE_WORKER_MAX_JOBS: ${QUEUE_WORKER_MAX_JOBS:-1000}
+    QUEUE_WORKER_MAX_SECONDS: ${QUEUE_WORKER_MAX_SECONDS:-3600}
+    QUEUE_WORKER_MEMORY_MB: ${QUEUE_WORKER_MEMORY_MB:-256}
+    QUEUE_POLL_MIN_MS: ${QUEUE_POLL_MIN_MS:-50}
+    QUEUE_POLL_MAX_MS: ${QUEUE_POLL_MAX_MS:-1000}
+    QUEUE_LEASE_SECONDS: ${QUEUE_LEASE_SECONDS:-120}
+    QUEUE_CLAIM_TIMEOUT_MS: ${QUEUE_CLAIM_TIMEOUT_MS:-5000}
+    QUEUE_PROCESS_TIMEOUT_SECONDS: ${QUEUE_PROCESS_TIMEOUT_SECONDS:-90}
+    QUEUE_SHUTDOWN_GRACE_SECONDS: ${QUEUE_SHUTDOWN_GRACE_SECONDS:-120}
     QUEUE_RETENTION_FLOOR_SECONDS: ${QUEUE_RETENTION_FLOOR_SECONDS:-0}
     SEARCH_TIMEOUT_MS: ${SEARCH_TIMEOUT_MS:-5000}
     INGEST_MAX_INFLIGHT: ${INGEST_MAX_INFLIGHT:-16}
@@ -102,14 +112,14 @@ services:
       start_period: 10s
   queue:
     <<: *runtime
-    command: [php, bin/cajeer, 'queue:work']
+    command: [php, bin/cajeer, 'queue:pool']
     healthcheck:
-      test: [CMD, php, bin/cajeer, health:worker, queue]
+      test: [CMD, php, bin/cajeer, queue:pool-health]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 60s
-    stop_grace_period: 90s
+    stop_grace_period: ${CAJEER_QUEUE_STOP_GRACE:-130s}
     depends_on:
       app:
         condition: service_healthy
@@ -161,7 +171,7 @@ services:
       app:
         condition: service_healthy
   gateway:
-    image: cajeerlogs-gateway:0.5.1
+    image: cajeerlogs-gateway:0.5.2
     build:
       context: .
       dockerfile: deploy/production/Dockerfile

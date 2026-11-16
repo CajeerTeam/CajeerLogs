@@ -35,7 +35,8 @@ curl --fail-with-body "$CAJEER_URL/api/v1/ingest/jobs/123" \
 ## Worker, retries, dead-letter
 
 ```sh
-php bin/cajeer queue:work             # непрерывно, SIGTERM/SIGINT завершает текущую работу
+php bin/cajeer queue:pool             # production pool, graceful drain и замена workers
+php bin/cajeer queue:work             # одиночный worker, с recycle limits
 php bin/cajeer queue:work 100         # до 100 захватов; выходит, когда очередь пуста
 php bin/cajeer queue:status           # фактические счётчики
 php bin/cajeer queue:list dead        # первые 100 dead jobs, без payload
@@ -94,3 +95,7 @@ CAJEER_TEST_DATABASE=1 php tests/queue_database.php
 ```
 
 Интеграционный тест создаёт отдельную схему, применяет 0001–0006, обновляет до 0007, использует независимые PostgreSQL соединения для проверки lock/lease, очереди, транзакций, ретеншена, outbox и scheduler. CI запускает PHP 8.4/8.5 + PostgreSQL 17. Для production проведите DB integration suite, нагрузочный прогон, тесты SIGTERM/kill, backup/restore и проверку диска. Локальные тесты без PostgreSQL проверяют кодек, backoff, отказ неподдерживаемых драйверов, маршруты и ошибки, но не заменяют DB integration.
+
+## Worker Runtime 0.5.2
+
+См. [Worker Operations](Worker-Operations.md) для policy, запуска pool, диагностики, shutdown и масштабирования.

@@ -1,11 +1,11 @@
-import { roles, state, active } from '../app/store.js?v=0.5.1';
-import { h, button, card, field, input, select, roleSelect, checkbox, badge, enc, clearModal, modal, form, heading, date, table, message, text, notify } from '../components/ui.js?v=0.5.1';
-import { clearSession, sessionChanged } from '../app/session.js?v=0.5.1';
-import { pagedList } from '../components/pagination.js?v=0.5.1';
-import { mutationSuccess, confirmAction } from '../components/mutations.js?v=0.5.1';
-import { userSessionDialog } from '../components/session-list.js?v=0.5.1';
-import { assignmentDialog, permissionsDialog } from './rbac.js?v=0.5.1';
-import { get, write } from '../api/client.js?v=0.5.1';
+import { roles, state, active } from '../app/store.js?v=0.5.2';
+import { h, button, card, field, input, select, roleSelect, checkbox, badge, enc, clearModal, modal, form, heading, date, table, message, text, notify } from '../components/ui.js?v=0.5.2';
+import { clearSession, sessionChanged } from '../app/session.js?v=0.5.2';
+import { pagedList } from '../components/pagination.js?v=0.5.2';
+import { mutationSuccess, confirmAction } from '../components/mutations.js?v=0.5.2';
+import { userSessionDialog } from '../components/session-list.js?v=0.5.2';
+import { assignmentDialog, permissionsDialog } from './rbac.js?v=0.5.2';
+import { get, write } from '../api/client.js?v=0.5.2';
 
 const projectRoles = [['','Наследовать глобальную роль'],['operator','Оператор (не повышает глобальную роль)'],['viewer','Наблюдатель']];
 const boolLabel = v => v ? 'Включена' : 'Выключена';

@@ -40,7 +40,7 @@ def main():
         project='clsmoke'+secrets.token_hex(5)
         cmd=['docker','compose','--project-name',project,'--env-file',str(env_file),'-f',str(ROOT/'compose.production.yaml')]
         # Do not let developer environment override disposable test credentials.
-        env={k:v for k,v in os.environ.items() if k not in ('APP_URL','DB_PASSWORD','POSTGRES_ADMIN_PASSWORD','PROMETHEUS_TOKEN','CAJEER_TLS_DIR','CAJEER_HTTPS_BIND','CAJEER_HTTPS_PORT','COMPOSE_PROJECT_NAME','COMPOSE_PROFILES','SECURITY_SESSION_IDLE_SECONDS','SECURITY_REAUTH_SECONDS','SECURITY_2FA_REQUIRED_ROLES','SECURITY_2FA_REQUIRED_PERMISSIONS','API_RATE_EXPORT_PER_MINUTE','API_RATE_BURST_PERCENT')}
+        env={k:v for k,v in os.environ.items() if k not in ('APP_URL','DB_PASSWORD','POSTGRES_ADMIN_PASSWORD','PROMETHEUS_TOKEN','CAJEER_TLS_DIR','CAJEER_HTTPS_BIND','CAJEER_HTTPS_PORT','COMPOSE_PROJECT_NAME','COMPOSE_PROFILES','SECURITY_SESSION_IDLE_SECONDS','SECURITY_REAUTH_SECONDS','SECURITY_2FA_REQUIRED_ROLES','SECURITY_2FA_REQUIRED_PERMISSIONS','API_RATE_EXPORT_PER_MINUTE','API_RATE_BURST_PERCENT','QUEUE_WORKER_PROCESSES','QUEUE_WORKER_MAX_JOBS','QUEUE_WORKER_MAX_SECONDS','QUEUE_WORKER_MEMORY_MB','QUEUE_POLL_MIN_MS','QUEUE_POLL_MAX_MS','QUEUE_LEASE_SECONDS','QUEUE_CLAIM_TIMEOUT_MS','QUEUE_PROCESS_TIMEOUT_SECONDS','QUEUE_SHUTDOWN_GRACE_SECONDS','CAJEER_QUEUE_STOP_GRACE')}
         env.update(CAJEER_ADMIN_EMAIL='release@example.test',CAJEER_ADMIN_PASSWORD=admin)
         def compose(*args, capture=False, check=True, timeout=600):
             return subprocess.run(cmd+list(args),cwd=ROOT,env=env,check=check,timeout=timeout,stdout=subprocess.PIPE if capture else None,text=True).stdout
@@ -69,10 +69,10 @@ def main():
             compose('up','-d','--wait','--wait-timeout','180')
             for _ in range(60):
                 try:
-                    data,_=http('GET','/ready'); assert data['version']=='0.5.1' and data['status']=='ok'; break
+                    data,_=http('GET','/ready'); assert data['version']=='0.5.2' and data['status']=='ok'; break
                 except (OSError, AssertionError, urllib.error.URLError): time.sleep(1)
             else: raise AssertionError('HTTPS readiness did not become healthy')
-            panel,h=http('GET','/admin/'); assert b'0.5.1' in panel and 'frame-ancestors' in h['Content-Security-Policy']
+            panel,h=http('GET','/admin/'); assert b'0.5.2' in panel and 'frame-ancestors' in h['Content-Security-Policy']
             assert b'app/router.js' in http('GET','/admin/assets/panel.js')[0]
             assert b'createApiClient' in http('GET','/admin/assets/api/client.js')[0]
             http('GET','/.env',expected=404)
@@ -161,8 +161,26 @@ def main():
                 except (OSError,AssertionError,urllib.error.URLError): time.sleep(1)
             else: raise AssertionError('Data unavailable after restart')
             print('PASS pg_dump/pg_restore, restored data and credential revocation, persistent restart',flush=True)
-            # Two live queue workers exercise SKIP LOCKED and concurrent completion.
-            compose('up','-d','--scale','queue=2','queue')
+            # Two containers, each with two supervised PHP processes, exercise real parallel claims.
+            compose('up','-d','--wait','--wait-timeout','180','--scale','queue=2','queue')
+            for _ in range(60):
+                pool=json.loads(cli('queue:workers'))
+                live=[w for w in pool['workers'] if w['status']=='ok' and w['pool']]
+                if len(live)==4 and len({w['host'] for w in live})==2: break
+                time.sleep(1)
+            else: raise AssertionError('Expected four independently progressing queue workers')
+            # Kill one child in the first pool, not the supervisor; replacement gets a new ID.
+            local=json.loads(compose('exec','-T','--index','1','queue','php','bin/cajeer','queue:pool-health',capture=True))
+            host=compose('exec','-T','--index','1','queue','php','-r','echo substr(hash("sha256",gethostname()),0,16);',capture=True).strip()
+            victim=next(w for w in local['workers'] if w['host']==host and w['status']=='ok' and w['pool'])
+            compose('exec','-T','--index','1','queue','php','-r',f'if(!posix_kill({victim["pid"]},SIGKILL)) exit(1);')
+            for _ in range(60):
+                local=json.loads(compose('exec','-T','--index','1','queue','php','bin/cajeer','queue:pool-health',capture=True,check=False))
+                replacement=[w for w in local['workers'] if w['host']==host and w['status']=='ok' and w['pool']]
+                if local['status']=='ok' and len(replacement)==2 and victim['id'] not in {w['id'] for w in replacement}: break
+                time.sleep(1)
+            else: raise AssertionError('Supervised queue child did not recover')
+            print('PASS four real queue workers, per-container health and SIGKILL replacement',flush=True)
             # Use the real PHP-FPM gateway and live queue workers, not a mock benchmark.
             bench=subprocess.check_output(['python3',str(ROOT/'scripts/benchmark.py'),'--url',url,'--project',pid,'--source','app','--requests','12','--batch','5','--concurrency','4','--ca-file',str(tls/'fullchain.pem'),'--confirm'],env=dict(env,CAJEER_TOKEN=t['token']),text=True,timeout=150)
             measured=json.loads(bench); assert measured['events_verified']==44 and measured['errors']==0

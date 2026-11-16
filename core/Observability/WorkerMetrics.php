@@ -23,6 +23,12 @@ final class WorkerMetrics
                 $out.='cajeerlogs_'.$metric.'{role="'.$role.'"} '.$value."\n";
             }
         }
+        $registry=(new \Cajeer\Logs\Queue\WorkerRegistry($this->app->basePath('storage/cache')))->snapshot();
+        $out.="# TYPE cajeerlogs_queue_worker_registry_available gauge\ncajeerlogs_queue_worker_registry_available ".($registry['available']&&!$registry['truncated']?1:0)."\n";
+        if ($registry['available']&&!$registry['truncated']) {
+            $out.="# TYPE cajeerlogs_queue_workers_active gauge\ncajeerlogs_queue_workers_active ".$registry['active']."\n";
+            $out.="# TYPE cajeerlogs_queue_worker_registry_invalid gauge\ncajeerlogs_queue_worker_registry_invalid ".$registry['invalid']."\n";
+        }
         // Local storage remains observable even during a PostgreSQL outage.
         $free=is_dir($this->app->basePath('storage'))?@disk_free_space($this->app->basePath('storage')):false;
         if ($free!==false) {

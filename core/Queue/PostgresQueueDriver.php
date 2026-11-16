@@ -12,7 +12,7 @@ use Cajeer\Logs\Log\{IngestEvent,IngestBatch};
 /** PostgreSQL durable queue; all payloads are already validated and redacted. */
 final class PostgresQueueDriver implements QueueDriverInterface
 {
-    public function __construct(private readonly PDO $pdo, private readonly int $maxJobs=1000) {
+    public function __construct(private readonly PDO $pdo, private readonly int $maxJobs=1000, private readonly ?WorkerPolicy $workerPolicy=null) {
         if ($maxJobs<1 || $maxJobs>100000) { throw new \InvalidArgumentException('Invalid QUEUE_MAX_JOBS.'); }
     }
     private function sql(string $sql,array $params=[]): \PDOStatement { $s=$this->pdo->prepare($sql);$s->execute($params);return $s; }
@@ -105,9 +105,16 @@ final class PostgresQueueDriver implements QueueDriverInterface
         if (!$row) { return null; }
         $row['id']=(string)$row['id'];$row['result']=$row['result']===null?null:json_decode($row['result'],true,32,JSON_THROW_ON_ERROR);return $row;
     }
+    private function workerTimeout(bool $processing): void {
+        if ($this->workerPolicy===null) return;
+        $ms=$processing?$this->workerPolicy->get('process_timeout_seconds')*1000:$this->workerPolicy->get('claim_timeout_ms');
+        // PostgreSQL 17 transaction_timeout bounds the entire transaction, not only a statement.
+        $this->pdo->exec("SET LOCAL transaction_timeout=$ms; SET LOCAL statement_timeout=$ms; SET LOCAL lock_timeout=".min($ms,5000));
+    }
     /** Claim one job, including an expired lease. Claim/attempt history commit before processing. */
     public function claim(): ?array {
         return (new TransactionManager($this->pdo))->run(function () {
+            $this->workerTimeout(false);
             $row=$this->pdo->query("SELECT id,status,attempts,max_attempts FROM jobs WHERE queue='ingest-v1' AND status='running' AND lease_until<=statement_timestamp() ORDER BY lease_until,id LIMIT 1 FOR UPDATE SKIP LOCKED")->fetch();
             if (!$row) $row=$this->pdo->query("SELECT id,status,attempts,max_attempts FROM jobs WHERE queue='ingest-v1' AND status='pending' AND available_at<=statement_timestamp() ORDER BY available_at,id LIMIT 1 FOR UPDATE SKIP LOCKED")->fetch();
             if (!$row) { return null; }
@@ -118,7 +125,7 @@ final class PostgresQueueDriver implements QueueDriverInterface
                 $this->sql("UPDATE jobs SET status='dead',lease_id=NULL,lease_until=NULL,reserved_at=NULL,completed_at=clock_timestamp(),last_error='attempts_exhausted' WHERE id=:id",['id'=>$row['id']]);
                 return ['skipped'=>true];
             }
-            $claimed=$this->sql("UPDATE jobs SET status='running',attempts=attempts+1,reserved_at=clock_timestamp(),lease_until=clock_timestamp()+interval '2 minutes',lease_id=gen_random_uuid() WHERE id=:id RETURNING id,lease_id,attempts",['id'=>$row['id']])->fetch();
+            $claimed=$this->sql("UPDATE jobs SET status='running',attempts=attempts+1,reserved_at=clock_timestamp(),lease_until=clock_timestamp()+CAST(:seconds AS integer)*interval '1 second',lease_id=gen_random_uuid() WHERE id=:id RETURNING id,lease_id,attempts",['id'=>$row['id'],'seconds'=>$this->workerPolicy?->get('lease_seconds')??120])->fetch();
             $this->sql('INSERT INTO job_attempts(job_id,attempt) VALUES (:id,:attempt)',['id'=>$claimed['id'],'attempt'=>$claimed['attempts']]);
             return $claimed;
         }, maxAttempts: 3);
@@ -127,6 +134,7 @@ final class PostgresQueueDriver implements QueueDriverInterface
     public function process(array $claim): string {
         try {
             return (new TransactionManager($this->pdo))->run(function () use ($claim) {
+                $this->workerTimeout(true);
                 $row=$this->sql("SELECT id,project_id,token_id,attempts FROM jobs WHERE id=:id AND queue='ingest-v1' AND status='running' AND lease_id=:lease FOR UPDATE",['id'=>$claim['id'],'lease'=>$claim['lease_id']])->fetch();
                 if (!$row || !$this->leaseLive($claim)) { return 'stale'; }
                 // Do not transfer an unbounded/corrupted JSONB value into PHP memory.
@@ -158,6 +166,7 @@ final class PostgresQueueDriver implements QueueDriverInterface
     }
     private function fail(array $claim,string $error,bool $permanent=false): string {
         return (new TransactionManager($this->pdo))->run(function () use ($claim,$error,$permanent) {
+            $this->workerTimeout(false);
             $row=$this->sql("SELECT attempts,max_attempts FROM jobs WHERE id=:id AND status='running' AND lease_id=:lease FOR UPDATE",['id'=>$claim['id'],'lease'=>$claim['lease_id']])->fetch();
             if (!$row || !$this->leaseLive($claim)) { return 'stale'; }
             $dead=$permanent || (int)$row['attempts'] >= (int)$row['max_attempts'];$outcome=$dead?'dead':'retry';

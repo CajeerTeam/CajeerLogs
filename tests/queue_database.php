@@ -208,8 +208,36 @@ try {
             $accepted=array_merge($accepted,json_decode($out,true,32,JSON_THROW_ON_ERROR));
         }
         verify(count($accepted)===2&&count(array_unique($accepted))===2&&$account->snapshot()['active_jobs']===2&&$account->snapshot()['active_events']===4&&$account->verify()['valid'],'parallel producers enforce capacity with no overshoot');
-        verify((new Worker($queue))->run(2)['completed']===2&&$account->snapshot()['active_jobs']===0&&$account->verify()['valid'],'parallel producer jobs drain without accounting drift');
+        // Real supervised workers, independent PostgreSQL sessions, recycle after one job.
+        $workerCode='require '.var_export($root.'/core/bootstrap.php',true).'; $app=new \\Cajeer\\Logs\\Kernel\\Application('.var_export($root,true).'); $app->boot(); $app->config()->set("database.schema",'.var_export($schema,true).'); $policy=new \\Cajeer\\Logs\\Queue\\WorkerPolicy(["max_jobs"=>1,"max_seconds"=>60]); $worker=new \\Cajeer\\Logs\\Queue\\Worker($app->container()->get(\\Cajeer\\Logs\\Database\\ConnectionManager::class),2,'.var_export($root.'/migrations/pgsql',true).','.var_export($schema,true).',null,$policy,new \\Cajeer\\Logs\\Queue\\WorkerRegistry('.var_export($tmp,true).')); echo json_encode($worker->run(),JSON_THROW_ON_ERROR).PHP_EOL;';
+        $poolCode='require '.var_export($root.'/core/bootstrap.php',true).'; exit((new \\Cajeer\\Logs\\Queue\\WorkerPool(new \\Cajeer\\Logs\\Queue\\WorkerPolicy(),'.var_export([PHP_BINARY,'-r',$workerCode],true).'))->run(2));';
+        $pool=proc_open([PHP_BINARY,'-r',$poolCode],[0=>['file','/dev/null','r'],1=>['file',$tmp.'/pool.stdout','a'],2=>['file',$tmp.'/pool.stderr','a']],$pipes,$root);
+        if (!is_resource($pool)) throw new RuntimeException('Cannot start actual queue pool.');
+        try {
+            $registry=new \Cajeer\Logs\Queue\WorkerRegistry($tmp);$until=microtime(true)+30;$ready=false;
+            do {if ($account->snapshot()['active_jobs']===0&&$registry->snapshot()['active']===2) {$ready=true;break;}usleep(100000);}while(microtime(true)<$until&&proc_get_status($pool)['running']);
+            verify($ready&&$account->verify()['valid'],'two real supervised workers drain and recycle without accounting drift');
+            $proof=$pdo->query('SELECT count(*) FROM jobs WHERE id IN ('.implode(',',array_map('intval',$accepted)).") AND status='completed' AND attempts=1 AND jsonb_array_length(result->'event_ids')=2")->fetchColumn();
+            verify((int)$proof===2,'each concurrent job completed exactly once with two events');
+            $out=file_get_contents($tmp.'/pool.stdout');verify(substr_count($out,'"completed":1')===2,'each completed job recycled a separate worker');
+        } finally {proc_terminate($pool,SIGTERM);proc_close($pool);}
+
     } finally {foreach($children as [$proc,$pipes]) {proc_terminate($proc);foreach($pipes as $pipe)if(is_resource($pipe))fclose($pipe);proc_close($proc);}if(file_exists($barrier))unlink($barrier);}
+    // PostgreSQL 17 transaction_timeout kills the processing session, not the durable claim.
+    $r=$send('worker-tx-timeout',$body2,$token['token']);$timeoutId=data($r)['job_id'];verify($r->status===202,'timeout fixture accepted');
+    $timeoutPolicy=new \Cajeer\Logs\Queue\WorkerPolicy(['lease_seconds'=>10,'process_timeout_seconds'=>1,'shutdown_grace_seconds'=>2]);
+    $timeoutPdo=$factory->make('pgsql');$timeoutQueue=new PostgresQueueDriver($timeoutPdo,2,$timeoutPolicy);$timeoutClaim=$timeoutQueue->claim();
+    $lease=(float)$pdo->query('SELECT extract(epoch FROM lease_until-reserved_at) FROM jobs WHERE id='.(int)$timeoutId)->fetchColumn();
+    verify($lease>=9.9&&$lease<=10.1,'configured lease persisted');
+    $before=(int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn();
+    $pdo->exec('CREATE FUNCTION worker_timeout_pause() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(2); RETURN NEW; END; $$');
+    $pdo->exec('CREATE TRIGGER worker_timeout_pause BEFORE INSERT ON log_events FOR EACH ROW EXECUTE FUNCTION worker_timeout_pause()');
+    try {
+        $lost=false;try {$timeoutQueue->process($timeoutClaim);}catch(Throwable $e){$lost=\Cajeer\Logs\Database\DatabaseFailure::reconnectable($e);}
+        verify($lost&&(int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===$before&&$pdo->query('SELECT status FROM jobs WHERE id='.(int)$timeoutId)->fetchColumn()==='running','transaction timeout rolls back inserts and retains durable lease');
+    } finally {$pdo->exec('DROP TRIGGER worker_timeout_pause ON log_events');$pdo->exec('DROP FUNCTION worker_timeout_pause()');}
+    $pdo->exec("UPDATE jobs SET lease_until=clock_timestamp()-interval '1 second' WHERE id=".(int)$timeoutId);
+    verify($queue->process($queue->claim())==='completed'&&(int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===$before+2&&$account->verify()['valid'],'expired timed-out job recovers exactly one batch');
     echo "Queue database: $count checks passed\n";
 } finally {
     if (isset($second)&&$second->inTransaction()) $second->rollBack();

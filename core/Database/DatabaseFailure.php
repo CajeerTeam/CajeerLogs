@@ -23,7 +23,7 @@ final class DatabaseFailure
             if (in_array($state,['40001','40P01'],true)) { return 'transaction_conflict'; }
             if ($state==='25006') { return 'read_only'; }
             if (in_array($state,['53300','53400'],true) || (($state==='HY000'||str_starts_with($state,'08')) && preg_match('/too many clients|remaining connection slots|too many connections/', $message))) { return 'capacity'; }
-            if (in_array($state,['57P01','57P02','57P03','57P04','57P05','25P03'],true)) { return 'connection_lost'; }
+            if (in_array($state,['57P01','57P02','57P03','57P04','57P05','25P03','25P04'],true)) { return 'connection_lost'; }
             if (($state==='HY000'||str_starts_with($state,'08')) && preg_match('/timeout expired|connection timed out|connect timeout/', $message)) { return 'connect_timeout'; }
             if (($state==='HY000'||str_starts_with($state,'08')) && preg_match('/server closed the connection|connection (?:is )?(?:closed|lost|refused|reset)|ssl connection has been closed|connection to server was lost|connection not open|connection already closed|broken pipe|no connection to the server|could not (?:connect to server|receive data from server|send data to server|translate host name)|network is unreachable|terminating connection|ssl syscall error/', $message)) { return 'connection_lost'; }
             if (str_starts_with($state,'08')) { return 'connection_lost'; }

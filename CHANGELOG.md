@@ -2,6 +2,13 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## 0.5.2 — Worker Runtime & Concurrency
+
+- Supervised independent PHP queue processes, bounded restart backoff and graceful drain with forced termination deadline.
+- Job/time/memory recycling, adaptive idle polling, configurable lease and transaction timeouts; durable recovery semantics preserved.
+- Per-process heartbeat registry, CLI/metrics/System Report diagnostics and production pool deployment.
+- No new migrations. Actual 0.5.1 upgrade and process lifecycle tests in release gate.
+
 ## 0.5.1 — PostgreSQL Queue Hardening
 
 Transactional queue capacity accounting, generated payload metadata, indexed claim paths,

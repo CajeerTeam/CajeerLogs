@@ -2,12 +2,14 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.5.2 — Worker Runtime & Concurrency
+
+Независимые PHP workers под управлением `queue:pool`, graceful drain, автоматическая замена завершившихся процессов, ограничения жизненного цикла, адаптивный polling, PostgreSQL transaction timeouts и индивидуальная диагностика. См. [Worker Operations](docs/Worker-Operations.md). Миграции 0001–0022 не изменены; новая миграция не требуется. Канал public-preview до прохождения полного CI.
+
+
 ## 0.5.1 — PostgreSQL Queue Hardening
 
-Transactional queue capacity accounting, generated payload metadata, indexed claim paths,
-operator verification/reconciliation, and migration of existing durable jobs. See
-[PostgreSQL Queue Hardening](docs/PostgreSQL-Queue-Hardening.md). PostgreSQL certification
-remains required before production promotion.
+Транзакционные счётчики jobs/events/bytes, индексированный claim, сверка ёмкости и миграция 0022. [PostgreSQL Queue Hardening](docs/PostgreSQL-Queue-Hardening.md).
 
 ## 0.5.0 — Security & Operations Stable (candidate)
 
@@ -204,7 +206,7 @@ curl -i http://127.0.0.1:8080/ready
 # Откройте http://127.0.0.1:8080/admin/
 ```
 
-`/health` — состояние PHP runtime. `/ready` — состояние runtime, соединения PostgreSQL, миграций и таблиц; при недоступной БД возвращает 503. Встроенный PHP-сервер предназначен только для разработки. Для production используйте PHP-FPM, Nginx/Apache, DocumentRoot `public/`, TLS и непривилегированного системного пользователя. Для локального HTTP задайте `APP_ENV=local` и `APP_URL=http://127.0.0.1:8080` (origin должен совпадать с адресом браузера); для production `APP_ENV=production`, `APP_URL=https://ваш-домен` и HTTPS server variable. Настройте `queue:work` и `scheduler:run` по [инструкции](docs/Queue-Lifecycle.md).
+`/health` — состояние PHP runtime. `/ready` — состояние runtime, соединения PostgreSQL, миграций и таблиц; при недоступной БД возвращает 503. Встроенный PHP-сервер предназначен только для разработки. Для production используйте PHP-FPM, Nginx/Apache, DocumentRoot `public/`, TLS и непривилегированного системного пользователя. Для локального HTTP задайте `APP_ENV=local` и `APP_URL=http://127.0.0.1:8080` (origin должен совпадать с адресом браузера); для production `APP_ENV=production`, `APP_URL=https://ваш-домен` и HTTPS server variable. Настройте `queue:pool` и `scheduler:run` по [инструкции](docs/Queue-Lifecycle.md).
 
 ### Проверки
 

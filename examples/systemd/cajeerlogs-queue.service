@@ -1,5 +1,5 @@
 [Unit]
-Description=CajeerLogs durable ingest worker
+Description=CajeerLogs durable ingest worker pool
 After=network-online.target
 Wants=network-online.target
 
@@ -8,10 +8,11 @@ Type=simple
 User=cajeerlogs
 Group=cajeerlogs
 WorkingDirectory=/var/www/cajeerlogs
-ExecStart=/usr/bin/php bin/cajeer queue:work
+ExecStart=/usr/bin/php bin/cajeer queue:pool
 Restart=on-failure
 RestartSec=5
-TimeoutStopSec=90
+TimeoutStopSec=130
+KillMode=mixed
 KillSignal=SIGTERM
 UMask=0077
 NoNewPrivileges=true
