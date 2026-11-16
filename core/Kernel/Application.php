@@ -101,7 +101,7 @@ final class Application
         $this->container->singleton(ConnectionFactoryInterface::class, fn(): ConnectionFactory => $this->container->get(ConnectionFactory::class));
         $this->container->singleton(ConnectionManager::class, fn(): ConnectionManager => new ConnectionManager($this->container->get(ConnectionFactoryInterface::class)));
         $this->container->singleton(PDO::class, fn(): PDO => $this->container->get(ConnectionManager::class)->connection());
-        $this->container->singleton(\Cajeer\Logs\Queue\PostgresQueueDriver::class, fn(): \Cajeer\Logs\Queue\PostgresQueueDriver => new \Cajeer\Logs\Queue\PostgresQueueDriver($this->container->get(PDO::class), $config->get('queue.max_jobs')));
+        $this->container->singleton(\Cajeer\Logs\Queue\PostgresQueueDriver::class, fn(): \Cajeer\Logs\Queue\PostgresQueueDriver => new \Cajeer\Logs\Queue\PostgresQueueDriver($this->container->get(PDO::class), $config->get('queue.max_jobs'), null, \Cajeer\Logs\Queue\RetryPolicy::fromConfig($config)));
         $this->container->singleton(MigrationRunner::class, fn(): MigrationRunner => new MigrationRunner($this->container->get(PDO::class), $this->basePath('migrations/pgsql'), $this->container->get(ConnectionFactory::class)->schema()));
         $this->container->singleton(DatabaseStatus::class, fn(): DatabaseStatus => new DatabaseStatus($this));
         $this->container->singleton(UserRepository::class, fn(): UserRepository => new UserRepository($this->container->get(PDO::class)));
@@ -160,6 +160,7 @@ final class Application
         if ($queueMax===false) { throw new \RuntimeException('Invalid QUEUE_MAX_JOBS.'); }
         $config->set('queue.max_jobs',$queueMax);
         \Cajeer\Logs\Queue\WorkerPolicy::fromConfig($config);
+        \Cajeer\Logs\Queue\RetryPolicy::fromConfig($config);
         foreach (['api.prefix', 'observability.prometheus_path'] as $key) {
             if (!preg_match('~^/[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*$~D', $config->get($key))) {
                 throw new \RuntimeException("Invalid route configuration: $key");

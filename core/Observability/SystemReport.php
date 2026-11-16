@@ -40,6 +40,7 @@ final class SystemReport
             'operations' => $operations,
             'backup' => $backup,
             'queue_workers' => (new \Cajeer\Logs\Queue\WorkerRegistry($this->app->basePath('storage/cache')))->snapshot(),
+            'queue_retry_policy' => \Cajeer\Logs\Queue\RetryPolicy::fromConfig($this->app->config())->values,
             'queue_worker_policy' => \Cajeer\Logs\Queue\WorkerPolicy::fromConfig($this->app->config())->values,
             'workers' => (new WorkerHeartbeat($this->app->basePath('storage/cache')))->snapshot(),
             'retention' => $retention,

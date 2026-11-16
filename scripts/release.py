@@ -59,6 +59,7 @@ REQUIRED = {'release.json', 'core/bootstrap.php', 'bin/cajeer', 'public/index.ph
 
 # Runtime module graph is required even for an unstaged changed-files overlay.
 REQUIRED.update({
+    'core/Queue/RetryPolicy.php','tests/retry_policy.php','docs/Retry-Failure-Recovery.md',
     'core/Queue/WorkerPolicy.php','core/Queue/WorkerRegistry.php','core/Queue/WorkerPool.php','tests/worker_runtime.php','docs/Worker-Operations.md',
     'core/Database/SecuritySchema.php', 'core/Operations/OperationsCheck.php', 'docs/Security-Operations-Stable.md',
     'core/Observability/AuditFailureMetrics.php','core/Observability/WorkerHeartbeat.php','core/Observability/WorkerMetrics.php','core/Observability/Readiness.php','tests/health_monitoring.php','tests/monitoring_config.py','tests/monitoring_stack.py','deploy/monitoring/prepare.py','deploy/monitoring/compose.yaml','deploy/monitoring/alerts.yml','deploy/monitoring/alerts.test.yml','deploy/monitoring/grafana/provisioning/datasources/prometheus.yaml','deploy/monitoring/grafana/provisioning/dashboards/cajeer.yaml','deploy/monitoring/grafana/dashboards/operations.json','docs/Prometheus.md',

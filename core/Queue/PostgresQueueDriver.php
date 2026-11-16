@@ -12,7 +12,7 @@ use Cajeer\Logs\Log\{IngestEvent,IngestBatch};
 /** PostgreSQL durable queue; all payloads are already validated and redacted. */
 final class PostgresQueueDriver implements QueueDriverInterface
 {
-    public function __construct(private readonly PDO $pdo, private readonly int $maxJobs=1000, private readonly ?WorkerPolicy $workerPolicy=null) {
+    public function __construct(private readonly PDO $pdo, private readonly int $maxJobs=1000, private readonly ?WorkerPolicy $workerPolicy=null, private readonly RetryPolicy $retryPolicy=new RetryPolicy()) {
         if ($maxJobs<1 || $maxJobs>100000) { throw new \InvalidArgumentException('Invalid QUEUE_MAX_JOBS.'); }
     }
     private function sql(string $sql,array $params=[]): \PDOStatement { $s=$this->pdo->prepare($sql);$s->execute($params);return $s; }
@@ -91,9 +91,9 @@ final class PostgresQueueDriver implements QueueDriverInterface
         }
         // JSONB expands exponent notation and inserts whitespace. Never acknowledge a
         // payload that the bounded worker cannot read back from PostgreSQL.
-        $id=$this->sql("INSERT INTO jobs(queue,name,payload,token_id,project_id,key_hash,request_hash)
-            SELECT 'ingest-v1','ingest',b.body,CAST(:token AS uuid),CAST(:project AS uuid),CAST(:key AS text),CAST(:hash AS text) FROM (SELECT CAST(:payload AS jsonb) AS body) b
-            WHERE octet_length(b.body::text)<=CAST(:limit AS integer) RETURNING id",['payload'=>$body,'token'=>$token,'project'=>$project,'key'=>$key,'hash'=>$hash,'limit'=>IngestBatch::JOB_DECODE_BYTES])->fetchColumn();
+        $id=$this->sql("INSERT INTO jobs(queue,name,payload,token_id,project_id,key_hash,request_hash,max_attempts)
+            SELECT 'ingest-v1','ingest',b.body,CAST(:token AS uuid),CAST(:project AS uuid),CAST(:key AS text),CAST(:hash AS text),CAST(:max_attempts AS integer) FROM (SELECT CAST(:payload AS jsonb) AS body) b
+            WHERE octet_length(b.body::text)<=CAST(:limit AS integer) RETURNING id",['payload'=>$body,'token'=>$token,'project'=>$project,'key'=>$key,'hash'=>$hash,'limit'=>IngestBatch::JOB_DECODE_BYTES,'max_attempts'=>$this->retryPolicy->get('max_attempts')])->fetchColumn();
         if ($id===false) throw new HttpException(413,'payload_too_large','Stored job exceeds decoding limit.');
         return (string)$id;
     }
@@ -118,12 +118,20 @@ final class PostgresQueueDriver implements QueueDriverInterface
             $row=$this->pdo->query("SELECT id,status,attempts,max_attempts FROM jobs WHERE queue='ingest-v1' AND status='running' AND lease_until<=statement_timestamp() ORDER BY lease_until,id LIMIT 1 FOR UPDATE SKIP LOCKED")->fetch();
             if (!$row) $row=$this->pdo->query("SELECT id,status,attempts,max_attempts FROM jobs WHERE queue='ingest-v1' AND status='pending' AND available_at<=statement_timestamp() ORDER BY available_at,id LIMIT 1 FOR UPDATE SKIP LOCKED")->fetch();
             if (!$row) { return null; }
-            if ($row['status']==='running') {
-                $this->sql("UPDATE job_attempts SET outcome='expired',finished_at=clock_timestamp(),error='lease_expired' WHERE job_id=:id AND attempt=:attempt AND outcome='running'",['id'=>$row['id'],'attempt'=>$row['attempts']]);
+            $expired=$row['status']==='running';
+            if ($expired) {
+                if ($this->sql("UPDATE job_attempts SET outcome='expired',finished_at=clock_timestamp(),error='lease_expired' WHERE job_id=:id AND attempt=:attempt AND outcome='running'",['id'=>$row['id'],'attempt'=>$row['attempts']])->rowCount()!==1) throw new \RuntimeException('Missing running job attempt; roll back lease recovery.');
             }
             if ((int)$row['attempts'] >= (int)$row['max_attempts']) {
                 $this->sql("UPDATE jobs SET status='dead',lease_id=NULL,lease_until=NULL,reserved_at=NULL,completed_at=clock_timestamp(),last_error='attempts_exhausted' WHERE id=:id",['id'=>$row['id']]);
                 return ['skipped'=>true];
+            }
+            if ($expired) {
+                // Use the original lease deadline, not the recovery scan time. An old
+                // expired lease can be reclaimed immediately; recent crashes are spread out.
+                $delay=$this->retryPolicy->delay((int)$row['attempts']);
+                $deferred=$this->sql("UPDATE jobs SET status='pending',available_at=lease_until+CAST(:delay AS integer)*interval '1 second',lease_id=NULL,lease_until=NULL,reserved_at=NULL,last_error='lease_expired' WHERE id=:id AND lease_until+CAST(:delay_check AS integer)*interval '1 second'>clock_timestamp()",['id'=>$row['id'],'delay'=>$delay,'delay_check'=>$delay])->rowCount();
+                if ($deferred===1) return ['skipped'=>true];
             }
             $claimed=$this->sql("UPDATE jobs SET status='running',attempts=attempts+1,reserved_at=clock_timestamp(),lease_until=clock_timestamp()+CAST(:seconds AS integer)*interval '1 second',lease_id=gen_random_uuid() WHERE id=:id RETURNING id,lease_id,attempts",['id'=>$row['id'],'seconds'=>$this->workerPolicy?->get('lease_seconds')??120])->fetch();
             $this->sql('INSERT INTO job_attempts(job_id,attempt) VALUES (:id,:attempt)',['id'=>$claimed['id'],'attempt'=>$claimed['attempts']]);
@@ -153,10 +161,9 @@ final class PostgresQueueDriver implements QueueDriverInterface
             if (DatabaseFailure::reconnectable($e) || !TransactionManager::usable($this->pdo)) {
                 throw $e;
             }
-            // Do not persist exception messages, which may contain raw event fields or secrets.
-            // Invalid durable payloads cannot be fixed by an automatic retry. Keep them for operator inspection.
-            $permanent=$e instanceof \JsonException || ($e instanceof HttpException && in_array($e->status,[403,413,422],true));
-            return $this->fail($claim,$permanent?'invalid_payload':($e instanceof \PDOException?'database_error':'processing_error'),$permanent);
+            $decision=RetryPolicy::classify($e);
+            if ($decision['action']==='pause') throw $e;
+            return $this->fail($claim,$decision['reason'],$decision['action']==='dead');
         }
     }
     public static function backoff(int $attempt): int { return min(3600, 5 * (2 ** min(10,max(0,$attempt-1)))); }
@@ -170,13 +177,13 @@ final class PostgresQueueDriver implements QueueDriverInterface
             $row=$this->sql("SELECT attempts,max_attempts FROM jobs WHERE id=:id AND status='running' AND lease_id=:lease FOR UPDATE",['id'=>$claim['id'],'lease'=>$claim['lease_id']])->fetch();
             if (!$row || !$this->leaseLive($claim)) { return 'stale'; }
             $dead=$permanent || (int)$row['attempts'] >= (int)$row['max_attempts'];$outcome=$dead?'dead':'retry';
-            $this->sql("UPDATE jobs SET status=:status,available_at=clock_timestamp()+CAST(:delay AS integer)*interval '1 second',completed_at=CASE WHEN CAST(:dead AS boolean) THEN clock_timestamp() ELSE NULL END,lease_id=NULL,lease_until=NULL,reserved_at=NULL,last_error=:error WHERE id=:id",['status'=>$dead?'dead':'pending','delay'=>self::backoff((int)$row['attempts']),'dead'=>$dead?'true':'false','error'=>$error,'id'=>$claim['id']]);
+            $this->sql("UPDATE jobs SET status=:status,available_at=clock_timestamp()+CAST(:delay AS integer)*interval '1 second',completed_at=CASE WHEN CAST(:dead AS boolean) THEN clock_timestamp() ELSE NULL END,lease_id=NULL,lease_until=NULL,reserved_at=NULL,last_error=:error WHERE id=:id",['status'=>$dead?'dead':'pending','delay'=>$dead?0:$this->retryPolicy->delay((int)$row['attempts']),'dead'=>$dead?'true':'false','error'=>$error,'id'=>$claim['id']]);
             if ($this->sql("UPDATE job_attempts SET outcome=:outcome,error=:error,finished_at=clock_timestamp() WHERE job_id=:id AND attempt=:attempt AND outcome='running'",['outcome'=>$outcome,'error'=>$error,'id'=>$claim['id'],'attempt'=>$row['attempts']])->rowCount()!==1) throw new \RuntimeException('Missing running job attempt; roll back failure transition.');
             return $outcome;
         }, maxAttempts: 3);
     }
     public function retry(string $id): bool {
-        return $this->sql("UPDATE jobs SET status='pending',available_at=clock_timestamp(),completed_at=NULL,max_attempts=LEAST(attempts+8,100),last_error=NULL WHERE id=:id AND queue='ingest-v1' AND status='dead' AND attempts<100",['id'=>$id])->rowCount()===1;
+        return $this->sql("UPDATE jobs SET status='pending',available_at=clock_timestamp(),completed_at=NULL,max_attempts=LEAST(attempts+CAST(:budget AS integer),100),last_error=NULL WHERE id=:id AND queue='ingest-v1' AND status='dead' AND attempts<100",['id'=>$id,'budget'=>$this->retryPolicy->get('max_attempts')])->rowCount()===1;
     }
     public function discard(string $id): bool {
         return $this->sql("UPDATE jobs SET status='cancelled',payload='{}'::jsonb,completed_at=clock_timestamp(),last_error='discarded_by_operator' WHERE id=:id AND queue='ingest-v1' AND status='dead'",['id'=>$id])->rowCount()===1;

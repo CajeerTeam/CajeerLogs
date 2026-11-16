@@ -29,7 +29,7 @@ check(reject(fn()=>IngestBatch::checkSize(array_fill(0,50,$big),IngestBatch::JOB
 $valid=IngestBatch::encodeJob([$e],['app'=>$s]);$decimal=str_replace('1.0e+300','1'.str_repeat('0',300),$valid);check(IngestBatch::decodeJob($decimal)[0][0]->context->number===1e300,'JSONB decimal expansion decoded as numeric');
 // Controlled PDO fixture verifies admission order and permanent/stale worker paths.
 final class BatchPDO extends PDO {
-    public bool $active=false;public array $calls=[];public mixed $existing=false;public string $payload='{}';public bool $live=true;public string $outcome='';public mixed $insertId='7';public string $scope='ok';public mixed $activeJobs=0;
+    public bool $active=false;public array $calls=[];public mixed $existing=false;public string $payload='{}';public bool $live=true;public string $outcome='';public mixed $insertId='7';public string $scope='ok';public mixed $activeJobs=0;public ?PDOException $readError=null;
     public function __construct(){}
     public function inTransaction():bool{return $this->active;}
     public function beginTransaction():bool{$this->active=true;return true;}
@@ -42,7 +42,7 @@ final class BatchPDO extends PDO {
 final class BatchStatement extends PDOStatement {
     private array $params=[];
     public function __construct(private BatchPDO $db,private string $sql){}
-    public function execute(?array $params=null):bool{$this->params=$params??[];$this->db->calls[]=[$this->sql,$this->params];if(str_contains($this->sql,'SET outcome=:outcome'))$this->db->outcome=$params['outcome'];return true;}
+    public function execute(?array $params=null):bool{$this->params=$params??[];$this->db->calls[]=[$this->sql,$this->params];if($this->db->readError!==null&&str_contains($this->sql,'CASE WHEN payload_bytes'))throw $this->db->readError;if(str_contains($this->sql,'SET outcome=:outcome'))$this->db->outcome=$params['outcome'];return true;}
     public function fetch(int $mode=PDO::FETCH_DEFAULT,int $cursorOrientation=PDO::FETCH_ORI_NEXT,int $cursorOffset=0):mixed {
         if(str_contains($this->sql,'request_hash FROM jobs'))return $this->db->existing;
         return ['id'=>'7','project_id'=>'11111111-1111-4111-8111-111111111111','token_id'=>'33333333-3333-4333-8333-333333333333','attempts'=>1,'max_attempts'=>8];
@@ -67,4 +67,14 @@ $db->activeJobs=false;try{$q->enqueue($t,$p,$key,$hash,[$e],['app'=>$s]);throw n
 $db->activeJobs=0;$db->insertId=false;check(reject(fn()=>$q->enqueue($t,$p,$key,$hash,[$e],['app'=>$s]),413),'JSONB expansion refusal does not return accepted job');
 $db->active=false;$db->calls=[];$claim=['id'=>'7','lease_id'=>$s];check($q->process($claim)==='dead'&&$db->outcome==='dead','invalid durable payload immediately dead-lettered');
 $db->live=false;$db->calls=[];check($q->process($claim)==='stale'&&!str_contains(json_encode($db->calls),'payload_bytes<=CAST'),'expired lease checked before fetching payload');
+$db->live=true;
+foreach (['55P03'=>'lock_timeout','57014'=>'statement_timeout','23514'=>'database_error'] as $state=>$reason) {
+    $db->calls=[];$db->readError=new PDOException('secret SQL parameters');$db->readError->errorInfo=[$state,7,'secret'];
+    check($q->process($claim)==='retry'&&$db->outcome==='retry'&&str_contains(json_encode($db->calls),$reason)&&!str_contains(json_encode($db->calls),'secret SQL parameters'),'known rollback classified '.$state);
+}
+foreach (['42501','08006'] as $state) {
+    $db->calls=[];$db->readError=new PDOException('secret SQL parameters');$db->readError->errorInfo=[$state,7,'secret'];$caught=false;
+    try{$q->process($claim);}catch(PDOException){$caught=true;}
+    check($caught&&!str_contains(json_encode($db->calls),'SET outcome=:outcome'),'infrastructure failure leaves durable claim '.$state);
+}
 echo "Batch ingestion: $n checks passed\n";

@@ -1,7 +1,7 @@
 # Run with --env-file .env.production. See docs/First-Public-Release.md.
 name: cajeerlogs
 x-runtime: &runtime
-  image: cajeerlogs:0.5.2
+  image: cajeerlogs:0.5.3
   build:
     context: .
     dockerfile: deploy/production/Dockerfile
@@ -36,6 +36,13 @@ x-runtime: &runtime
     RETENTION_CYCLE_BUDGET_MS: ${RETENTION_CYCLE_BUDGET_MS:-30000}
     RETENTION_PAUSE_MS: ${RETENTION_PAUSE_MS:-100}
     WEBHOOK_RETENTION_DAYS: ${WEBHOOK_RETENTION_DAYS:-30}
+    QUEUE_MAX_ATTEMPTS: ${QUEUE_MAX_ATTEMPTS:-8}
+    QUEUE_RETRY_BASE_SECONDS: ${QUEUE_RETRY_BASE_SECONDS:-5}
+    QUEUE_RETRY_MAX_SECONDS: ${QUEUE_RETRY_MAX_SECONDS:-3600}
+    QUEUE_RETRY_JITTER_PERCENT: ${QUEUE_RETRY_JITTER_PERCENT:-25}
+    QUEUE_OUTAGE_BASE_MS: ${QUEUE_OUTAGE_BASE_MS:-250}
+    QUEUE_OUTAGE_MAX_MS: ${QUEUE_OUTAGE_MAX_MS:-30000}
+    QUEUE_OUTAGE_MAX_FAILURES: ${QUEUE_OUTAGE_MAX_FAILURES:-10}
     QUEUE_WORKER_PROCESSES: ${QUEUE_WORKER_PROCESSES:-2}
     QUEUE_WORKER_MAX_JOBS: ${QUEUE_WORKER_MAX_JOBS:-1000}
     QUEUE_WORKER_MAX_SECONDS: ${QUEUE_WORKER_MAX_SECONDS:-3600}
@@ -171,7 +178,7 @@ services:
       app:
         condition: service_healthy
   gateway:
-    image: cajeerlogs-gateway:0.5.2
+    image: cajeerlogs-gateway:0.5.3
     build:
       context: .
       dockerfile: deploy/production/Dockerfile

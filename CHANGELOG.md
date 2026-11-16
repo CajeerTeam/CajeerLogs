@@ -2,6 +2,12 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## 0.5.3 — Retry & Failure Recovery
+
+- Validated retry policies, persisted attempt budgets for new jobs, bounded exponential delays with jitter and manual retry budget.
+- Safe SQLSTATE classification, infrastructure backoff with recovery readiness check, delayed lease recovery and fencing; uncertain commits remain non-replayable.
+- Retry policy diagnostics, actual PostgreSQL failure scenarios and upgrade from 0.5.2. No schema migration; existing jobs retain their attempt limits.
+
 ## 0.5.2 — Worker Runtime & Concurrency
 
 - Supervised independent PHP queue processes, bounded restart backoff and graceful drain with forced termination deadline.

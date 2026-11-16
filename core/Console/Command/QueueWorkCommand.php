@@ -2,7 +2,7 @@
 declare(strict_types=1);
 namespace Cajeer\Logs\Console\Command;
 use Cajeer\Logs\Kernel\Application;
-use Cajeer\Logs\Queue\{PostgresQueueDriver,Worker,QueueAccounting,WorkerPolicy,WorkerPool,WorkerRegistry};
+use Cajeer\Logs\Queue\{PostgresQueueDriver,Worker,QueueAccounting,WorkerPolicy,WorkerPool,WorkerRegistry,RetryPolicy};
 use Cajeer\Logs\Database\ConnectionManager;
 final class QueueWorkCommand
 {
@@ -10,7 +10,7 @@ final class QueueWorkCommand
     private function worker(): Worker
     {
         $heartbeat=new \Cajeer\Logs\Observability\WorkerHeartbeat($this->app->basePath('storage/cache'));
-        return new Worker($this->app->container()->get(ConnectionManager::class),$this->app->config()->get('queue.max_jobs'),$this->app->basePath('migrations/pgsql'),$this->app->container()->get(\Cajeer\Logs\Database\ConnectionFactory::class)->schema(),fn()=> $heartbeat->record('queue'),WorkerPolicy::fromConfig($this->app->config()),new WorkerRegistry($this->app->basePath('storage/cache')));
+        return new Worker($this->app->container()->get(ConnectionManager::class),$this->app->config()->get('queue.max_jobs'),$this->app->basePath('migrations/pgsql'),$this->app->container()->get(\Cajeer\Logs\Database\ConnectionFactory::class)->schema(),fn()=> $heartbeat->record('queue'),WorkerPolicy::fromConfig($this->app->config()),new WorkerRegistry($this->app->basePath('storage/cache')),RetryPolicy::fromConfig($this->app->config()),fn(\PDO $pdo)=>$this->app->container()->get(\Cajeer\Logs\Database\DatabaseStatus::class)->check(true,false,$pdo)['status']==='ok');
     }
     public function handle(string $command,array $args): int {
         $policy=WorkerPolicy::fromConfig($this->app->config());
@@ -26,6 +26,7 @@ final class QueueWorkCommand
             if ($expected===false) return 64;
             $report=(new WorkerRegistry($this->app->basePath('storage/cache')))->snapshot();
             $report['policy']=$policy->values;
+            $report['retry_policy']=RetryPolicy::fromConfig($this->app->config())->values;
             if ($command==='queue:pool-health') {
                 $report['local_active']=count(array_filter($report['workers'],fn($w)=>$w['host']===WorkerRegistry::host() && $w['pool']!==null && $w['status']==='ok' && WorkerRegistry::localAlive($w)));
                 $report['expected']=$expected;

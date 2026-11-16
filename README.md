@@ -2,7 +2,7 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
-## 0.5.2 — Worker Runtime & Concurrency
+## 0.5.3 — Worker Runtime & Concurrency
 
 Независимые PHP workers под управлением `queue:pool`, graceful drain, автоматическая замена завершившихся процессов, ограничения жизненного цикла, адаптивный polling, PostgreSQL transaction timeouts и индивидуальная диагностика. См. [Worker Operations](docs/Worker-Operations.md). Миграции 0001–0022 не изменены; новая миграция не требуется. Канал public-preview до прохождения полного CI.
 
@@ -232,3 +232,5 @@ composer analyse
 
 См. [Database & Installer](docs/Database-Installer.md), [Core Runtime](docs/Core-Runtime.md), [Nginx](docs/Nginx-deployment.md), [Apache](docs/Apache-optional.md) и [реализованный OpenAPI](api/openapi.yaml). Планируемый API находится отдельно в `docs/openapi-planned.yaml`.
 
+
+**0.5.3:** [Retry & Failure Recovery](docs/Retry-Failure-Recovery.md) — configurable durable attempt budgets, jitter, lease recovery and outage handling.

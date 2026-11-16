@@ -41,7 +41,7 @@ php bin/cajeer queue:work 100         # до 100 захватов; выходи�
 php bin/cajeer queue:status           # фактические счётчики
 php bin/cajeer queue:list dead        # первые 100 dead jobs, без payload
 php bin/cajeer queue:history 123      # история попыток
-php bin/cajeer queue:retry 123        # тот же payload и ID, ещё до 8 попыток (общий предел 100)
+php bin/cajeer queue:retry 123        # тот же payload и ID, ещё до QUEUE_MAX_ATTEMPTS попыток (общий предел 100)
 php bin/cajeer queue:discard 123      # необратимо удалить payload dead job, оставить cancelled receipt
 ```
 
@@ -99,3 +99,7 @@ CAJEER_TEST_DATABASE=1 php tests/queue_database.php
 ## Worker Runtime 0.5.2
 
 См. [Worker Operations](Worker-Operations.md) для policy, запуска pool, диагностики, shutdown и масштабирования.
+
+## Retry & Failure Recovery (0.5.3)
+
+See [Retry & Failure Recovery](Retry-Failure-Recovery.md) for the current retry defaults, lease recovery and outage policy. The earlier fixed eight-attempt and immediate expired-lease descriptions apply to historical releases.

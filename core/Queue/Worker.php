@@ -2,12 +2,12 @@
 declare(strict_types=1);
 namespace Cajeer\Logs\Queue;
 
-use Cajeer\Logs\Database\{ConnectionFactory,ConnectionManager,DatabaseFailure,MigrationRunner};
+use Cajeer\Logs\Database\{ConnectionManager,DatabaseException,DatabaseFailure,MigrationRunner,TransactionManager};
 
 final class Worker
 {
     private bool $stop=false;
-    public function __construct(private readonly PostgresQueueDriver|ConnectionManager $connection, private readonly int $maxJobs=1000, private readonly ?string $migrationDirectory=null, private readonly ?string $schema=null, private readonly ?\Closure $heartbeat=null, private readonly ?WorkerPolicy $policy=null, private readonly ?WorkerRegistry $registry=null) {}
+    public function __construct(private readonly PostgresQueueDriver|ConnectionManager $connection, private readonly int $maxJobs=1000, private readonly ?string $migrationDirectory=null, private readonly ?string $schema=null, private readonly ?\Closure $heartbeat=null, private readonly ?WorkerPolicy $policy=null, private readonly ?WorkerRegistry $registry=null, private readonly RetryPolicy $retryPolicy=new RetryPolicy(), private readonly ?\Closure $recoveryCheck=null) {}
     public function stop(): void { $this->stop=true; }
     private function sleep(int $ms): void {
         $end=hrtime(true)+$ms*1_000_000;
@@ -29,12 +29,15 @@ final class Worker
                 if ($limit===0 && is_string($parent) && ctype_digit($parent) && function_exists('posix_getppid') && posix_getppid()!==(int)$parent) break;
                 // A time limit must also recycle a completely idle worker.
                 if ($limit===0 && $policy->exhausted($processed,(int)((hrtime(true)-$start)/1e9),memory_get_usage(true))) break;
-                $guard=null;$delay=0;
+                $guard=null;$delay=0;unset($pdo,$claim,$queue);
                 try {
                     if ($this->connection instanceof ConnectionManager) {
                         $pdo=$this->connection->connection();
                         if ($this->migrationDirectory!==null && $this->schema!==null) $guard=(new MigrationRunner($pdo,$this->migrationDirectory,$this->schema))->guard();
-                        $queue=new PostgresQueueDriver($pdo,$this->maxJobs,$policy);
+                        // After an outage, do not claim another job until the database and
+                        // schema pass the same runtime readiness checks used by operators.
+                        if ($failures>0 && $this->recoveryCheck!==null && !($this->recoveryCheck)($pdo)) throw new DatabaseException('Queue recovery preflight failed.',0,null,'configuration');
+                        $queue=new PostgresQueueDriver($pdo,$this->maxJobs,$policy,$this->retryPolicy);
                     } else $queue=$this->connection;
                     if ($this->stop) break;
                     $claim=$queue->claim();
@@ -50,12 +53,13 @@ final class Worker
                         if ($limit===0 && $outcome!=='completed') fwrite(STDERR,'Queue job outcome: '.$outcome.PHP_EOL);
                     }
                 } catch (\Throwable $error) {
-                    if (!$this->connection instanceof ConnectionManager || !DatabaseFailure::reconnectable($error)) throw $error;
+                    $decision=RetryPolicy::classify($error);
+                    if (!$this->connection instanceof ConnectionManager || (!DatabaseFailure::unavailable($error) && $decision['action']!=='pause' && (!isset($pdo) || TransactionManager::usable($pdo)))) throw $error;
                     // Durable job state is authoritative. Never replay uncertain claim/process/COMMIT.
                     unset($queue,$claim,$guard,$pdo);$this->connection->invalidate();
-                    if ($limit!==0 || ++$failures>=10) throw $error;
-                    fwrite(STDERR,'Queue database unavailable: '.DatabaseFailure::category($error).'; reconnecting at next operation boundary.'.PHP_EOL);
-                    $delay=ConnectionFactory::retryDelay(250,$failures);
+                    if ($limit!==0 || ++$failures>=$this->retryPolicy->get('outage_max_failures')) throw $error;
+                    fwrite(STDERR,'Queue database unavailable: '.$decision['reason'].'; reconnecting at next operation boundary.'.PHP_EOL);
+                    $delay=$this->retryPolicy->outageDelay($failures);
                 } finally {if (isset($guard)) $guard->release();}
                 if ($delay>0) $this->sleep($delay);
             }

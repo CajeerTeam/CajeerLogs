@@ -15,7 +15,7 @@ $count=0;
 function verify(bool $ok,string $label):void {global $count;if (!$ok) throw new RuntimeException('FAIL '.$label);$count++;echo "PASS $label\n";}
 function data(\Cajeer\Logs\Http\Response $r):array {return json_decode($r->body,true,64,JSON_THROW_ON_ERROR);}
 try {
-    $app=new Application($root);$app->boot();$app->config()->set('database.schema',$schema);$app->config()->set('app.env','test');$app->config()->set('ingest.require_hmac',false);$app->config()->set('queue.max_jobs',2);
+    $app=new Application($root);$app->boot();$app->config()->set('database.schema',$schema);$app->config()->set('app.env','test');$app->config()->set('ingest.require_hmac',false);$app->config()->set('queue.max_jobs',2);$app->config()->set('queue.retry',['max_attempts'=>4,'base_seconds'=>10,'max_seconds'=>60,'jitter_percent'=>0]);
     $pdo=$app->container()->get(PDO::class);$factory=$app->container()->get(ConnectionFactory::class);
     foreach (glob($root.'/migrations/pgsql/000[1-6]_*.sql') as $path) {copy($path,$tmp.'/'.basename($path));}
     (new MigrationRunner($pdo,$tmp,$schema))->migrate();
@@ -33,8 +33,9 @@ try {
     $poll=fn(string $id,string $secret)=>$app->handle(new Request('GET','/api/v1/ingest/jobs/'.$id,['Authorization'=>'Bearer '.$secret],[],'','127.0.0.1'));
     $r=$send('first',$body2,$token['token']);$d=data($r);$id=$d['job_id'];
     verify($r->status===202 && $d['status']==='pending' && $d['received']===2 && $r->header('Location')==='/api/v1/ingest/jobs/'.$id,'durable async accepted batch');
+    verify((int)$pdo->query('SELECT max_attempts FROM jobs WHERE id='.$id)->fetchColumn()===4,'new job persists configured attempt budget');
     verify($account->snapshot()['active_jobs']===1&&$account->snapshot()['active_events']===2&&$account->snapshot()['active_bytes']>0&&$account->verify()['valid'],'durable batch accounts actual payload and events');
-    $second=$factory->make('pgsql');$secondQueue=new PostgresQueueDriver($second,2);
+    $second=$factory->make('pgsql');$secondQueue=new PostgresQueueDriver($second,2,null,new \Cajeer\Logs\Queue\RetryPolicy(['max_attempts'=>4,'base_seconds'=>10,'max_seconds'=>60,'jitter_percent'=>0]));
     verify((int)$second->query("SELECT count(*) FROM jobs WHERE queue='ingest-v1'")->fetchColumn()===1 && (int)$second->query('SELECT count(*) FROM log_events')->fetchColumn()===0,'job visible to independent connection before log storage');
     verify(!str_contains($second->query("SELECT payload FROM jobs WHERE id=".$id)->fetchColumn(),'do-not-store'),'queued payload redacted');
     $r=$send('first',$body2,$token['token']);verify($r->status===200&&data($r)['job_id']===$id&&data($r)['replayed'],'same key exact body returns same job');
@@ -56,16 +57,20 @@ try {
     verify($account->snapshot()['active_jobs']===1&&$account->snapshot()['active_events']===1&&$account->verify()['valid'],'completion releases exact capacity');
     // Expired lease recovery and fencing.
     $pdo->exec("UPDATE jobs SET lease_until=clock_timestamp()-interval '1 second' WHERE id=".$id2);
+    verify(isset($secondQueue->claim()['skipped'])&&$queue->history($id2)[0]['outcome']==='expired'&&$queue->process($claim2)==='stale'&&$secondQueue->claim()===null,'recent expired lease defers retry and fences old worker');
+    verify($account->verify()['valid']&&$account->snapshot()['active_jobs']===1,'deferred recovery preserves capacity');
+    $pdo->exec("UPDATE jobs SET available_at=clock_timestamp()-interval '1 second' WHERE id=".$id2);
     $newClaim=$secondQueue->claim();verify($newClaim['lease_id']!==$claim2['lease_id']&&$queue->process($claim2)==='stale','expired lease recovered; old worker fenced');
     // Force a real SQL failure in the outbox; log rows and completion must roll back together.
     $pdo->exec('ALTER TABLE webhook_deliveries ADD CONSTRAINT test_queue_reject CHECK (false) NOT VALID');
     verify($secondQueue->process($newClaim)==='retry'&&(int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===2,'failed outbox rolls back inserted log and schedules retry');
     verify($queue->claim()===null&&$queue->history($id2)[0]['outcome']==='retry','backoff and attempt history');
+    verify((float)$pdo->query('SELECT extract(epoch FROM j.available_at-a.finished_at) FROM jobs j JOIN job_attempts a ON a.job_id=j.id AND a.attempt=j.attempts WHERE j.id='.$id2)->fetchColumn()>18,'configured exponential delay applied to actual SQL failure');
     $pdo->exec("UPDATE jobs SET available_at=clock_timestamp()-interval '1 second',max_attempts=attempts+1 WHERE id=".$id2);
     $failed=$queue->claim();verify($queue->process($failed)==='dead'&&$pdo->query('SELECT status FROM jobs WHERE id='.$id2)->fetchColumn()==='dead','exhausted attempts enter dead-letter');
     $pdo->exec('ALTER TABLE webhook_deliveries DROP CONSTRAINT test_queue_reject');
     verify(data($poll($id2,$token['token']))['status']==='dead','status API restored after drift repair');
-    verify($queue->retry($id2)&&$queue->process($queue->claim())==='completed','manual retry processes original durable payload');
+    verify($queue->retry($id2)&&(int)$pdo->query('SELECT max_attempts-attempts FROM jobs WHERE id='.$id2)->fetchColumn()===4&&$queue->process($queue->claim())==='completed','manual retry processes original durable payload');
     verify((int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===3&&(int)$pdo->query('SELECT count(*) FROM webhook_deliveries')->fetchColumn()===2,'successful retry stores exactly once');
     // A revoked token cannot read status, but jobs admitted before revocation remain durable.
     $r=$send('revoked',$body,$foreign['token']);$id3=data($r)['job_id'];verify($r->status===202,'accepted before revocation');
@@ -142,7 +147,7 @@ try {
     verify($account->snapshot()['active_jobs']===0&&$account->verify()['valid'],'discard releases capacity');
     // A stale claim cannot write even before another worker reclaims it.
     $r=$send('expired-before-start',$body,$token['token']);$expiredId=data($r)['job_id'];$expiredClaim=$queue->claim();
-    $pdo->exec("UPDATE jobs SET lease_until=clock_timestamp()-interval '1 second' WHERE id=".$expiredId);
+    $pdo->exec("UPDATE jobs SET lease_until=clock_timestamp()-interval '1 hour' WHERE id=".$expiredId);
     verify($queue->process($expiredClaim)==='stale'&&(int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===$beforeLogs,'expired claim cannot start processing');
     verify($queue->process($secondQueue->claim())==='completed','expired job reclaimed by independent session');
     // Terminate a real backend after INSERT and before COMMIT. A trigger on the
@@ -172,7 +177,7 @@ try {
     }
     verify((int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===$beforeLogs&&(int)$pdo->query('SELECT count(*) FROM webhook_deliveries')->fetchColumn()===$beforeHooks,'connection loss rolled back log and outbox');
     verify($pdo->query('SELECT status FROM jobs WHERE id='.$crashId)->fetchColumn()==='running','committed claim survives lost processing session');
-    $pdo->exec("UPDATE jobs SET lease_until=clock_timestamp()-interval '1 second' WHERE id=".$crashId);
+    $pdo->exec("UPDATE jobs SET lease_until=clock_timestamp()-interval '1 hour' WHERE id=".$crashId);
     verify($secondQueue->process($secondQueue->claim())==='completed'&&(int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===$beforeLogs+2&&(int)$pdo->query('SELECT count(*) FROM webhook_deliveries')->fetchColumn()===$beforeHooks+1,'recovery commits exactly one batch and outbox');
     verify($queue->process($crashClaim)==='stale','pre-crash claim fenced after recovery');
     verify($account->verify()['valid']&&$account->snapshot()['active_jobs']===0,'crash recovery preserves accounting');
@@ -236,8 +241,23 @@ try {
         $lost=false;try {$timeoutQueue->process($timeoutClaim);}catch(Throwable $e){$lost=\Cajeer\Logs\Database\DatabaseFailure::reconnectable($e);}
         verify($lost&&(int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===$before&&$pdo->query('SELECT status FROM jobs WHERE id='.(int)$timeoutId)->fetchColumn()==='running','transaction timeout rolls back inserts and retains durable lease');
     } finally {$pdo->exec('DROP TRIGGER worker_timeout_pause ON log_events');$pdo->exec('DROP FUNCTION worker_timeout_pause()');}
-    $pdo->exec("UPDATE jobs SET lease_until=clock_timestamp()-interval '1 second' WHERE id=".(int)$timeoutId);
+    $pdo->exec("UPDATE jobs SET lease_until=clock_timestamp()-interval '1 hour' WHERE id=".(int)$timeoutId);
     verify($queue->process($queue->claim())==='completed'&&(int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===$before+2&&$account->verify()['valid'],'expired timed-out job recovers exactly one batch');
+    $r=$send('worker-classified-failure',$body,$token['token']);$failureId=data($r)['job_id'];verify($r->status===202,'classified failure fixture accepted');
+    $failureClaim=$queue->claim();$before=(int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn();
+    $pdo->exec("CREATE FUNCTION worker_failure_injection() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION USING ERRCODE='55P03',MESSAGE='sensitive parameter'; END; $$");
+    $pdo->exec('CREATE TRIGGER worker_failure_injection BEFORE INSERT ON log_events FOR EACH ROW EXECUTE FUNCTION worker_failure_injection()');
+    try {
+        verify($queue->process($failureClaim)==='retry'&&$queue->history($failureId)[0]['error']==='lock_timeout'&&(int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===$before,'real SQLSTATE rollback classified without sensitive diagnostics');
+        verify($account->verify()['valid'],'retry preserves accounting');
+        $pdo->exec("UPDATE jobs SET available_at=clock_timestamp()-interval '1 second' WHERE id=".$failureId);
+        $failureClaim=$queue->claim();
+        $pdo->exec("CREATE OR REPLACE FUNCTION worker_failure_injection() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION USING ERRCODE='42501',MESSAGE='sensitive parameter'; END; $$");
+        $paused=false;try{$queue->process($failureClaim);}catch(PDOException $e){$paused=\Cajeer\Logs\Queue\RetryPolicy::classify($e)['action']==='pause';}
+        verify($paused&&$queue->history($failureId)[0]['outcome']==='running'&&(int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===$before,'schema/permission failure retains lease for safe recovery');
+    } finally {$pdo->exec('DROP TRIGGER worker_failure_injection ON log_events');$pdo->exec('DROP FUNCTION worker_failure_injection()');}
+    $pdo->exec("UPDATE jobs SET lease_until=clock_timestamp()-interval '1 hour' WHERE id=".$failureId);
+    verify($queue->process($queue->claim())==='completed'&&(int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===$before+1&&$account->verify()['valid'],'repair recovers original job once');
     echo "Queue database: $count checks passed\n";
 } finally {
     if (isset($second)&&$second->inTransaction()) $second->rollBack();
