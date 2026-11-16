@@ -8,7 +8,7 @@ use Cajeer\Logs\Http\HttpException;
 final class Rbac
 {
     public const PROJECT = ['projects:read','logs:read','logs:export','logs:write','sources:create','sources:update','sources:state',
-        'tokens:read','tokens:create','tokens:update','tokens:rotate','tokens:revoke','tokens:signing','services:read','services:manage','audit:read'];
+        'tokens:read','tokens:create','tokens:update','tokens:rotate','tokens:revoke','tokens:signing','services:read','services:manage','audit:read','queue:read','queue:retry','queue:discard'];
     private const LEGACY = ['sources:manage','tokens:manage'];
     public const ADMIN = ['users:manage','projects:manage','system:read','roles:manage'];
     public function allows(array $permissions, string $permission): bool { return in_array($permission,$permissions,true); }
@@ -32,9 +32,10 @@ final class Rbac
             if (in_array($action,$permissions,true)&&!in_array('tokens:read',$permissions,true)) self::invalid();
         }
         if (in_array('services:manage',$permissions,true)&&!in_array('services:read',$permissions,true)) self::invalid();
+        foreach (['queue:retry','queue:discard'] as $action) if (in_array($action,$permissions,true)&&!in_array('queue:read',$permissions,true)) self::invalid();
         return array_values(array_intersect(self::PROJECT,$permissions));
     }
-    private static function invalid(): never { throw new HttpException(422,'invalid_permissions','Use unique supported project permissions. Project read is required; export requires log read, token mutations require token read, and service mutations require service read.'); }
+    private static function invalid(): never { throw new HttpException(422,'invalid_permissions','Use unique supported project permissions. Project read is required; export requires log read, token mutations require token read, and service mutations require service read, and queue mutations require queue read.'); }
     /** Fail closed if stored data is malformed or assigned in the wrong scope. */
     public static function restrict(array $grants, ?string $id, ?string $scope, mixed $json, string $expected): array
     {

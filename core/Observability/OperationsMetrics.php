@@ -13,6 +13,8 @@ final class OperationsMetrics
         $pdo=$probe??$this->app->container()->get(PDO::class);
         $row=$pdo->query("SELECT pg_total_relation_size('log_events'::regclass) AS log_storage_bytes, COALESCE((SELECT GREATEST(0,extract(epoch from now()-min(created_at))) FROM jobs WHERE queue='ingest-v1' AND status='pending'),0) AS queue_oldest_pending_seconds, (SELECT count(*) FROM jobs WHERE queue='ingest-v1' AND status='running' AND lease_until<=now()) AS expired_leases, (SELECT count(*) FROM webhook_deliveries WHERE status='failed') AS webhook_failed, (SELECT count(*) FROM webhook_deliveries WHERE status IN ('pending','sending')) AS webhook_pending")->fetch();
         $values=[]; foreach ($row as $k=>$v) { $values[$k]=(float)$v; }
+        $dead=$pdo->query("SELECT count(*) AS queue_dead_jobs,COALESCE(sum(payload_events),0) AS queue_dead_events,COALESCE(sum(payload_bytes),0) AS queue_dead_bytes,COALESCE(GREATEST(0,extract(epoch from now()-min(completed_at))),0) AS queue_oldest_dead_seconds FROM jobs WHERE queue='ingest-v1' AND status='dead'")->fetch();
+        foreach ($dead as $name=>$value) $values[$name]=(float)$value;
         $capacity=(new \Cajeer\Logs\Queue\QueueAccounting($pdo))->snapshot();
         foreach ($capacity as $name=>$value) $values['queue_'.$name]=(float)$value;
         $values['queue_max_jobs']=(float)$this->app->config()->get('queue.max_jobs');

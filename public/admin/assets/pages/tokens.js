@@ -1,9 +1,9 @@
-import { state, projectPath, admin, hasPermission, canIssueScope, active, render } from '../app/store.js?v=0.5.3';
-import { h, button, card, field, input, select, checkbox, empty, badge, date, enc, message, clearModal, modalEpoch, modal, form, heading, needProject, copy, table, notify } from '../components/ui.js?v=0.5.3';
-import { projectSelector } from '../app/projects.js?v=0.5.3';
-import { pagedList } from '../components/pagination.js?v=0.5.3';
-import { mutationSuccess, confirmAction } from '../components/mutations.js?v=0.5.3';
-import { get, write, request } from '../api/client.js?v=0.5.3';
+import { state, projectPath, admin, hasPermission, canIssueScope, active, render } from '../app/store.js?v=0.5.4';
+import { h, button, card, field, input, select, checkbox, empty, badge, date, enc, message, clearModal, modalEpoch, modal, form, heading, needProject, copy, table, notify } from '../components/ui.js?v=0.5.4';
+import { projectSelector } from '../app/projects.js?v=0.5.4';
+import { pagedList } from '../components/pagination.js?v=0.5.4';
+import { mutationSuccess, confirmAction } from '../components/mutations.js?v=0.5.4';
+import { get, write, request } from '../api/client.js?v=0.5.4';
 
 let tokenIssuing = false;
 function tokenMetadataFields(r = {}) {
@@ -35,7 +35,7 @@ export function auditSection(path,signal,epoch,system=false,open=false) {
     const list=h('div'); let currentQuery={};
     const filters=form('Фильтровать аудит',[
         field('Действие аудита',select('action',[['','Все действия'],['logs.exported','Экспорт логов'],['token.created','Выпуск токена'],['token.updated','Изменение токена'],['token.rotated','Ротация токена'],['token.revoked','Отзыв токена'],['token.bulk_revoked','Пакетный отзыв'],['token.signing_changed','Изменение HMAC'],['token.signing_previous_retired','Завершение перекрытия HMAC'],['service_account.created','Создание сервиса'],['service_account.disabled','Отключение сервиса'],['project.signing_policy','Политика HMAC'],['project.member_role_set','Изменение роли проекта'],['role.project_assigned','Назначение пользовательской роли проекта'],...(system?[['security.access_denied','Отказ в доступе'],['auth.reauthenticated','Подтверждение личности'],['auth.reauthentication_failed','Ошибка подтверждения'],['auth.totp_key_rotated','Ротация ключа TOTP'],['role.created','Создание роли'],['role.updated','Изменение роли'],['role.deleted','Удаление роли'],['role.global_assigned','Назначение глобальной роли'],['auth.login','Вход'],['auth.login_failed','Неудачный вход'],['user.updated','Изменение пользователя'],['user.totp_reset','Сброс 2FA']]:[])],'')),
-        field('UUID инициатора',input('actor_id',{maxlength:36})),field('UUID объекта',input('target',{maxlength:36})),
+        field('UUID инициатора',input('actor_id',{maxlength:36})),field('UUID объекта / ID задания',input('target',{maxlength:36})),
         field('Результат',select('result',[['','Все'],['success','Успех'],['failure','Ошибка'],['denied','Отказ']],'')),
         field('Тип инициатора',select('actor_type',[['','Все'],['user','Пользователь'],['token','Токен'],['system','Система'],['anonymous','Анонимный']],'')),
         field('Начало UTC',input('from',{type:'datetime-local',step:1})),field('Конец UTC (не включительно)',input('to',{type:'datetime-local',step:1}))],async d=>{

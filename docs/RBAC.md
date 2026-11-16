@@ -17,6 +17,9 @@ The immutable global roles Administrator, Operator and Viewer remain the privile
 | tokens:read / tokens:create / tokens:update / tokens:rotate / tokens:revoke / tokens:signing | Credential metadata / issue / edit / rotate / revoke / configure and rotate HMAC |
 | services:read / services:manage | Service account metadata / create and disable (disable also requires tokens:revoke) |
 | audit:read | Project security audit |
+| queue:read | Project queue metadata and attempt history (0.5.4) |
+| queue:retry | Retry selected dead jobs; requires queue:read |
+| queue:discard | Discard selected dead jobs; requires queue:read |
 
 Custom permissions are a fixed whitelist; `logs:export` requires `logs:read`, token mutations require `tokens:read`, service mutations require `services:read`. Legacy coarse permissions are still reported for built-in roles but no new custom role can contain them. Existing machine credentials preserve scopes, source/project restrictions, lifetime and revocation; role changes do not revoke previously issued credentials. A user denied log export cannot issue or rotate a `logs:read` token because legacy read tokens can export. Token rotation may issue an associated signing key where required; separate signing management requires `tokens:signing`. Reading logs is not DRM: users who can see an event can copy its contents even if server export is disabled.
 

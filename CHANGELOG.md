@@ -2,6 +2,13 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## 0.5.4 — Dead-Letter Management
+
+- Project-scoped metadata-only dead-letter catalogue, filters, keyset pagination and attempt history.
+- Atomic confirmed retry/discard selections with optimistic attempt checks, granular RBAC, recent authentication and hash-chain audit.
+- Admin dead-letter workspace, audited CLI actions and DLQ gauges/alerts.
+- No schema migration; existing durable payloads, receipts and attempts remain compatible.
+
 ## 0.5.3 — Retry & Failure Recovery
 
 - Validated retry policies, persisted attempt budgets for new jobs, bounded exponential delays with jitter and manual retry budget.

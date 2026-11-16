@@ -59,6 +59,7 @@ REQUIRED = {'release.json', 'core/bootstrap.php', 'bin/cajeer', 'public/index.ph
 
 # Runtime module graph is required even for an unstaged changed-files overlay.
 REQUIRED.update({
+    'core/Queue/DeadLetterManager.php','public/admin/assets/pages/queue.js','tests/dead_letter_database.php','docs/Dead-Letter-Management.md',
     'core/Queue/RetryPolicy.php','tests/retry_policy.php','docs/Retry-Failure-Recovery.md',
     'core/Queue/WorkerPolicy.php','core/Queue/WorkerRegistry.php','core/Queue/WorkerPool.php','tests/worker_runtime.php','docs/Worker-Operations.md',
     'core/Database/SecuritySchema.php', 'core/Operations/OperationsCheck.php', 'docs/Security-Operations-Stable.md',

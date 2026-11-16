@@ -53,3 +53,20 @@ tests:
         exp_alerts:
           - exp_labels: {job: cajeerlogs-ready, instance: 'https://logs.example/ready', severity: critical}
             exp_annotations: {summary: 'CajeerLogs readiness failed'}
+  - interval: 30s
+    input_series:
+      - series: 'cajeerlogs_queue_dead_jobs{job="cajeerlogs",instance="logs.example:443"}'
+        values: '10+0x20'
+      - series: 'cajeerlogs_queue_max_jobs{job="cajeerlogs",instance="logs.example:443"}'
+        values: '100+0x20'
+      - series: 'cajeerlogs_queue_oldest_dead_seconds{job="cajeerlogs",instance="logs.example:443"}'
+        values: '100+0x20'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: CajeerLogsDeadLetterBacklog
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: CajeerLogsDeadLetterBacklog
+        exp_alerts:
+          - exp_labels: {job: cajeerlogs, instance: 'logs.example:443', severity: warning}
+            exp_annotations: {summary: 'Dead-letter jobs require operator investigation'}

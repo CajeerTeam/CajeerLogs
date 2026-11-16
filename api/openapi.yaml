@@ -2,7 +2,7 @@
   "openapi": "3.1.1",
   "info": {
     "title": "CajeerLogs API",
-    "version": "0.5.3",
+    "version": "0.5.4",
     "description": "Identity & Access, synchronous and durable asynchronous PostgreSQL ingestion, job status, project-scoped search, statistics and export. Outgoing webhooks and lifecycle administration use the CLI. TOTP enrollment, recovery codes and administrator enrollment policy. Token rotation, scoped service accounts, credential request quotas and bulk revocation. Mandatory project/token HMAC and separately encrypted rotating signing keys. Session lifecycle, account profile and recovery-code regeneration. Private saved log views with canonical search filters and table layout. Administrator user directory, effective project access, scoped access audit and reauthenticated 2FA reset. Token detail, service account statistics, filtered security audit and explicit HMAC overlap retirement. Append-only audit chain with result/actor/time filters and bounded NDJSON export."
   },
   "servers": [
@@ -7577,7 +7577,7 @@
                     },
                     "rules": {
                       "type": "array",
-                      "maxItems": 16,
+                      "maxItems": 19,
                       "items": {
                         "type": "object",
                         "required": [
@@ -7669,7 +7669,7 @@
                     },
                     "rules": {
                       "type": "array",
-                      "maxItems": 16,
+                      "maxItems": 19,
                       "items": {
                         "type": "object",
                         "required": [
@@ -7739,7 +7739,7 @@
                   },
                   "rules": {
                     "type": "array",
-                    "maxItems": 16,
+                    "maxItems": 19,
                     "items": {
                       "type": "object",
                       "required": [
@@ -7847,7 +7847,7 @@
                 "properties": {
                   "rules": {
                     "type": "array",
-                    "maxItems": 16,
+                    "maxItems": 19,
                     "items": {
                       "type": "object",
                       "required": [
@@ -7922,7 +7922,7 @@
                     },
                     "rules": {
                       "type": "array",
-                      "maxItems": 16,
+                      "maxItems": 19,
                       "items": {
                         "type": "object",
                         "required": [
@@ -8023,7 +8023,7 @@
                     },
                     "rules": {
                       "type": "array",
-                      "maxItems": 16,
+                      "maxItems": 19,
                       "items": {
                         "type": "object",
                         "required": [
@@ -8093,7 +8093,7 @@
                   },
                   "rules": {
                     "type": "array",
-                    "maxItems": 16,
+                    "maxItems": 19,
                     "items": {
                       "type": "object",
                       "required": [
@@ -8210,7 +8210,7 @@
                 "properties": {
                   "rules": {
                     "type": "array",
-                    "maxItems": 16,
+                    "maxItems": 19,
                     "items": {
                       "type": "object",
                       "required": [
@@ -8294,7 +8294,7 @@
                     },
                     "rules": {
                       "type": "array",
-                      "maxItems": 16,
+                      "maxItems": 19,
                       "items": {
                         "type": "object",
                         "required": [
@@ -8404,7 +8404,7 @@
                     },
                     "rules": {
                       "type": "array",
-                      "maxItems": 16,
+                      "maxItems": 19,
                       "items": {
                         "type": "object",
                         "required": [
@@ -8474,7 +8474,7 @@
                   },
                   "rules": {
                     "type": "array",
-                    "maxItems": 16,
+                    "maxItems": 19,
                     "items": {
                       "type": "object",
                       "required": [
@@ -8600,7 +8600,7 @@
                 "properties": {
                   "rules": {
                     "type": "array",
-                    "maxItems": 16,
+                    "maxItems": 19,
                     "items": {
                       "type": "object",
                       "required": [
@@ -10263,8 +10263,17 @@
             "name": "target",
             "in": "query",
             "schema": {
-              "type": "string",
-              "format": "uuid"
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]{0,18}$",
+                  "description": "Positive signed bigint encoded as a string (maximum 9223372036854775807)."
+                }
+              ]
             }
           },
           {
@@ -10420,8 +10429,17 @@
             "name": "target",
             "in": "query",
             "schema": {
-              "type": "string",
-              "format": "uuid"
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]{0,18}$",
+                  "description": "Positive signed bigint encoded as a string (maximum 9223372036854775807)."
+                }
+              ]
             }
           },
           {
@@ -11127,6 +11145,699 @@
                 "required": [
                   "password"
                 ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{project}/queue/dead": {
+      "get": {
+        "operationId": "deadLetters",
+        "summary": "List dead jobs in a project (queue:read)",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]{0,18}$",
+              "description": "Positive signed bigint encoded as a string (maximum 9223372036854775807)."
+            }
+          },
+          {
+            "name": "reason",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "transaction_conflict",
+                "lock_timeout",
+                "statement_timeout",
+                "database_error",
+                "processing_error",
+                "invalid_payload",
+                "lease_expired",
+                "attempts_exhausted",
+                "discarded_by_operator"
+              ]
+            }
+          },
+          {
+            "name": "source_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "min_attempts",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "min_age_seconds",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 315360000
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "items",
+                    "next_cursor"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/QueueJobMetadata"
+                      }
+                    },
+                    "next_cursor": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^[1-9][0-9]{0,18}$",
+                          "description": "Positive signed bigint encoded as a string (maximum 9223372036854775807)."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, CSRF or recent authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Project or job not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Selection changed or attempt budget exhausted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid fields",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{project}/queue/jobs/{job}": {
+      "get": {
+        "operationId": "queueJob",
+        "summary": "Read job metadata and attempt history (queue:read)",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "job",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]{0,18}$",
+              "description": "Positive signed bigint encoded as a string (maximum 9223372036854775807)."
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "job",
+                    "attempts"
+                  ],
+                  "properties": {
+                    "job": {
+                      "$ref": "#/components/schemas/QueueJobMetadata"
+                    },
+                    "attempts": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/QueueAttemptMetadata"
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, CSRF or recent authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Project or job not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Selection changed or attempt budget exhausted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid fields",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{project}/queue/dead/retry": {
+      "post": {
+        "operationId": "retryDeadLetters",
+        "summary": "Atomically retry selected dead jobs (queue:read and queue:retry)",
+        "security": [
+          {
+            "session": [],
+            "csrf": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "changed",
+                    "items"
+                  ],
+                  "properties": {
+                    "changed": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 20
+                    },
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "status"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "pattern": "^[1-9][0-9]{0,18}$",
+                            "description": "Positive signed bigint encoded as a string (maximum 9223372036854775807)."
+                          },
+                          "status": {
+                            "const": "pending"
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, CSRF or recent authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Project or job not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Selection changed or attempt budget exhausted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid fields",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "items",
+                  "confirm"
+                ],
+                "properties": {
+                  "items": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 20,
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "attempts"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "pattern": "^[1-9][0-9]{0,18}$",
+                          "description": "Positive signed bigint encoded as a string (maximum 9223372036854775807)."
+                        },
+                        "attempts": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 100
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "confirm": {
+                    "const": true
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{project}/queue/dead/discard": {
+      "post": {
+        "operationId": "discardDeadLetters",
+        "summary": "Atomically discard selected dead jobs (queue:read and queue:discard)",
+        "security": [
+          {
+            "session": [],
+            "csrf": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "changed",
+                    "items"
+                  ],
+                  "properties": {
+                    "changed": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 20
+                    },
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "status"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "pattern": "^[1-9][0-9]{0,18}$",
+                            "description": "Positive signed bigint encoded as a string (maximum 9223372036854775807)."
+                          },
+                          "status": {
+                            "const": "cancelled"
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, CSRF or recent authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Project or job not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Selection changed or attempt budget exhausted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid fields",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "items",
+                  "confirm"
+                ],
+                "properties": {
+                  "items": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 20,
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "attempts"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "pattern": "^[1-9][0-9]{0,18}$",
+                          "description": "Positive signed bigint encoded as a string (maximum 9223372036854775807)."
+                        },
+                        "attempts": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 100
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "confirm": {
+                    "const": true
+                  }
+                },
                 "additionalProperties": false
               }
             }
@@ -13560,6 +14271,168 @@
           "reauth_seconds",
           "reauthenticated_until"
         ],
+        "additionalProperties": false
+      },
+      "QueueJobMetadata": {
+        "type": "object",
+        "required": [
+          "id",
+          "project_id",
+          "status",
+          "attempts",
+          "max_attempts",
+          "created_at",
+          "available_at",
+          "completed_at",
+          "last_error",
+          "payload_events",
+          "payload_bytes"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "description": "Positive signed bigint encoded as a string (maximum 9223372036854775807)."
+          },
+          "project_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "dead",
+              "completed",
+              "cancelled"
+            ]
+          },
+          "attempts": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "max_attempts": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "available_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "transaction_conflict",
+                  "lock_timeout",
+                  "statement_timeout",
+                  "database_error",
+                  "processing_error",
+                  "invalid_payload",
+                  "lease_expired",
+                  "attempts_exhausted",
+                  "discarded_by_operator",
+                  "other"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "payload_events": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "payload_bytes": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "QueueAttemptMetadata": {
+        "type": "object",
+        "required": [
+          "attempt",
+          "started_at",
+          "finished_at",
+          "outcome",
+          "error"
+        ],
+        "properties": {
+          "attempt": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "running",
+              "completed",
+              "retry",
+              "dead",
+              "expired"
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "transaction_conflict",
+                  "lock_timeout",
+                  "statement_timeout",
+                  "database_error",
+                  "processing_error",
+                  "invalid_payload",
+                  "lease_expired",
+                  "attempts_exhausted",
+                  "discarded_by_operator",
+                  "other"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
         "additionalProperties": false
       }
     },

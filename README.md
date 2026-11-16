@@ -2,7 +2,15 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
-## 0.5.3 — Worker Runtime & Concurrency
+## 0.5.4 — Dead-Letter Management
+
+Управление проблемными заданиями через `/admin/#queue`: проектная фильтрация, история попыток, атомарный retry/discard, RBAC, аудит и метрики DLQ. [Dead-Letter Management](docs/Dead-Letter-Management.md). Миграции 0001–0022 неизменны.
+
+## 0.5.3 — Retry & Failure Recovery
+
+Настраиваемый бюджет попыток, jitter, lease recovery и защита от неопределённого COMMIT. [Retry & Failure Recovery](docs/Retry-Failure-Recovery.md).
+
+## 0.5.2 — Worker Runtime & Concurrency
 
 Независимые PHP workers под управлением `queue:pool`, graceful drain, автоматическая замена завершившихся процессов, ограничения жизненного цикла, адаптивный polling, PostgreSQL transaction timeouts и индивидуальная диагностика. См. [Worker Operations](docs/Worker-Operations.md). Миграции 0001–0022 не изменены; новая миграция не требуется. Канал public-preview до прохождения полного CI.
 
@@ -232,5 +240,7 @@ composer analyse
 
 См. [Database & Installer](docs/Database-Installer.md), [Core Runtime](docs/Core-Runtime.md), [Nginx](docs/Nginx-deployment.md), [Apache](docs/Apache-optional.md) и [реализованный OpenAPI](api/openapi.yaml). Планируемый API находится отдельно в `docs/openapi-planned.yaml`.
 
+
+**0.5.4:** [Dead-Letter Management](docs/Dead-Letter-Management.md) — project-scoped queue inspection, atomic retry/discard and audited operations.
 
 **0.5.3:** [Retry & Failure Recovery](docs/Retry-Failure-Recovery.md) — configurable durable attempt budgets, jitter, lease recovery and outage handling.

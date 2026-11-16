@@ -75,4 +75,15 @@ $cipher=$first->seal($uid,$secret);test(str_starts_with($cipher,'v2:')&&hash_equ
 test(hash_equals($secret,$first->open($uid,$legacy->seal($uid,$secret))),'legacy key readable during rotation');
 test(hash_equals($secret,$second->open($uid,$cipher))&&hash_equals($secret,$second->open($uid,$second->seal($uid,$secret))),'previous and active key both readable');
 foreach ([fn()=>$first->open('other',$cipher),fn()=>$legacy->open($uid,$cipher),fn()=>$first->open($uid,substr($cipher,0,-5).'AAAAA')] as $f) {try{$f();test(false,'key protection');}catch(\Cajeer\Logs\Database\DatabaseException){test(true,'wrong user, version or tampering rejected');}}
+$dlq=\Cajeer\Logs\Queue\DeadLetterManager::class;
+test($dlq::id('9223372036854775807')==='9223372036854775807','DLQ bigint ID remains string');
+foreach ([0,'0','01','-1','9223372036854775808',[],1.0,'1 OR 1=1'] as $bad) test(denied(fn()=>$dlq::id($bad),422),'DLQ invalid ID rejected');
+test($dlq::filters(['limit'=>'10','cursor'=>'9','reason'=>'lease_expired','min_attempts'=>'2'])===['limit'=>10,'cursor'=>'9','reason'=>'lease_expired','min_attempts'=>2],'DLQ bounded filter parsing');
+foreach ([['limit'=>101],['reason'=>['database_error']],['source_id'=>'bad'],['min_age_seconds'=>-1],['cursor'=>'0'],['unexpected'=>'x']] as $bad) test(denied(fn()=>$dlq::filters($bad),422),'DLQ malformed filters rejected');
+$selected=$dlq::selection([['id'=>'100','attempts'=>3],['id'=>'9','attempts'=>1],['id'=>'11','attempts'=>2]]);
+test(array_column($selected,'id')===['9','11','100'],'DLQ batch locks bigint IDs in numeric order');
+foreach ([[],[['id'=>'1','attempts'=>1],['id'=>'1','attempts'=>2]],[['id'=>'1','attempts'=>'1']],[['id'=>'1','attempts'=>101]],array_fill(0,21,['id'=>'1','attempts'=>1])] as $bad) test(denied(fn()=>$dlq::selection($bad),422),'DLQ rejects invalid or duplicate selections');
+test(denied(fn()=>Rbac::validate(['projects:read','queue:retry']),422),'queue mutation requires queue read');
+test(Rbac::validate(['projects:read','queue:read','queue:discard'])===['projects:read','queue:read','queue:discard'],'custom queue permission accepted');
+test(!in_array('queue:read',Rbac::permissions('viewer'),true)&&in_array('queue:retry',Rbac::permissions('operator'),true),'queue builtin role ceilings');
 echo "Identity runtime: $count checks passed\n";

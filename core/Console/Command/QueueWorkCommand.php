@@ -46,8 +46,8 @@ final class QueueWorkCommand
             'queue:reconcile'=>$args===['--confirm']?(new QueueAccounting($this->app->container()->get(\PDO::class)))->reconcile():null,
             'queue:list'=>count($args)===1 && in_array($id,['pending','running','completed','dead','cancelled'],true)?$queue->list($id):null,
             'queue:history'=>$validId?$queue->history($id):null,
-            'queue:retry'=>$validId?['changed'=>$queue->retry($id)]:null,
-            'queue:discard'=>$validId?['changed'=>$queue->discard($id)]:null,
+            'queue:retry'=>$validId?['changed'=>(new \Cajeer\Logs\Queue\DeadLetterManager($this->app->container()->get(\PDO::class),RetryPolicy::fromConfig($this->app->config())))->cliChange($id,'retry')]:null,
+            'queue:discard'=>$validId?['changed'=>(new \Cajeer\Logs\Queue\DeadLetterManager($this->app->container()->get(\PDO::class),RetryPolicy::fromConfig($this->app->config())))->cliChange($id,'discard')]:null,
             default=>null,
         };
         if ($result===null) { fwrite(STDERR,"Invalid queue arguments; see docs/Queue-Lifecycle.md.\n");return 64; }

@@ -54,6 +54,8 @@ final class IdentityController
         'GET /system/tokens'=>'systemTokens', 'GET /system/tokens/{token}'=>'systemTokenDetail', 'POST /system/tokens'=>'createSystemToken', 'DELETE /system/tokens/{token}'=>'revokeSystemToken',
         'PATCH /system/tokens/{token}'=>'updateSystemToken', 'POST /system/tokens/{token}/rotate'=>'rotateSystemToken',
         'POST /system/tokens/revoke-all'=>'revokeAllSystemTokens',
+        'GET /projects/{project}/queue/dead'=>'deadLetters', 'GET /projects/{project}/queue/jobs/{job}'=>'queueJob',
+        'POST /projects/{project}/queue/dead/retry'=>'retryDeadLetters', 'POST /projects/{project}/queue/dead/discard'=>'discardDeadLetters',
         'GET /system/report'=>'report',
     ];
     private Identity $identity;
@@ -107,7 +109,7 @@ final class IdentityController
             $this->identity->lock();
             $p=$this->identity->authenticate($r,$credential ?? [],in_array($action,['me','logout','logoutAll','totpSetup','totpEnable'],true),false);
             // Explicit password+factor operations already perform their own confirmation.
-            if (in_array($action,['createRole','updateRole','deleteRole','assignGlobalRole','assignProjectRole','createUser','updateUser','addMember','removeMember','createToken','createSystemToken','rotateToken','rotateSystemToken','configureSigning','retireSigningKey','setProjectSigning','revokeToken','revokeSystemToken','revokeProjectTokens','revokeAllSystemTokens','disableServiceAccount','createServiceAccount','updateToken','updateSystemToken','redactionSystemSet','redactionProjectSet','redactionSourceSet','createProject','updateProject','archiveProject','restoreProject','createSource','updateSource','disableSource','enableSource','archiveSource','restoreSource'],true)) $this->identity->requireFresh($p);
+            if (in_array($action,['retryDeadLetters','discardDeadLetters','createRole','updateRole','deleteRole','assignGlobalRole','assignProjectRole','createUser','updateUser','addMember','removeMember','createToken','createSystemToken','rotateToken','rotateSystemToken','configureSigning','retireSigningKey','setProjectSigning','revokeToken','revokeSystemToken','revokeProjectTokens','revokeAllSystemTokens','disableServiceAccount','createServiceAccount','updateToken','updateSystemToken','redactionSystemSet','redactionProjectSet','redactionSourceSet','createProject','updateProject','archiveProject','restoreProject','createSource','updateSource','disableSource','enableSource','archiveSource','restoreSource'],true)) $this->identity->requireFresh($p);
             $response=$this->$action($r,$p);
             return $response;
         }, maxAttempts: 3); } catch (HttpException $e) {
@@ -745,6 +747,29 @@ final class IdentityController
     }
     private function tokenDetail(Request $r,array $p): Response { return $this->detailToken($r,$this->tokenProject($r,$p,false,'tokens:read')); }
     private function systemTokenDetail(Request $r,array $p): Response { return $this->detailToken($r,$this->tokenProject($r,$p,true)); }
+    private function deadLetterManager(): \Cajeer\Logs\Queue\DeadLetterManager {
+        return new \Cajeer\Logs\Queue\DeadLetterManager($this->pdo,\Cajeer\Logs\Queue\RetryPolicy::fromConfig($this->app->config()));
+    }
+    private function queueProject(Request $r,array $p,string $permission='queue:read'): string {
+        $this->session($p); $project=$this->id($r,'project'); $this->allow($p,'queue:read',$project);
+        if ($permission!=='queue:read') $this->allow($p,$permission,$project);
+        $this->one('SELECT id FROM projects WHERE id=:id',['id'=>$project]); return $project;
+    }
+    private function deadLetters(Request $r,array $p): Response {
+        return new JsonResponse($this->deadLetterManager()->page($this->queueProject($r,$p),$r->query),200,['Cache-Control'=>'no-store']);
+    }
+    private function queueJob(Request $r,array $p): Response {
+        return new JsonResponse($this->deadLetterManager()->detail($this->queueProject($r,$p),$r->parameter('job')??''),200,['Cache-Control'=>'no-store']);
+    }
+    private function changeDeadLetters(Request $r,array $p,string $action): Response {
+        $project=$this->queueProject($r,$p,'queue:'.$action); $d=$this->body($r,['items','confirm']);
+        if (($d['confirm']??null)!==true) self::invalid('Explicit confirmation required.');
+        $object=json_decode($r->body(),false,64,JSON_THROW_ON_ERROR);
+        if (!is_array($object->items??null)) self::invalid('items must be a JSON array.');
+        return new JsonResponse($this->deadLetterManager()->change($project,$action,$d['items']??[],$p['id'],$r->requestId),200,['Cache-Control'=>'no-store']);
+    }
+    private function retryDeadLetters(Request $r,array $p): Response {return $this->changeDeadLetters($r,$p,'retry');}
+    private function discardDeadLetters(Request $r,array $p): Response {return $this->changeDeadLetters($r,$p,'discard');}
     private function projectSecurityAudit(Request $r,array $p): Response { $this->session($p); $project=$this->id($r,'project'); $this->allow($p,'audit:read',$project); $this->one('SELECT id FROM projects WHERE id=:id',['id'=>$project]); return $this->securityAudit($r,$project,$p); }
     private function systemSecurityAudit(Request $r,array $p): Response { return $this->securityAudit($r,$this->tokenProject($r,$p,true),$p); }
     private function securityAudit(Request $r,?string $project,array $p): Response
@@ -768,7 +793,7 @@ final class IdentityController
         if (!in_array($format,['json','ndjson'],true)) self::invalid('Invalid audit format.');
         foreach (['actor_id','target'] as $field) if (isset($r->query[$field])) {
             if (!is_string($r->query[$field])) self::invalid($field);
-            $params[$field]=self::uuid($r->query[$field]); $where.=" AND a.$field=:$field";
+            $params[$field]=$field==='target'&&ctype_digit($r->query[$field])?\Cajeer\Logs\Queue\DeadLetterManager::id($r->query[$field]):self::uuid($r->query[$field]); $where.=" AND a.$field=:$field";
         }
         if (isset($r->query['action'])) {
             $action=$r->query['action']; if (!is_string($action)||!preg_match('/^[a-z_]+\.[a-z_]+$/D',$action)||strlen($action)>80) self::invalid('Invalid audit action.');

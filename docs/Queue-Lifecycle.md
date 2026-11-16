@@ -103,3 +103,7 @@ CAJEER_TEST_DATABASE=1 php tests/queue_database.php
 ## Retry & Failure Recovery (0.5.3)
 
 See [Retry & Failure Recovery](Retry-Failure-Recovery.md) for the current retry defaults, lease recovery and outage policy. The earlier fixed eight-attempt and immediate expired-lease descriptions apply to historical releases.
+
+## Dead-letter management (0.5.4)
+
+See [Dead-Letter Management](Dead-Letter-Management.md) for project-scoped listing, attempt history, confirmed batch mutations and transactional audit. CLI retry/discard remain supported and now append system-actor audit events.

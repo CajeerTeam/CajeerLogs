@@ -1,7 +1,7 @@
-import { state, active, render } from '../app/store.js?v=0.5.3';
-import { h, button, card, field, input, select, checkbox, empty, table, heading, form, modal, modalEpoch, clearModal, message, notify, enc } from '../components/ui.js?v=0.5.3';
-import { get, write } from '../api/client.js?v=0.5.3';
-import { confirmAction } from '../components/mutations.js?v=0.5.3';
+import { state, active, render } from '../app/store.js?v=0.5.4';
+import { h, button, card, field, input, select, checkbox, empty, table, heading, form, modal, modalEpoch, clearModal, message, notify, enc } from '../components/ui.js?v=0.5.4';
+import { get, write } from '../api/client.js?v=0.5.4';
+import { confirmAction } from '../components/mutations.js?v=0.5.4';
 
 const descriptions = {
     'projects:read':'Просмотр проектов, источников и их агрегированной статистики',
@@ -10,6 +10,7 @@ const descriptions = {
     'sources:create':'Создание источников', 'sources:update':'Изменение источников и их политик', 'sources:state':'Включение, отключение, архивирование и восстановление источников',
     'tokens:read':'Просмотр метаданных токенов', 'tokens:create':'Выпуск токенов', 'tokens:update':'Изменение метаданных токенов', 'tokens:rotate':'Ротация токенов', 'tokens:revoke':'Отзыв токенов', 'tokens:signing':'Настройка и ротация HMAC',
     'services:read':'Просмотр сервисных аккаунтов', 'services:manage':'Создание и отключение сервисных аккаунтов', 'audit:read':'Чтение проектного журнала безопасности',
+    'queue:read':'Просмотр заданий очереди', 'queue:retry':'Повтор проблемных заданий', 'queue:discard':'Отказ от проблемных заданий',
     'users:manage':'Управление пользователями', 'projects:manage':'Управление проектами и членством', 'system:read':'Системная диагностика', 'roles:manage':'Управление ролями',
 };
 const scopeLabel=scope=>scope==='global'?'Глобальная':'Проектная';
@@ -28,6 +29,7 @@ function roleEditor(catalog,row,epoch,refresh) {
         if(permissions.includes('logs:export')&&!permissions.includes('logs:read'))throw new Error('Для экспорта требуется logs:read.');
         if(permissions.some(p=>p.startsWith('tokens:')&&p!=='tokens:read')&&!permissions.includes('tokens:read'))throw new Error('Для изменения токенов требуется tokens:read.');
         if(permissions.includes('services:manage')&&!permissions.includes('services:read'))throw new Error('Для управления сервисами требуется services:read.');
+        if(permissions.some(p=>p.startsWith('queue:')&&p!=='queue:read')&&!permissions.includes('queue:read'))throw new Error('Для изменения очереди требуется queue:read.');
         if(row)await write('/roles/'+enc(row.id),'PATCH',{...body,revision:row.revision});
         else await write('/roles','POST',{...body,scope:String(d.get('scope'))});
         if(active(epoch)){clearModal();notify(row?'Роль сохранена.':'Роль создана.');await refresh();}
