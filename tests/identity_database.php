@@ -39,13 +39,13 @@ try {
     (new MigrationRunner($pdo,$tmp,$schema))->migrate();
     $stmt=$pdo->prepare("INSERT INTO users(email,password_hash,role) VALUES ('admin@example.test',:hash,'administrator')"); $stmt->execute(['hash'=>password_hash('admin-password-12345',PASSWORD_ARGON2ID)]);
     $adminId=$pdo->query('SELECT id FROM users')->fetchColumn();
-    foreach (glob($root.'/migrations/pgsql/*.sql') as $file) { if (!in_array(basename($file),['0015_authentication_sessions.sql','0016_saved_log_views.sql','0017_rbac_roles_permissions.sql','0018_identity_security.sql','0019_audit_accountability.sql','0020_rate_limit_buckets.sql','0021_retention_execution_history.sql'],true)) copy($file,$tmp.'/'.basename($file)); }
+    foreach (glob($root.'/migrations/pgsql/*.sql') as $file) { if (!in_array(basename($file),['0015_authentication_sessions.sql','0016_saved_log_views.sql','0017_rbac_roles_permissions.sql','0018_identity_security.sql','0019_audit_accountability.sql','0020_rate_limit_buckets.sql','0021_retention_execution_history.sql','0022_queue_accounting.sql'],true)) copy($file,$tmp.'/'.basename($file)); }
     (new MigrationRunner($pdo,$tmp,$schema))->migrate();
     $legacySecret=bin2hex(random_bytes(32)); $legacyCsrf=bin2hex(random_bytes(32));
     $stmt=$pdo->prepare("INSERT INTO auth_sessions(token_hash,user_id,csrf_token,expires_at) VALUES (:hash,:user,:csrf,now()+interval '1 hour')");
     $stmt->execute(['hash'=>hash('sha256',$legacySecret),'user'=>$adminId,'csrf'=>$legacyCsrf]);
     $runner=$app->container()->get(MigrationRunner::class);
-    verify($runner->migrate()===['0015_authentication_sessions.sql','0016_saved_log_views.sql','0017_rbac_roles_permissions.sql','0018_identity_security.sql','0019_audit_accountability.sql','0020_rate_limit_buckets.sql','0021_retention_execution_history.sql']&&$runner->migrate()===[],'0.3.1 session migration and idempotent replay');
+    verify($runner->migrate()===['0015_authentication_sessions.sql','0016_saved_log_views.sql','0017_rbac_roles_permissions.sql','0018_identity_security.sql','0019_audit_accountability.sql','0020_rate_limit_buckets.sql','0021_retention_execution_history.sql','0022_queue_accounting.sql']&&$runner->migrate()===[],'0.3.1 session migration and idempotent replay');
     $legacy=['Cookie'=>'cajeerlogs_session='.$legacySecret,'X-CSRF-Token'=>$legacyCsrf];
     $legacyPage=data(ok('GET','/auth/sessions',null,$legacy));
     verify(count($legacyPage['items'])===1&&$legacyPage['items'][0]['current']===true&&$legacyPage['items'][0]['user_agent']===null&&!str_contains(json_encode($legacyPage),$legacySecret)&&!str_contains(json_encode($legacyPage),$legacyCsrf),'legacy session survives, public UUID, no credentials');

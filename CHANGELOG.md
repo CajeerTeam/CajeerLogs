@@ -2,6 +2,13 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## 0.5.1 — PostgreSQL Queue Hardening
+
+Transactional queue capacity accounting, generated payload metadata, indexed claim paths,
+operator verification/reconciliation, and migration of existing durable jobs. See
+[PostgreSQL Queue Hardening](docs/PostgreSQL-Queue-Hardening.md). PostgreSQL certification
+remains required before production promotion.
+
 ## 0.5.0 — Security & Operations Stable candidate
 
 - Production metrics fail closed without credentials; runtime dotenv descriptor/ownership checks and safer Compose session defaults.

@@ -62,7 +62,7 @@ REQUIRED.update({
     'core/Database/SecuritySchema.php', 'core/Operations/OperationsCheck.php', 'docs/Security-Operations-Stable.md',
     'core/Observability/AuditFailureMetrics.php','core/Observability/WorkerHeartbeat.php','core/Observability/WorkerMetrics.php','core/Observability/Readiness.php','tests/health_monitoring.php','tests/monitoring_config.py','tests/monitoring_stack.py','deploy/monitoring/prepare.py','deploy/monitoring/compose.yaml','deploy/monitoring/alerts.yml','deploy/monitoring/alerts.test.yml','deploy/monitoring/grafana/provisioning/datasources/prometheus.yaml','deploy/monitoring/grafana/provisioning/dashboards/cajeer.yaml','deploy/monitoring/grafana/dashboards/operations.json','docs/Prometheus.md',
     'core/Operations/BackupVault.php', 'core/Operations/BackupOperations.php', 'tests/backup_operations.php', 'docs/Backup-Disaster-Recovery.md', 
-    'migrations/pgsql/0021_retention_execution_history.sql', 'docs/Retention-Storage-Lifecycle.md', 'migrations/pgsql/0020_rate_limit_buckets.sql', 'core/Security/RateLimitPolicy.php', 'tests/rate_limit_database.php', 'docs/Rate-Limiting.md',
+    'migrations/pgsql/0022_queue_accounting.sql', 'core/Queue/QueueAccounting.php', 'docs/PostgreSQL-Queue-Hardening.md', 'migrations/pgsql/0021_retention_execution_history.sql', 'docs/Retention-Storage-Lifecycle.md', 'migrations/pgsql/0020_rate_limit_buckets.sql', 'core/Security/RateLimitPolicy.php', 'tests/rate_limit_database.php', 'docs/Rate-Limiting.md',
     'migrations/pgsql/0019_audit_accountability.sql', 'core/Audit/AuditLogger.php', 'tests/audit_database.php', 'docs/Audit-Log-Accountability.md',
     'migrations/pgsql/0015_authentication_sessions.sql',
     'migrations/pgsql/0016_saved_log_views.sql',

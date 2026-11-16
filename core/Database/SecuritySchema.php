@@ -17,6 +17,7 @@ final class SecuritySchema
                 'audit_append'=>['plpgsql','v',false,true], 'audit_immutable'=>['plpgsql','v',false,true]];
         }
         if (isset($history['0020_rate_limit_buckets.sql'])) $expected['api_rate_charge']=['plpgsql','v',true,false];
+        if (isset($history['0022_queue_accounting.sql'])) { $expected['queue_account_delta']=['plpgsql','v',false,true]; $expected['queue_reject_truncate']=['plpgsql','v',false,true]; }
         if ($expected===[]) return [];
         $q=$pdo->prepare(<<<'SQL'
             SELECT p.proname, l.lanname, p.provolatile, p.proretset,
@@ -26,7 +27,7 @@ final class SecuritySchema
             FROM pg_catalog.pg_proc p
             JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
             JOIN pg_catalog.pg_language l ON l.oid=p.prolang
-            WHERE n.nspname=:schema AND p.proname IN ('audit_scope','audit_digest','audit_append','audit_immutable','api_rate_charge')
+            WHERE n.nspname=:schema AND p.proname IN ('audit_scope','audit_digest','audit_append','audit_immutable','api_rate_charge','queue_account_delta','queue_reject_truncate')
             SQL);
         $q->execute(['schema'=>$schema]); $rows=$q->fetchAll(PDO::FETCH_ASSOC); $q->closeCursor();
         $seen=[]; $issues=[];
@@ -48,7 +49,7 @@ final class SecuritySchema
     /** Runtime needs EXECUTE as well as the relation grants. */
     public static function inaccessible(PDO $pdo,string $schema): array
     {
-        $q=$pdo->prepare("SELECT p.proname FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname=:schema AND p.proname IN ('audit_scope','audit_digest','audit_append','audit_immutable','api_rate_charge') AND NOT pg_catalog.has_function_privilege(current_user,p.oid,'EXECUTE') ORDER BY p.proname");
+        $q=$pdo->prepare("SELECT p.proname FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname=:schema AND p.proname IN ('audit_scope','audit_digest','audit_append','audit_immutable','api_rate_charge','queue_account_delta','queue_reject_truncate') AND NOT pg_catalog.has_function_privilege(current_user,p.oid,'EXECUTE') ORDER BY p.proname");
         $q->execute(['schema'=>$schema]); $missing=$q->fetchAll(PDO::FETCH_COLUMN); $q->closeCursor(); return $missing;
     }
 }

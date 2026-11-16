@@ -2,6 +2,13 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.5.1 — PostgreSQL Queue Hardening
+
+Transactional queue capacity accounting, generated payload metadata, indexed claim paths,
+operator verification/reconciliation, and migration of existing durable jobs. See
+[PostgreSQL Queue Hardening](docs/PostgreSQL-Queue-Hardening.md). PostgreSQL certification
+remains required before production promotion.
+
 ## 0.5.0 — Security & Operations Stable (candidate)
 
 Интеграция RBAC, 2FA, audit, rate limiting, HTTPS, Secure Installer, backup, retention и мониторинга. Защита production-конфигурации и метрик, проверка security-атрибутов схемы и `operations:check`. [Security & Operations Stable](docs/Security-Operations-Stable.md). Без новых миграций; Public Preview до полного CI.

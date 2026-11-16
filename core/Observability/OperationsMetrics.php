@@ -13,6 +13,9 @@ final class OperationsMetrics
         $pdo=$probe??$this->app->container()->get(PDO::class);
         $row=$pdo->query("SELECT pg_total_relation_size('log_events'::regclass) AS log_storage_bytes, COALESCE((SELECT GREATEST(0,extract(epoch from now()-min(created_at))) FROM jobs WHERE queue='ingest-v1' AND status='pending'),0) AS queue_oldest_pending_seconds, (SELECT count(*) FROM jobs WHERE queue='ingest-v1' AND status='running' AND lease_until<=now()) AS expired_leases, (SELECT count(*) FROM webhook_deliveries WHERE status='failed') AS webhook_failed, (SELECT count(*) FROM webhook_deliveries WHERE status IN ('pending','sending')) AS webhook_pending")->fetch();
         $values=[]; foreach ($row as $k=>$v) { $values[$k]=(float)$v; }
+        $capacity=(new \Cajeer\Logs\Queue\QueueAccounting($pdo))->snapshot();
+        foreach ($capacity as $name=>$value) $values['queue_'.$name]=(float)$value;
+        $values['queue_max_jobs']=(float)$this->app->config()->get('queue.max_jobs');
         $tasks=array_fill_keys(array_keys(\Cajeer\Logs\Scheduler\Scheduler::TASKS),['last_success'=>0,'overdue_seconds'=>0]); foreach ($pdo->query('SELECT name,extract(epoch from last_success_at) AS last_success, GREATEST(0,extract(epoch from now()-next_run_at)) AS overdue_seconds FROM scheduler_runs')->fetchAll() as $task) { if (isset(\Cajeer\Logs\Scheduler\Scheduler::TASKS[$task['name']])) { $tasks[$task['name']]=['last_success'=>(float)$task['last_success'],'overdue_seconds'=>(float)$task['overdue_seconds']]; } }
         $retention=$pdo->query('SELECT status,total_removed,backlog_lower_bound,duration_ms,extract(epoch from finished_at) AS finished_at FROM retention_runs ORDER BY id DESC LIMIT 1')->fetch();
         $storage=$pdo->query("SELECT n_live_tup AS estimated_live_rows,n_dead_tup AS estimated_dead_rows,last_autovacuum,last_autoanalyze FROM pg_stat_user_tables WHERE schemaname=current_schema() AND relname='log_events'")->fetch();

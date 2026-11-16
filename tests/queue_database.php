@@ -4,7 +4,7 @@ use Cajeer\Logs\Kernel\Application;
 use Cajeer\Logs\Database\{ConnectionFactory,MigrationRunner};
 use Cajeer\Logs\Database\Repository\{ProjectRepository,SourceRepository,TokenRepository};
 use Cajeer\Logs\Http\Request;
-use Cajeer\Logs\Queue\{PostgresQueueDriver,Worker};
+use Cajeer\Logs\Queue\{PostgresQueueDriver,Worker,QueueAccounting};
 use Cajeer\Logs\Lifecycle\Retention;
 use Cajeer\Logs\Scheduler\Scheduler;
 use Cajeer\Logs\Integration\WebhookOutbox;
@@ -23,15 +23,17 @@ try {
     $sources=new SourceRepository($pdo);$source=$sources->create($p,'App','app');$otherSource=$sources->create($other,'Other','app');
     $tokens=new TokenRepository($pdo);$token=$tokens->create('Writer',['logs:write'],$p,$source);$foreign=$tokens->create('Foreign',['logs:write'],$other,$otherSource);
     $pdo->exec("INSERT INTO jobs(queue,name) VALUES ('default','legacy')");
-    $runner=$app->container()->get(MigrationRunner::class);verify($runner->migrate()===['0007_queue_lifecycle.sql','0008_security_operations.sql','0009_project_management.sql','0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql','0013_ingest_signing.sql','0014_delivery_idempotency.sql','0015_authentication_sessions.sql','0016_saved_log_views.sql','0017_rbac_roles_permissions.sql','0018_identity_security.sql','0019_audit_accountability.sql','0020_rate_limit_buckets.sql','0021_retention_execution_history.sql'] && $runner->migrate()===[],'0.0.7 upgrade, repeat and preserved migration history');
+    $runner=$app->container()->get(MigrationRunner::class);verify($runner->migrate()===['0007_queue_lifecycle.sql','0008_security_operations.sql','0009_project_management.sql','0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql','0013_ingest_signing.sql','0014_delivery_idempotency.sql','0015_authentication_sessions.sql','0016_saved_log_views.sql','0017_rbac_roles_permissions.sql','0018_identity_security.sql','0019_audit_accountability.sql','0020_rate_limit_buckets.sql','0021_retention_execution_history.sql','0022_queue_accounting.sql'] && $runner->migrate()===[],'0.0.7 upgrade, repeat and preserved migration history');
     verify((int)$pdo->query("SELECT count(*) FROM jobs WHERE name='legacy'")->fetchColumn()===1 && $app->handle(new Request('GET','/ready'))->status===200,'legacy rows preserved and readiness');
-    $queue=$app->container()->get(PostgresQueueDriver::class);
+    $queue=$app->container()->get(PostgresQueueDriver::class);$account=new QueueAccounting($pdo);
+    verify($account->snapshot()===['active_jobs'=>0,'active_events'=>0,'active_bytes'=>0]&&$account->verify()['valid'],'legacy queue excluded from capacity');
     $body=json_encode(['timestamp'=>'2026-01-01T00:00:00Z','source'=>'app','level'=>'error','message'=>'queue integration','context'=>['password'=>'do-not-store']],JSON_THROW_ON_ERROR);
     $body2=json_encode(['events'=>[json_decode($body),json_decode($body)]],JSON_THROW_ON_ERROR);
     $send=fn(string $key,string $payload,string $secret,string $path='/api/v1/ingest/async')=>$app->handle(new Request('POST',$path,['Authorization'=>'Bearer '.$secret,'Content-Type'=>'application/json','Idempotency-Key'=>$key],[],$payload,'127.0.0.1'));
     $poll=fn(string $id,string $secret)=>$app->handle(new Request('GET','/api/v1/ingest/jobs/'.$id,['Authorization'=>'Bearer '.$secret],[],'','127.0.0.1'));
     $r=$send('first',$body2,$token['token']);$d=data($r);$id=$d['job_id'];
     verify($r->status===202 && $d['status']==='pending' && $d['received']===2 && $r->header('Location')==='/api/v1/ingest/jobs/'.$id,'durable async accepted batch');
+    verify($account->snapshot()['active_jobs']===1&&$account->snapshot()['active_events']===2&&$account->snapshot()['active_bytes']>0&&$account->verify()['valid'],'durable batch accounts actual payload and events');
     $second=$factory->make('pgsql');$secondQueue=new PostgresQueueDriver($second,2);
     verify((int)$second->query("SELECT count(*) FROM jobs WHERE queue='ingest-v1'")->fetchColumn()===1 && (int)$second->query('SELECT count(*) FROM log_events')->fetchColumn()===0,'job visible to independent connection before log storage');
     verify(!str_contains($second->query("SELECT payload FROM jobs WHERE id=".$id)->fetchColumn(),'do-not-store'),'queued payload redacted');
@@ -40,15 +42,18 @@ try {
     verify($poll($id,$foreign['token'])->status===404&&data($poll($id,$token['token']))['status']==='pending','job ownership enforced');
     $r=$send('second',$body,$token['token']);$id2=data($r)['job_id'];verify($r->status===202,'second accepted');
     $r=$send('third',$body,$token['token']);verify($r->status===503&&$r->header('Retry-After')==='5'&&data($r)['error']==='queue_full','hard global backpressure');
+    verify($account->snapshot()['active_jobs']===2&&$account->snapshot()['active_events']===3&&$account->verify()['valid'],'replay and rejected enqueue do not alter accounting');
     // The first row is locked on an independent connection; the second worker skips it.
     $second->beginTransaction();$second->query('SELECT id FROM jobs WHERE id='.$id.' FOR UPDATE')->closeCursor();
     $claim2=$queue->claim();verify((string)$claim2['id']===$id2,'SKIP LOCKED claims next job');$second->commit();
     $claim=$queue->claim();verify((string)$claim['id']===$id&&$secondQueue->claim()===null,'distinct leases, no duplicate claim');
+    verify($account->snapshot()['active_jobs']===2&&$account->verify()['valid'],'claim does not release capacity');
     putenv('CAJEER_WEBHOOK_QUEUE_TEST='.str_repeat('s',32));$hook=(new WebhookOutbox($pdo))->add($p,'https://hooks.example.com/receive','CAJEER_WEBHOOK_QUEUE_TEST');
     verify($queue->process($claim)==='completed'&&$secondQueue->process($claim)==='stale','fenced completion and stale worker');
     $status=data($poll($id,$token['token']));verify($status['status']==='completed'&&$status['result']['stored']===2&&count($status['result']['event_ids'])===2,'job result contains committed event IDs');
     verify((int)$second->query('SELECT count(*) FROM log_events')->fetchColumn()===2&&(int)$second->query('SELECT count(*) FROM webhook_deliveries')->fetchColumn()===1,'atomic stored batch and outbox');
     verify($second->query('SELECT payload FROM jobs WHERE id='.$id)->fetchColumn()==='{}','completed payload erased');
+    verify($account->snapshot()['active_jobs']===1&&$account->snapshot()['active_events']===1&&$account->verify()['valid'],'completion releases exact capacity');
     // Expired lease recovery and fencing.
     $pdo->exec("UPDATE jobs SET lease_until=clock_timestamp()-interval '1 second' WHERE id=".$id2);
     $newClaim=$secondQueue->claim();verify($newClaim['lease_id']!==$claim2['lease_id']&&$queue->process($claim2)==='stale','expired lease recovered; old worker fenced');
@@ -126,12 +131,15 @@ try {
     // Invalid durable data goes dead on the first attempt without partial storage.
     $r=$send('malformed',$body2,$token['token']);$badId=data($r)['job_id'];verify($r->status===202,'malformed fixture initially accepted');
     $pdo->exec("UPDATE jobs SET payload=jsonb_set(payload,'{events,1,message}','123'::jsonb) WHERE id=".$badId);
+    verify($account->verify()['valid'],'payload change updates byte metadata and accounting');
     $beforeLogs=(int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn();$beforeHooks=(int)$pdo->query('SELECT count(*) FROM webhook_deliveries')->fetchColumn();
     verify($queue->process($queue->claim())==='dead','malformed job fails permanently on first attempt');
     $badStatus=data($poll($badId,$token['token']));
     verify($badStatus['status']==='dead'&&(int)$badStatus['attempts']===1&&$badStatus['last_error']==='invalid_payload'&&$queue->history($badId)[0]['outcome']==='dead','safe permanent failure and attempt history');
     verify((int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===$beforeLogs&&(int)$pdo->query('SELECT count(*) FROM webhook_deliveries')->fetchColumn()===$beforeHooks,'malformed batch leaves no log or outbox row');
+    verify($account->snapshot()['active_jobs']===1&&$account->verify()['valid'],'dead job retains capacity');
     verify($queue->discard($badId),'explicit discard of invalid payload');
+    verify($account->snapshot()['active_jobs']===0&&$account->verify()['valid'],'discard releases capacity');
     // A stale claim cannot write even before another worker reclaims it.
     $r=$send('expired-before-start',$body,$token['token']);$expiredId=data($r)['job_id'];$expiredClaim=$queue->claim();
     $pdo->exec("UPDATE jobs SET lease_until=clock_timestamp()-interval '1 second' WHERE id=".$expiredId);
@@ -167,6 +175,41 @@ try {
     $pdo->exec("UPDATE jobs SET lease_until=clock_timestamp()-interval '1 second' WHERE id=".$crashId);
     verify($secondQueue->process($secondQueue->claim())==='completed'&&(int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===$beforeLogs+2&&(int)$pdo->query('SELECT count(*) FROM webhook_deliveries')->fetchColumn()===$beforeHooks+1,'recovery commits exactly one batch and outbox');
     verify($queue->process($crashClaim)==='stale','pre-crash claim fenced after recovery');
+    verify($account->verify()['valid']&&$account->snapshot()['active_jobs']===0,'crash recovery preserves accounting');
+    // Rollback must undo the trigger delta; independent connection sees committed state only.
+    $pdo->beginTransaction();
+    $events=(new \Cajeer\Logs\Log\IngestValidator())->parse(new Request('POST','/api/v1/ingest/async',['Content-Type'=>'application/json'],[],$body2));
+    $rolled=$queue->enqueue($token['id'],$p,hash('sha256','rollback-accounting'),hash('sha256',$body2),$events,['app'=>$source]);
+    verify($account->snapshot()['active_jobs']===1&&$account->snapshot()['active_events']===2&&(new QueueAccounting($second))->snapshot()['active_jobs']===0,'uncommitted enqueue invisible to independent session');
+    $pdo->rollBack();
+    verify($account->verify()['valid']&&$account->snapshot()['active_jobs']===0&&$pdo->query('SELECT count(*) FROM jobs WHERE id='.(int)$rolled['job_id'])->fetchColumn()==0,'enqueue rollback releases capacity and job');
+    $pdo->beginTransaction();
+    $pdo->exec("UPDATE queue_accounting SET active_jobs=1 WHERE queue='ingest-v1'");
+    verify(!(new QueueAccounting($pdo))->verify()['valid']&&(new QueueAccounting($second))->verify()['valid'],'verification detects drift using one snapshot');
+    $pdo->rollBack();
+    $pdo->exec("UPDATE queue_accounting SET active_jobs=1 WHERE queue='ingest-v1'");
+    verify(!$account->verify()['valid']&&(new \Cajeer\Logs\Database\IntegrityInspector($pdo))->inspect()['checks']['queue_accounting']['issues_at_least']===1,'db integrity detects accounting drift');
+    verify($account->reconcile()['repaired']&&$account->verify()['valid'],'explicit reconciliation repairs only accounting');
+    try {$pdo->exec('TRUNCATE jobs CASCADE');throw new RuntimeException('truncate unexpectedly accepted');} catch (PDOException $e) {verify($e->getCode()==='42501','truncate protection');}
+    // Four separate producers with independent credentials/projects compete for two slots.
+    // The real driver executes normal validation, redaction, token scope and INSERT.
+    $children=[];$accepted=[];$barrier=$tmp.'/start';
+    try {
+        for ($i=0;$i<4;$i++) {
+            $pid=$projects->create('Producer '.$i,'producer-'.$i);$sid=$sources->create($pid,'App','app');$t=$tokens->create('Producer',['logs:write'],$pid,$sid);
+            $code='require '.var_export($root.'/core/bootstrap.php',true).'; $app=new \Cajeer\Logs\Kernel\Application('.var_export($root,true).'); $app->boot(); $app->config()->set("database.schema",'.var_export($schema,true).'); $pdo=$app->container()->get(PDO::class); $q=new \Cajeer\Logs\Queue\PostgresQueueDriver($pdo,2); $r=new \Cajeer\Logs\Http\Request("POST","/api/v1/ingest/async",["Content-Type"=>"application/json"],[],'.var_export($body2,true).'); $events=(new \Cajeer\Logs\Log\IngestValidator())->parse($r); $deadline=microtime(true)+15; while(!file_exists('.var_export($barrier,true).')){if(microtime(true)>$deadline)exit(3);usleep(10000);} $out=[]; for($i=0;$i<5;$i++){try{$pdo->beginTransaction(); $job=$q->enqueue('.var_export($t['id'],true).','.var_export($pid,true).',hash("sha256","concurrent-".$i),hash("sha256","body"),$events,["app"=>'.var_export($sid,true).']); $pdo->commit();$out[]=$job["job_id"];}catch(\Cajeer\Logs\Http\HttpException $e){if($pdo->inTransaction())$pdo->rollBack();if($e->error!=="queue_full")throw $e;}} echo json_encode($out,JSON_THROW_ON_ERROR);';
+            $proc=proc_open([PHP_BINARY,'-r',$code],[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes,$root);
+            if(!is_resource($proc)) throw new RuntimeException('Cannot start producer');fclose($pipes[0]);$children[]=[$proc,$pipes];
+        }
+        touch($barrier);
+        foreach($children as $i=>[$proc,$pipes]) {
+            $out=stream_get_contents($pipes[1]);$err=stream_get_contents($pipes[2]);fclose($pipes[1]);fclose($pipes[2]);$exit=proc_close($proc);unset($children[$i]);
+            if($exit!==0)throw new RuntimeException('Producer failed: '.$err);
+            $accepted=array_merge($accepted,json_decode($out,true,32,JSON_THROW_ON_ERROR));
+        }
+        verify(count($accepted)===2&&count(array_unique($accepted))===2&&$account->snapshot()['active_jobs']===2&&$account->snapshot()['active_events']===4&&$account->verify()['valid'],'parallel producers enforce capacity with no overshoot');
+        verify((new Worker($queue))->run(2)['completed']===2&&$account->snapshot()['active_jobs']===0&&$account->verify()['valid'],'parallel producer jobs drain without accounting drift');
+    } finally {foreach($children as [$proc,$pipes]) {proc_terminate($proc);foreach($pipes as $pipe)if(is_resource($pipe))fclose($pipe);proc_close($proc);}if(file_exists($barrier))unlink($barrier);}
     echo "Queue database: $count checks passed\n";
 } finally {
     if (isset($second)&&$second->inTransaction()) $second->rollBack();

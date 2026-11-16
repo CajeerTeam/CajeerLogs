@@ -1,8 +1,8 @@
-import { state, active, render, projectPath } from '../app/store.js?v=0.5.0';
-import { h, button, field, input, select, form, message, notify, modal, clearModal } from './ui.js?v=0.5.0';
-import { get, request } from '../api/client.js?v=0.5.0';
-import { queryFilters } from '../app/filters.js?v=0.5.0';
-import { normalizeLayout } from '../app/explorer.js?v=0.5.0';
+import { state, active, render, projectPath } from '../app/store.js?v=0.5.1';
+import { h, button, field, input, select, form, message, notify, modal, clearModal } from './ui.js?v=0.5.1';
+import { get, request } from '../api/client.js?v=0.5.1';
+import { queryFilters } from '../app/filters.js?v=0.5.1';
+import { normalizeLayout } from '../app/explorer.js?v=0.5.1';
 
 export function savedViews(signal,epoch) {
  const path=projectPath()+'/saved-views', project=state.project;const valid=()=>active(epoch)&&!signal.aborted&&state.project===project;

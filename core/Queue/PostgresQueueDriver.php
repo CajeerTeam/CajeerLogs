@@ -22,7 +22,7 @@ final class PostgresQueueDriver implements QueueDriverInterface
     public static function decodeEvents(array $payload): array {
         return IngestBatch::decodeEvents($payload);
     }
-    /** Caller holds the authenticated token lock; enqueue is serialized for a hard global capacity bound. */
+    /** Caller holds the authenticated token lock; enqueue reserves capacity using the transactional accounting row. */
     public function enqueue(string $token,string $project,string $key,string $hash,array $events,array $sources,?callable $admit=null,?string $digest=null,int $retention=\Cajeer\Logs\Log\DeliveryRepository::RETENTION_SECONDS): array|HttpException {
         if (!$this->pdo->inTransaction()) { throw new \LogicException('Enqueue requires a transaction.'); }
         $row=$this->sql("SELECT id,status,request_hash FROM jobs WHERE queue='ingest-v1' AND token_id=:token AND project_id=:project AND key_hash=:key",['token'=>$token,'project'=>$project,'key'=>$key])->fetch();
@@ -36,7 +36,7 @@ final class PostgresQueueDriver implements QueueDriverInterface
         $events=(new \Cajeer\Logs\Log\RedactionPolicies($this->pdo))->apply($events,$project,$sources);
         $body=IngestBatch::encodeJob($events,$sources);
         // Admission is only needed for a new job, after validation but before the
-        // global capacity lock. A policy denial is returned for outer telemetry commit.
+        // capacity row lock. A policy denial is returned for outer telemetry commit.
         if ($admit!==null && ($denied=$admit())!==null) {
             if (!$denied instanceof HttpException) throw new \LogicException('Invalid admission result.');
             return $denied;
@@ -81,8 +81,12 @@ final class PostgresQueueDriver implements QueueDriverInterface
         if ($ok!=='ok') \Cajeer\Logs\Security\Identity::forbidden();
     }
     private function insertJob(string $token,string $project,string $key,string $hash,string $body): string {
-        $this->pdo->query("SELECT pg_advisory_xact_lock(hashtextextended('cajeerlogs:enqueue:' || current_schema(),0))")->closeCursor();
-        if ((int)$this->pdo->query("SELECT count(*) FROM jobs WHERE queue='ingest-v1' AND status IN ('pending','running','dead')")->fetchColumn()>=$this->maxJobs) {
+        // Acquire the table write lock before the counter row (same order as
+        // reconciliation). Compatible with other producers and consumers.
+        $this->pdo->exec('LOCK TABLE jobs IN ROW EXCLUSIVE MODE');
+        $active=$this->pdo->query("SELECT active_jobs FROM queue_accounting WHERE queue='ingest-v1' FOR UPDATE")->fetchColumn();
+        if ($active===false) throw new \RuntimeException('Queue accounting is missing.');
+        if ((int)$active >= $this->maxJobs) {
             throw new HttpException(503,'queue_full','Ingest queue capacity reached.',['Retry-After'=>'5']);
         }
         // JSONB expands exponent notation and inserts whitespace. Never acknowledge a
@@ -104,7 +108,8 @@ final class PostgresQueueDriver implements QueueDriverInterface
     /** Claim one job, including an expired lease. Claim/attempt history commit before processing. */
     public function claim(): ?array {
         return (new TransactionManager($this->pdo))->run(function () {
-            $row=$this->pdo->query("SELECT id,status,attempts,max_attempts FROM jobs WHERE queue='ingest-v1' AND ((status='pending' AND available_at<=statement_timestamp()) OR (status='running' AND lease_until<=statement_timestamp())) ORDER BY available_at,id LIMIT 1 FOR UPDATE SKIP LOCKED")->fetch();
+            $row=$this->pdo->query("SELECT id,status,attempts,max_attempts FROM jobs WHERE queue='ingest-v1' AND status='running' AND lease_until<=statement_timestamp() ORDER BY lease_until,id LIMIT 1 FOR UPDATE SKIP LOCKED")->fetch();
+            if (!$row) $row=$this->pdo->query("SELECT id,status,attempts,max_attempts FROM jobs WHERE queue='ingest-v1' AND status='pending' AND available_at<=statement_timestamp() ORDER BY available_at,id LIMIT 1 FOR UPDATE SKIP LOCKED")->fetch();
             if (!$row) { return null; }
             if ($row['status']==='running') {
                 $this->sql("UPDATE job_attempts SET outcome='expired',finished_at=clock_timestamp(),error='lease_expired' WHERE job_id=:id AND attempt=:attempt AND outcome='running'",['id'=>$row['id'],'attempt'=>$row['attempts']]);
@@ -125,7 +130,7 @@ final class PostgresQueueDriver implements QueueDriverInterface
                 $row=$this->sql("SELECT id,project_id,token_id,attempts FROM jobs WHERE id=:id AND queue='ingest-v1' AND status='running' AND lease_id=:lease FOR UPDATE",['id'=>$claim['id'],'lease'=>$claim['lease_id']])->fetch();
                 if (!$row || !$this->leaseLive($claim)) { return 'stale'; }
                 // Do not transfer an unbounded/corrupted JSONB value into PHP memory.
-                $body=$this->sql('SELECT CASE WHEN octet_length(payload::text)<=CAST(:limit AS integer) THEN payload::text END FROM jobs WHERE id=:id',['id'=>$row['id'],'limit'=>IngestBatch::JOB_DECODE_BYTES])->fetchColumn();
+                $body=$this->sql('SELECT CASE WHEN payload_bytes<=CAST(:limit AS integer) THEN payload::text END FROM jobs WHERE id=:id',['id'=>$row['id'],'limit'=>IngestBatch::JOB_DECODE_BYTES])->fetchColumn();
                 if (!is_string($body)) throw new HttpException(413,'payload_too_large','Stored job exceeds decoding limit.');
                 [$events,$sources,$version]=IngestBatch::decodeJob($body);
                 $ids=(new \Cajeer\Logs\Log\LogRepository($this->pdo))->storeBatch($events,$row['project_id'],$sources,$row['token_id'],$version);

@@ -24,7 +24,7 @@ final class OperationsCheck
             'production_admin_totp'=>!$production || $cfg->get('security.require_admin_totp'),
             'production_idle_timeout'=>!$production || $cfg->get('security.session_idle_seconds')>0,
             'production_recent_authentication'=>!$production || $cfg->get('security.reauth_seconds')>0,
-            'audit_integrity'=>false];
+            'audit_integrity'=>false,'queue_accounting'=>false];
         $skipped=[]; $audit=null; $backup=null; $verifiedBackup=null;
         $workers=(new WorkerHeartbeat($this->app->basePath('storage/cache')))->snapshot($now);
         foreach ($workers as $role=>$worker) {
@@ -43,6 +43,7 @@ final class OperationsCheck
                 $a=(new AuditLogger($pdo))->verify();
                 $audit=['valid'=>$a['valid'],'entries'=>$a['entries'],'head_position'=>$a['head_position'],'head_hash'=>$a['head_hash']];
                 $checks['audit_integrity']=$a['valid'];
+                $checks['queue_accounting']=(new \Cajeer\Logs\Queue\QueueAccounting($pdo))->verify()['valid'];
                 if ($checkRetention) {
                     $r=$pdo->query('SELECT status,extract(epoch from finished_at) AS finished FROM retention_runs ORDER BY id DESC LIMIT 1')->fetch();
                     $checks['retention_progress']=$r && $r['status']==='success' && (float)$r['finished'] <= $now+5 && $now-(float)$r['finished']<=300;

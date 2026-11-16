@@ -69,10 +69,10 @@ def main():
             compose('up','-d','--wait','--wait-timeout','180')
             for _ in range(60):
                 try:
-                    data,_=http('GET','/ready'); assert data['version']=='0.5.0' and data['status']=='ok'; break
+                    data,_=http('GET','/ready'); assert data['version']=='0.5.1' and data['status']=='ok'; break
                 except (OSError, AssertionError, urllib.error.URLError): time.sleep(1)
             else: raise AssertionError('HTTPS readiness did not become healthy')
-            panel,h=http('GET','/admin/'); assert b'0.5.0' in panel and 'frame-ancestors' in h['Content-Security-Policy']
+            panel,h=http('GET','/admin/'); assert b'0.5.1' in panel and 'frame-ancestors' in h['Content-Security-Policy']
             assert b'app/router.js' in http('GET','/admin/assets/panel.js')[0]
             assert b'createApiClient' in http('GET','/admin/assets/api/client.js')[0]
             http('GET','/.env',expected=404)
@@ -110,6 +110,9 @@ def main():
                 if d['status']=='completed': break
                 assert d['status'] in ('pending','running'); time.sleep(1)
             else: raise AssertionError('Queue did not complete real job')
+            assert json.loads(cli('queue:verify'))['valid']
+            assert json.loads(cli('queue:capacity'))['active_jobs']==0
+            m,_=http('GET','/metrics',headers={'Authorization':'Bearer '+metrics}); assert b'cajeerlogs_queue_active_jobs 0' in m and b'cajeerlogs_queue_active_bytes 0' in m
             query=urllib.parse.urlencode({'project_id':pid,'q':'release','level':'error'})
             d,_=http('GET','/api/v1/logs?'+query,headers=bearer); assert len(d['items'])==2
             expanded=urllib.parse.urlencode({'project_id':pid,'q':'release error','q_mode':'plain','levels':'["error","warning"]','sources':'["app"]','context':'{"proof":"release"}'})
@@ -191,7 +194,7 @@ def main():
             assert json.loads(cli('retention:run','10'))['removed']==1
             http('GET',f'/api/v1/logs/{eventid}?project_id={pid}',headers=bearer,expected=404)
             compose('up','-d','--wait','--wait-timeout','180','scheduler')
-            proof=json.loads(cli('operations:check',m['id'])); assert proof['status']=='ok' and proof['checks']['audit_integrity'] and proof['checks']['backup_archive_verified']
+            proof=json.loads(cli('operations:check',m['id'])); assert proof['status']=='ok' and proof['checks']['audit_integrity'] and proof['checks']['queue_accounting'] and proof['checks']['backup_archive_verified']
             print('PASS real export rate limit, bounded retention and operator acceptance check',flush=True)
             # Actual Prometheus and Blackbox scrape this exact TLS deployment, then observe stopped processes.
             with monitoring_smoke(url,metrics,tls/'fullchain.pem') as monitor:
