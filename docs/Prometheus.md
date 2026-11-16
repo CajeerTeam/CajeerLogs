@@ -1,4 +1,6 @@
-# Health Checks & Prometheus (0.4.10)
+# Health Checks & Prometheus (0.4.10+)
+
+Starting in 0.5.0, production metrics require an explicit `PROMETHEUS_TOKEN` or must be disabled with `PROMETHEUS_ENABLED=false`; readiness fails if enabled without authentication. See [Security & Operations Stable](Security-Operations-Stable.md).
 
 ## Probe contracts
 

@@ -72,7 +72,7 @@ final class Application
     {
         if ($this->booted) { return; }
         if (PHP_VERSION_ID < 80400) { throw new \RuntimeException('PHP 8.4 or newer is required.'); }
-        $GLOBALS['cajeer_environment'] = Environment::load($this->environmentPath());
+        $GLOBALS['cajeer_environment'] = Environment::load($this->environmentPath(),true);
         $public=realpath($this->basePath('public'));
         foreach (\Cajeer\Logs\Config\SecretFile::KEYS as $key) {
             $reference=\Cajeer\Logs\Config\SecretFile::reference($key,$GLOBALS['cajeer_environment']);
@@ -192,6 +192,7 @@ final class Application
         if ($config->get('observability.prometheus_enabled')) {
             $router->add('GET', $config->get('observability.prometheus_path'), function(Request $r) use ($config): Response {
                 $token=$config->get('operations.metrics_token');
+                if ($config->get('app.env')==='production' && $token==='') { throw new HttpException(503,'metrics_unavailable','Metrics authentication is not configured.'); }
                 if ($token!=='' && $config->get('app.env')==='production' && !$r->secureTransport) { throw new HttpException(403,'https_required','HTTPS is required for metrics authentication.'); }
                 if ($token!=='' && !hash_equals('Bearer '.$token,$r->header('Authorization','')??'')) { throw new HttpException(401,'unauthorized','Metrics authentication required.',['WWW-Authenticate'=>'Bearer']); }
                 return new Response($this->container->get(PrometheusExporter::class)->render(),200,['Content-Type'=>'text/plain; version=0.0.4; charset=utf-8','Cache-Control'=>'no-store']);

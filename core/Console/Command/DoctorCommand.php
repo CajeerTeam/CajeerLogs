@@ -14,6 +14,8 @@ final class DoctorCommand
     {
         $urlOk = $this->app->config()->get('app.env') !== 'production' || parse_url($this->app->config()->get('app.url'), PHP_URL_SCHEME) === 'https';
         echo ($urlOk ? '[OK] ' : '[FAIL] ') . "Production HTTPS origin\n";
+        $metricsOk=$this->app->config()->get('app.env')!=='production' || !$this->app->config()->get('observability.prometheus_enabled') || $this->app->config()->get('operations.metrics_token')!=='';
+        echo ($metricsOk?'[OK] ':'[FAIL] ')."Production metrics authentication\n";
         // Runtime doctor must work with read-only configuration and restricted runtime roles.
         $checks = $this->app->container()->get(\Cajeer\Logs\Observability\Diagnostics::class)->checks();
         foreach ($checks as $name=>$passed) { echo ($passed?'[OK] ':'[FAIL] ').$name.PHP_EOL; }
@@ -23,6 +25,6 @@ final class DoctorCommand
         $missing = $this->app->handle(new Request('GET', '/__doctor_missing_' . bin2hex(random_bytes(8))));
         $ok = $health->status === 200 && $wrongMethod->status === 405 && $missing->status === 404;
         echo ($ok ? '[OK] ' : '[FAIL] ') . "HTTP dispatch (health, method rejection, unknown path)\n";
-        return $urlOk && $result === 0 && $ok && (new DbDoctorCommand($this->app))->handle() === 0 ? 0 : 1;
+        return $urlOk && $metricsOk && $result === 0 && $ok && (new DbDoctorCommand($this->app))->handle() === 0 ? 0 : 1;
     }
 }

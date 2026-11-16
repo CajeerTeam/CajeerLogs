@@ -38,7 +38,7 @@ with tempfile.TemporaryDirectory() as temp:
     target=p/'release'; release.verify(a,target)
     check((target/'bin/cajeer').stat().st_mode&0o111!=0,'executable CLI mode')
     env=dict(os.environ,APP_ENV='test',APP_DEBUG='false'); env.pop('CAJEER_ENV_FILE',None)
-    check(subprocess.check_output(['php','bin/cajeer','version'],cwd=target,env=env,text=True).strip()=='0.4.10','shipped CLI starts')
+    check(subprocess.check_output(['php','bin/cajeer','version'],cwd=target,env=env,text=True).strip()=='0.5.0','shipped CLI starts')
     subprocess.run(['php','bin/cajeer','openapi:lint'],cwd=target,env=env,check=True)
     check((target/'api/openapi.yaml').read_bytes()==(target/'openapi.yaml').read_bytes(),'shipped OpenAPI matches runtime')
     check(rejects(lambda:release.verify(a,target)),'nonempty extraction target rejected')

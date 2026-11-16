@@ -21,6 +21,7 @@ final class InstallPreflight
             'pdo_pgsql' => in_array('pgsql', \PDO::getAvailableDrivers(), true),
             'argon2id' => defined('PASSWORD_ARGON2ID'),
             'https_origin' => $this->app->config()->get('app.env') !== 'production' || parse_url($this->app->config()->get('app.url'), PHP_URL_SCHEME) === 'https',
+            'metrics_authenticated' => $this->app->config()->get('app.env') !== 'production' || !$this->app->config()->get('observability.prometheus_enabled') || $this->app->config()->get('operations.metrics_token') !== '',
             'configuration_directory_writable' => SecureFile::directory($directory),
             'configuration_regular_file' => SecureFile::privateFile($path,true),
             'configuration_disk_space' => $free !== false && $free >= 1048576,

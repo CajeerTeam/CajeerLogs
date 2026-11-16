@@ -1,7 +1,7 @@
-import { admin, render, active } from '../app/store.js?v=0.4.10';
-import { h, button, card, badge, heading, table, copy, message, empty } from '../components/ui.js?v=0.4.10';
-import { redactionButton } from './projects.js?v=0.4.10';
-import { request, ready } from '../api/client.js?v=0.4.10';
+import { admin, render, active } from '../app/store.js?v=0.5.0';
+import { h, button, card, badge, heading, table, copy, message, empty } from '../components/ui.js?v=0.5.0';
+import { redactionButton } from './projects.js?v=0.5.0';
+import { request, ready } from '../api/client.js?v=0.5.0';
 
 // Each endpoint is independent: a failed report must not hide successful liveness/readiness.
 async function system(signal, epoch) {

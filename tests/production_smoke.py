@@ -36,11 +36,11 @@ def main():
         with socket.socket() as s: s.bind(('127.0.0.1',0)); port=s.getsockname()[1]
         url=f'https://127.0.0.1:{port}'; metrics=secrets.token_hex(32); admin=secrets.token_hex(24)
         env_file=temp/'compose.env'
-        env_file.write_text(f'APP_URL={url}\nDB_PASSWORD={secrets.token_hex(32)}\nPOSTGRES_ADMIN_PASSWORD={secrets.token_hex(32)}\nPROMETHEUS_TOKEN={metrics}\nCAJEER_TLS_DIR={tls}\nCAJEER_HTTPS_BIND=127.0.0.1\nCAJEER_HTTPS_PORT={port}\n'); env_file.chmod(0o600)
+        env_file.write_text(f'APP_URL={url}\nDB_PASSWORD={secrets.token_hex(32)}\nPOSTGRES_ADMIN_PASSWORD={secrets.token_hex(32)}\nPROMETHEUS_TOKEN={metrics}\nCAJEER_TLS_DIR={tls}\nCAJEER_HTTPS_BIND=127.0.0.1\nCAJEER_HTTPS_PORT={port}\nSECURITY_SESSION_IDLE_SECONDS=1800\nSECURITY_REAUTH_SECONDS=300\nAPI_RATE_EXPORT_PER_MINUTE=10\n'); env_file.chmod(0o600)
         project='clsmoke'+secrets.token_hex(5)
         cmd=['docker','compose','--project-name',project,'--env-file',str(env_file),'-f',str(ROOT/'compose.production.yaml')]
         # Do not let developer environment override disposable test credentials.
-        env={k:v for k,v in os.environ.items() if k not in ('APP_URL','DB_PASSWORD','POSTGRES_ADMIN_PASSWORD','PROMETHEUS_TOKEN','CAJEER_TLS_DIR','CAJEER_HTTPS_BIND','CAJEER_HTTPS_PORT','COMPOSE_PROJECT_NAME','COMPOSE_PROFILES')}
+        env={k:v for k,v in os.environ.items() if k not in ('APP_URL','DB_PASSWORD','POSTGRES_ADMIN_PASSWORD','PROMETHEUS_TOKEN','CAJEER_TLS_DIR','CAJEER_HTTPS_BIND','CAJEER_HTTPS_PORT','COMPOSE_PROJECT_NAME','COMPOSE_PROFILES','SECURITY_SESSION_IDLE_SECONDS','SECURITY_REAUTH_SECONDS','SECURITY_2FA_REQUIRED_ROLES','SECURITY_2FA_REQUIRED_PERMISSIONS','API_RATE_EXPORT_PER_MINUTE','API_RATE_BURST_PERCENT')}
         env.update(CAJEER_ADMIN_EMAIL='release@example.test',CAJEER_ADMIN_PASSWORD=admin)
         def compose(*args, capture=False, check=True, timeout=600):
             return subprocess.run(cmd+list(args),cwd=ROOT,env=env,check=check,timeout=timeout,stdout=subprocess.PIPE if capture else None,text=True).stdout
@@ -56,7 +56,7 @@ def main():
             with resp:
                 status=resp.code; data=resp.read(); h=resp.headers
             # Don't log response bodies that might include credentials.
-            if status!=expected: raise AssertionError(f'{method} {path}: expected {expected}, got {status}')
+            if status not in (expected if isinstance(expected,tuple) else (expected,)): raise AssertionError(f'{method} {path}: expected {expected}, got {status}')
             return (json.loads(data) if h.get('Content-Type','').startswith('application/json') and data else data),h
         def session(data,headers):
             cookie=headers['Set-Cookie']; assert 'Secure' in cookie and 'HttpOnly' in cookie and 'SameSite=Strict' in cookie
@@ -69,10 +69,10 @@ def main():
             compose('up','-d','--wait','--wait-timeout','180')
             for _ in range(60):
                 try:
-                    data,_=http('GET','/ready'); assert data['version']=='0.4.10' and data['status']=='ok'; break
+                    data,_=http('GET','/ready'); assert data['version']=='0.5.0' and data['status']=='ok'; break
                 except (OSError, AssertionError, urllib.error.URLError): time.sleep(1)
             else: raise AssertionError('HTTPS readiness did not become healthy')
-            panel,h=http('GET','/admin/'); assert b'0.4.10' in panel and 'frame-ancestors' in h['Content-Security-Policy']
+            panel,h=http('GET','/admin/'); assert b'0.5.0' in panel and 'frame-ancestors' in h['Content-Security-Policy']
             assert b'app/router.js' in http('GET','/admin/assets/panel.js')[0]
             assert b'createApiClient' in http('GET','/admin/assets/api/client.js')[0]
             http('GET','/.env',expected=404)
@@ -91,7 +91,7 @@ def main():
             mac=hmac.new(secret,struct.pack('>Q',step),hashlib.sha1).digest(); offset=mac[-1]&15
             code=f'{(int.from_bytes(mac[offset:offset+4],"big")&0x7fffffff)%1000000:06d}'
             d,h=http('POST','/api/v1/auth/2fa/enable',{'otp':code},auth); assert len(d['recovery_codes'])==10; auth=session(d,h)
-            recovery=d['recovery_codes'][0]
+            recovery_codes=d['recovery_codes']; recovery=recovery_codes[0]
             http('POST','/api/v1/auth/login',password,expected=401)
             d,h=http('POST','/api/v1/auth/login',password|{'otp':recovery}); auth=session(d,h)
             http('POST','/api/v1/auth/login',password|{'otp':recovery},expected=401)
@@ -118,6 +118,26 @@ def main():
             d,_=http('GET',f'/api/v1/logs/{eventid}?project_id={pid}',headers=bearer); assert d['data']['context']['password']=='[redacted]'
             csv,_=http('GET','/api/v1/logs/export?'+query+'&format=csv',headers=bearer); assert eventid.encode() in csv
             print('PASS real TOTP, recovery, token, synchronous and async ingest, worker, search and export',flush=True)
+            # Prove policy composition over real TLS: an expired recent-auth window, a fresh
+            # second factor, then a restricted operator with a live session and no export.
+            compose('exec','-T','db','psql','-U','postgres','-d','cajeer_logs','-v','ON_ERROR_STOP=1','-c',
+                "UPDATE auth_sessions SET reauthenticated_at=now()-interval '10 minutes' WHERE user_id=(SELECT id FROM users WHERE email='release@example.test')")
+            role_body={'name':'Smoke read only','scope':'global','permissions':['projects:read','logs:read','tokens:read','tokens:create']}
+            denied,_=http('POST','/api/v1/roles',role_body,auth,403); assert denied['error']=='reauthentication_required'
+            fresh,_=http('POST','/api/v1/auth/reauthenticate',{'password':admin,'otp':recovery_codes[1]},auth); assert fresh['security']['reauth_seconds']==300
+            role,_=http('POST','/api/v1/roles',role_body,auth,201)
+            op_password=secrets.token_hex(24); op_email='operator@release.test'
+            op,_=http('POST','/api/v1/users',{'email':op_email,'password':op_password,'role':'operator'},auth,201)
+            http('PUT',f"/api/v1/projects/{pid}/members/{op['id']}",headers=auth,expected=204)
+            d,h=http('POST','/api/v1/auth/login',{'email':op_email,'password':op_password}); operator=session(d,h)
+            http('PUT',f"/api/v1/users/{op['id']}/role-assignment",{'role_id':role['id'],'expected_role_id':None},auth,204)
+            d,_=http('GET','/api/v1/auth/me',headers=operator); assert 'logs:export' not in d['user']['permissions']
+            http('GET','/api/v1/logs?'+query,headers=operator)
+            http('GET','/api/v1/logs/export?'+query+'&format=csv',headers=operator,expected=403)
+            http('POST',f'/api/v1/projects/{pid}/tokens',{'name':'Forbidden export delegation','scopes':['logs:read']},operator,403)
+            audit=json.loads(cli('audit:verify')); assert audit['valid'] and audit['entries']>0
+            print('PASS production step-up 2FA, live RBAC restriction, token delegation refusal and audit integrity',flush=True)
+
             scheduled=json.loads(cli('backup:run')); assert scheduled['status']=='completed' and scheduled['offsite'] is None
             m=scheduled['backup']; assert m['bytes']>0
             assert json.loads(cli('backup:run'))['status']=='not_due'
@@ -146,6 +166,7 @@ def main():
             print(bench,flush=True)
             # Exercise the exact production HTTPS runtime with a separate v2 credential,
             # rotated bearer, inherited policies, worker, snapshot and verified export.
+            http('POST','/api/v1/auth/reauthenticate',{'password':admin,'otp':recovery_codes[2]},auth)
             integrated=exercise(http,url,auth,lambda:None,str(tls/'fullchain.pem'))
             signing=integrated['token']['signing']
             bench_v2=subprocess.check_output(['python3',str(ROOT/'scripts/benchmark.py'),'--url',url,'--project',integrated['project_id'],'--source','app','--requests','12','--batch','5','--concurrency','4','--ca-file',str(tls/'fullchain.pem'),'--verify-explorer','--confirm'],env=dict(env,CAJEER_TOKEN=integrated['token']['token'],CAJEER_SIGNING_KEY_ID=signing['current_key_id'],CAJEER_SIGNING_SECRET=signing['signing_secret']),text=True,timeout=150)
@@ -154,6 +175,24 @@ def main():
             assert json.loads(cli('db:verify'))['status']=='ok'
             assert json.loads(cli('db:performance'))['tables']
             assert json.loads(cli('db:explain',pid,'--analyze'))['plans']['latest']
+            # Export limit is enforced by the real shared PostgreSQL bucket.
+            for _ in range(40):
+                result,headers=http('GET','/api/v1/logs/export?'+query+'&format=csv',headers=bearer,expected=(200,429))
+                if isinstance(result,dict) and result.get('error')=='rate_limited':
+                    assert 1<=int(headers['Retry-After'])<=60; break
+            else: raise AssertionError('Real export rate budget did not reject requests')
+            # Retention is deterministic with the scheduler temporarily stopped. Keep it running
+            # again for the monitor checks. Only the intentionally aged event may be removed.
+            compose('stop','scheduler')
+            cli('retention:set',pid,'1')
+            compose('exec','-T','db','psql','-U','postgres','-d','cajeer_logs','-v','ON_ERROR_STOP=1','-c',
+                f"UPDATE log_events SET received_at=now()-interval '2 days' WHERE id='{eventid}'")
+            assert json.loads(cli('retention:preview','10',pid))['candidates']==1
+            assert json.loads(cli('retention:run','10'))['removed']==1
+            http('GET',f'/api/v1/logs/{eventid}?project_id={pid}',headers=bearer,expected=404)
+            compose('up','-d','--wait','--wait-timeout','180','scheduler')
+            proof=json.loads(cli('operations:check',m['id'])); assert proof['status']=='ok' and proof['checks']['audit_integrity'] and proof['checks']['backup_archive_verified']
+            print('PASS real export rate limit, bounded retention and operator acceptance check',flush=True)
             # Actual Prometheus and Blackbox scrape this exact TLS deployment, then observe stopped processes.
             with monitoring_smoke(url,metrics,tls/'fullchain.pem') as monitor:
                 compose('stop','queue')
@@ -169,6 +208,17 @@ def main():
                 http('GET','/health'); http('GET','/ready',expected=503)
                 monitor.expect('ALERTS{alertname="CajeerLogsDatabaseNotReady",job="cajeerlogs-ready",alertstate="firing"}',1,timeout=170)
                 print('PASS PostgreSQL stopped; real HTTPS liveness survives and readiness/metrics report outage',flush=True)
+                compose('start','db')
+                compose('up','-d','--wait','--wait-timeout','180','db','app','queue','scheduler','webhook')
+                monitor.expect('cajeerlogs_ready',1,timeout=90)
+                monitor.expect('probe_success{job="cajeerlogs-ready"}',1,timeout=90)
+                monitor.expect('cajeerlogs_worker_healthy{role="queue"}',1,timeout=90)
+                monitor.expect('count(ALERTS{alertname="CajeerLogsDatabaseNotReady"}) or vector(0)',0,timeout=90)
+                post,_=http('POST','/api/v1/ingest',event|{'message':'recovery after database restart'},bearer|{'Idempotency-Key':'after-outage'},201)
+                restored_event,_=http('GET',f"/api/v1/logs/{post['event_ids'][0]}?project_id={pid}",headers=bearer)
+                assert restored_event['data']['message']=='recovery after database restart'
+                assert json.loads(cli('audit:verify'))['valid']
+                print('PASS PostgreSQL and queue recovery, alert resolution, real ingestion and audit after outage',flush=True)
 
 
         except BaseException:

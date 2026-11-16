@@ -25,5 +25,18 @@ try{
     if($pdo->query("SELECT current_user='cl_runtime_ci' AND NOT has_schema_privilege(current_user,current_schema(),'CREATE')")->fetchColumn()!==true)throw new RuntimeException('Runtime role is not restricted');
     if($pdo->query("SELECT count(*) FROM users WHERE email='split@example.test' AND role='administrator'")->fetchColumn()!=1)throw new RuntimeException('Administrator missing');
     if($pdo->query("SELECT tableowner FROM pg_tables WHERE schemaname=current_schema() AND tablename='users'")->fetchColumn()!=='cl_migrator_ci')throw new RuntimeException('Wrong table owner');
+    // Revoke actual permissions as the migration owner; readiness must fail closed.
+    $ownerCfg=clone $c; $ownerCfg->set('database.username','cl_migrator_ci'); $ownerCfg->set('database.password','ci-migration-split-password');
+    $owner=(new ConnectionFactory($ownerCfg))->make('pgsql'); $status=new \Cajeer\Logs\Database\DatabaseStatus($app);
+    if($status->check(true,false,$pdo)['status']!=='ok')throw new RuntimeException('Runtime readiness failed before grant tests');
+    foreach(['rbac_roles','saved_log_views'] as $table) {
+        $owner->exec('REVOKE SELECT ON '.$table.' FROM cl_runtime_ci');
+        try { $r=$status->check(true,false,$pdo); if($r['status']!=='down'||!in_array($table,$r['tables']??[],true)) throw new RuntimeException('Missing required table grant was not detected'); }
+        finally { $owner->exec('GRANT SELECT ON '.$table.' TO cl_runtime_ci'); }
+    }
+    $owner->exec('REVOKE EXECUTE ON FUNCTION audit_scope(text,text,jsonb) FROM PUBLIC');
+    try { $r=$status->check(true,false,$pdo); if($r['status']!=='down'||!in_array('audit_scope',$r['functions']??[],true)) throw new RuntimeException('Missing function EXECUTE grant was not detected'); }
+    finally { $owner->exec('GRANT EXECUTE ON FUNCTION audit_scope(text,text,jsonb) TO PUBLIC'); }
+    if($status->check(true,false,$pdo)['status']!=='ok')throw new RuntimeException('Runtime readiness did not recover after restoring grants');
     echo "PASS separate CLI migration role, restricted runtime, first administrator, no elevated credentials on disk\n";
 }finally{if(is_file($file))unlink($file);if(is_file($file.'.install.lock'))unlink($file.'.install.lock');unlink($runtimeSecret);unlink($migrationSecret);rmdir($tmp);}

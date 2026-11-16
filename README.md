@@ -2,9 +2,13 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.5.0 — Security & Operations Stable (candidate)
+
+Интеграция RBAC, 2FA, audit, rate limiting, HTTPS, Secure Installer, backup, retention и мониторинга. Защита production-конфигурации и метрик, проверка security-атрибутов схемы и `operations:check`. [Security & Operations Stable](docs/Security-Operations-Stable.md). Без новых миграций; Public Preview до полного CI.
+
 ## 0.4.10 — Health Checks & Prometheus
 
-Readiness с отдельным PostgreSQL probe, heartbeat фоновых процессов, метрики backup, TLS/HTTP probes и опциональный monitoring stack. [Prometheus](docs/Prometheus.md). Без новых миграций. Public Preview до CI.
+Readiness с отдельным PostgreSQL probe, heartbeat фоновых процессов, метрики backup, TLS/HTTP probes и опциональный monitoring stack. [Prometheus](docs/Prometheus.md).
 
 ## 0.4.9 — Retention & Storage Lifecycle
 

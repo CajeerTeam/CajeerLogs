@@ -25,6 +25,19 @@ try {
  // Simulate a privileged DBA bypass; the original checkpoint detects tail deletion.
  $pdo->exec('ALTER TABLE audit_log DISABLE TRIGGER audit_reject_mutation');$checkpoint=$audit->verify();$pdo->exec('DELETE FROM audit_log WHERE chain_position=3');$pdo->exec('ALTER TABLE audit_log ENABLE ALWAYS TRIGGER audit_reject_mutation');check($audit->verify()['valid']&&!$audit->verify($checkpoint['head_position'],$checkpoint['head_hash'])['valid'],'trusted checkpoint detects removed tail');
  $pdo->exec('ALTER TABLE audit_log DISABLE TRIGGER audit_reject_mutation');$pdo->exec("UPDATE audit_log SET action='tampered' WHERE chain_position=1");check(!$audit->verify()['valid'],'hash detects modified metadata');$pdo->exec("UPDATE audit_log SET action='project.created' WHERE chain_position=1");$pdo->exec('ALTER TABLE audit_log ENABLE ALWAYS TRIGGER audit_reject_mutation');
+ // Security attributes were not part of legacy schema fingerprints. They must now fail the same guard.
+ $runner=$app->container()->get(MigrationRunner::class);
+ $pdo->exec('ALTER FUNCTION audit_scope(text,text,jsonb) SECURITY DEFINER');
+ check($runner->status(false)['integrity']==='drift','security definer drift detected on audit function');
+ check($app->handle(new Request('GET','/ready'))->status===503,'readiness rejects elevated audit function');
+ $pdo->exec('ALTER FUNCTION audit_scope(text,text,jsonb) SECURITY INVOKER');
+ $pdo->exec('ALTER FUNCTION audit_scope(text,text,jsonb) RESET search_path');
+ check($runner->status(false)['integrity']==='drift','audit search_path drift detected');
+ $pdo->exec('ALTER FUNCTION audit_scope(text,text,jsonb) SET search_path TO pg_catalog');
+ $pdo->exec('ALTER FUNCTION api_rate_charge(text,integer,integer) STABLE');
+ check($runner->status(false)['integrity']==='drift','rate limiter volatility drift detected');
+ $pdo->exec('ALTER FUNCTION api_rate_charge(text,integer,integer) VOLATILE');
+ check($runner->status(false)['integrity']==='verified','restored function attributes preserve original migration history');
  $users=new UserRepository($pdo);$password='audit-test-password-123';$admin=$users->create('admin@audit.test',$password,'administrator');$op=$users->create('operator@audit.test',$password,'operator');$viewer=$users->create('viewer@audit.test',$password,'viewer');$a=login('admin@audit.test',$password);$o=login('operator@audit.test',$password);$v=login('viewer@audit.test',$password);
  $p=data(call('POST','/projects',$a,['name'=>'Audit one','slug'=>'audit-one'],201))['id'];$other=data(call('POST','/projects',$a,['name'=>'Audit two','slug'=>'audit-two'],201))['id'];call('PUT',"/projects/$p/members/$op",$a,null,204);call('PUT',"/projects/$p/members/$viewer",$a,null,204);
  $path="/projects/$p/security/audit";$page=data(call('GET',$path,$o,null,200,['result'=>'success','actor_type'=>'user','action'=>'project.created','from'=>'2000-01-01T00:00:00Z','to'=>'2099-01-01T00:00:00Z']));check(count($page['items'])===1&&$page['items'][0]['project_id']===$p&&!array_key_exists('chain_position',$page['items'][0]),'scope and filters enforced without global sequence disclosure');

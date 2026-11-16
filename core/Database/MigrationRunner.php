@@ -65,6 +65,7 @@ final class MigrationRunner
         }
         if (!hash_equals($state['history_hash'],self::historyHash($history))) return ['integrity'=>'drift','drift'=>[['object'=>'migration_history','change'=>'changed']]];
         $issues=SchemaInspector::differences($state['snapshot'],$this->inspector->snapshot($this->schema));
+        $issues=array_merge($issues,SecuritySchema::differences($this->pdo,$this->schema,$history));
         return ['integrity'=>$issues===[]?'verified':'drift','drift'=>$issues];
     }
     /** A partially committed operation cannot disappear from a newer release's pending set. */

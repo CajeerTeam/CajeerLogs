@@ -110,16 +110,16 @@ final class BackupManager
     /** Explicit supported release histories, no acceptance of unknown versions. */
     public static function compatibleRelease(mixed $backup, string $current): bool
     {
-        $versions=['0.0.9','0.1.0','0.1.1','0.1.2','0.1.3','0.1.4','0.1.5','0.1.6','0.1.7','0.1.8','0.1.9','0.2.0','0.2.1','0.2.2','0.2.3','0.2.4','0.2.5','0.2.6','0.2.7','0.2.8','0.2.9','0.3.0','0.3.1','0.3.2','0.3.3','0.3.4','0.3.5','0.3.6','0.3.7','0.3.8','0.3.9','0.4.0','0.4.1','0.4.2','0.4.3','0.4.4','0.4.5','0.4.6','0.4.7','0.4.8','0.4.9','0.4.10'];
+        $versions=['0.0.9','0.1.0','0.1.1','0.1.2','0.1.3','0.1.4','0.1.5','0.1.6','0.1.7','0.1.8','0.1.9','0.2.0','0.2.1','0.2.2','0.2.3','0.2.4','0.2.5','0.2.6','0.2.7','0.2.8','0.2.9','0.3.0','0.3.1','0.3.2','0.3.3','0.3.4','0.3.5','0.3.6','0.3.7','0.3.8','0.3.9','0.4.0','0.4.1','0.4.2','0.4.3','0.4.4','0.4.5','0.4.6','0.4.7','0.4.8','0.4.9','0.4.10','0.5.0'];
         $from=array_search($backup,$versions,true); $to=array_search($current,$versions,true);
         return $from!==false && $to!==false && $from<=$to;
     }
 
     public static function expectedPending(string $version): array
     {
-        if (!self::compatibleRelease($version,'0.4.10')) throw new DatabaseException('Unsupported backup release.');
+        if (!self::compatibleRelease($version,'0.5.0')) throw new DatabaseException('Unsupported backup release.');
         $migrations=['0009_project_management.sql','0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql','0013_ingest_signing.sql','0014_delivery_idempotency.sql','0015_authentication_sessions.sql','0016_saved_log_views.sql','0017_rbac_roles_permissions.sql','0018_identity_security.sql','0019_audit_accountability.sql','0020_rate_limit_buckets.sql','0021_retention_execution_history.sql'];
-        return array_slice($migrations,match($version) {'0.4.9','0.4.10'=>13,'0.4.5','0.4.6','0.4.7','0.4.8'=>12,'0.4.4'=>11,'0.4.3'=>10,'0.4.2'=>9,'0.3.5','0.3.6','0.3.7','0.3.8','0.3.9','0.4.0','0.4.1'=>8,'0.3.4','0.3.3','0.3.2'=>7,'0.3.1','0.3.0','0.2.9','0.2.8','0.2.7'=>6,'0.2.6','0.2.5'=>5,'0.2.4','0.2.3','0.2.2','0.2.1','0.2.0','0.1.9'=>4,'0.1.8'=>3,'0.1.7'=>2,'0.1.6'=>1,default=>0});
+        return array_slice($migrations,match($version) {'0.4.9','0.4.10','0.5.0'=>13,'0.4.5','0.4.6','0.4.7','0.4.8'=>12,'0.4.4'=>11,'0.4.3'=>10,'0.4.2'=>9,'0.3.5','0.3.6','0.3.7','0.3.8','0.3.9','0.4.0','0.4.1'=>8,'0.3.4','0.3.3','0.3.2'=>7,'0.3.1','0.3.0','0.2.9','0.2.8','0.2.7'=>6,'0.2.6','0.2.5'=>5,'0.2.4','0.2.3','0.2.2','0.2.1','0.2.0','0.1.9'=>4,'0.1.8'=>3,'0.1.7'=>2,'0.1.6'=>1,default=>0});
     }
     public function restore(string $id,string $target): array
     {

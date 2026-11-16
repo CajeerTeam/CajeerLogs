@@ -26,7 +26,7 @@ final class SystemReport
             'service' => $this->app->config()->get('app.name'),
             'version' => $this->app->version(),
             'scope' => 'runtime+database',
-            'status' => ($this->app->config()->get('app.env') === 'production' && parse_url($this->app->config()->get('app.url'), PHP_URL_SCHEME) !== 'https') || in_array(false, $checks, true) || $db['status'] !== 'ok' || (($this->app->config()->get('security.require_admin_totp') || \Cajeer\Logs\Security\IdentityPolicy::fromConfig($this->app->config())->requiresEnrollmentPolicy()) && !\Cajeer\Logs\Security\TwoFactorManager::keyValid($this->app->config()->get('security.totp_key'))) ? 'down' : 'ok',
+            'status' => ($this->app->config()->get('app.env') === 'production' && $this->app->config()->get('observability.prometheus_enabled') && $this->app->config()->get('operations.metrics_token') === '') || ($this->app->config()->get('app.env') === 'production' && parse_url($this->app->config()->get('app.url'), PHP_URL_SCHEME) !== 'https') || in_array(false, $checks, true) || $db['status'] !== 'ok' || (($this->app->config()->get('security.require_admin_totp') || \Cajeer\Logs\Security\IdentityPolicy::fromConfig($this->app->config())->requiresEnrollmentPolicy()) && !\Cajeer\Logs\Security\TwoFactorManager::keyValid($this->app->config()->get('security.totp_key'))) ? 'down' : 'ok',
             'php' => PHP_VERSION,
             'sapi' => PHP_SAPI,
             'os' => PHP_OS_FAMILY,

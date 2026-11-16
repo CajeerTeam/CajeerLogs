@@ -24,7 +24,7 @@ function throws(callable $action, string $class, ?int $status = null): bool {
     return false;
 }
 $app->boot();
-check($app->version() === '0.4.10', 'release version');
+check($app->version() === '0.5.0', 'release version');
 check($app->config()->get('app.version') === $app->version(), 'config version');
 $oldEnv = $app->config()->get('app.env'); $oldUrl = $app->config()->get('app.url');
 $app->config()->set('app.env', 'production'); $app->config()->set('app.url', 'https://logs.example.test');
@@ -87,7 +87,10 @@ check($app->handle(new Request('POST', '/__test_json', ['Content-Type'=>'applica
 $app->config()->set('app.max_body_bytes', 1048576);
 check($app->handle(new Request('GET', '/health'))->status === 200, 'health dispatch');
 check($app->handle(new Request('GET', '/api/v1/ingest'))->status === 405, 'ingest only accepts POST');
+// Production must never expose metrics without authentication.
+$app->config()->set('app.env','test');
 check($app->handle(new Request('GET', '/metrics'))->status === 200, 'metrics dispatch');
+$app->config()->set('app.env',$oldEnv);
 check($app->handle(new Request('GET', '/api/v1/system/report', secureTransport: true))->status === 401, 'private diagnostics require authentication');
 check($app->handle(new Request('POST', '/health'))->header('Allow') === 'GET, HEAD, OPTIONS', 'Allow header');
 echo "Runtime: $count checks passed\n";

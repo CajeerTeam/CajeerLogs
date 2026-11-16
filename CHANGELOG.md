@@ -2,6 +2,14 @@
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
 
+## 0.5.0 — Security & Operations Stable candidate
+
+- Production metrics fail closed without credentials; runtime dotenv descriptor/ownership checks and safer Compose session defaults.
+- Catalog security-attribute drift detection, required RBAC/saved-view grants and function EXECUTE readiness checks; no new migration.
+- Read-only `operations:check [BACKUP_ID]` combines actual readiness, audit, worker, retention, storage, backup and offsite verification.
+- Full production acceptance adds reauthentication, RBAC delegation denial, export rate, retention and recovery from database outage.
+- Exact archive gate includes actual 0.4.10 upgrade and fixes already-applied 0021 expectations; channel remains public-preview pending full CI.
+
 ## 0.4.10 — Health Checks & Prometheus
 
 - Separate bounded readiness/scrape PostgreSQL sessions; no-cache health responses.

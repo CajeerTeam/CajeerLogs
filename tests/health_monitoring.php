@@ -29,6 +29,10 @@ try {
     $metrics=(new WorkerMetrics($app))->render(); check(str_contains($metrics,'cajeerlogs_worker_healthy{role="queue"}')&&str_contains($metrics,'cajeerlogs_worker_healthy{role="backup"}'),'worker metric series always present');
     check(str_contains($metrics,'cajeerlogs_worker_expected{role="backup"} '.($cfg->get('observability.monitor_backup')?1:0)),'backup expectation follows configuration');
     check(str_contains($metrics,'cajeerlogs_backup_status_available '),'backup status availability emitted');
+    $cfg->set('app.env','production'); $cfg->set('app.url','https://logs.example.test'); $cfg->set('operations.metrics_token','');
+    $proof=(new \Cajeer\Logs\Operations\OperationsCheck($app))->run('invalid-id');
+    check($proof['status']==='failed' && !$proof['checks']['production_metrics_protected'] && !$proof['checks']['database_readiness'] && !$proof['checks']['audit_integrity'] && !$proof['checks']['backup_archive_verified'],'operator check reports unavailable dependencies and invalid backup without success');
+    check(!str_contains(json_encode($proof),'invalid-id'),'operator check does not echo unverified backup input');
     $audit=new AuditFailureMetrics($dir); check(str_contains($audit->render(),'cajeerlogs_audit_write_failures_total 0'),'initial audit failure counter');
     $audit->increment(); (new AuditFailureMetrics($dir))->increment(); check(str_contains($audit->render(),'cajeerlogs_audit_write_failures_total 2'),'audit failure counter shared and cumulative');
     file_put_contents($dir.'/audit-failures','invalid'); check(str_contains($audit->render(),'cajeerlogs_audit_metrics_available 0'),'invalid counter state is unavailable, not fabricated zero');
