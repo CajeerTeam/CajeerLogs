@@ -1,3 +1,10 @@
+# 0.5.6 — Backpressure & Admission Control
+
+- Точные PostgreSQL admission limits по активным jobs/events/JSONB bytes; многомерные budgets проверяются перед квотами проекта без сканирования jobs на каждом enqueue.
+- Durable hysteresis latch (high/low watermarks), 503 `queue_full`, Retry-After и транзакционные счётчики отказов без потери уже принятых заданий.
+- Защита idempotency replay при заполненной очереди и атомарность accounting по INSERT/completion/dead-letter/discard.
+- Миграция 0023, операторская диагностика, CLI и Prometheus, новые конкурентные тесты и upgrade с 0.5.5.
+
 # 0.5.5 — High-Throughput Batch Ingestion
 
 - Транзакционное объединение совместимых pending jobs в ограниченные группы, один SQL INSERT событий на группу, отдельные webhook outbox записи и durable results для каждого исходного job.

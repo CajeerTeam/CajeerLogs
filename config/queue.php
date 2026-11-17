@@ -25,4 +25,8 @@ return [
         'outage_max_failures' => env_raw('QUEUE_OUTAGE_MAX_FAILURES', '10'),
     ],
     'max_jobs' => env_raw('QUEUE_MAX_JOBS', '1000'),
+    'max_events' => env_raw('QUEUE_MAX_EVENTS', '100000'),
+    'max_bytes' => env_raw('QUEUE_MAX_BYTES', '536870912'),
+    'high_watermark_percent' => env_raw('QUEUE_HIGH_WATERMARK_PERCENT', '85'),
+    'low_watermark_percent' => env_raw('QUEUE_LOW_WATERMARK_PERCENT', '60'),
 ];

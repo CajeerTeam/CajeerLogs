@@ -85,6 +85,11 @@ groups:
         for: 5m
         labels: {severity: warning}
         annotations: {summary: 'PostgreSQL operations metrics unavailable'}
+      - alert: CajeerLogsQueueAdmissionPaused
+        expr: cajeerlogs_queue_admission_paused == 1
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: 'Queue capacity admission paused; workers must drain accepted jobs'}
       - alert: CajeerLogsDeadLetterBacklog
         expr: cajeerlogs_queue_dead_jobs > 0 and on(job,instance) (cajeerlogs_queue_oldest_dead_seconds > 900 or cajeerlogs_queue_dead_jobs / cajeerlogs_queue_max_jobs >= 0.1)
         for: 5m

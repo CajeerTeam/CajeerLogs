@@ -15,9 +15,16 @@ final class OperationsMetrics
         $values=[]; foreach ($row as $k=>$v) { $values[$k]=(float)$v; }
         $dead=$pdo->query("SELECT count(*) AS queue_dead_jobs,COALESCE(sum(payload_events),0) AS queue_dead_events,COALESCE(sum(payload_bytes),0) AS queue_dead_bytes,COALESCE(GREATEST(0,extract(epoch from now()-min(completed_at))),0) AS queue_oldest_dead_seconds FROM jobs WHERE queue='ingest-v1' AND status='dead'")->fetch();
         foreach ($dead as $name=>$value) $values[$name]=(float)$value;
-        $capacity=(new \Cajeer\Logs\Queue\QueueAccounting($pdo))->snapshot();
+        $capacity=(new \Cajeer\Logs\Queue\QueueAccounting($pdo))->status();
         foreach ($capacity as $name=>$value) $values['queue_'.$name]=(float)$value;
-        $values['queue_max_jobs']=(float)$this->app->config()->get('queue.max_jobs');
+        $policy=\Cajeer\Logs\Queue\BackpressurePolicy::fromConfig($this->app->config());
+        foreach ($policy->limits() as $name=>$value) $values['queue_'.$name]=(float)$value;
+        $ratios=[];
+        foreach (['jobs'=>'maxJobs','events'=>'maxEvents','bytes'=>'maxBytes'] as $resource=>$field) {
+            $limit=$policy->$field;
+            if ($limit>0) $ratios[]=$capacity['active_'.$resource]/$limit;
+        }
+        $values['queue_capacity_ratio']=max($ratios);
         $tasks=array_fill_keys(array_keys(\Cajeer\Logs\Scheduler\Scheduler::TASKS),['last_success'=>0,'overdue_seconds'=>0]); foreach ($pdo->query('SELECT name,extract(epoch from last_success_at) AS last_success, GREATEST(0,extract(epoch from now()-next_run_at)) AS overdue_seconds FROM scheduler_runs')->fetchAll() as $task) { if (isset(\Cajeer\Logs\Scheduler\Scheduler::TASKS[$task['name']])) { $tasks[$task['name']]=['last_success'=>(float)$task['last_success'],'overdue_seconds'=>(float)$task['overdue_seconds']]; } }
         $retention=$pdo->query('SELECT status,total_removed,backlog_lower_bound,duration_ms,extract(epoch from finished_at) AS finished_at FROM retention_runs ORDER BY id DESC LIMIT 1')->fetch();
         $storage=$pdo->query("SELECT n_live_tup AS estimated_live_rows,n_dead_tup AS estimated_dead_rows,last_autovacuum,last_autoanalyze FROM pg_stat_user_tables WHERE schemaname=current_schema() AND relname='log_events'")->fetch();
@@ -33,6 +40,11 @@ final class OperationsMetrics
         try { $snapshot=$this->snapshot($probe); } catch (\Throwable) { return "# TYPE cajeerlogs_operations_available gauge\ncajeerlogs_operations_available 0\n"; }
         $out="# TYPE cajeerlogs_operations_available gauge\ncajeerlogs_operations_available 1\n";
         foreach ($snapshot['database'] as $name=>$value) { if ($probe!==null && str_starts_with($name,'app_storage_')) continue; $out.="# TYPE cajeerlogs_$name gauge\ncajeerlogs_$name $value\n"; }
+        $out.="# TYPE cajeerlogs_queue_admission_rejections_total counter\n";
+        foreach (['jobs','events','bytes','paused'] as $cause) {
+            $total=(int)($snapshot['database']['queue_rejected_'.$cause]??0);
+            $out.='cajeerlogs_queue_admission_rejections_total{reason="'.$cause.'"} '.$total."\n";
+        }
         foreach (['scheduler_last_success_timestamp_seconds'=>'last_success','scheduler_overdue_seconds'=>'overdue_seconds'] as $metric=>$field) {
             $out.="# TYPE cajeerlogs_$metric gauge\n";
             foreach ($snapshot['scheduler'] as $name=>$task) $out.='cajeerlogs_'.$metric.'{task="'.$name.'"} '.$task[$field]."\n";

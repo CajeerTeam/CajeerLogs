@@ -12,7 +12,7 @@ use Cajeer\Logs\Log\{IngestEvent,IngestBatch};
 /** PostgreSQL durable queue; all payloads are already validated and redacted. */
 final class PostgresQueueDriver implements QueueDriverInterface
 {
-    public function __construct(private readonly PDO $pdo, private readonly int $maxJobs=1000, private readonly ?WorkerPolicy $workerPolicy=null, private readonly RetryPolicy $retryPolicy=new RetryPolicy()) {
+    public function __construct(private readonly PDO $pdo, private readonly int $maxJobs=1000, private readonly ?WorkerPolicy $workerPolicy=null, private readonly RetryPolicy $retryPolicy=new RetryPolicy(), private readonly ?BackpressurePolicy $backpressurePolicy=null) {
         if ($maxJobs<1 || $maxJobs>100000) { throw new \InvalidArgumentException('Invalid QUEUE_MAX_JOBS.'); }
     }
     private function sql(string $sql,array $params=[]): \PDOStatement { $s=$this->pdo->prepare($sql);$s->execute($params);return $s; }
@@ -35,8 +35,10 @@ final class PostgresQueueDriver implements QueueDriverInterface
         $this->assertEnqueueScope($token,$project,$sources);
         $events=(new \Cajeer\Logs\Log\RedactionPolicies($this->pdo))->apply($events,$project,$sources);
         $body=IngestBatch::encodeJob($events,$sources);
-        // Admission is only needed for a new job, after validation but before the
-        // capacity row lock. A policy denial is returned for outer telemetry commit.
+        // A replay has already returned above. Check the exact shared queue budgets
+        // BEFORE project/source quotas: a capacity denial must not consume quota.
+        // The row lock is held until the caller commits the durable job or denial.
+        if (($denied=$this->backpressure()->admit($this->pdo,count($events),$body))!==null) return $denied;
         if ($admit!==null && ($denied=$admit())!==null) {
             if (!$denied instanceof HttpException) throw new \LogicException('Invalid admission result.');
             return $denied;
@@ -52,7 +54,9 @@ final class PostgresQueueDriver implements QueueDriverInterface
         [$events,$sources]=IngestBatch::decodeJob($raw);
         $this->assertEnqueueScope($p['token'],$p['project'],$sources);
         $events=(new \Cajeer\Logs\Log\RedactionPolicies($this->pdo))->apply($events,$p['project'],$sources);
-        return $this->insertJob($p['token'],$p['project'],$p['key'],$p['hash'],IngestBatch::encodeJob($events,$sources));
+        $body=IngestBatch::encodeJob($events,$sources);
+        if (($denied=$this->backpressure()->admit($this->pdo,count($events),$body))!==null) throw $denied;
+        return $this->insertJob($p['token'],$p['project'],$p['key'],$p['hash'],$body);
     }
     /** Defense in depth for direct repository callers. Lock the token before the
      * capacity lock, and verify the exact source map against registered sources. */
@@ -80,21 +84,17 @@ final class PostgresQueueDriver implements QueueDriverInterface
         if ($ok==='unauthorized') \Cajeer\Logs\Security\Identity::unauthorized();
         if ($ok!=='ok') \Cajeer\Logs\Security\Identity::forbidden();
     }
+    private function backpressure(): BackpressurePolicy {
+        return $this->backpressurePolicy ?? new BackpressurePolicy($this->maxJobs);
+    }
     private function insertJob(string $token,string $project,string $key,string $hash,string $body): string {
-        // Acquire the table write lock before the counter row (same order as
-        // reconciliation). Compatible with other producers and consumers.
-        $this->pdo->exec('LOCK TABLE jobs IN ROW EXCLUSIVE MODE');
-        $active=$this->pdo->query("SELECT active_jobs FROM queue_accounting WHERE queue='ingest-v1' FOR UPDATE")->fetchColumn();
-        if ($active===false) throw new \RuntimeException('Queue accounting is missing.');
-        if ((int)$active >= $this->maxJobs) {
-            throw new HttpException(503,'queue_full','Ingest queue capacity reached.',['Retry-After'=>'5']);
-        }
         // JSONB expands exponent notation and inserts whitespace. Never acknowledge a
         // payload that the bounded worker cannot read back from PostgreSQL.
         $id=$this->sql("INSERT INTO jobs(queue,name,payload,token_id,project_id,key_hash,request_hash,max_attempts)
             SELECT 'ingest-v1','ingest',b.body,CAST(:token AS uuid),CAST(:project AS uuid),CAST(:key AS text),CAST(:hash AS text),CAST(:max_attempts AS integer) FROM (SELECT CAST(:payload AS jsonb) AS body) b
             WHERE octet_length(b.body::text)<=CAST(:limit AS integer) RETURNING id",['payload'=>$body,'token'=>$token,'project'=>$project,'key'=>$key,'hash'=>$hash,'limit'=>IngestBatch::JOB_DECODE_BYTES,'max_attempts'=>$this->retryPolicy->get('max_attempts')])->fetchColumn();
         if ($id===false) throw new HttpException(413,'payload_too_large','Stored job exceeds decoding limit.');
+        $this->backpressure()->accepted($this->pdo);
         return (string)$id;
     }
     public function hasKey(string $token,string $key): bool {

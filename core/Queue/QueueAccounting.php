@@ -17,6 +17,14 @@ final class QueueAccounting
         return array_map('intval',$row);
     }
 
+    /** Full operator-facing status; snapshot() retains its original exact three-field contract. */
+    public function status(): array
+    {
+        $row=$this->pdo->query("SELECT active_jobs,active_events,active_bytes,admission_paused::integer AS admission_paused,rejected_jobs,rejected_events,rejected_bytes,rejected_paused FROM queue_accounting WHERE queue='ingest-v1'")->fetch(PDO::FETCH_ASSOC);
+        if (!$row) throw new \RuntimeException('Queue accounting is missing.');
+        return array_map('intval',$row);
+    }
+
     private const ACTUAL="SELECT count(*) AS active_jobs,COALESCE(sum(payload_events),0) AS active_events,COALESCE(sum(payload_bytes),0) AS active_bytes FROM jobs WHERE queue='ingest-v1' AND status IN ('pending','running','dead')";
 
     /** One MVCC statement: concurrent commits cannot create a false mismatch. */

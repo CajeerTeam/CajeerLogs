@@ -45,6 +45,7 @@ final class BatchStatement extends PDOStatement {
     public function execute(?array $params=null):bool{$this->params=$params??[];$this->db->calls[]=[$this->sql,$this->params];if($this->db->readError!==null&&str_contains($this->sql,'CASE WHEN payload_bytes'))throw $this->db->readError;if(str_contains($this->sql,'SET outcome=:outcome'))$this->db->outcome=$params['outcome'];return true;}
     public function fetch(int $mode=PDO::FETCH_DEFAULT,int $cursorOrientation=PDO::FETCH_ORI_NEXT,int $cursorOffset=0):mixed {
         if(str_contains($this->sql,'request_hash FROM jobs'))return $this->db->existing;
+        if(str_contains($this->sql, 'FROM queue_accounting'))return $this->db->activeJobs===false?false:['active_jobs'=>$this->db->activeJobs,'active_events'=>0,'active_bytes'=>0,'admission_paused'=>false];
         return ['id'=>'7','project_id'=>'11111111-1111-4111-8111-111111111111','token_id'=>'33333333-3333-4333-8333-333333333333','attempts'=>1,'max_attempts'=>8];
     }
     public function fetchColumn(int $column=0):mixed{return match(true){str_contains($this->sql,"current_setting('transaction_isolation')")=>'read committed',str_contains($this->sql,'WITH locked AS MATERIALIZED')=>$this->db->scope,str_contains($this->sql,'lease_until>')=>$this->db->live,str_contains($this->sql,'CASE WHEN payload_bytes')=>$this->db->payload,str_contains($this->sql,'SELECT active_jobs FROM queue_accounting')=>$this->db->activeJobs,str_contains($this->sql,'INSERT INTO jobs')=>$this->db->insertId,default=>0};}
@@ -55,14 +56,16 @@ final class BatchStatement extends PDOStatement {
 $db=new BatchPDO();$q=new PostgresQueueDriver($db);$db->active=true;$key=str_repeat('a',64);$hash=str_repeat('b',64);$admitted=0;
 $admit=function()use(&$admitted){++$admitted;return null;};
 check($q->enqueue($t,$p,$key,$hash,[$e],['app'=>$s],$admit)['job_id']==='7'&&$admitted===1,'new job invokes admission once');
-check(str_contains($db->calls[6][0],'octet_length(b.body::text)')&&$db->calls[6][1]['limit']===IngestBatch::JOB_DECODE_BYTES,'enqueue checks actual JSONB decoding size');
-check(str_contains($db->calls[4][0],'LOCK TABLE jobs')&&str_contains($db->calls[5][0],'FOR UPDATE')&&!str_contains(json_encode($db->calls),'count(*) FROM jobs'),'enqueue locks counter without queue scan');
+check(count(array_filter($db->calls,fn($call)=>str_contains($call[0],'INSERT INTO jobs')&&str_contains($call[0],'octet_length(b.body::text)')&&$call[1]['limit']===IngestBatch::JOB_DECODE_BYTES))===1,'enqueue checks actual JSONB decoding size');
+check(str_contains(json_encode($db->calls),'LOCK TABLE jobs')&&str_contains(json_encode($db->calls),'FOR UPDATE')&&!str_contains(json_encode($db->calls),'count(*) FROM jobs'),'enqueue locks counter without queue scan');
 $db->existing=['id'=>'7','status'=>'completed','request_hash'=>$hash];check($q->enqueue($t,$p,$key,$hash,[$e],['app'=>$s],$admit)['replayed']&&$admitted===1,'replay skips admission and capacity');
 $db->existing=false;$db->calls=[];check(reject(fn()=>$q->enqueue($t,$p,$key,$hash,array_fill(0,50,$big),['app'=>$s],$admit),413)&&$admitted===1&&count($db->calls)===1,'invalid new job rejected before admission and capacity lock');
-$db->calls=[];$denial=new HttpException(429,'source_quota_exceeded','denied');check($q->enqueue($t,$p,$key,$hash,[$e],['app'=>$s],fn()=>$denial)===$denial&&count($db->calls)===4,'policy denial bypasses enqueue');
+$db->calls=[];$denial=new HttpException(429,'source_quota_exceeded','denied');check($q->enqueue($t,$p,$key,$hash,[$e],['app'=>$s],fn()=>$denial)===$denial&&!str_contains(json_encode($db->calls),'INSERT INTO jobs'),'policy denial bypasses enqueue');
 $db->calls=[];$db->scope='forbidden';check(reject(fn()=>$q->enqueue($t,$p,$key,$hash,[$e],['app'=>$s],$admit),403)&&$admitted===1&&count($db->calls)===2,'direct scope denial occurs before admission and capacity');
 $db->calls=[];$db->scope='unauthorized';check(reject(fn()=>$q->enqueue($t,$p,$key,$hash,[$e],['app'=>$s],$admit),401)&&$admitted===1,'inactive direct credential cannot enqueue');$db->scope='ok';
-$db->calls=[];$db->activeJobs=1000;check(reject(fn()=>$q->enqueue($t,$p,$key,$hash,[$e],['app'=>$s]),503)&&!str_contains(json_encode($db->calls),'INSERT INTO jobs'),'full accounting row rejects before INSERT');
+$db->calls=[];$db->activeJobs=1000;check(($denied=$q->enqueue($t,$p,$key,$hash,[$e],['app'=>$s])) instanceof HttpException && $denied->status===503 && !str_contains(json_encode($db->calls),'INSERT INTO jobs'),'full accounting row rejects before INSERT');
+$db->calls=[];$quotaCalls=0;$tooFull=$q->enqueue($t,$p,$key,$hash,[$e],['app'=>$s],function()use(&$quotaCalls){$quotaCalls++;return null;});
+check($tooFull instanceof HttpException&&$quotaCalls===0,'full queue does not consume project/source quota');
 $db->activeJobs=false;try{$q->enqueue($t,$p,$key,$hash,[$e],['app'=>$s]);throw new LogicException('missing accounting accepted');}catch(RuntimeException $error){check($error->getMessage()==='Queue accounting is missing.','missing accounting fails closed');}
 $db->activeJobs=0;$db->insertId=false;check(reject(fn()=>$q->enqueue($t,$p,$key,$hash,[$e],['app'=>$s]),413),'JSONB expansion refusal does not return accepted job');
 $db->active=false;$db->calls=[];$claim=['id'=>'7','lease_id'=>$s];check($q->process($claim)==='dead'&&$db->outcome==='dead','invalid durable payload immediately dead-lettered');
