@@ -49,5 +49,5 @@ final class RecoveryFactory implements \Cajeer\Logs\Database\ConnectionFactoryIn
 $factory=new RecoveryFactory();$manager=new \Cajeer\Logs\Database\ConnectionManager($factory);$checks=0;$beats=0;$worker=null;
 $worker=new \Cajeer\Logs\Queue\Worker($manager,1000,null,null,function()use(&$worker,&$beats){++$beats;$worker->stop();},new \Cajeer\Logs\Queue\WorkerPolicy(['max_seconds'=>3]),null,new RetryPolicy(['outage_base_ms'=>50,'outage_max_ms'=>100,'outage_max_failures'=>4]),function(PDO $pdo)use(&$checks){++$checks;return $checks>=2;});
 $worker->run();
-check($factory->calls===3&&$checks===2&&$beats===1&&$factory->sessions[0]->claims===0&&$factory->sessions[1]->claims===2,'continuous worker waits for recovery readiness before claiming');
+check($factory->calls===3&&$checks===2&&$beats===1&&$factory->sessions[0]->claims===0&&$factory->sessions[1]->claims===1,'continuous worker waits for recovery readiness before claiming');
 echo "Retry policy: $n checks passed\n";

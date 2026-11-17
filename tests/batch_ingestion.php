@@ -45,10 +45,11 @@ final class BatchStatement extends PDOStatement {
     public function execute(?array $params=null):bool{$this->params=$params??[];$this->db->calls[]=[$this->sql,$this->params];if($this->db->readError!==null&&str_contains($this->sql,'CASE WHEN payload_bytes'))throw $this->db->readError;if(str_contains($this->sql,'SET outcome=:outcome'))$this->db->outcome=$params['outcome'];return true;}
     public function fetch(int $mode=PDO::FETCH_DEFAULT,int $cursorOrientation=PDO::FETCH_ORI_NEXT,int $cursorOffset=0):mixed {
         if(str_contains($this->sql,'request_hash FROM jobs'))return $this->db->existing;
+        if(str_contains($this->sql,'FROM queue_project_state'))return ['active_jobs'=>0,'active_events'=>0,'active_bytes'=>0,'max_jobs'=>0,'max_events'=>0,'max_bytes'=>0];
         if(str_contains($this->sql, 'FROM queue_accounting'))return $this->db->activeJobs===false?false:['active_jobs'=>$this->db->activeJobs,'active_events'=>0,'active_bytes'=>0,'admission_paused'=>false];
         return ['id'=>'7','project_id'=>'11111111-1111-4111-8111-111111111111','token_id'=>'33333333-3333-4333-8333-333333333333','attempts'=>1,'max_attempts'=>8];
     }
-    public function fetchColumn(int $column=0):mixed{return match(true){str_contains($this->sql,"current_setting('transaction_isolation')")=>'read committed',str_contains($this->sql,'WITH locked AS MATERIALIZED')=>$this->db->scope,str_contains($this->sql,'lease_until>')=>$this->db->live,str_contains($this->sql,'CASE WHEN payload_bytes')=>$this->db->payload,str_contains($this->sql,'SELECT active_jobs FROM queue_accounting')=>$this->db->activeJobs,str_contains($this->sql,'INSERT INTO jobs')=>$this->db->insertId,default=>0};}
+    public function fetchColumn(int $column=0):mixed{return match(true){str_contains($this->sql,"current_setting('transaction_isolation')")=>'read committed',str_contains($this->sql,'WITH locked AS MATERIALIZED')=>$this->db->scope,str_contains($this->sql,'lease_until>')=>$this->db->live,str_contains($this->sql,'CASE WHEN payload_bytes')=>$this->db->payload,str_contains($this->sql,'SELECT active_jobs FROM queue_accounting')=>$this->db->activeJobs,str_contains($this->sql,'INSERT INTO jobs')=>$this->db->insertId,str_contains($this->sql,'octet_length(CAST(:body AS jsonb)::text)')=>strlen($this->params['body']??''),default=>0};}
     public function fetchAll(int $mode=PDO::FETCH_DEFAULT,mixed ...$args):array{return [];}
     public function closeCursor():bool{return true;}
     public function rowCount():int{return 1;}

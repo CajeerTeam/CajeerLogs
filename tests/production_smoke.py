@@ -69,10 +69,10 @@ def main():
             compose('up','-d','--wait','--wait-timeout','180')
             for _ in range(60):
                 try:
-                    data,_=http('GET','/ready'); assert data['version']=='0.5.6' and data['status']=='ok'; break
+                    data,_=http('GET','/ready'); assert data['version']=='0.5.7' and data['status']=='ok'; break
                 except (OSError, AssertionError, urllib.error.URLError): time.sleep(1)
             else: raise AssertionError('HTTPS readiness did not become healthy')
-            panel,h=http('GET','/admin/'); assert b'0.5.6' in panel and 'frame-ancestors' in h['Content-Security-Policy']
+            panel,h=http('GET','/admin/'); assert b'0.5.7' in panel and 'frame-ancestors' in h['Content-Security-Policy']
             assert b'app/router.js' in http('GET','/admin/assets/panel.js')[0]
             assert b'createApiClient' in http('GET','/admin/assets/api/client.js')[0]
             http('GET','/.env',expected=404)
@@ -111,6 +111,7 @@ def main():
                 assert d['status'] in ('pending','running'); time.sleep(1)
             else: raise AssertionError('Queue did not complete real job')
             assert json.loads(cli('queue:verify'))['valid']
+            assert json.loads(cli('queue:project-verify'))['valid']
             assert json.loads(cli('queue:capacity'))['active_jobs']==0
             m,_=http('GET','/metrics',headers={'Authorization':'Bearer '+metrics}); assert b'cajeerlogs_queue_active_jobs 0' in m and b'cajeerlogs_queue_active_bytes 0' in m
             query=urllib.parse.urlencode({'project_id':pid,'q':'release','level':'error'})

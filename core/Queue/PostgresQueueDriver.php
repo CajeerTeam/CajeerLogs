@@ -38,7 +38,9 @@ final class PostgresQueueDriver implements QueueDriverInterface
         // A replay has already returned above. Check the exact shared queue budgets
         // BEFORE project/source quotas: a capacity denial must not consume quota.
         // The row lock is held until the caller commits the durable job or denial.
-        if (($denied=$this->backpressure()->admit($this->pdo,count($events),$body))!==null) return $denied;
+        $storedBytes=$this->storedBytes($body);
+        if (($denied=$this->backpressure()->admit($this->pdo,count($events),$body,$storedBytes))!==null) return $denied;
+        if (($denied=(new QueueFairness($this->pdo))->admit($project,count($events),$storedBytes))!==null) return $denied;
         if ($admit!==null && ($denied=$admit())!==null) {
             if (!$denied instanceof HttpException) throw new \LogicException('Invalid admission result.');
             return $denied;
@@ -55,7 +57,9 @@ final class PostgresQueueDriver implements QueueDriverInterface
         $this->assertEnqueueScope($p['token'],$p['project'],$sources);
         $events=(new \Cajeer\Logs\Log\RedactionPolicies($this->pdo))->apply($events,$p['project'],$sources);
         $body=IngestBatch::encodeJob($events,$sources);
-        if (($denied=$this->backpressure()->admit($this->pdo,count($events),$body))!==null) throw $denied;
+        $storedBytes=$this->storedBytes($body);
+        if (($denied=$this->backpressure()->admit($this->pdo,count($events),$body,$storedBytes))!==null) throw $denied;
+        if (($denied=(new QueueFairness($this->pdo))->admit($p['project'],count($events),$storedBytes))!==null) throw $denied;
         return $this->insertJob($p['token'],$p['project'],$p['key'],$p['hash'],$body);
     }
     /** Defense in depth for direct repository callers. Lock the token before the
@@ -87,6 +91,11 @@ final class PostgresQueueDriver implements QueueDriverInterface
     private function backpressure(): BackpressurePolicy {
         return $this->backpressurePolicy ?? new BackpressurePolicy($this->maxJobs);
     }
+    /** Measure the exact persisted JSONB representation, before the project row lock. */
+    private function storedBytes(string $body): int {
+        $q=$this->sql('SELECT octet_length(CAST(:body AS jsonb)::text)',['body'=>$body]);
+        return (int)$q->fetchColumn();
+    }
     private function insertJob(string $token,string $project,string $key,string $hash,string $body): string {
         // JSONB expands exponent notation and inserts whitespace. Never acknowledge a
         // payload that the bounded worker cannot read back from PostgreSQL.
@@ -115,9 +124,16 @@ final class PostgresQueueDriver implements QueueDriverInterface
     public function claim(): ?array {
         return (new TransactionManager($this->pdo))->run(function () {
             $this->workerTimeout(false);
-            $row=$this->pdo->query("SELECT id,status,attempts,max_attempts FROM jobs WHERE queue='ingest-v1' AND status='running' AND lease_until<=statement_timestamp() ORDER BY lease_until,id LIMIT 1 FOR UPDATE SKIP LOCKED")->fetch();
-            if (!$row) $row=$this->pdo->query("SELECT id,status,attempts,max_attempts FROM jobs WHERE queue='ingest-v1' AND status='pending' AND available_at<=statement_timestamp() ORDER BY available_at,id LIMIT 1 FOR UPDATE SKIP LOCKED")->fetch();
-            if (!$row) { return null; }
+            // Lock the least-served ready project BEFORE the job row. Another worker
+            // skips the locked project, making progress on another project instead.
+            $fair=new QueueFairness($this->pdo);
+            $project=$fair->selectReadyProject();
+            if (!$project) return null;
+            $row=$this->sql("SELECT id,status,attempts,max_attempts FROM jobs WHERE queue='ingest-v1' AND project_id=CAST(:project AS uuid) AND status='running' AND lease_until<=statement_timestamp() ORDER BY lease_until,id LIMIT 1 FOR UPDATE SKIP LOCKED",['project'=>$project['project_id']])->fetch();
+            if (!$row && ((int)$project['max_running_jobs']===0 || (int)$project['running_jobs']<(int)$project['max_running_jobs'])) {
+                $row=$this->sql("SELECT id,status,attempts,max_attempts FROM jobs WHERE queue='ingest-v1' AND project_id=CAST(:project AS uuid) AND status='pending' AND available_at<=statement_timestamp() ORDER BY available_at,id LIMIT 1 FOR UPDATE SKIP LOCKED",['project'=>$project['project_id']])->fetch();
+            }
+            if (!$row) return null; // another transaction already locked eligible jobs
             $expired=$row['status']==='running';
             if ($expired) {
                 if ($this->sql("UPDATE job_attempts SET outcome='expired',finished_at=clock_timestamp(),error='lease_expired' WHERE job_id=:id AND attempt=:attempt AND outcome='running'",['id'=>$row['id'],'attempt'=>$row['attempts']])->rowCount()!==1) throw new \RuntimeException('Missing running job attempt; roll back lease recovery.');
@@ -135,6 +151,7 @@ final class PostgresQueueDriver implements QueueDriverInterface
             }
             $claimed=$this->sql("UPDATE jobs SET status='running',attempts=attempts+1,reserved_at=clock_timestamp(),lease_until=clock_timestamp()+CAST(:seconds AS integer)*interval '1 second',lease_id=gen_random_uuid() WHERE id=:id RETURNING id,lease_id,attempts,project_id,token_id",['id'=>$row['id'],'seconds'=>$this->workerPolicy?->get('lease_seconds')??120])->fetch();
             $this->sql('INSERT INTO job_attempts(job_id,attempt) VALUES (:id,:attempt)',['id'=>$claimed['id'],'attempt'=>$claimed['attempts']]);
+            $fair->dispatched($project['project_id']);
             return $claimed;
         }, maxAttempts: 3);
     }
@@ -151,7 +168,12 @@ final class PostgresQueueDriver implements QueueDriverInterface
         if (isset($first['skipped']) || $max===1) return [$first];
         $more=(new TransactionManager($this->pdo))->run(function() use ($first,$max): array {
             $this->workerTimeout(false);
-            $limit=$max-1; // bounded integer; never interpolate user input
+            $fair=new QueueFairness($this->pdo);
+            $state=$fair->lockProject($first['project_id']);
+            $remaining=(int)$state['max_running_jobs']===0?$max-1:max(0,(int)$state['max_running_jobs']-(int)$state['running_jobs']);
+            $limit=min($max-1,$remaining);
+            if ($limit===0) return [];
+            // Bounded positive integer; never interpolate user-supplied SQL.
             $stmt=$this->sql(<<<SQL
                 WITH picked AS MATERIALIZED (
                     SELECT id FROM jobs
@@ -172,7 +194,9 @@ final class PostgresQueueDriver implements QueueDriverInterface
                 ) SELECT c.* FROM claimed c JOIN recorded a ON a.job_id=c.id ORDER BY c.id
                 SQL,['project'=>$first['project_id'],'token'=>$first['token_id'],
                     'seconds'=>$this->workerPolicy?->get('lease_seconds')??120]);
-            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $extra=$stmt->fetchAll(PDO::FETCH_ASSOC);
+            if ($extra!==[]) $fair->dispatched($first['project_id'],count($extra));
+            return $extra;
         },maxAttempts:3);
         return [$first,...$more];
     }

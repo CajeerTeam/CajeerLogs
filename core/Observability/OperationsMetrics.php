@@ -15,6 +15,8 @@ final class OperationsMetrics
         $values=[]; foreach ($row as $k=>$v) { $values[$k]=(float)$v; }
         $dead=$pdo->query("SELECT count(*) AS queue_dead_jobs,COALESCE(sum(payload_events),0) AS queue_dead_events,COALESCE(sum(payload_bytes),0) AS queue_dead_bytes,COALESCE(GREATEST(0,extract(epoch from now()-min(completed_at))),0) AS queue_oldest_dead_seconds FROM jobs WHERE queue='ingest-v1' AND status='dead'")->fetch();
         foreach ($dead as $name=>$value) $values[$name]=(float)$value;
+        $fairTotals=$pdo->query("SELECT count(*) AS projects,coalesce(sum(running_jobs),0) AS running,coalesce(sum(pending_jobs),0) AS pending,coalesce(sum(dispatched),0) AS dispatched,coalesce(sum(rejected),0) AS rejected FROM queue_project_state")->fetch();
+        foreach ($fairTotals as $name=>$value) $values['queue_project_'.$name]=(float)$value;
         $capacity=(new \Cajeer\Logs\Queue\QueueAccounting($pdo))->status();
         foreach ($capacity as $name=>$value) $values['queue_'.$name]=(float)$value;
         $policy=\Cajeer\Logs\Queue\BackpressurePolicy::fromConfig($this->app->config());

@@ -76,7 +76,7 @@ final class BackpressurePolicy
      * lets HTTP persist the overload latch/rejection telemetry without quota consumption.
      * Direct non-HTTP callers can throw the returned exception and roll back.
      */
-    public function admit(PDO $pdo,int $events,string $body): ?HttpException
+    public function admit(PDO $pdo,int $events,string $body,?int $measuredBytes=null): ?HttpException
     {
         if (!$pdo->inTransaction()) throw new \LogicException('Queue admission requires a transaction.');
         if ($events<1 || $events>100) throw new \InvalidArgumentException('Invalid queued event count.');
@@ -84,9 +84,14 @@ final class BackpressurePolicy
         // admission row lock; it is deterministic for this immutable payload.
         $bytes=0;
         if ($this->maxBytes>0) {
-            $measure=$pdo->prepare('SELECT octet_length(CAST(:body AS jsonb)::text)');
-            $measure->execute(['body'=>$body]);
-            $bytes=(int)$measure->fetchColumn();
+            if ($measuredBytes!==null) {
+                if ($measuredBytes<0) throw new \InvalidArgumentException('Invalid measured payload bytes.');
+                $bytes=$measuredBytes;
+            } else {
+                $measure=$pdo->prepare('SELECT octet_length(CAST(:body AS jsonb)::text)');
+                $measure->execute(['body'=>$body]);
+                $bytes=(int)$measure->fetchColumn();
+            }
         }
         // Same lock order as reconcile(): jobs table first, then the accounting row.
         $pdo->exec('LOCK TABLE jobs IN ROW EXCLUSIVE MODE');

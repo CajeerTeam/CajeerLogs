@@ -58,6 +58,11 @@ final class IntegrityInspector
                 $checks['queue_accounting']=['sample_ids'=>$account['valid']?[]:['ingest-v1'],'truncated'=>false,'issues_at_least'=>$account['valid']?0:1];
                 $ok=$ok&&$account['valid'];
             }
+            if ($this->pdo->query("SELECT to_regclass('queue_project_state') IS NOT NULL")->fetchColumn()===true) {
+                $fair=(new \Cajeer\Logs\Queue\QueueFairness($this->pdo))->verify();
+                $checks['queue_project_accounting']=['sample_ids'=>$fair['sample_projects'],'truncated'=>$fair['truncated'],'issues_at_least'=>count($fair['sample_projects'])+(int)$fair['truncated']];
+                $ok=$ok&&$fair['valid'];
+            }
             $legacy=$this->pdo->query('SELECT count(*) FROM log_events WHERE source_id IS NULL')->fetchColumn();
             return ['status'=>$ok?'ok':'issues','checks'=>$checks,'legacy_unassigned'=>(string)$legacy,'read_only'=>true];
         },isolation:'REPEATABLE READ',readOnly:true);

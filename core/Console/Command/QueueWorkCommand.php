@@ -2,7 +2,7 @@
 declare(strict_types=1);
 namespace Cajeer\Logs\Console\Command;
 use Cajeer\Logs\Kernel\Application;
-use Cajeer\Logs\Queue\{PostgresQueueDriver,Worker,QueueAccounting,BackpressurePolicy,WorkerPolicy,WorkerPool,WorkerRegistry,RetryPolicy};
+use Cajeer\Logs\Queue\{PostgresQueueDriver,Worker,QueueAccounting,QueueFairness,BackpressurePolicy,WorkerPolicy,WorkerPool,WorkerRegistry,RetryPolicy};
 use Cajeer\Logs\Database\ConnectionManager;
 final class QueueWorkCommand
 {
@@ -34,6 +34,24 @@ final class QueueWorkCommand
             }
             echo json_encode($report,JSON_THROW_ON_ERROR|JSON_PRETTY_PRINT).PHP_EOL;
             return $report['available']&&($report['status']??'ok')==='ok'?0:1;
+        }
+        if (in_array($command,['queue:projects','queue:project','queue:project-set','queue:project-verify','queue:project-reconcile'],true)) {
+            $fair=new QueueFairness($this->app->container()->get(\PDO::class));
+            try {
+                $result=match ($command) {
+                    'queue:projects' => $args===[]?$fair->snapshot():null,
+                    'queue:project' => count($args)===1?$fair->snapshot($args[0]):null,
+                    'queue:project-verify' => $args===[]?$fair->verify():null,
+                    'queue:project-reconcile' => $args===['--confirm']?$fair->reconcile():null,
+                    'queue:project-set' => count($args)===7 && $args[6]==='--confirm' ?
+                        $fair->configure($args[0],QueueFairness::policy(array_combine(
+                            ['weight','max_jobs','max_events','max_bytes','max_running_jobs'],array_slice($args,1,5)))) : null,
+                    default => null,
+                };
+            } catch (\InvalidArgumentException $e) {fwrite(STDERR,$e->getMessage().PHP_EOL);return 64;}
+            if ($result===null) {fwrite(STDERR,"Usage: queue:projects | queue:project UUID | queue:project-set UUID WEIGHT MAX_JOBS MAX_EVENTS MAX_BYTES MAX_RUNNING --confirm | queue:project-verify | queue:project-reconcile --confirm\n");return 64;}
+            echo json_encode($result,JSON_THROW_ON_ERROR|JSON_PRETTY_PRINT).PHP_EOL;
+            return ($result['valid']??true)===false?1:0;
         }
         $queue=$command==='queue:work' ? null : $this->app->container()->get(PostgresQueueDriver::class);
         $id=$args[0]??'';

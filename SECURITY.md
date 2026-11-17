@@ -41,3 +41,7 @@
 - Redaction секретов в логах.
 
 Эксплуатация, восстановление доступа, ограничения резервирования и мониторинг: [Security & Operations](docs/Security-Operations.md).
+
+### 0.5.7 project queue isolation
+
+Project quotas, weights and per-project running-job limits are enforced in PostgreSQL transactions. Configure them through trusted CLI and verify queue project accounting after restore. Project IDs are excluded from Prometheus labels.

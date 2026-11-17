@@ -40,6 +40,7 @@ final class SystemReport
             'operations' => $operations,
             'backup' => $backup,
             'queue_workers' => (new \Cajeer\Logs\Queue\WorkerRegistry($this->app->basePath('storage/cache')))->snapshot(),
+            'queue_project_summary' => $operations===null?null:array_intersect_key($operations['database'],array_flip(['queue_project_projects','queue_project_pending','queue_project_running','queue_project_dispatched','queue_project_rejected'])),
             'queue_backpressure_policy' => \Cajeer\Logs\Queue\BackpressurePolicy::fromConfig($this->app->config())->limits(),
             'queue_retry_policy' => \Cajeer\Logs\Queue\RetryPolicy::fromConfig($this->app->config())->values,
             'queue_worker_policy' => \Cajeer\Logs\Queue\WorkerPolicy::fromConfig($this->app->config())->values,

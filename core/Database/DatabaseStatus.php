@@ -31,7 +31,7 @@ final class DatabaseStatus
             // Check every expected relation and its read/write privileges in one round trip.
             $relations = $pdo->prepare(<<<'SQL'
                 WITH expected(name) AS (VALUES ('users'), ('projects'), ('sources'), ('api_tokens'), ('service_accounts'),
-                    ('project_members'), ('rbac_roles'), ('saved_log_views'), ('auth_sessions'), ('auth_rate_limits'), ('api_rate_buckets'), ('ingest_receipts'), ('ingest_nonces'), ('ingest_signing'), ('log_events'), ('audit_log'), ('jobs'), ('queue_accounting'), ('settings'), ('webhooks'), ('extensions'), ('integration_webhooks'), ('webhook_deliveries'), ('webhook_attempts'), ('job_attempts'), ('scheduler_runs'), ('retention_runs'), ('user_totp'), ('user_recovery_codes')),
+                    ('project_members'), ('rbac_roles'), ('saved_log_views'), ('auth_sessions'), ('auth_rate_limits'), ('api_rate_buckets'), ('ingest_receipts'), ('ingest_nonces'), ('ingest_signing'), ('log_events'), ('audit_log'), ('jobs'), ('queue_accounting'), ('queue_project_state'), ('settings'), ('webhooks'), ('extensions'), ('integration_webhooks'), ('webhook_deliveries'), ('webhook_attempts'), ('job_attempts'), ('scheduler_runs'), ('retention_runs'), ('user_totp'), ('user_recovery_codes')),
                 checked AS (
                     SELECT name, pg_catalog.to_regclass(pg_catalog.format('%I.%I', CAST(:schema AS text), name))::oid AS relation
                     FROM expected

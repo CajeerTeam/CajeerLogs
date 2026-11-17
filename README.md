@@ -2,6 +2,11 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.5.7 — Multi-Project Queue Fairness
+
+Взвешенный справедливый выбор проектов при получении заданий PostgreSQL, отдельные бюджеты jobs/events/bytes, лимит одновременной обработки, точные транзакционные счётчики, защищённая CLI-настройка с аудитом и проверяемая сверка. Обязательная миграция 0024, предыдущие миграции без изменений. [Эксплуатация](docs/Multi-Project-Queue-Fairness.md). Статус `public-preview` до полного PostgreSQL/Docker E2E.
+
+
 ## 0.5.6 — Backpressure & Admission Control
 
 Атомарная PostgreSQL-проверка трёх ресурсов (`QUEUE_MAX_JOBS`, `QUEUE_MAX_EVENTS`, `QUEUE_MAX_BYTES`), долговременная пауза при высоком заполнении и гистерезис возобновления. HTTP 503/Retry-After без расходования квот при отказе, сохранённая идемпотентность повторов, показатели Prometheus, CLI `queue:capacity`, административная диагностика и проверка конкурирующих producers. Требуется миграция 0023. [Эксплуатация](docs/Backpressure-Admission-Control.md). Статус public-preview до полного PostgreSQL/Docker CI.

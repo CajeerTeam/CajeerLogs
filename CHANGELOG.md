@@ -1,3 +1,10 @@
+## 0.5.7 — Multi-Project Queue Fairness
+
+- Exact per-project queue accounting (jobs, events, bytes, pending and running) maintained by transactional PostgreSQL triggers; migration 0024 backfills existing durable jobs without rewriting payloads or leases.
+- Weighted virtual-finish dispatch shared by independent workers; per-project in-flight ceiling with SKIP LOCKED and fair recovery of expired leases.
+- Transactional project-specific admission limits, project policy operator CLI with audit and explicit maintenance reconciliation.
+- PostgreSQL project/ready/lease indexes, operational metrics and database integrity verification; historical migration checksums preserved.
+
 # 0.5.6 — Backpressure & Admission Control
 
 - Точные PostgreSQL admission limits по активным jobs/events/JSONB bytes; многомерные budgets проверяются перед квотами проекта без сканирования jobs на каждом enqueue.
