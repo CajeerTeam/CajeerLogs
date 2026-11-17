@@ -2,6 +2,10 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.5.5 — High-Throughput Batch Ingestion
+
+Ограниченные транзакционные microbatches совместимых PostgreSQL jobs: один SQL INSERT событий, отдельные durable receipts/attempts/webhook-deliveries, откат группы с изоляцией неисправного job, защита от превышения 100 событий/4 МиБ, сокращение повторной нормализации и проверка scope один раз на уникальный источник. `QUEUE_WORKER_BATCH_JOBS=1..16` (по умолчанию 1 для обычной CLI-конфигурации, 4 для production Compose). [Документация](docs/High-Throughput-Batch-Ingestion.md). Миграции 0001–0022 неизменны; статус public-preview до полного PostgreSQL/Docker CI.
+
 ## 0.5.4 — Dead-Letter Management
 
 Управление проблемными заданиями через `/admin/#queue`: проектная фильтрация, история попыток, атомарный retry/discard, RBAC, аудит и метрики DLQ. [Dead-Letter Management](docs/Dead-Letter-Management.md). Миграции 0001–0022 неизменны.

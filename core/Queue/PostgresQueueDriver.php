@@ -133,11 +133,116 @@ final class PostgresQueueDriver implements QueueDriverInterface
                 $deferred=$this->sql("UPDATE jobs SET status='pending',available_at=lease_until+CAST(:delay AS integer)*interval '1 second',lease_id=NULL,lease_until=NULL,reserved_at=NULL,last_error='lease_expired' WHERE id=:id AND lease_until+CAST(:delay_check AS integer)*interval '1 second'>clock_timestamp()",['id'=>$row['id'],'delay'=>$delay,'delay_check'=>$delay])->rowCount();
                 if ($deferred===1) return ['skipped'=>true];
             }
-            $claimed=$this->sql("UPDATE jobs SET status='running',attempts=attempts+1,reserved_at=clock_timestamp(),lease_until=clock_timestamp()+CAST(:seconds AS integer)*interval '1 second',lease_id=gen_random_uuid() WHERE id=:id RETURNING id,lease_id,attempts",['id'=>$row['id'],'seconds'=>$this->workerPolicy?->get('lease_seconds')??120])->fetch();
+            $claimed=$this->sql("UPDATE jobs SET status='running',attempts=attempts+1,reserved_at=clock_timestamp(),lease_until=clock_timestamp()+CAST(:seconds AS integer)*interval '1 second',lease_id=gen_random_uuid() WHERE id=:id RETURNING id,lease_id,attempts,project_id,token_id",['id'=>$row['id'],'seconds'=>$this->workerPolicy?->get('lease_seconds')??120])->fetch();
             $this->sql('INSERT INTO job_attempts(job_id,attempt) VALUES (:id,:attempt)',['id'=>$claimed['id'],'attempt'=>$claimed['attempts']]);
             return $claimed;
         }, maxAttempts: 3);
     }
+    /** Claim several compatible ready jobs with one SQL round trip. The first
+     * claim retains the established expired-lease recovery ordering. Additional
+     * jobs must use the same project and token, so a single authenticated log
+     * INSERT can process the group without weakening project boundaries.
+     * @return list<array> */
+    public function claimBatch(int $max=4): array
+    {
+        if ($max<1 || $max>16) throw new \InvalidArgumentException('Invalid worker batch size.');
+        $first=$this->claim();
+        if ($first===null) return [];
+        if (isset($first['skipped']) || $max===1) return [$first];
+        $more=(new TransactionManager($this->pdo))->run(function() use ($first,$max): array {
+            $this->workerTimeout(false);
+            $limit=$max-1; // bounded integer; never interpolate user input
+            $stmt=$this->sql(<<<SQL
+                WITH picked AS MATERIALIZED (
+                    SELECT id FROM jobs
+                    WHERE queue='ingest-v1' AND status='pending'
+                        AND project_id=CAST(:project AS uuid) AND token_id=CAST(:token AS uuid)
+                        AND available_at<=statement_timestamp() AND attempts<max_attempts
+                    ORDER BY available_at,id LIMIT $limit FOR UPDATE SKIP LOCKED
+                ), claimed AS (
+                    UPDATE jobs j SET status='running',attempts=attempts+1,
+                        reserved_at=clock_timestamp(),
+                        lease_until=clock_timestamp()+CAST(:seconds AS integer)*interval '1 second',
+                        lease_id=gen_random_uuid()
+                    FROM picked WHERE j.id=picked.id
+                    RETURNING j.id,j.lease_id,j.attempts,j.project_id,j.token_id
+                ), recorded AS (
+                    INSERT INTO job_attempts(job_id,attempt)
+                    SELECT id,attempts FROM claimed RETURNING job_id
+                ) SELECT c.* FROM claimed c JOIN recorded a ON a.job_id=c.id ORDER BY c.id
+                SQL,['project'=>$first['project_id'],'token'=>$first['token_id'],
+                    'seconds'=>$this->workerPolicy?->get('lease_seconds')??120]);
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        },maxAttempts:3);
+        return [$first,...$more];
+    }
+
+    /** Process compatible jobs as one bounded INSERT and one atomic commit.
+     * Every job retains its own result, attempt history and webhook delivery.
+     * On application/validation errors roll back the WHOLE group and then
+     * isolate jobs through the normal single-job path. Never retry a broken
+     * connection or an uncertain COMMIT, even if part of the group succeeded. 
+     * @param list<array> $claims @return list<string> */
+    public function processBatch(array $claims): array
+    {
+        $count=count($claims);
+        if ($count===0 || $count>16) throw new \InvalidArgumentException('Invalid claimed batch.');
+        if ($count===1) return [isset($claims[0]['skipped'])?'skipped':$this->process($claims[0])];
+        foreach ($claims as $claim) {
+            if (!isset($claim['id'],$claim['lease_id'],$claim['project_id'],$claim['token_id']) || isset($claim['skipped'])) {
+                throw new \InvalidArgumentException('Incompatible claimed batch.');
+            }
+        }
+        try {
+            return (new TransactionManager($this->pdo))->run(function() use ($claims,$count): array {
+                $this->workerTimeout(true);
+                $project=$claims[0]['project_id'];$token=$claims[0]['token_id'];
+                $ordered=$claims;
+                usort($ordered,static fn($a,$b)=>((int)$a['id']<=> (int)$b['id']));
+                $events=[];$sources=[];$sizes=[];$version=null;
+                foreach ($ordered as $claim) {
+                    // Locks in ID order prevent deadlocks with other multi-job workers.
+                    $row=$this->sql("SELECT id,project_id,token_id,attempts FROM jobs WHERE id=:id AND queue='ingest-v1' AND status='running' AND lease_id=:lease FOR UPDATE",['id'=>$claim['id'],'lease'=>$claim['lease_id']])->fetch();
+                    if (!$row || !$this->leaseLive($claim)) throw new \RuntimeException('Stale job in microbatch.');
+                    if ($row['project_id']!==$project || $row['token_id']!==$token) throw new \RuntimeException('Incompatible job in microbatch.');
+                    $body=$this->sql('SELECT CASE WHEN payload_bytes<=CAST(:limit AS integer) THEN payload::text END FROM jobs WHERE id=:id',['id'=>$claim['id'],'limit'=>IngestBatch::JOB_DECODE_BYTES])->fetchColumn();
+                    if (!is_string($body)) throw new HttpException(413,'payload_too_large','Stored job exceeds decoding limit.');
+                    [$part,$mapped,$v]=IngestBatch::decodeJob($body);
+                    if ($version!==null && $version!==$v) throw new \RuntimeException('Mixed validation versions in microbatch.');
+                    $version=$v;
+                    foreach ($mapped as $slug=>$sourceId) {
+                        if (isset($sources[$slug]) && $sources[$slug]!==$sourceId) throw new \RuntimeException('Conflicting source map in microbatch.');
+                        $sources[$slug]=$sourceId;
+                    }
+                    $sizes[(string)$claim['id']]=count($part);
+                    if (count($events)+count($part)>\Cajeer\Logs\Log\IngestValidator::MAX_BATCH) throw new \RuntimeException('Microbatch exceeds event limit.');
+                    array_push($events,...$part);
+                }
+                // Performs the same bounded normalization, redaction and SQL scope
+                // validation as individual jobs. One heavy INSERT for all events.
+                \Cajeer\Logs\Log\IngestBatch::checkSize($events,\Cajeer\Logs\Log\IngestBatch::SQL_BYTES);
+                $ids=(new \Cajeer\Logs\Log\LogRepository($this->pdo))->storeBatch($events,$project,$sources,$token,$version);
+                $offset=0;
+                foreach ($ordered as $claim) {
+                    $jobId=(string)$claim['id'];
+                    $individual=array_slice($ids,$offset,$sizes[$jobId]);$offset+=$sizes[$jobId];
+                    // Preserve one outbox publication per original durable job.
+                    (new \Cajeer\Logs\Integration\EventApiDispatcher($this->pdo))->publishCommittedLogs($project,$individual);
+                    $this->sql("UPDATE jobs SET status='completed',payload='{}'::jsonb,result=CAST(:result AS jsonb),completed_at=clock_timestamp(),lease_id=NULL,lease_until=NULL,reserved_at=NULL,last_error=NULL WHERE id=:id",['id'=>$jobId,'result'=>json_encode(['event_ids'=>$individual,'stored'=>count($individual)],JSON_THROW_ON_ERROR)]);
+                    if ($this->sql("UPDATE job_attempts SET outcome='completed',finished_at=clock_timestamp() WHERE job_id=:id AND attempt=:attempt AND outcome='running'",['id'=>$jobId,'attempt'=>$claim['attempts']])->rowCount()!==1) throw new \RuntimeException('Missing running job attempt; roll back microbatch.');
+                }
+                return array_fill(0,$count,'completed');
+            },maxAttempts:3);
+        } catch (\Throwable $e) {
+            // A database/session failure may mean that COMMIT already succeeded.
+            if (DatabaseFailure::reconnectable($e) || !TransactionManager::usable($this->pdo) ||
+                RetryPolicy::classify($e)['action']==='pause') throw $e;
+            // The group transaction was rolled back. Each original claim is still
+            // fenced and durable; use normal retry/dead-letter semantics per job.
+            return array_map(fn(array $claim): string=>$this->process($claim),$claims);
+        }
+    }
+
     /** Row lock fences stale workers; handler and completion share a single transaction. */
     public function process(array $claim): string {
         try {

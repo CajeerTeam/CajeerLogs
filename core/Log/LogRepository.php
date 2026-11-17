@@ -254,7 +254,7 @@ final class LogRepository
         if (!$this->pdo->inTransaction()) { throw new \LogicException('Log writes require a transaction.'); }
         $events=IngestBatch::normalize($events,IngestBatch::SQL_BYTES,$version);
         $events=(new RedactionPolicies($this->pdo))->apply($events,$project,$sources,$version);
-        [$ids,$body]=self::encodeBatch($events,$sources,$version);
+        [$ids,$body]=self::encodeValidatedBatch($events,$sources);
         $project=LogQuery::uuid($project); $token=LogQuery::uuid($token);
         $this->paginationFence($project);
         // A single statement admits the entire batch or no rows. Queue payloads cannot
@@ -264,15 +264,22 @@ final class LogRepository
                 SELECT * FROM jsonb_to_recordset(CAST(:events AS jsonb)) AS e(id uuid,occurred_at timestamptz,source text,service text,host text,
                     level text,message text,context jsonb,trace_id text,request_id text,tags jsonb,source_id uuid)
             ), batch_scope AS (SELECT CAST(:project AS uuid) AS project_id, CAST(:token AS uuid) AS token_id),
-            eligible AS MATERIALIZED (
-                SELECT e.*,s.project_id,t.id AS token_id FROM batch_input e
-                CROSS JOIN batch_scope p
-                JOIN sources s ON s.id=e.source_id AND s.project_id=p.project_id AND s.slug=e.source
-                JOIN api_tokens t ON t.id=p.token_id AND t.project_id=s.project_id
-                    AND (t.source_id IS NULL OR t.source_id=s.id) AND jsonb_typeof(t.scopes)='array' AND t.scopes @> '["logs:write"]'::jsonb
+            permitted_token AS MATERIALIZED (
+                SELECT t.id,t.project_id,t.source_id FROM api_tokens t CROSS JOIN batch_scope p
+                WHERE t.id=p.token_id AND t.project_id=p.project_id
+                    AND jsonb_typeof(t.scopes)='array' AND t.scopes @> '["logs:write"]'::jsonb
                     AND t.scopes <@ '["logs:read","logs:write"]'::jsonb
                     AND jsonb_array_length(CASE WHEN jsonb_typeof(t.scopes)='array' THEN t.scopes ELSE '[]'::jsonb END) =
                         CASE WHEN t.scopes @> '["logs:read"]'::jsonb THEN 2 ELSE 1 END
+            ), source_pairs AS MATERIALIZED (
+                SELECT DISTINCT source_id,source FROM batch_input
+            ), authorized_sources AS MATERIALIZED (
+                SELECT s.id,s.slug,s.project_id,t.id AS token_id FROM source_pairs p
+                JOIN sources s ON s.id=p.source_id AND s.slug=p.source
+                JOIN permitted_token t ON t.project_id=s.project_id AND (t.source_id IS NULL OR t.source_id=s.id)
+            ), eligible AS MATERIALIZED (
+                SELECT e.*,s.project_id,s.token_id FROM batch_input e
+                JOIN authorized_sources s ON s.id=e.source_id AND s.slug=e.source
             )
             INSERT INTO log_events(id,occurred_at,source,service,host,level,message,context,trace_id,request_id,tags,project_id,source_id,ingest_token_id,received_at)
             SELECT id,occurred_at,source,service,host,level,message,context,trace_id,request_id,
@@ -296,6 +303,15 @@ final class LogRepository
     public static function encodeBatch(array $events,array $sources,int $version=IngestValidator::VERSION): array
     {
         $events=IngestBatch::normalize($events,IngestBatch::SQL_BYTES,$version);
+        return self::encodeValidatedBatch($events,$sources);
+    }
+
+    /** The redaction engine returns freshly validated immutable events. Avoid another
+     * complete tree traversal/JSON serialization on the hot SQL write path. This
+     * method is private: all external callers still pass through normalize().
+     * @return array{0:list<string>,1:string} */
+    private static function encodeValidatedBatch(array $events,array $sources): array
+    {
         $sources=IngestBatch::sourceMap($events,$sources);
         // Generate UUIDs before a single multi-row INSERT, preserving receipt order.
         $ids=[];$rows=[];$size=2;

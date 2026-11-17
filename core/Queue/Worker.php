@@ -29,7 +29,7 @@ final class Worker
                 if ($limit===0 && is_string($parent) && ctype_digit($parent) && function_exists('posix_getppid') && posix_getppid()!==(int)$parent) break;
                 // A time limit must also recycle a completely idle worker.
                 if ($limit===0 && $policy->exhausted($processed,(int)((hrtime(true)-$start)/1e9),memory_get_usage(true))) break;
-                $guard=null;$delay=0;unset($pdo,$claim,$queue);
+                $guard=null;$delay=0;unset($pdo,$claim,$claims,$queue);
                 try {
                     if ($this->connection instanceof ConnectionManager) {
                         $pdo=$this->connection->connection();
@@ -40,23 +40,33 @@ final class Worker
                         $queue=new PostgresQueueDriver($pdo,$this->maxJobs,$policy,$this->retryPolicy);
                     } else $queue=$this->connection;
                     if ($this->stop) break;
-                    $claim=$queue->claim();
-                    if ($claim===null) {
+                    // Do not claim past a finite CLI limit or a continuous worker's
+                    // recycling boundary. Each claimed job has its own durable lease.
+                    $batchSize=$policy->get('batch_jobs');
+                    if ($limit!==0) $batchSize=min($batchSize,$limit-$processed);
+                    elseif ($policy->get('max_jobs')>0) $batchSize=min($batchSize,$policy->get('max_jobs')-$processed);
+                    $batchSize=max(1,$batchSize);
+                    $claims=$batchSize>1?$queue->claimBatch($batchSize):(($one=$queue->claim())===null?[]:[$one]);
+                    if ($claims===[]) {
                         $failures=0;if ($this->heartbeat!==null) ($this->heartbeat)();$this->registry?->progress($processed);
                         if ($limit!==0) break;
                         $idle=$policy->idleDelay($idle);$delay=random_int(max($policy->get('poll_min_ms'),(int)ceil($idle/2)),$idle);
                     } else {
-                        // If a signal arrived during claim, finish that already-owned job before exit.
-                        $outcome=isset($claim['skipped'])?'skipped':$queue->process($claim);
-                        $counts[$outcome]++;$processed++;$failures=0;$idle=0;
+                        // If a signal arrived during claim, complete ALL owned jobs.
+                        $outcomes=count($claims)>1?$queue->processBatch($claims):[isset($claims[0]['skipped'])?'skipped':$queue->process($claims[0])];
+                        if (count($outcomes)!==count($claims)) throw new \LogicException('Worker batch outcome count mismatch.');
+                        foreach ($outcomes as $outcome) {
+                            $counts[$outcome]++;$processed++;
+                            if ($limit===0 && $outcome!=='completed') fwrite(STDERR,'Queue job outcome: '.$outcome.PHP_EOL);
+                        }
+                        $failures=0;$idle=0;
                         if ($this->heartbeat!==null) ($this->heartbeat)();$this->registry?->progress($processed);
-                        if ($limit===0 && $outcome!=='completed') fwrite(STDERR,'Queue job outcome: '.$outcome.PHP_EOL);
                     }
                 } catch (\Throwable $error) {
                     $decision=RetryPolicy::classify($error);
                     if (!$this->connection instanceof ConnectionManager || (!DatabaseFailure::unavailable($error) && $decision['action']!=='pause' && (!isset($pdo) || TransactionManager::usable($pdo)))) throw $error;
                     // Durable job state is authoritative. Never replay uncertain claim/process/COMMIT.
-                    unset($queue,$claim,$guard,$pdo);$this->connection->invalidate();
+                    unset($queue,$claim,$claims,$guard,$pdo);$this->connection->invalidate();
                     if ($limit!==0 || ++$failures>=$this->retryPolicy->get('outage_max_failures')) throw $error;
                     fwrite(STDERR,'Queue database unavailable: '.$decision['reason'].'; reconnecting at next operation boundary.'.PHP_EOL);
                     $delay=$this->retryPolicy->outageDelay($failures);

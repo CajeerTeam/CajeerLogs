@@ -1,3 +1,11 @@
+# 0.5.5 — High-Throughput Batch Ingestion
+
+- Транзакционное объединение совместимых pending jobs в ограниченные группы, один SQL INSERT событий на группу, отдельные webhook outbox записи и durable results для каждого исходного job.
+- Graceful fallback к индивидуальной обработке после rollback неудачной группы; соединение с неопределённым COMMIT повторно не используется.
+- Защищённая PostgreSQL-проверка project/token/source scope для каждой группы, валидация всех событий и redaction policies сохранены.
+- Сокращена повторная нормализация событий на hot path, scope источников авторизуется один раз для уникальной пары, без ослабления all-or-nothing SQL guard.
+- Новые unit/process/database тесты, реальный DB upgrade gate 0.5.4 → 0.5.5, без миграций.
+
 # Changelog
 
 Формат основан на [Keep a Changelog](http://keepachangelog.com/ru/1.0.0/), версии следуют [Semantic Versioning](https://semver.org/lang/ru/).
