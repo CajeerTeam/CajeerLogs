@@ -21,7 +21,7 @@ final class LogRepository
     {
         $parts=['source_id IS NOT NULL']; $params=[];
         foreach ($query->filters as $key=>$value) {
-            if ($key==='q_mode'||$key==='context_equals') continue;
+            if (in_array($key,['q_mode','context_equals','relation'],true)) continue;
             if (isset(LogQuery::LIST_FILTERS[$key])) {
                 $values=json_decode($value,true,16,JSON_THROW_ON_ERROR);
                 $column=match($key) {'levels'=>'level','sources'=>'source','source_ids'=>'source_id','services'=>'service','hosts'=>'host','trace_ids'=>'trace_id','request_ids'=>'request_id','tags_all','tags_any'=>'tags'};
@@ -38,6 +38,23 @@ final class LogRepository
                     $params['sources_project']=$query->filters['project_id'];
                 } elseif ($column==='tags') $parts[]='tags '.($key==='tags_all'?'@>':'&&').' ARRAY['.$list.']';
                 else $parts[]=$column.' IN ('.$list.')';
+                continue;
+            }
+            if ($key==='related_event') {
+                // Event ID is never resolved outside the current project; a
+                // source-bound principal may correlate only its own anchor.
+                $scope='anchor.id=CAST(:related_event AS uuid) AND anchor.project_id=CAST(:related_project AS uuid) AND anchor.source_id IS NOT NULL';
+                if (isset($query->filters['source_id'])) {
+                    $scope.=' AND anchor.source_id=CAST(:related_source AS uuid)';
+                    $params['related_source']=$query->filters['source_id'];
+                }
+                $relation=$query->filters['relation']??'either';
+                $trace="(anchor.trace_id IS NOT NULL AND anchor.trace_id<>'' AND log_events.trace_id=anchor.trace_id)";
+                $request="(anchor.request_id IS NOT NULL AND anchor.request_id<>'' AND log_events.request_id=anchor.request_id)";
+                $condition=match($relation) {'trace'=>$trace,'request'=>$request,'either'=>'('.$trace.' OR '.$request.')'};
+                $parts[]='EXISTS (SELECT 1 FROM log_events anchor WHERE '.$scope.' AND '.$condition.')';
+                $params['related_event']=$value;
+                $params['related_project']=$query->filters['project_id'];
                 continue;
             }
             if ($key==='context_path') {
@@ -221,6 +238,50 @@ final class LogRepository
         }
         return $result;
     }
+    /** Exact faceted counts within the already-authorized bounded search scope.
+     * Never sample top-N log rows: counts reflect the entire filtered interval. */
+    public function facets(LogQuery $query): array
+    {
+        if (!LogQuery::boundedDays($query->filters,7)) throw new \LogicException('Facets require a bounded interval.');
+        [$where,$params]=self::predicate($query);
+        $sql=<<<SQL
+            WITH matched AS MATERIALIZED (
+                SELECT level,source_id,source,service,host
+                FROM log_events WHERE $where
+            ), grouped AS (
+                SELECT level,source_id,source,service,host,count(*) AS n,
+                    CASE WHEN GROUPING(level)=0 THEN 'levels'
+                         WHEN GROUPING(source_id)=0 THEN 'sources'
+                         WHEN GROUPING(service)=0 THEN 'services'
+                         WHEN GROUPING(host)=0 THEN 'hosts'
+                         ELSE 'total' END AS dimension
+                FROM matched GROUP BY GROUPING SETS ((),(level),(source_id,source),(service),(host))
+            ), ranked AS (
+                SELECT *,row_number() OVER (PARTITION BY dimension ORDER BY n DESC,source_id,source,service,host,level) AS rank,
+                    count(*) OVER (PARTITION BY dimension) AS distinct_values
+                FROM grouped WHERE NOT ((dimension='services' AND coalesce(service,'')='') OR (dimension='hosts' AND coalesce(host,'')=''))
+            )
+            SELECT dimension,level,source_id,source,service,host,n,distinct_values FROM ranked
+            WHERE dimension='total' OR rank<=20 ORDER BY dimension,n DESC,source_id,source,service,host,level
+            SQL;
+        $out=['total'=>0,'levels'=>[],'sources'=>[],'services'=>[],'hosts'=>[],
+              'truncated'=>['levels'=>false,'sources'=>false,'services'=>false,'hosts'=>false],
+              'from'=>$query->filters['from'],'to'=>$query->filters['to']];
+        foreach ($this->sql($sql,$params) as $row) {
+            $dimension=$row['dimension']; $n=(int)$row['n'];
+            if ($dimension==='total') { $out['total']=$n; continue; }
+            $entry=match($dimension) {
+                'levels'=>['value'=>$row['level'],'count'=>$n],
+                'sources'=>['value'=>$row['source_id'],'label'=>$row['source'],'count'=>$n],
+                'services'=>['value'=>$row['service'],'count'=>$n],
+                'hosts'=>['value'=>$row['host'],'count'=>$n],
+            };
+            $out[$dimension][]=$entry;
+            $out['truncated'][$dimension]=((int)$row['distinct_values']>20);
+        }
+        return $out;
+    }
+
     private static function decode(array $row,bool $historicalRewrite=false): array
     {
         $row['context']=$historicalRewrite?json_decode($row['context'],false,64,JSON_THROW_ON_ERROR|JSON_BIGINT_AS_STRING):StoredLogJson::decode($row['context']);

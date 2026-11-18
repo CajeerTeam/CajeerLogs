@@ -1,3 +1,11 @@
+## 0.7.7 — Advanced Search Engine
+
+- Рабочий GET `/api/v1/logs/facets`: exact filtered counts by level, source, service, host, top 20 per dimension, scope/budget enforced.
+- Корреляция по UUID исходного события: trace, request, either, с ограничением 7 суток и проверкой прав на исходное событие.
+- Explorer отображает фасеты, поддерживает фильтрацию по ним и переход к объединённым связанным событиям.
+- Миграция 0032: составные индексы trace/request/service/host и времени в пределах проекта.
+- Unit и PostgreSQL-интеграционные тесты поиска/изоляции; CI release verification обновлён.
+
 ## 0.7.6 — Error Analytics & Reporting
 
 - Real project-scoped fingerprint grouping of error/critical/alert/emergency events using a PostgreSQL normalization/hash function; partial error index (migration 0031).

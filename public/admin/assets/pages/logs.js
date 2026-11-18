@@ -1,14 +1,14 @@
-import { levels, state, projectPath, active, render, hasPermission } from '../app/store.js?v=0.7.6';
-import { h, button, card, field, input, select, date, message, notify, form, heading, needProject, clearModal } from '../components/ui.js?v=0.7.6';
-import { projectSelector } from '../app/projects.js?v=0.7.6';
-import { logTable } from '../components/log-table.js?v=0.7.6';
-import { columns, defaultLayout, normalizeLayout, moveColumn, pageChanged } from '../app/explorer.js?v=0.7.6';
-import { request, get } from '../api/client.js?v=0.7.6';
+import { levels, state, projectPath, active, render, hasPermission } from '../app/store.js?v=0.7.7';
+import { h, button, card, field, input, select, date, message, notify, form, heading, needProject, clearModal } from '../components/ui.js?v=0.7.7';
+import { projectSelector } from '../app/projects.js?v=0.7.7';
+import { logTable } from '../components/log-table.js?v=0.7.7';
+import { columns, defaultLayout, normalizeLayout, moveColumn, pageChanged } from '../app/explorer.js?v=0.7.7';
+import { request, get } from '../api/client.js?v=0.7.7';
 
-import { filterBuilder } from '../components/filter-builder.js?v=0.7.6';
-import { savedViews } from '../components/saved-views.js?v=0.7.6';
-import { queryFilters as buildQuery } from '../app/filters.js?v=0.7.6';
-import { exportJobs } from './exports.js?v=0.7.6';
+import { filterBuilder } from '../components/filter-builder.js?v=0.7.7';
+import { savedViews } from '../components/saved-views.js?v=0.7.7';
+import { queryFilters as buildQuery } from '../app/filters.js?v=0.7.7';
+import { exportJobs } from './exports.js?v=0.7.7';
 function queryFilters() { return buildQuery(state.filters,state.project); }
 function logPager(query, signal, epoch) {
     const signature = JSON.stringify(query), project = state.project;
@@ -22,6 +22,7 @@ function logPager(query, signal, epoch) {
     const error = h('div',{class:'explorer-errors'});
     const viewport = h('div',{class:'explorer-results'});
     const pager = h('div',{class:'pager'});
+    const facetPanel = h('div',{class:'search-facets'});
     const config = h('details',{class:'explorer-config'},h('summary',{},'Настроить таблицу'));
     const configBody = h('div',{class:'explorer-config-body'}); config.append(configBody);
     const check = button('Проверить новые события',()=>void probe());
@@ -30,7 +31,7 @@ function logPager(query, signal, epoch) {
     const autoInput = input('auto_logs',{type:'checkbox', 'aria-label':'Проверять новые события автоматически'});
     autoInput.addEventListener('change',()=>{auto=autoInput.checked; schedule();});
     const toolbar = h('div',{class:'actions explorer-toolbar'},refresh,latest,query.consistency==='live'?check:null,query.consistency==='live'?h('label',{class:'check'},autoInput,'Проверять каждые 60 с'):null);
-    box.append(config,toolbar,status,notice,error,viewport,pager);
+    box.append(config,toolbar,facetPanel,status,notice,error,viewport,pager);
     const valid=()=>active(epoch)&&!signal.aborted&&state.project===project;
     function schedule(){clearTimeout(timer); if(auto&&valid())timer=setTimeout(async()=>{if(!document.hidden)await probe(true);schedule();},60000);}
     signal.addEventListener('abort',()=>{clearTimeout(timer);},{once:true});
@@ -38,6 +39,29 @@ function logPager(query, signal, epoch) {
     function capture(){const el=viewport.querySelector('.explorer-scroll');if(el){scroll={left:el.scrollLeft,top:el.scrollTop};} const focused=document.activeElement?.closest('.explorer-open');if(focused)selected=focused.dataset.eventId;remember();}
     function syncControls(){const locked=busy||probing||exporting; refresh.disabled=locked||!current;latest.disabled=locked;check.disabled=locked||!current;autoInput.disabled=busy||!current;for(const b of pager.querySelectorAll('button'))b.disabled=locked||b.dataset.available==='false';box.setAttribute('aria-busy',String(busy||probing));}
     function setLayout(next,focusKey=null){capture();layout=normalizeLayout(next);state.explorerLayout=layout;drawConfig();drawTable();if(focusKey)configBody.querySelector(`[data-config-key="${focusKey}"]`)?.focus();}
+    // Facets count every matching event in a bounded, authorized interval,
+    // not just the current 25/50/100-row page.
+    async function loadFacets(){
+        const from=Date.parse(query.from||''),to=Date.parse(query.to||'');
+        if(!Number.isFinite(from)||!Number.isFinite(to)||from>=to||to-from>7*86400000){
+            facetPanel.replaceChildren(h('p',{class:'muted small'},'Фасеты: выберите диапазон поиска до 7 дней.'));
+            return;
+        }
+        const {cursor,limit,consistency,format,interval,...filters}=query;
+        try{
+            const summary=await get('/logs/facets',filters,signal);
+            if(!valid())return;
+            const fields=[['levels','level','Уровни'],['sources','source_id','Источники'],['services','service','Сервисы'],['hosts','host','Хосты']];
+            const sections=fields.map(([group,key,title])=>h('div',{class:'search-facet-group'},
+                h('strong',{},title),...(summary[group]||[]).map(item=>button(`${item.label||item.value} (${item.count})`,()=>{
+                    if(!valid())return;
+                    const f={...state.filters,[key]:item.value};
+                    for(const other of (key==='source_id'?['sources','source_ids','source']:key==='level'?['levels']:key==='service'?['services']:['hosts']))delete f[other];
+                    state.filters=f;state.logPosition=null;void render();
+                })),summary.truncated?.[group]?h('span',{class:'muted small'},'Показаны первые 20'):null));
+            facetPanel.replaceChildren(h('details',{class:'explorer-facets'},h('summary',{},`Фасеты · ${summary.total} совпадений`),h('div',{class:'search-facet-groups'},...sections)));
+        }catch(e){if(valid()&&e.name!=='AbortError')facetPanel.replaceChildren(h('p',{class:'muted small'},'Фасеты недоступны: '+e.message));}
+    }
     function drawConfig(){
         const density=select('density',[['normal','Обычная'],['compact','Компактная']],layout.density);density.addEventListener('change',()=>setLayout({...layout,density:density.value},'density'));density.dataset.configKey='density';
         const zone=select('timezone',[['utc','UTC'],['local','Локальный']],layout.zone);zone.addEventListener('change',()=>setLayout({...layout,zone:zone.value},'zone'));zone.dataset.configKey='zone';
@@ -80,7 +104,7 @@ function logPager(query, signal, epoch) {
         if(r.headers.get('X-Page-Digest')!==page.page_digest)throw new Error('Страница изменилась. Обновите поиск перед экспортом.');const blob=await r.blob();if(!valid()||current!==page)return;
         const url=URL.createObjectURL(blob),a=h('a',{href:url,download:'cajeerlogs.'+format});document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);notify('Экспорт текущей страницы подготовлен.');
     }catch(e){if(e.name!=='AbortError'&&valid()){if(e.status===401||e.status===403)clearData(e);else notify(e.message);}}finally{exporting=false;syncControls();}}
-    drawConfig();restoreFocus=!!selected;void load(saved?.cursor||null,index);return box;
+    drawConfig();restoreFocus=!!selected;void load(saved?.cursor||null,index);void loadFacets();return box;
 }
 async function logs(signal, epoch) { const root = h('div', {}, heading('Логи', 'Поиск, фильтры и просмотр сохранённых событий.'), projectSelector()); if (!state.project) {
     root.append(needProject());

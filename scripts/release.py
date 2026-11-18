@@ -110,6 +110,9 @@ REQUIRED.update({'core/Log/ErrorAnalytics.php','migrations/pgsql/0031_error_anal
                  'public/admin/assets/pages/errors.js','tests/error_analytics.php',
                  'tests/error_analytics_database.php','docs/Error-Analytics-Reporting-0.7.6.md'})
 
+REQUIRED.update({'migrations/pgsql/0032_advanced_search.sql','tests/advanced_search.php',
+                 'tests/advanced_search_database.php','tests/advanced_search.mjs','docs/Advanced-Search-Engine-0.7.7.md'})
+
 REQUIRED.update({'core/Analytics/PostgresRollupStore.php','core/Console/Command/AnalyticsRollupCommand.php',
                  'migrations/pgsql/0029_analytics_rollups.sql','tests/analytics_rollups.php',
                  'tests/analytics_rollups_database.php','docs/Aggregation-Engine.md'})

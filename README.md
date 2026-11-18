@@ -1,3 +1,9 @@
+## Advanced Search Engine (0.7.7)
+
+Полнотекстовый Explorer дополнен точными ограниченными фасетами и корреляцией событий через `related_event` / `relation` с проектной изоляцией. Новая миграция `0032_advanced_search.sql` создаёт составные индексы.
+
+См. [Advanced Search Engine](docs/Advanced-Search-Engine-0.7.7.md).
+
 ## Error analytics and reports (0.7.6)
 
 The Admin Panel includes **Отчёты об ошибках** with normalized error groups, trends,

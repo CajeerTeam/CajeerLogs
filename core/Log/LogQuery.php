@@ -11,7 +11,7 @@ use stdClass;
 final class LogQuery
 {
     public const LEVELS=['debug','info','notice','warning','error','critical','alert','emergency'];
-    private const FILTERS=['project_id','source_id','source','level','service','host','trace_id','request_id','from','to','q','tag','context','q_mode','levels','sources','source_ids','services','hosts','trace_ids','request_ids','tags_all','tags_any','context_path','context_equals','error_fingerprint'];
+    private const FILTERS=['project_id','source_id','source','level','service','host','trace_id','request_id','from','to','q','tag','context','q_mode','levels','sources','source_ids','services','hosts','trace_ids','request_ids','tags_all','tags_any','context_path','context_equals','error_fingerprint','related_event','relation'];
     public const LIST_FILTERS=['levels'=>32,'sources'=>100,'source_ids'=>36,'services'=>255,'hosts'=>255,'trace_ids'=>128,'request_ids'=>128,'tags_all'=>128,'tags_any'=>128];
     private function __construct(public readonly array $filters, public readonly int $limit, public readonly ?string $cursor, public readonly string $interval, public readonly string $format, public readonly string $consistency) {}
 
@@ -21,6 +21,7 @@ final class LogQuery
             'list'=>[...self::FILTERS,'limit','cursor','consistency'],
             'export'=>[...self::FILTERS,'limit','cursor','format','consistency'],
             'stats','errors'=>[...self::FILTERS,'interval'],
+            'facets'=>self::FILTERS,
             'error_report'=>[...self::FILTERS,'interval','format'],
             'detail'=>['project_id','source_id'],
             default=>throw new \LogicException('Unknown query mode.'),
@@ -55,6 +56,14 @@ final class LogQuery
             if (!preg_match('/^[0-9a-f]{64}$/D',$signature)) self::invalid('Invalid error fingerprint.');
             $f['error_fingerprint']=$signature;
         }
+        if (array_key_exists('relation',$input) && !array_key_exists('related_event',$input)) self::invalid('relation requires related_event.');
+        if (array_key_exists('related_event',$input)) {
+            $f['related_event']=self::uuid(self::value($input,'related_event',36));
+            $relation=array_key_exists('relation',$input)?self::value($input,'relation',7):'either';
+            if (!in_array($relation,['trace','request','either'],true)) self::invalid('Invalid correlation mode.');
+            // Preserve the implicit default for stable signed cursor fingerprints.
+            if ($relation!=='either') $f['relation']=$relation;
+        }
         if (array_key_exists('q_mode',$input)) {
             $modeValue=self::value($input,'q_mode',6);
             if (!isset($f['q']) || !in_array($modeValue,['web','plain','phrase'],true)) self::invalid('q_mode requires q and must be web, plain or phrase.');
@@ -83,6 +92,8 @@ final class LogQuery
             self::checkJson($value); $f['context_equals']=$raw;
         }
         if (isset($f['error_fingerprint']) && !self::boundedRange($f)) self::invalid('Error fingerprint requires a time range of at most 31 days.');
+        if (isset($f['related_event']) && !self::boundedDays($f,7)) self::invalid('Correlation requires from and to spanning at most 7 days.');
+        if ($mode==='facets' && !self::boundedDays($f,7)) self::invalid('Facets require from and to spanning at most 7 days.');
         $limit=50;
         if (array_key_exists('limit',$input)) {
             $v=self::value($input,'limit',3);
@@ -129,6 +140,10 @@ final class LogQuery
     public static function boundedRange(array $filters): bool
     {
         return isset($filters['from'],$filters['to']) && (new DateTimeImmutable($filters['to'])) <= (new DateTimeImmutable($filters['from']))->modify('+31 days');
+    }
+    public static function boundedDays(array $filters,int $days): bool
+    {
+        return self::boundedRange($filters) && (new DateTimeImmutable($filters['to'])) <= (new DateTimeImmutable($filters['from']))->modify('+'.$days.' days');
     }
     public function textFunction(): string
     {

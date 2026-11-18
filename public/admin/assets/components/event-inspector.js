@@ -1,8 +1,8 @@
-import { state, active, render } from '../app/store.js?v=0.7.6';
-import { $, h, button, badge, text, date, enc, message, modalEpoch, modal, table, copy, notify } from './ui.js?v=0.7.6';
-import { get, request } from '../api/client.js?v=0.7.6';
-import { jsonDocument, pointer, searchJson, prettyJson } from '../app/event-json.js?v=0.7.6';
-import { validateFilters, defaultFilters } from '../app/filters.js?v=0.7.6';
+import { state, active, render } from '../app/store.js?v=0.7.7';
+import { $, h, button, badge, text, date, enc, message, modalEpoch, modal, table, copy, notify } from './ui.js?v=0.7.7';
+import { get, request } from '../api/client.js?v=0.7.7';
+import { jsonDocument, pointer, searchJson, prettyJson } from '../app/event-json.js?v=0.7.7';
+import { validateFilters, defaultFilters } from '../app/filters.js?v=0.7.7';
 
 let pending;
 const branch=n=>n.type==='object'||n.type==='array';
@@ -50,10 +50,16 @@ function relatedPanel(row,project,signal,valid,openRelated){
     const box=h('div',{}), result=h('div',{'aria-live':'polite'});let kind=null, seq=0, controller;
     const choices=filterable.filter(k=>['trace_id','request_id'].includes(k)&&typeof row[k]==='string'&&row[k]!=='');
     if(!choices.length)return h('p',{},'У события нет Trace ID или Request ID.');
-    const controls=choices.map(k=>button(k==='trace_id'?'Trace ID':'Request ID',()=>{kind=k;void load(null);},'',{'aria-pressed':'false'}));
-    const explorer=button('Открыть в Log Explorer',()=>{if(!valid()||!kind)return;state.filters={...defaultFilters(),[kind]:row[kind]};state.logPosition=null;if(state.route==='logs')void render();else location.hash='logs';});
-    box.append(h('p',{class:'muted'},'Поиск по точному идентификатору во всём текущем проекте, независимо от фильтров исходной таблицы. Текущее событие отмечено.'),h('div',{class:'actions'},controls,explorer),result);
-    async function load(cursor){const token=++seq;controller?.abort();controller=new AbortController();const querySignal=AbortSignal.any([signal,controller.signal]);controls.forEach((b,i)=>b.setAttribute('aria-pressed',String(choices[i]===kind)));result.replaceChildren(h('p',{role:'status'},'Загрузка…'));try{const data=await get('/logs',{project_id:project,[kind]:row[kind],limit:25,consistency:'snapshot',cursor},querySignal);if(!valid()||token!==seq||querySignal.aborted)return;result.replaceChildren(table(['Время (UTC)','Уровень','Источник','Сообщение',''],data.items.map((item,i)=>[date(item.timestamp),badge(item.level),text(item.source),clip(text(item.message),500),item.id===row.id?h('span',{},'Текущее'):button('Открыть',()=>openRelated(item.id,{items:data.items,index:i,continued:true}))])),h('div',{class:'actions'},button('Назад',()=>void load(data.prev_cursor),'',{disabled:!data.prev_cursor}),button('Далее',()=>void load(data.next_cursor),'',{disabled:!data.next_cursor})));}catch(e){if(valid()&&token===seq&&!querySignal.aborted){if(e.status===401||e.status===403){$('modal-body').replaceChildren(message(e));return;}result.replaceChildren(message(e),button('Повторить',()=>void load(cursor)));}}}
+    if(choices.length===2)choices.push('either');
+    const controls=choices.map(k=>button(k==='trace_id'?'Trace ID':k==='request_id'?'Request ID':'Trace или Request',()=>{kind=k;void load(null);},'',{'aria-pressed':'false'}));
+    const correlation=()=>{
+        if(kind!=='either')return {[kind]:row[kind]};
+        const ms=Date.parse(row.timestamp),half=3.5*86400000;
+        return {related_event:row.id,from:new Date(ms-half).toISOString(),to:new Date(ms+half).toISOString()};
+    };
+    const explorer=button('Открыть в Log Explorer',()=>{if(!valid()||!kind)return;state.filters={...defaultFilters(),...correlation()};state.logPosition=null;if(state.route==='logs')void render();else location.hash='logs';});
+    box.append(h('p',{class:'muted'},'Связанные события в текущем проекте по Trace/Request ID. Объединённая корреляция ограничена семью днями вокруг выбранного события. Текущее событие отмечено.'),h('div',{class:'actions'},controls,explorer),result);
+    async function load(cursor){const token=++seq;controller?.abort();controller=new AbortController();const querySignal=AbortSignal.any([signal,controller.signal]);controls.forEach((b,i)=>b.setAttribute('aria-pressed',String(choices[i]===kind)));result.replaceChildren(h('p',{role:'status'},'Загрузка…'));try{const data=await get('/logs',{project_id:project,...correlation(),limit:25,consistency:'snapshot',cursor},querySignal);if(!valid()||token!==seq||querySignal.aborted)return;result.replaceChildren(table(['Время (UTC)','Уровень','Источник','Сообщение',''],data.items.map((item,i)=>[date(item.timestamp),badge(item.level),text(item.source),clip(text(item.message),500),item.id===row.id?h('span',{},'Текущее'):button('Открыть',()=>openRelated(item.id,{items:data.items,index:i,continued:true}))])),h('div',{class:'actions'},button('Назад',()=>void load(data.prev_cursor),'',{disabled:!data.prev_cursor}),button('Далее',()=>void load(data.next_cursor),'',{disabled:!data.next_cursor})));}catch(e){if(valid()&&token===seq&&!querySignal.aborted){if(e.status===401||e.status===403){$('modal-body').replaceChildren(message(e));return;}result.replaceChildren(message(e),button('Повторить',()=>void load(cursor)));}}}
     kind=choices[0];void load(null);return box;
 }
 export async function detail(id,project,navigation=null,quickFilter=null){

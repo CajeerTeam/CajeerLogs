@@ -12,12 +12,12 @@ use PDOException;
 
 final class LogsController
 {
-    public const ROUTES=['GET /logs'=>'searchLogs','GET /logs/stats'=>'logStatistics','GET /logs/errors'=>'errorAnalytics','GET /logs/errors/report'=>'exportErrorReport','GET /logs/export'=>'exportLogs','GET /logs/{event}'=>'getLogEvent'];
+    public const ROUTES=['GET /logs'=>'searchLogs','GET /logs/stats'=>'logStatistics','GET /logs/facets'=>'logFacets','GET /logs/errors'=>'errorAnalytics','GET /logs/errors/report'=>'exportErrorReport','GET /logs/export'=>'exportLogs','GET /logs/{event}'=>'getLogEvent'];
     public function __construct(private readonly Application $app) {}
     public static function register(Router $router,Application $app,string $prefix): void
     {
         $controller=new self($app);
-        foreach (['/logs'=>'list','/logs/stats'=>'stats','/logs/errors'=>'errors','/logs/errors/report'=>'error_report','/logs/export'=>'export','/logs/{event}'=>'detail'] as $path=>$mode) {
+        foreach (['/logs'=>'list','/logs/stats'=>'stats','/logs/facets'=>'facets','/logs/errors'=>'errors','/logs/errors/report'=>'error_report','/logs/export'=>'export','/logs/{event}'=>'detail'] as $path=>$mode) {
             $router->add('GET',$prefix.$path,fn(Request $r): Response=>$controller->run($r,$mode));
         }
     }
@@ -38,7 +38,7 @@ final class LogsController
             $identity=Identity::fromConfig($pdo,true,'',$config);
             $p=$identity->authenticate($r,$credential);
             $rate->enforce('logs-'.$p['kind'].':'.$p['id'],$config->get('api.rate_limit'),60);
-            $policy->principal($rate,$p['kind'],$p['id'],match($mode){'stats','errors'=>'analytics','export','error_report'=>'export',default=>'search'});
+            $policy->principal($rate,$p['kind'],$p['id'],match($mode){'stats','errors','facets'=>'analytics','export','error_report'=>'export',default=>'search'});
             $project=$query->filters['project_id']; $source=$query->filters['source_id']??null;
             if ($p['kind']==='token' && $p['token']['source_id']!==null) {
                 if ($source!==null && $source!==$p['token']['source_id']) { Identity::forbidden(); }
@@ -57,6 +57,7 @@ final class LogsController
                     return new JsonResponse(['data'=>$row],200,['Cache-Control'=>'no-store']);
                 }
                 if ($mode==='stats') { return new JsonResponse($engine->statistics($query),200,['Cache-Control'=>'no-store']); }
+                if ($mode==='facets') { return new JsonResponse($engine->facets($query),200,['Cache-Control'=>'no-store']); }
                 if ($mode==='errors' || $mode==='error_report') {
                     $report=(new ErrorAnalytics($engine->connection()))->report($query);
                     if ($mode==='error_report' && $query->format==='csv') {
