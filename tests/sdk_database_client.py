@@ -13,6 +13,13 @@ event={'source':'app','level':'info','message':'sdk real postgres event','timest
 first=client.ingest(event,idempotency_key='sdk-database-event')
 again=client.ingest(event,idempotency_key='sdk-database-event')
 assert first['stored']==1 and again['replayed'] and first['event_ids']==again['event_ids']
+# Real PostgreSQL-backed async admission: 202 != completed, 200 replay keeps ID.
+async_event=event | {'message':'sdk async real postgres event'}
+accepted=client.ingest_async(async_event,idempotency_key='sdk-database-async')
+replay=client.ingest_async(async_event,idempotency_key='sdk-database-async')
+assert accepted['status']=='pending' and accepted['received']==1 and not accepted['replayed']
+assert replay['replayed'] and replay['job_id']==accepted['job_id']
+assert client.job_status(accepted['job_id'],expected_count=1)['status']=='pending'
 with tempfile.TemporaryDirectory() as tmp:
     path=Path(tmp)/'log.txt';state=Path(tmp)/'state.sqlite';path.write_text('sdk collector real postgres event\n')
     col=Collector(path,state,client,'app','text',ZoneInfo('UTC'))
@@ -21,4 +28,4 @@ with tempfile.TemporaryDirectory() as tmp:
     col=Collector(path,state,client,'app','text',ZoneInfo('UTC'))
     try: assert col.step()==0
     finally: col.close()
-print('PASS Python SDK + collector real PHP/PostgreSQL integration')
+print('PASS Python sync/async SDK + collector real PHP/PostgreSQL integration')

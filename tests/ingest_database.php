@@ -281,8 +281,25 @@ WORKER;
             fclose($sdkPipes[0]);$sdkOut=stream_get_contents($sdkPipes[1]);$sdkErr=stream_get_contents($sdkPipes[2]);fclose($sdkPipes[1]);fclose($sdkPipes[2]);
             verify(proc_close($sdk)===0,'real SDK HTTP integration: '.$command[1]);echo $sdkOut;
         }
+        // Confirm the SDK's actual async PostgreSQL job, not merely HTTP 202.
+        // No worker is running in this isolated test server; process admitted jobs
+        // through the same production driver and inspect committed event IDs.
+        $asyncHash=hash('sha256','sdk-database-async');
+        $asyncStmt=$separate->prepare("SELECT id::text FROM jobs WHERE key_hash=:key AND queue='ingest-v1'");
+        $asyncStmt->execute(['key'=>$asyncHash]);$sdkJob=$asyncStmt->fetchColumn();
+        verify(is_string($sdkJob) && preg_match('/^[1-9][0-9]*$/D',$sdkJob)===1,'SDK async 202 created one durable PostgreSQL job');
+        $queue=$app->container()->get(\Cajeer\Logs\Queue\PostgresQueueDriver::class);
+        for ($i=0;$i<100;$i++) {
+            $claim=$queue->claim();if ($claim===null) break;
+            $queue->process($claim);
+        }
+        $done=$separate->prepare("SELECT status,result::text FROM jobs WHERE id=:id");
+        $done->execute(['id'=>$sdkJob]);$sdkState=$done->fetch();
+        verify($sdkState['status']==='completed','SDK async job completed via production worker');
+        $sdkResult=json_decode($sdkState['result'],true,32,JSON_THROW_ON_ERROR);
+        verify($sdkResult['stored']===1 && count($sdkResult['event_ids'])===1,'SDK async event stored once with UUID receipt');
         $stmt=$separate->prepare('SELECT count(*) FROM log_events WHERE message=:message');
-        foreach (['sdk real postgres event','sdk collector real postgres event'] as $message) { $stmt->execute(['message'=>$message]);verify((int)$stmt->fetchColumn()===1,'SDK event committed exactly once'); }
+        foreach (['sdk real postgres event','sdk collector real postgres event','sdk async real postgres event'] as $message) { $stmt->execute(['message'=>$message]);verify((int)$stmt->fetchColumn()===1,'SDK event committed exactly once'); }
         if (count($sdkCommands)>1) { foreach (['sdk psr3 real postgres event','sdk monolog real postgres event'] as $message) { $stmt->execute(['message'=>$message]);verify((int)$stmt->fetchColumn()===1,'logging adapter event committed'); } }
     } finally { proc_terminate($process); proc_close($process); if (is_file($log)) { unlink($log); } }
     echo "Ingest PostgreSQL: $count checks passed\n";

@@ -31,6 +31,60 @@ class DeliveryError(Exception):
         super().__init__(f"CajeerLogs delivery failed (HTTP {status if status is not None else 'unknown'}); key={key}")
 
 
+
+class JobPending(Exception):
+    """An accepted job is not yet confirmed complete; keep durable body/key."""
+    def __init__(self, job_id: str):
+        self.job_id = job_id
+        super().__init__(f"Async job {job_id} remains unconfirmed")
+
+
+class JobFailed(Exception):
+    """A terminal dead/cancelled job requires operator action; never auto-resubmit."""
+    def __init__(self, job_id: str, status: str):
+        self.job_id, self.status = job_id, status
+        super().__init__(f"Async job {job_id} reached {status}")
+
+
+_JOB_ID = re.compile(r"[1-9][0-9]{0,18}")
+_UUID = re.compile(r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}")
+_JOB_STATES = {"pending", "running", "completed", "dead", "cancelled"}
+
+
+def valid_job_id(value: Any) -> bool:
+    return isinstance(value, str) and _JOB_ID.fullmatch(value) is not None and int(value) <= 9223372036854775807
+
+
+def validate_async_receipt(receipt: Any, count: int, status: int) -> dict[str, Any]:
+    if (not isinstance(receipt, dict) or status not in (200, 202)
+            or receipt.get("accepted") is not True or type(receipt.get("received")) is not int
+            or receipt["received"] != count or receipt.get("replayed") is not (status == 200)
+            or not valid_job_id(receipt.get("job_id")) or receipt.get("status") not in _JOB_STATES):
+        raise ValueError("Invalid async admission receipt")
+    return receipt
+
+
+def validate_job_status(value: Any, expected_id: str, expected_count: int | None = None) -> dict[str, Any]:
+    if (not isinstance(value, dict) or value.get("id") != expected_id
+            or value.get("status") not in _JOB_STATES
+            or type(value.get("attempts")) is not int or type(value.get("max_attempts")) is not int
+            or value["attempts"] < 0 or value["max_attempts"] < 1
+            or value["attempts"] > value["max_attempts"]):
+        raise ValueError("Invalid job status")
+    result = value.get("result")
+    if value["status"] == "completed":
+        if (not isinstance(result, dict) or not isinstance(result.get("event_ids"), list)
+                or not 1 <= len(result["event_ids"]) <= 100
+                or type(result.get("stored")) is not int or result["stored"] != len(result["event_ids"])
+                or (expected_count is not None and result["stored"] != expected_count)
+                or any(not isinstance(i, str) or _UUID.fullmatch(i) is None for i in result["event_ids"])
+                or len(set(result["event_ids"])) != len(result["event_ids"])):
+            raise ValueError("Invalid completed job result")
+    elif result is not None:
+        raise ValueError("Unexpected result for unfinished job")
+    return value
+
+
 _FIELDS = {"timestamp", "source", "level", "message", "context", "service", "host", "trace_id", "request_id", "tags"}
 _LEVELS = {"debug", "info", "notice", "warning", "error", "critical", "alert", "emergency"}
 _TIMESTAMP = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])")
@@ -149,18 +203,29 @@ class CajeerLogsClient:
     def ingest(self, event: dict[str, Any] | list[dict[str, Any]], *, idempotency_key: str | None = None) -> dict[str, Any]:
         return self.send_body(encode(event), idempotency_key or secrets.token_hex(16))
 
+    def ingest_async(self, event: dict[str, Any] | list[dict[str, Any]], *, idempotency_key: str | None = None) -> dict[str, Any]:
+        """Durably enqueue; HTTP 202 confirms the job, not the event INSERT."""
+        return self.send_async_body(encode(event), idempotency_key or secrets.token_hex(16))
+
     def send_body(self, body: bytes, key: str) -> dict[str, Any]:
-        """Send immutable serialized bytes; used by persistent collectors after restart."""
-        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", key) or not 0 < len(body) <= 1048576:
+        """Synchronous ingest; immutable bytes are safe to retry after a lost response."""
+        return self._post_body(body, key, False)
+
+    def send_async_body(self, body: bytes, key: str) -> dict[str, Any]:
+        """Async enqueue; persist body/key before calling if recovery across restarts is required."""
+        return self._post_body(body, key, True)
+
+    def _post_body(self, body: bytes, key: str, async_mode: bool) -> dict[str, Any]:
+        if not isinstance(body, bytes) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", key) or not 0 < len(body) <= 1048576:
             raise ValueError("Invalid body or idempotency key")
         payload = json.loads(body)
-        if not isinstance(payload, dict):
+        if not isinstance(payload, dict) or ("events" in payload and len(payload) != 1):
             raise ValueError("Invalid serialized event batch")
         events = payload.get("events", [payload])
         if not isinstance(events, list) or not 1 <= len(events) <= 100:
             raise ValueError("Invalid serialized event batch")
         count = len(events)
-        url = f"{self.base_url.rstrip('/')}{self.api_prefix}/ingest"
+        url = f"{self.base_url.rstrip('/')}{self.api_prefix}/ingest" + ("/async" if async_mode else "")
         path = urllib.parse.urlsplit(url).path
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect(), urllib.request.HTTPSHandler(context=ssl.create_default_context(cafile=self.ca_file)))
         for attempt in range(self.attempts):
@@ -168,9 +233,8 @@ class CajeerLogsClient:
             if self.signed or self.hmac_secret is not None:
                 timestamp, nonce = str(int(time.time())), secrets.token_hex(16)
                 prefix = ("cajeerlogs-ingest-v1",) if self.signing_key_id is None else ("cajeerlogs-ingest-v2", self.signing_key_id)
-                if self.signing_key_id is not None:
-                    headers["X-Log-Key-Id"] = self.signing_key_id
                 canonical = "\n".join((*prefix, "POST", path, timestamp, nonce, key, hashlib.sha256(body).hexdigest()))
+                if self.signing_key_id is not None: headers["X-Log-Key-Id"] = self.signing_key_id
                 headers.update({"X-Log-Timestamp": timestamp, "X-Log-Nonce": nonce,
                                 "X-Log-Signature": hmac.new((self.hmac_secret or self.token).encode(), canonical.encode(), hashlib.sha256).hexdigest()})
             request = urllib.request.Request(url, data=body, headers=headers, method="POST")
@@ -179,23 +243,60 @@ class CajeerLogsClient:
                 with opener.open(request, timeout=self.timeout) as response:
                     status = response.status
                     raw = response.read(65537)
-                    if status not in (200, 201) or len(raw) > 65536:
-                        raise ValueError("Unexpected ingest response")
-                    return validate_receipt(json.loads(raw), count, status)
+                    if len(raw) > 65536: raise ValueError("Oversized ingest response")
+                    receipt = json.loads(raw)
+                    if async_mode and status in (200, 202): return validate_async_receipt(receipt, count, status)
+                    if not async_mode and status in (200, 201): return validate_receipt(receipt, count, status)
             except urllib.error.HTTPError as exc:
                 status = exc.code
                 retry_after = exc.headers.get("Retry-After", "")
                 exc.close()
                 if status not in (408, 429, 500, 502, 503, 504):
-                    raise exc  # compatibility with existing urllib callers; never follow redirects
-                if retry_after.isdigit():
-                    wait = max(wait, int(retry_after))
+                    raise exc
+                if retry_after.isdigit(): wait = max(wait, int(retry_after))
             except (urllib.error.URLError, TimeoutError, OSError, ValueError, http.client.HTTPException):
                 pass
             if attempt + 1 == self.attempts or wait > 30:
                 raise DeliveryError(status, key)
             time.sleep(wait + secrets.randbelow(100) / 1000)
         raise AssertionError("unreachable")
+
+    def job_status(self, job_id: str, *, expected_count: int | None = None) -> dict[str, Any]:
+        """Read authenticated durable state. No redirect, no unbounded body."""
+        if not valid_job_id(job_id): raise ValueError("Invalid job ID")
+        url = f"{self.base_url.rstrip('/')}{self.api_prefix}/ingest/jobs/{job_id}"
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect(), urllib.request.HTTPSHandler(context=ssl.create_default_context(cafile=self.ca_file)))
+        request = urllib.request.Request(url, headers={"Authorization": f"Bearer {self.token}"}, method="GET")
+        with opener.open(request, timeout=self.timeout) as response:
+            if response.status != 200: raise ValueError("Unexpected job response")
+            raw = response.read(65537)
+            if len(raw) > 65536: raise ValueError("Oversized job response")
+            return validate_job_status(json.loads(raw), job_id, expected_count)
+
+    def wait_for_job(self, receipt: dict[str, Any], *, timeout: float = 30, poll_interval: float = 0.5) -> dict[str, Any]:
+        """Confirm committed event IDs. On timeout keep the receipt and retry polling later."""
+        if not 0 < timeout <= 3600 or not 0.05 <= poll_interval <= 30:
+            raise ValueError("Invalid polling limits")
+        job_id = receipt.get("job_id") if isinstance(receipt, dict) else None
+        count = receipt.get("received") if isinstance(receipt, dict) else None
+        if not valid_job_id(job_id) or type(count) is not int or not 1 <= count <= 100:
+            raise ValueError("Invalid async receipt")
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                state = self.job_status(job_id, expected_count=count)
+                if state["status"] == "completed": return state
+                if state["status"] in ("dead", "cancelled"):
+                    raise JobFailed(job_id, state["status"])
+            except urllib.error.HTTPError as exc:
+                code = exc.code
+                exc.close()
+                if code not in (408, 429, 500, 502, 503, 504): raise
+            except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException):
+                pass
+            remaining = deadline - time.monotonic()
+            if remaining <= 0: raise JobPending(job_id)
+            time.sleep(min(poll_interval, remaining))
 
 
 class CajeerLogsHandler(logging.Handler):

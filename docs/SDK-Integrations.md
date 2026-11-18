@@ -119,3 +119,8 @@ CAJEER_TEST_DATABASE=1 php tests/ingest_database.php
 ```
 
 Wire tests используют настоящий HTTP-сервер с контролируемыми ответами, не подменяют PostgreSQL E2E. CI запускает DB integration suite и предыдущие тесты. `webhook_database.php` проверяет outbox, scoping, откат, replay, историю, backoff, lease, ручной retry, disable и cleanup. Production TLS/egress, нагрузку, отказоустойчивость файловой системы и фактическую доставку в receiver проверьте на целевом стенде. С 0.0.8 доступны очередь логов и scheduler: [Queue & Lifecycle](Queue-Lifecycle.md). ClickHouse и alerts остаются будущими релизами.
+
+
+## 0.5.8 — Durable async receipts
+
+POST `/ingest/async` подтверждает очередь, не логическую вставку. SDK используют идентичные байты и ключ при сетевом сбое, а после подтверждённого job ID проверяют `GET /ingest/jobs/{id}` без второго enqueue. Для process restart используется приватный durable outbox: в Python есть `DurableAsyncSpool`, в file collector — `--async` и SQLite job ID. Не следует повторять `dead`/`cancelled` автоматически. [Runbook](SDK-Delivery-Recovery.md).

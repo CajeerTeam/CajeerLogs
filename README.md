@@ -2,6 +2,10 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.5.8 — Delivery Guarantees & SDK Recovery
+
+SDK Python, TypeScript, PHP и Kotlin поддерживают `ingestAsync`/`ingest_async`, `sendAsyncBody`, проверяемое чтение `/ingest/jobs/{id}` и ожидание терминального `completed`. HTTP 202 подтверждает только durable admission. При потере ответа повторяются **те же байты и Idempotency-Key**, но после подтверждения 202 SDK не создаёт новый job, а проверяет его статус. Python collector `--async` и защищённый SQLite `DurableAsyncSpool` выдерживают перезапуск с сохранением квитанций и контрольных точек. Новых миграций нет. См. [Delivery & SDK Recovery](docs/SDK-Delivery-Recovery.md). Канал `public-preview` до полного PostgreSQL/Docker CI.
+
 ## 0.5.7 — Multi-Project Queue Fairness
 
 Взвешенный справедливый выбор проектов при получении заданий PostgreSQL, отдельные бюджеты jobs/events/bytes, лимит одновременной обработки, точные транзакционные счётчики, защищённая CLI-настройка с аудитом и проверяемая сверка. Обязательная миграция 0024, предыдущие миграции без изменений. [Эксплуатация](docs/Multi-Project-Queue-Fairness.md). Статус `public-preview` до полного PostgreSQL/Docker E2E.

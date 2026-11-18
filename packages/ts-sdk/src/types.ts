@@ -21,3 +21,21 @@ export interface IngestReceipt {
   event_ids: string[]
   replayed: boolean
 }
+
+
+/** HTTP 202 means accepted durably, NOT that the events have been inserted. */
+export interface AsyncDeliveryReceipt {
+  accepted: true
+  received: number
+  job_id: string
+  status: 'pending' | 'running' | 'completed' | 'dead' | 'cancelled'
+  replayed: boolean
+}
+
+export interface JobStatus {
+  id: string
+  status: 'pending' | 'running' | 'completed' | 'dead' | 'cancelled'
+  attempts: number
+  max_attempts: number
+  result: { event_ids: string[]; stored: number } | null
+}

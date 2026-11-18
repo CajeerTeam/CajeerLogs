@@ -1,3 +1,10 @@
+## 0.5.8 — Delivery Guarantees & SDK Recovery
+
+- Real async admission (HTTP 202) and durable job completion handling in Python, TypeScript, PHP and Kotlin SDKs. SDKs re-send identical bytes and idempotency key after ambiguous POST outcomes, generate fresh HMAC nonces, validate job IDs and completed event IDs, never treat 202 as an INSERT acknowledgement.
+- Bounded authenticated GET status polling, explicit pending/dead/cancelled outcomes, no automatic duplicate enqueue on failed/unknown jobs, and constrained response bodies/redirects.
+- Python collector opt-in `--async` SQLite job ID checkpoint: commits source offsets only after `completed`; restart resumes status polling without re-enqueue. Separate bounded, lock-protected, 0600 SQLite application outbox (`DurableAsyncSpool`) persists bytes/key before network and records confirmed event IDs.
+- Actual HTTP wire tests for all four SDKs (lost response after admission, 503, replay, malformed completion, terminal states), process restart tests for collector and spool; historical PostgreSQL migrations remain unchanged.
+
 ## 0.5.7 — Multi-Project Queue Fairness
 
 - Exact per-project queue accounting (jobs, events, bytes, pending and running) maintained by transactional PostgreSQL triggers; migration 0024 backfills existing durable jobs without rewriting payloads or leases.

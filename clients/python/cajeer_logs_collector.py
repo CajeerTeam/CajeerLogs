@@ -97,9 +97,12 @@ class CollectorError(ValueError):
 
 class Collector:
     def __init__(self, path: Path, state: Path, client: CajeerLogsClient, source: str, fmt: str,
-                 zone: ZoneInfo, service: str | None = None, rotated_glob: str | None = None, batch: int = 50):
+                 zone: ZoneInfo, service: str | None = None, rotated_glob: str | None = None, batch: int = 50,
+                 async_mode: bool = False, completion_timeout: float = 30, poll_interval: float = 0.5):
         self.path, self.client, self.source, self.fmt, self.zone, self.service = path.absolute(), client, source, fmt, zone, service
         self.rotated_glob, self.batch = rotated_glob, batch
+        self.async_mode, self.completion_timeout, self.poll_interval = async_mode, completion_timeout, poll_interval
+        if not 0 < completion_timeout <= 3600 or not 0.05 <= poll_interval <= 30: raise CollectorError("Invalid async poll settings")
         if not re.fullmatch(r'[a-z0-9]+(?:-[a-z0-9]+)*', source) or not 1 <= batch <= 100:
             raise CollectorError('Invalid source or batch size')
         # Keep pending raw logs private. Refuse symlinks and pre-existing unsafe state files.
@@ -122,8 +125,10 @@ class Collector:
             self.db = sqlite3.connect(state)
             self.db.execute('PRAGMA synchronous=FULL')
             self.db.execute('CREATE TABLE IF NOT EXISTS retired (dev INTEGER NOT NULL, inode INTEGER NOT NULL, mtime INTEGER NOT NULL, size INTEGER NOT NULL, PRIMARY KEY(dev,inode))')
-            self.db.execute('CREATE TABLE IF NOT EXISTS checkpoint (id INTEGER PRIMARY KEY CHECK(id=1), identity TEXT NOT NULL, dev INTEGER, inode INTEGER, offset INTEGER NOT NULL, fingerprint TEXT, pending BLOB, pending_key TEXT, pending_end INTEGER, pending_fingerprint TEXT, pending_at REAL)')
-            identity = json.dumps([str(self.path), client.base_url.rstrip('/'), client.api_prefix, hashlib.sha256(client.token.encode()).hexdigest(), source, fmt, str(zone), service], separators=(',', ':'))
+            self.db.execute('CREATE TABLE IF NOT EXISTS checkpoint (id INTEGER PRIMARY KEY CHECK(id=1), identity TEXT NOT NULL, dev INTEGER, inode INTEGER, offset INTEGER NOT NULL, fingerprint TEXT, pending BLOB, pending_key TEXT, pending_end INTEGER, pending_fingerprint TEXT, pending_at REAL, pending_job_id TEXT)')
+            if 'pending_job_id' not in {row[1] for row in self.db.execute('PRAGMA table_info(checkpoint)')}:
+                self.db.execute('ALTER TABLE checkpoint ADD COLUMN pending_job_id TEXT')
+            identity = json.dumps([str(self.path), client.base_url.rstrip('/'), client.api_prefix, hashlib.sha256(client.token.encode()).hexdigest(), source, fmt, str(zone), service] + (['async-confirmed-v1'] if async_mode else []), separators=(',', ':'))
             with self.db:
                 self.db.execute('INSERT OR IGNORE INTO checkpoint(id,identity,offset) VALUES(1,?,0)', (identity,))
             if self.db.execute('SELECT identity FROM checkpoint').fetchone()[0] != identity:
@@ -137,7 +142,7 @@ class Collector:
         self.db.close(); self.lock.close()
 
     def row(self):
-        return self.db.execute('SELECT dev,inode,offset,fingerprint,pending,pending_key,pending_end,pending_fingerprint,pending_at FROM checkpoint').fetchone()
+        return self.db.execute('SELECT dev,inode,offset,fingerprint,pending,pending_key,pending_end,pending_fingerprint,pending_at,pending_job_id FROM checkpoint').fetchone()
 
     @staticmethod
     def fingerprint(f, offset):
@@ -170,14 +175,25 @@ class Collector:
             if stat.S_ISREG(st.st_mode): yield st
 
     def step(self) -> int:
-        dev, inode, offset, fingerprint, pending, key, end, end_hash, created = self.row()
+        dev, inode, offset, fingerprint, pending, key, end, end_hash, created, pending_job_id = self.row()
         if pending is not None:
             # Server receipts expire after 24h. Never silently replay an ambiguous old batch.
-            if time.time() - created >= 23 * 3600 or time.time() < created - 60:
+            if pending_job_id is None and (time.time() - created >= 23 * 3600 or time.time() < created - 60):
                 raise CollectorError('Pending batch exceeded safe retry window; reconcile server receipt manually')
-            self.client.send_body(pending, key)
+            if self.async_mode:
+                # Persist accepted job ID before polling. A crash before this commit is
+                # safe: the original immutable bytes/key are replayed, not regenerated.
+                if pending_job_id is None:
+                    receipt = self.client.send_async_body(pending, key)
+                    pending_job_id = receipt['job_id']
+                    with self.db:
+                        self.db.execute('UPDATE checkpoint SET pending_job_id=? WHERE id=1', (pending_job_id,))
+                self.client.wait_for_job({'job_id': pending_job_id, 'received': len(json.loads(pending)['events'])},
+                                         timeout=self.completion_timeout, poll_interval=self.poll_interval)
+            else:
+                self.client.send_body(pending, key)
             with self.db:
-                self.db.execute('UPDATE checkpoint SET offset=?, fingerprint=?, pending=NULL,pending_key=NULL,pending_end=NULL,pending_fingerprint=NULL,pending_at=NULL WHERE id=1', (end, end_hash))
+                self.db.execute('UPDATE checkpoint SET offset=?, fingerprint=?, pending=NULL,pending_key=NULL,pending_end=NULL,pending_fingerprint=NULL,pending_at=NULL,pending_job_id=NULL WHERE id=1', (end, end_hash))
             return len(json.loads(pending)['events'])
         with self.open_file(dev, inode)[0] as f:
             st = os.fstat(f.fileno())
@@ -253,6 +269,8 @@ def main(argv=None):
     parser.add_argument('--format', choices=['text','jsonl','cajeer-jsonl','nginx-access','nginx-error'], default='text')
     parser.add_argument('--timezone', default='UTC'); parser.add_argument('--service'); parser.add_argument('--rotated-glob')
     parser.add_argument('--batch', type=int, default=50); parser.add_argument('--signed', action='store_true'); parser.add_argument('--once', action='store_true')
+    parser.add_argument('--async', dest='async_mode', action='store_true', help='Commit checkpoint only after job completed')
+    parser.add_argument('--completion-timeout', type=float, default=30); parser.add_argument('--poll-interval', type=float, default=0.5)
     parser.add_argument('--interval', type=float, default=2); parser.add_argument('--api-prefix', default='/api/v1')
     args = parser.parse_args(argv)
     token = os.getenv('CAJEER_TOKEN')
@@ -262,7 +280,7 @@ def main(argv=None):
         nonlocal stopped; stopped = True
     signal.signal(signal.SIGTERM, stop); signal.signal(signal.SIGINT, stop)
     try:
-        collector = Collector(args.file,args.state,CajeerLogsClient(args.url,token,signed=args.signed,api_prefix=args.api_prefix,signing_key_id=os.environ.get("CAJEER_SIGNING_KEY_ID"),hmac_secret=os.environ.get("CAJEER_SIGNING_SECRET")),args.source,args.format,ZoneInfo(args.timezone),args.service,args.rotated_glob,args.batch)
+        collector = Collector(args.file,args.state,CajeerLogsClient(args.url,token,signed=args.signed,api_prefix=args.api_prefix,signing_key_id=os.environ.get("CAJEER_SIGNING_KEY_ID"),hmac_secret=os.environ.get("CAJEER_SIGNING_SECRET")),args.source,args.format,ZoneInfo(args.timezone),args.service,args.rotated_glob,args.batch,args.async_mode,args.completion_timeout,args.poll_interval)
         while not stopped:
             n = collector.step()
             if n > 0: print(f'Committed {n} events',flush=True)

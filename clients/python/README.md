@@ -1,4 +1,4 @@
-# CajeerLogs Python SDK (0.5.7)
+# CajeerLogs Python SDK (0.5.8)
 
 Python 3.10+, без runtime-зависимостей. Из корня репозитория `python3 -m pip install ./clients/python` либо добавьте `clients/python` в PYTHONPATH. Для коллектора требуется Unix/Linux, SQLite и `fcntl`.
 
@@ -28,3 +28,7 @@ cajeer-logs-collector --file /var/log/myapp/app.jsonl --state /var/lib/cajeer-co
 Протокол HMAC, восстановление коллектора, ротация, ограничения и webhook-интеграция: [SDK & Integrations](../../docs/SDK-Integrations.md).
 
 For a self-hosted HTTPS server using a private certificate authority, pass `ca_file="/path/to/ca.pem"` to `CajeerLogsClient`. Certificate and hostname verification remain enabled.
+
+## Асинхронная доставка и восстановление 0.5.8
+
+`ingest_async(events, idempotency_key=...)` возвращает HTTP 202 receipt с `job_id`; это подтверждение постановки задания, **не записи событий**. `wait_for_job(receipt, timeout=30, poll_interval=.5)` проверяет фактическое завершение. `JobPending` оставляет возможность продолжить polling, `JobFailed` означает dead/cancelled. `send_async_body(exact_bytes,key)` позволяет повторить неизменные данные после потери ответа. Для гарантированного восстановления после перезапуска доступен `cajeer_delivery_spool.DurableAsyncSpool` (SQLite, bounded capacity, 0600, exclusive lock). Файловый коллектор поддерживает `--async --completion-timeout 30 --poll-interval .5` и переносит checkpoint только после `completed`. [Подробная процедура](../../docs/SDK-Delivery-Recovery.md).

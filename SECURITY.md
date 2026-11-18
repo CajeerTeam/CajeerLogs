@@ -4,7 +4,9 @@
 
 | Версия | Статус |
 |---|---|
-| 0.5.6 | Backpressure & Admission Control; Public Preview до полного CI |
+| 0.5.8 | Delivery Guarantees & SDK Recovery; Public Preview до полного CI |
+| 0.5.7 | Multi-Project Queue Fairness; предыдущая версия |
+| 0.5.6 | Backpressure & Admission Control; предыдущая версия |
 | 0.5.5 | High-Throughput Batch Ingestion; предыдущая версия |
 | 0.5.4 | Dead-Letter Management; предыдущая версия |
 | 0.4.5 | Rate Limiting & Abuse Protection; обновите до 0.5.6 |

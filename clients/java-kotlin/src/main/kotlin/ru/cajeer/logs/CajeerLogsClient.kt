@@ -22,7 +22,7 @@ import java.io.ByteArrayOutputStream
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
-/** JVM 17+, no external runtime dependencies. Synchronous delivery. */
+/** JVM 17+, no external runtime dependencies. Durable sync and async delivery. */
 data class LogEvent(val source: String, val level: String, val message: String,
     val timestamp: String = Instant.now().truncatedTo(ChronoUnit.MICROS).toString(), val service: String? = null,
     val host: String? = null, val context: Map<String, Any?> = emptyMap(),
@@ -52,6 +52,14 @@ data class LogEvent(val source: String, val level: String, val message: String,
 }
 data class IngestReceipt(val received: Int, val stored: Int, val eventIds: List<String>, val replayed: Boolean)
 class DeliveryException(val status: Int?, val idempotencyKey: String) : IOException("CajeerLogs delivery failed (HTTP ${status ?: "unknown"}); retry same body and key")
+data class AsyncReceipt(val received: Int, val jobId: String, val status: String, val replayed: Boolean)
+data class JobState(val id: String, val status: String, val attempts: Int, val maxAttempts: Int, val eventIds: List<String>?)
+class JobPendingException(val jobId: String) : IOException("Async job $jobId remains unconfirmed")
+class JobFailedException(val jobId: String, val jobStatus: String) : IOException("Async job $jobId reached $jobStatus")
+class JobStatusException(val httpStatus: Int?) : IOException("Job status failed (HTTP ${httpStatus ?: "unknown"})")
+private fun validJobId(value: String): Boolean = value.matches(Regex("[1-9][0-9]{0,18}")) && value.toLongOrNull() != null
+private val JOB_STATES = setOf("pending", "running", "completed", "dead", "cancelled")
+private val EVENT_ID = Regex("[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}")
 
 class CajeerLogsClient @JvmOverloads constructor(baseUrl: String, private val token: String,
     private val signed: Boolean = false, private val timeoutSeconds: Long = 10,
@@ -79,17 +87,29 @@ class CajeerLogsClient @JvmOverloads constructor(baseUrl: String, private val to
         val count = if (parsed.containsKey("events")) (parsed["events"] as? List<*>)?.size ?: 0 else 1
         return send(message, count, idempotencyKey)
     }
-    private fun send(json: String, count: Int, key: String): IngestReceipt {
+    @JvmOverloads fun ingestAsync(event: LogEvent, idempotencyKey: String = nonce()): AsyncReceipt = sendAsync(event.json(), 1, idempotencyKey)
+    @JvmOverloads fun ingestAsync(events: List<LogEvent>, idempotencyKey: String = nonce()): AsyncReceipt = sendAsync(events.joinToString(",", "{\"events\":[", "]}") { it.json() }, events.size, idempotencyKey)
+    @JvmOverloads fun ingestAsync(message: String, idempotencyKey: String = nonce()): AsyncReceipt {
+        val parsed = Json.parse(message) as? Map<*, *> ?: throw IllegalArgumentException("Expected event object")
+        val count = if (parsed.containsKey("events")) (parsed["events"] as? List<*>)?.size ?: 0 else 1
+        return sendAsync(message, count, idempotencyKey)
+    }
+    /** Replay exact UTF-8 bytes and the original key after an ambiguous network result. */
+    fun sendAsyncBody(body: String, idempotencyKey: String): AsyncReceipt = ingestAsync(body, idempotencyKey)
+    private fun sendAsync(json: String, count: Int, key: String): AsyncReceipt = post(json,count,key,true) as AsyncReceipt
+    private fun send(json: String, count: Int, key: String): IngestReceipt = post(json,count,key,false) as IngestReceipt
+    private fun post(json: String, count: Int, key: String, asyncMode: Boolean): Any {
         val body = json.toByteArray(UTF_8)
         require(count in 1..100 && body.size <= 1048576 && key.matches(Regex("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}"))) { "Invalid body or idempotency key" }
+        val url = if (asyncMode) URI(endpoint.toString() + "/async") else endpoint
         repeat(attempts) { attempt ->
-            val request = HttpRequest.newBuilder(endpoint).timeout(Duration.ofSeconds(timeoutSeconds))
+            val request = HttpRequest.newBuilder(url).timeout(Duration.ofSeconds(timeoutSeconds))
                 .header("Authorization", "Bearer $token").header("Content-Type", "application/json").header("Idempotency-Key", key)
             if (signed || signingKeyId != null) {
                 val ts = Instant.now().epochSecond.toString(); val nonce = nonce()
                 val prefix = if (signingKeyId == null) listOf("cajeerlogs-ingest-v1") else listOf("cajeerlogs-ingest-v2", signingKeyId)
                 if (signingKeyId != null) request.header("X-Log-Key-Id", signingKeyId)
-                val canonical = (prefix + listOf("POST", endpoint.path, ts, nonce, key, hex(MessageDigest.getInstance("SHA-256").digest(body)))).joinToString("\n")
+                val canonical = (prefix + listOf("POST", url.path, ts, nonce, key, hex(MessageDigest.getInstance("SHA-256").digest(body)))).joinToString("\n")
                 val mac = Mac.getInstance("HmacSHA256").apply { init(SecretKeySpec((signingSecret ?: token).toByteArray(UTF_8), "HmacSHA256")) }
                 request.header("X-Log-Timestamp", ts).header("X-Log-Nonce", nonce).header("X-Log-Signature", hex(mac.doFinal(canonical.toByteArray(UTF_8))))
             }
@@ -104,12 +124,20 @@ class CajeerLogsClient @JvmOverloads constructor(baseUrl: String, private val to
                 status = response.statusCode()
                 val retry = response.headers().firstValue("Retry-After").orElse("").toLongOrNull()
                 if (retry != null && retry >= 0) wait = maxOf(wait, minOf(retry, 31) * 1000)
-                if (status in listOf(200, 201) && response.body().size <= 65536) {
+                if (status in listOf(200, if (asyncMode) 202 else 201) && response.body().size <= 65536) {
                     val r = Json.parse(String(response.body(), UTF_8)) as? Map<*, *>
-                    val ids = r?.get("event_ids") as? List<*>
                     val replay = status == 200
-                    if (r?.get("accepted") == true && r["received"] == count.toLong() && r["stored"] == (if (replay) 0L else count.toLong()) && r["rejected"] == 0L && r["replayed"] == replay && ids != null && ids.size == count && ids.all { it is String && it.matches(Regex("[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}")) } && ids.toSet().size == count) {
-                        return IngestReceipt(count, if (replay) 0 else count, ids.map { it as String }, replay)
+                    if (asyncMode) {
+                        val id = r?.get("job_id") as? String
+                        val state = r?.get("status") as? String
+                        if (r?.get("accepted") == true && r["received"] == count.toLong() && r["replayed"] == replay && id != null && validJobId(id) && state in JOB_STATES) {
+                            return AsyncReceipt(count, id, state!!, replay)
+                        }
+                    } else {
+                        val ids = r?.get("event_ids") as? List<*>
+                        if (r?.get("accepted") == true && r["received"] == count.toLong() && r["stored"] == (if (replay) 0L else count.toLong()) && r["rejected"] == 0L && r["replayed"] == replay && ids != null && ids.size == count && ids.all { it is String && it.matches(EVENT_ID) } && ids.toSet().size == count) {
+                            return IngestReceipt(count, if (replay) 0 else count, ids.map { it as String }, replay)
+                        }
                     }
                 }
             } catch (_: IOException) { /* unknown outcome: same bytes and key */ }
@@ -119,6 +147,56 @@ class CajeerLogsClient @JvmOverloads constructor(baseUrl: String, private val to
         }
         error("Unreachable")
     }
+    /** Job lookup never follows redirects and validates committed event IDs. */
+    @JvmOverloads fun jobStatus(id: String, expectedCount: Int? = null): JobState {
+        require(validJobId(id) && (expectedCount == null || expectedCount in 1..100)) { "Invalid job ID or count" }
+        val url = URI(endpoint.toString() + "/jobs/" + id)
+        val request = HttpRequest.newBuilder(url).timeout(Duration.ofSeconds(timeoutSeconds))
+            .header("Authorization", "Bearer $token").GET().build()
+        val response = try {
+            val future = client.sendAsync(request, HttpResponse.BodyHandler { LimitedBody() })
+            try { future.get(timeoutSeconds, TimeUnit.SECONDS) }
+            catch(e: TimeoutException) { future.cancel(true); throw JobStatusException(null) }
+            catch(e: ExecutionException) { throw JobStatusException(null) }
+            catch(e: InterruptedException) { future.cancel(true); throw e }
+        } catch(e: IOException) { throw JobStatusException(null) }
+        if (response.statusCode() != 200) throw JobStatusException(response.statusCode())
+        val row = try { Json.parse(String(response.body(), UTF_8)) as? Map<*, *> } catch(e: IllegalArgumentException) { null }
+        val status = row?.get("status") as? String
+        val attempts = row?.get("attempts") as? Long
+        val maximum = row?.get("max_attempts") as? Long
+        require(row?.get("id") == id && status in JOB_STATES && attempts != null && maximum != null && attempts >= 0 && maximum >= 1 && attempts <= maximum && maximum <= Int.MAX_VALUE) { "Invalid job status" }
+        val result = row["result"]
+        val ids = if (status == "completed") {
+            val r = result as? Map<*, *> ?: throw IllegalArgumentException("Missing completed job result")
+            val list = r["event_ids"] as? List<*> ?: throw IllegalArgumentException("Missing event IDs")
+            require(list.size in 1..100 && r["stored"] == list.size.toLong() && (expectedCount == null || list.size == expectedCount)
+                && list.all { it is String && it.matches(EVENT_ID) } && list.toSet().size == list.size) { "Invalid completed job result" }
+            list.map { it as String }
+        } else {
+            require(result == null) { "Unexpected unfinished job result" }
+            null
+        }
+        return JobState(id, status!!, attempts.toInt(), maximum.toInt(), ids)
+    }
+    /** A timeout preserves the accepted job ID. Never submit another job automatically. */
+    @JvmOverloads fun waitForJob(receipt: AsyncReceipt, timeoutMillis: Long = 30000, pollMillis: Long = 500): JobState {
+        require(validJobId(receipt.jobId) && receipt.received in 1..100 && timeoutMillis in 1..3600000 && pollMillis in 50..30000) { "Invalid polling limits" }
+        val deadline = System.nanoTime() + timeoutMillis * 1000000
+        while (true) {
+            try {
+                val state = jobStatus(receipt.jobId, receipt.received)
+                if (state.status == "completed") return state
+                if (state.status in setOf("dead", "cancelled")) throw JobFailedException(receipt.jobId, state.status)
+            } catch(e: JobStatusException) {
+                if (e.httpStatus != null && e.httpStatus !in listOf(408,429,500,502,503,504)) throw e
+            }
+            val remaining = (deadline - System.nanoTime()) / 1000000
+            if (remaining <= 0) throw JobPendingException(receipt.jobId)
+            Thread.sleep(minOf(pollMillis, remaining))
+        }
+    }
+
 }
 
 /** Small bounded JSON codec for the SDK's wire format. */

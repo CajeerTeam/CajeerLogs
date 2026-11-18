@@ -1,13 +1,13 @@
-import { levels, state, projectPath, active, render, hasPermission } from '../app/store.js?v=0.5.7';
-import { h, button, card, field, input, select, date, message, notify, form, heading, needProject, clearModal } from '../components/ui.js?v=0.5.7';
-import { projectSelector } from '../app/projects.js?v=0.5.7';
-import { logTable } from '../components/log-table.js?v=0.5.7';
-import { columns, defaultLayout, normalizeLayout, moveColumn, pageChanged } from '../app/explorer.js?v=0.5.7';
-import { request, get } from '../api/client.js?v=0.5.7';
+import { levels, state, projectPath, active, render, hasPermission } from '../app/store.js?v=0.5.8';
+import { h, button, card, field, input, select, date, message, notify, form, heading, needProject, clearModal } from '../components/ui.js?v=0.5.8';
+import { projectSelector } from '../app/projects.js?v=0.5.8';
+import { logTable } from '../components/log-table.js?v=0.5.8';
+import { columns, defaultLayout, normalizeLayout, moveColumn, pageChanged } from '../app/explorer.js?v=0.5.8';
+import { request, get } from '../api/client.js?v=0.5.8';
 
-import { filterBuilder } from '../components/filter-builder.js?v=0.5.7';
-import { savedViews } from '../components/saved-views.js?v=0.5.7';
-import { queryFilters as buildQuery } from '../app/filters.js?v=0.5.7';
+import { filterBuilder } from '../components/filter-builder.js?v=0.5.8';
+import { savedViews } from '../components/saved-views.js?v=0.5.8';
+import { queryFilters as buildQuery } from '../app/filters.js?v=0.5.8';
 function queryFilters() { return buildQuery(state.filters,state.project); }
 function logPager(query, signal, epoch) {
     const signature = JSON.stringify(query), project = state.project;

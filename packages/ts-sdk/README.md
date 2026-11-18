@@ -1,4 +1,4 @@
-# CajeerLogs TypeScript SDK 0.5.7
+# CajeerLogs TypeScript SDK 0.5.8
 
 Node.js 20+ (рекомендуется 22 LTS), ESM, нативные fetch и Web Crypto, без runtime-зависимостей. Из корня репозитория:
 
@@ -18,3 +18,7 @@ console.log(receipt.event_ids)
 ```
 
 Single/batch (до 100), typed receipt, timeout, retry/backoff, HMAC и redirect prevention. `DeliveryError` содержит `status` и `idempotencyKey`. Для повторения сохраняйте тот же сериализуемый payload, порядок ключей и Idempotency-Key. [SDK & Integrations](../../docs/SDK-Integrations.md).
+
+## Async delivery 0.5.8
+
+`await client.ingestAsync(events, key)` возвращает durable `AsyncDeliveryReceipt`; после 202 используйте `await client.waitForJob(receipt, 30000, 500)` до фактического `completed` с уникальными event IDs. `sendAsyncBody(exactJson,key)` повторяет только неизменные байты и ключ при неопределённом результате POST, `jobStatus(id,count)` возобновляет статус. `JobPendingError` и `JobFailedError` нельзя трактовать как успешную запись. Для переживания перезапуска приложения сохраняйте body/key или receipt в собственном защищённом outbox. [Подробности](../../docs/SDK-Delivery-Recovery.md).
