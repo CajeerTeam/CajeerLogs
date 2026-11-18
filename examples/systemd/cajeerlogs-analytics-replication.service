@@ -1,0 +1,21 @@
+[Unit]
+Description=CajeerLogs durable PostgreSQL to ClickHouse replication batch
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=cajeerlogs
+Group=cajeerlogs
+WorkingDirectory=/srv/cajeerlogs
+EnvironmentFile=/srv/cajeerlogs/.env
+ExecStart=/usr/bin/php /srv/cajeerlogs/bin/cajeer analytics:replication drain 100 25
+TimeoutStartSec=90
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/cajeerlogs/storage
+
+[Install]
+WantedBy=multi-user.target

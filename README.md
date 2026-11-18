@@ -1,3 +1,7 @@
+## 0.7.2 — Reliable Analytics Replication
+
+Optional **working** PostgreSQL→ClickHouse transactional outbox, versioned analytics mirror, retry after ambiguous responses, lease recovery, per-project replay and resumable backfill. Captures inserts, redactions and deletes; see [replication operator guide](docs/Reliable-Analytics-Replication.md). The ClickHouse mirror is not yet used by the primary PostgreSQL Explorer, and this `public-preview` release requires actual database certification before production use.
+
 ## 0.7.1 — ClickHouse Integration Core
 
 Optional working ClickHouse HTTP adapter with safe project-scoped analytics, migration checksums, operator CLI, and isolated production Compose service. PostgreSQL remains the durable ingestion database; ClickHouse replication is **not** automatic in 0.7.1. See [ClickHouse operations](docs/ClickHouse.md). The `public-preview` release requires real ClickHouse CI verification.

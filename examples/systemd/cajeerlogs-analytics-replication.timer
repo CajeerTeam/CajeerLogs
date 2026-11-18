@@ -1,0 +1,12 @@
+[Unit]
+Description=Run CajeerLogs ClickHouse replication regularly
+
+[Timer]
+OnBootSec=20s
+OnUnitInactiveSec=3s
+AccuracySec=1s
+Unit=cajeerlogs-analytics-replication.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

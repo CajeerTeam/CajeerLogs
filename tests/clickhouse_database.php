@@ -12,7 +12,7 @@ function check(bool $pass,string $name):void {global $n;if (!$pass) throw new Ru
 function rejected(callable $f):bool {try{$f();}catch(InvalidArgumentException $e){return true;}return false;}
 $migrator=new ClickHouseMigrator($client,dirname(__DIR__).'/migrations/clickhouse');
 $first=$migrator->migrate();$second=$migrator->migrate();
-check(count($second['skipped'])===2 && $second['applied']===[],'repeatable migrations with SHA-256 history');
+check(count($second['skipped'])===3 && $second['applied']===[],'repeatable migrations with SHA-256 history');
 check(($store->ping()['version']??'')!=='','real ClickHouse HTTP connectivity');
 $id=static fn()=>sprintf('%08x-%04x-4%03x-a%03x-%012x',random_int(1,2147483647),random_int(0,65535),random_int(0,4095),random_int(0,4095),random_int(1,2147483647));
 $a=$id();$b=$id();$source=$id();$when=gmdate('Y-m-d\TH:i:s\Z');

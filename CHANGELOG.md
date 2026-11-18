@@ -1,3 +1,11 @@
+## 0.7.2 — Reliable Analytics Replication (public-preview)
+
+- PostgreSQL statement-level insert/update/delete triggers atomically upsert event revisions into a durable outbox (migration 0028), with scoped progress table for resumable existing-data backfill.
+- Leased PostgreSQL worker with bounded ClickHouse JSONEachRow batching, exponential retry, dead-letter status, revision CAS acknowledgement, recovery after crashes and operator replay.
+- ClickHouse migration 0003 creates versioned/tombstone-aware `replicated_log_events`, with `FINAL` project-scoped aggregations that are logically idempotent after lost responses and deletes.
+- Operator CLI: `analytics:replication status|work|drain|backfill|replay|aggregate|compare`, examples for systemd service/timer and operational guidance.
+- CI exercises PostgreSQL and ClickHouse together on the unpacked release ZIP. This does not constitute local certification; runtime remains public-preview until verified.
+
 ## 0.7.1 — ClickHouse Integration Core (public-preview)
 
 - Replaced the ClickHouse no-op adapter with a real bounded HTTP transport (TLS and CA verification, deadline, no redirects, bounded results, server-side typed bind parameters, scoped aggregation and JSONEachRow writes).

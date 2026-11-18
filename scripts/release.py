@@ -94,6 +94,12 @@ REQUIRED.update({'core/Analytics/ClickHouseHttpClient.php','core/Analytics/Click
                  'migrations/clickhouse/0001_logs.sql','migrations/clickhouse/0002_legacy_scope.sql',
                  'tests/clickhouse_http.py','tests/clickhouse_database.php','docs/ClickHouse.md'})
 
+REQUIRED.update({'core/Analytics/AnalyticsReplicator.php','core/Console/Command/AnalyticsReplicationCommand.php',
+                 'migrations/pgsql/0028_analytics_replication.sql','migrations/clickhouse/0003_replicated_logs.sql',
+                 'tests/analytics_replication_database.php','tests/analytics_replication.php',
+                 'docs/Reliable-Analytics-Replication.md','examples/systemd/cajeerlogs-analytics-replication.service',
+                 'examples/systemd/cajeerlogs-analytics-replication.timer'})
+
 REQUIRED.update({'packages/ts-sdk/src/durable.ts', 'packages/ts-sdk/test/durable.test.mjs',
                  'packages/ts-sdk/test/process.mjs', 'docs/TypeScript-SDK-Stable.md'})
 

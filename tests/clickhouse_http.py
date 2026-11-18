@@ -46,10 +46,15 @@ with socketserver.TCPServer(('127.0.0.1',0),Server) as server:
     $c=new \Cajeer\Logs\Analytics\ClickHouseHttpClient(['dsn'=>getenv('CLICKHOUSE_DSN'),'database'=>'cajeer_logs','username'=>'test','password'=>'secret','allow_insecure'=>true,'timeout_seconds'=>3]);
     $m=new \Cajeer\Logs\Analytics\ClickHouseMigrator($c,getenv('TEST_ROOT').'/migrations/clickhouse');
     $one=$m->migrate();$two=$m->migrate();
-    if (count($one['applied'])!==2 || count($two['skipped'])!==2) throw new Exception('migration replay');
+    if (count($one['applied'])!==3 || count($two['skipped'])!==3) throw new Exception('migration replay');
     $s=new \Cajeer\Logs\Analytics\ClickHouseAnalyticsStore($c);
     $a='11111111-1111-4111-8111-111111111111';$b='22222222-2222-4222-8222-222222222222';
     $s->record(['id'=>$a,'project_id'=>$b,'source_id'=>$a,'occurred_at'=>'2026-11-18T09:00:00Z','received_at'=>'2026-11-18T09:00:00Z','source'=>'unit','level'=>'info','message'=>'hello','context'=>['safe'=>1]]);
+    $replica=new \Cajeer\Logs\Analytics\ClickHouseAnalyticsStore($c,true);
+    $replicated=['id'=>$a,'project_id'=>$b,'source_id'=>$a,'occurred_at'=>'2026-11-18T09:00:00Z','received_at'=>'2026-11-18T09:00:00Z','source'=>'unit','level'=>'info','message'=>'new version','context'=>['safe'=>1],'revision'=>4,'deleted'=>0];
+    $replica->record($replicated);
+    $replica->record(array_replace($replicated,['revision'=>5,'deleted'=>1,'message'=>'']));
+    $replica->aggregate(['project_id'=>$b,'from'=>'2026-11-18T00:00:00Z','to'=>'2026-11-19T00:00:00Z']);
     $result=$s->aggregate(['project_id'=>$b,'service'=>"x' OR 1=1 --",'from'=>'2026-11-18T00:00:00Z','to'=>'2026-11-19T00:00:00Z']);
     if ($result['total']!==0) throw new Exception('unexpected result');
     try{$s->aggregate([]);throw new Exception('missing project permitted');}catch(InvalidArgumentException){}
@@ -62,11 +67,17 @@ with socketserver.TCPServer(('127.0.0.1',0),Server) as server:
         r=subprocess.run(['php',str(script)],env=env,capture_output=True,text=True,timeout=30)
         if r.returncode: raise RuntimeError(r.stdout+'\n'+r.stderr)
         print(r.stdout.strip())
-    assert len(state['versions'])==2
-    assert len(state['records'])==1 and state['records'][0]['project_id']=='22222222-2222-4222-8222-222222222222'
+    assert len(state['versions'])==3
+    assert len(state['records'])==3 and state['records'][0]['project_id']=='22222222-2222-4222-8222-222222222222'
     assert state['records'][0]['context']=='{"safe":1}'
     scope=[(sql,p) for sql,p,*_ in state['queries'] if 'FROM `cajeer_logs`.`log_events`' in sql]
     assert scope and all('{project_id:UUID}' in sql and p['param_project_id']==['22222222-2222-4222-8222-222222222222'] and p['param_service']==["x' OR 1=1 --"] for sql,p in scope)
     assert all(user=='test' and key=='secret' for _,_,user,key in state['queries'])
     assert all(p['readonly']==['1'] for sql,p,*_ in state['queries'] if sql.startswith('SELECT'))
     print('ClickHouse HTTP integration assertions passed')
+
+    replica_rows=[r for r in state['records'] if 'revision' in r]
+    assert [r['revision'] for r in replica_rows]==[4,5] and [r['deleted'] for r in replica_rows]==[0,1]
+    replica_queries=[(sql,p) for sql,p,*_ in state['queries'] if 'replicated_log_events' in sql and sql.startswith('SELECT')]
+    assert replica_queries and all('FINAL' in sql and 'deleted=0' in sql and p['param_project_id']==['22222222-2222-4222-8222-222222222222'] for sql,p in replica_queries)
+    print('Versioned replica HTTP/FINAL/tombstone assertions passed')

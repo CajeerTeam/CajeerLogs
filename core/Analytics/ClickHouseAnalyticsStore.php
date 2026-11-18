@@ -8,7 +8,7 @@ use Cajeer\Logs\Log\LogQuery;
 /** Live ClickHouse ingestion and project-scoped analytics; no implicit dual-write. */
 final class ClickHouseAnalyticsStore implements AnalyticsStoreInterface
 {
-    public function __construct(private readonly ClickHouseHttpClient $http) {}
+    public function __construct(private readonly ClickHouseHttpClient $http, private readonly bool $replicated=false) {}
 
     public function record(array $event): void { $this->recordBatch([$event]); }
 
@@ -16,6 +16,7 @@ final class ClickHouseAnalyticsStore implements AnalyticsStoreInterface
     {
         if ($events===[] || count($events)>100) throw new \InvalidArgumentException('Expected 1..100 events.');
         $columns=['id','project_id','source_id','occurred_at','received_at','source','service','host','level','message','context','trace_id','request_id','tags'];
+        if ($this->replicated) $columns=[...$columns,'revision','deleted'];
         $rows=[];
         foreach ($events as $event) {
             foreach (['id','project_id','source_id'] as $key) $event[$key]=self::uuid($event[$key]??null);
@@ -34,6 +35,11 @@ final class ClickHouseAnalyticsStore implements AnalyticsStoreInterface
             if (!is_array($tags) || !array_is_list($tags) || count($tags)>32) throw new \InvalidArgumentException('Invalid tags.');
             foreach ($tags as $tag) if (!is_string($tag) || strlen($tag)>128) throw new \InvalidArgumentException('Invalid tag.');
             $event['tags']=$tags;
+            if ($this->replicated) {
+                $revision=filter_var($event['revision']??null,FILTER_VALIDATE_INT,['options'=>['min_range'=>1]]);
+                if ($revision===false || !in_array($event['deleted']??null,[0,1],true)) throw new \InvalidArgumentException('Replica event requires revision and deleted flag.');
+                $event['revision']=$revision;
+            }
             $rows[]=array_intersect_key($event,array_flip($columns));
         }
         foreach ($rows as &$row) {
@@ -42,7 +48,7 @@ final class ClickHouseAnalyticsStore implements AnalyticsStoreInterface
                 $row[$name]=(new \DateTimeImmutable($row[$name]))->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i:s.v');
             }
         } unset($row);
-        $this->http->insert('log_events',$rows,$columns);
+        $this->http->insert($this->replicated?'replicated_log_events':'log_events',$rows,$columns);
     }
 
     public function aggregate(array $filters=[]): array
@@ -72,7 +78,12 @@ final class ClickHouseAnalyticsStore implements AnalyticsStoreInterface
             if ($field==='level' && !in_array($value,LogQuery::LEVELS,true)) throw new \InvalidArgumentException('Invalid level.');
             $where.=' AND '.$field.'={'.$field.':'.$type.'}';$params[$field]=$value;
         }
-        $table=$this->http->qualified('log_events');
+        $table=$this->http->qualified($this->replicated?'replicated_log_events':'log_events');
+        if ($this->replicated) {
+            // FINAL must precede the deleted filter: tombstone wins over old rows.
+            $table='(SELECT * FROM '.$table.' FINAL WHERE project_id={project_id:UUID})';
+            $where.=' AND deleted=0';
+        }
         $result=['total'=>0,'by_level'=>array_fill_keys(LogQuery::LEVELS,0),'by_source'=>[],
             'source_count'=>0,'sources_truncated'=>false,'by_service'=>[],'by_host'=>[],'buckets'=>[],
             'interval'=>$interval,'from'=>$from,'to'=>$to];

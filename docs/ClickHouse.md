@@ -1,6 +1,6 @@
 # ClickHouse Integration Core — 0.7.1
 
-ClickHouse is an **optional analytics engine**, not the canonical log database. PostgreSQL ingestion, the queue, search, exports, and existing Dashboard retain their behavior. **0.7.1 does not perform dual-write or PostgreSQL→ClickHouse replication**; that requires a durable outbox and replay in 0.7.2. Operators can insert validated records using the PHP SDK or the CLI.
+ClickHouse is an **optional analytics engine**, not the canonical log database. PostgreSQL ingestion, the queue, search, exports, and existing Dashboard retain their behavior. **0.7.1 does not perform dual-write or PostgreSQL→ClickHouse replication**; 0.7.2 provides an opt-in durable outbox and replay on a separate replicated table. Operators can insert validated records using the PHP SDK or the CLI.
 
 ## Configure and operate
 
@@ -26,3 +26,5 @@ Example filters: `{"project_id":"11111111-1111-4111-8111-111111111111","from":"2
 Never query a project without its authenticated UUID; every aggregate statement includes a project filter. Database authentication and authorization remain essential: choose read-only credentials for analytics and separate writer/admin credentials for manual records/migration. The application supplies only fixed SQL strings and validates filter values before passing them as HTTP-bound parameters. TLS certificate verification and hostname verification are mandatory for HTTPS. HTTP redirects are disabled, requests have a finite timeout, and responses are capped at 2 MiB. Database credentials must be stored in private environment configuration.
 
 Health checking, schema creation, actual HTTP insert and aggregate are tested by `tests/clickhouse_database.php` against a live ClickHouse instance in CI; the independent `tests/clickhouse_http.py` mock checks parameter binding, HTTP errors and failure handling without requiring Docker. No performance or durable-replication claim is made for this stage.
+
+In 0.7.2, use `analytics:replication` for automatic PostgreSQL to ClickHouse transfer and backfill. See [Reliable Analytics Replication](Reliable-Analytics-Replication.md).
