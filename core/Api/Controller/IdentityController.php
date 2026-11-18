@@ -763,7 +763,9 @@ final class IdentityController
     private function sourceStats(Request $r,array $p): Response
     {
         $project=$this->id($r,'project'); $source=$this->id($r,'source'); $this->allow($p,$p['kind']==='token'?'logs:read':'projects:read',$project,$source);
-        return new JsonResponse((new SourceRepository($this->pdo))->statistics($project,$source));
+        $threshold=filter_var($r->query['idle_minutes']??60,FILTER_VALIDATE_INT,['options'=>['min_range'=>1,'max_range'=>10080]]);
+        if ($threshold===false) self::invalid('Invalid idle_minutes parameter.');
+        return new JsonResponse((new SourceRepository($this->pdo))->statistics($project,$source,(int)$threshold),200,['Cache-Control'=>'no-store']);
     }
     private function redactionSystemGet(Request $r,array $p): Response { return $this->redactionGet($r,$p); }
     private function redactionSystemSet(Request $r,array $p): Response { return $this->redactionSet($r,$p); }

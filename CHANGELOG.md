@@ -1,3 +1,9 @@
+## 0.7.4 — Source Statistics & Health (public-preview)
+
+- Added real, project-scoped PostgreSQL minute counters for accepted and policy-rejected events, transactionally updated by ingestion; idempotency replays and aborted transactions are not double-counted.
+- Extended source statistics with bounded throughput windows, rejection ratios, hourly history, sampled error and delay measurements, and activity classification (not a network health probe).
+- Updated Admin Panel monitoring, OpenAPI, scheduler cleanup, backup/upgrade compatibility and database tests; new migration `0030_source_ingestion_monitoring.sql`.
+
 ## 0.7.3 — Aggregation Engine (public-preview)
 
 - Production PostgreSQL minute aggregation engine with statement-level, transactionally updated counters and a per-event state ledger. Event updates, redactions, deletes and rollback change counts precisely once; ClickHouse replay does not double-count.

@@ -27,11 +27,11 @@ final class SourcePolicyStatement extends PDOStatement {
     public function fetchColumn(int $column=0):mixed{return $this->db->quota;}
 }
 $db=new SourcePolicyPDO();$repo=new Sources($db);$other='22222222-2222-4222-8222-222222222222';$active=['status'=>'active','max_body_bytes'=>null,'max_batch_events'=>null,'events_per_minute'=>null];$db->rows=[$id=>$active,$other=>$active];
-$repo->admit($id,[$other=>1,$id=>2],100);check(array_column(json_decode($db->calls[0][1]['batch'],true),'id')===[$id,$other]&&str_contains($db->calls[0][0],'ORDER BY s.id FOR UPDATE')&&count($db->calls)===2,'source locks ordered deterministically');check(json_decode($db->calls[1][1]['batch'],true)[0]['events']===2&&str_contains($db->calls[1][0],'accepted_events_total'),'accepted counter uses source event count');
+$repo->admit($id,[$other=>1,$id=>2],100);check(array_column(json_decode($db->calls[0][1]['batch'],true),'id')===[$id,$other]&&str_contains($db->calls[0][0],'ORDER BY s.id FOR UPDATE')&&count($db->calls)===3,'source locks ordered deterministically');check(json_decode($db->calls[1][1]['batch'],true)[0]['events']===2&&str_contains($db->calls[1][0],'accepted_events_total')&&str_contains($db->calls[2][0],'source_ingest_minutes'),'accepted counter and time bucket use source event count');
 $db->calls=[];$db->rows[$id]['status']='disabled';check(fails(fn()=>$repo->admit($id,[$id=>1],100),409)&&count($db->calls)===1,'disabled admission rejects before counters');
 $db->rows[$id]=array_replace($active,['max_body_bytes'=>1024]);check(fails(fn()=>$repo->admit($id,[$id=>1],1025),413),'source body limit enforced');
 $db->rows[$id]=array_replace($active,['max_batch_events'=>1]);check(fails(fn()=>$repo->admit($id,[$id=>2],100),413),'source event limit enforced');
 $db->rows[$id]=array_replace($active,['events_per_minute'=>1]);check(fails(fn()=>$repo->admit($id,[$id=>2],100),429),'batch exceeding quota rejected');
 $db->quota=false;check(fails(fn()=>$repo->admit($id,[$id=>1],100),429),'shared quota refusal propagated');
-$db->calls=[];$repo->recordPolicyRejection($id,[$id=>2]);check(str_contains($db->calls[0][0],'ORDER BY s.id FOR UPDATE')&&str_contains($db->calls[1][0],'rejected_events_total')&&json_decode($db->calls[1][1]['batch'],true)[0]['events']===2,'policy rejection telemetry separate from acceptance');
+$db->calls=[];$repo->recordPolicyRejection($id,[$id=>2]);check(str_contains($db->calls[0][0],'ORDER BY s.id FOR UPDATE')&&str_contains($db->calls[1][0],'rejected_events_total')&&json_decode($db->calls[1][1]['batch'],true)[0]['events']===2&&str_contains($db->calls[2][0],'source_ingest_minutes'),'policy rejection telemetry separate from acceptance');
 echo "Source Management: $n checks passed\n";

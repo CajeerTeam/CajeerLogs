@@ -1,14 +1,14 @@
-import { roles, state, projectPath, admin, manage, hasPermission, active, render, selectProject } from '../app/store.js?v=0.7.3';
-import { h, button, card, field, input, select, badge, date, enc, message, notify, modalEpoch, clearModal, modal, form, heading, needProject, table } from '../components/ui.js?v=0.7.3';
-import { loadProjects, projectSelector } from '../app/projects.js?v=0.7.3';
-import { assignmentDialog } from './rbac.js?v=0.7.3';
-import { directoryPicker } from './users.js?v=0.7.3';
-import { pagedList } from '../components/pagination.js?v=0.7.3';
-import { nameFields, nameBody, mutationSuccess, confirmAction } from '../components/mutations.js?v=0.7.3';
-import { get, write } from '../api/client.js?v=0.7.3';
-import { sourceHealth } from '../app/analytics.js?v=0.7.3';
-import { effectivePolicy, testPayload } from '../app/source-connection.js?v=0.7.3';
-import { onboarding, verifyConnection, openSourceLogs } from '../components/source-onboarding.js?v=0.7.3';
+import { roles, state, projectPath, admin, manage, hasPermission, active, render, selectProject } from '../app/store.js?v=0.7.4';
+import { h, button, card, field, input, select, badge, date, enc, message, notify, modalEpoch, clearModal, modal, form, heading, needProject, table } from '../components/ui.js?v=0.7.4';
+import { loadProjects, projectSelector } from '../app/projects.js?v=0.7.4';
+import { assignmentDialog } from './rbac.js?v=0.7.4';
+import { directoryPicker } from './users.js?v=0.7.4';
+import { pagedList } from '../components/pagination.js?v=0.7.4';
+import { nameFields, nameBody, mutationSuccess, confirmAction } from '../components/mutations.js?v=0.7.4';
+import { get, write } from '../api/client.js?v=0.7.4';
+import { sourceHealth } from '../app/analytics.js?v=0.7.4';
+import { effectivePolicy, testPayload } from '../app/source-connection.js?v=0.7.4';
+import { onboarding, verifyConnection, openSourceLogs } from '../components/source-onboarding.js?v=0.7.4';
 
 const canConnect=()=>hasPermission('tokens:create')&&hasPermission('tokens:signing')&&hasPermission('logs:write')&&hasPermission('logs:read');
 const sourceTypes = [['application','Приложение'],['server','Сервер'],['nginx','Nginx'],['aapanel','aaPanel'],['custom','Другой']];
@@ -64,13 +64,44 @@ function projectDirectory(signal,epoch) {
     function show(){box.replaceChildren(pagedList({path:'/projects',query:{limit:25,...cfg},signal,epoch,headers:['Проект','Slug / UUID','Статус','Доступ',''],rows:p=>[p.name,h('div',{},p.slug,h('div',{},h('code',{},p.id))),badge(p.status==='archived'?'Архивный':'Активный'),roles[p.effective_role]||p.effective_role||'—',button('Выбрать проект',async e=>{const b=e.currentTarget;b.disabled=true;try{const selected=await get('/projects/'+enc(p.id),{},signal);if(!active(epoch)||signal.aborted)return;state.projects=[...state.projects.filter(x=>x.id!==selected.id),selected];selectProject(selected.id);await render();}catch(err){if(active(epoch)&&err.name!=='AbortError')notify(err.message);}finally{b.disabled=false;}},'',{disabled:p.id===state.project})]}));}
     show();return card(h('h2',{},'Каталог проектов'),form('Найти проекты',[field('Поиск проектов',input('q',{value:cfg.q,maxlength:255,placeholder:'Имя, slug или UUID'})),field('Статус проекта',select('status',[['all','Все'],['active','Активные'],['archived','Архивные']],cfg.status))],async d=>{Object.assign(cfg,{q:String(d.get('q')),status:String(d.get('status'))});show();}),box);
 }
+function sourceMonitoringView(m) {
+    if(!m) return h('p',{class:'muted'},'Мониторинг приёма недоступен.');
+    const labels={receiving:'Недавно принимал',idle:'Нет недавних поступлений',never_received:'Нет поступлений',disabled:'Отключён',archived:'Архивный',unknown:'Неизвестно'};
+    const health=m.health||{};
+    const hourly=Array.isArray(m.hourly)?m.hourly:[];
+    const max=Math.max(1,...hourly.map(x=>Number(x.accepted)+Number(x.rejected)));
+    const values=[
+        ['Наблюдаемая активность',labels[health.state]||health.state||'—'],
+        ['Порог отсутствия поступлений',String(health.idle_threshold_minutes)+' мин'],
+        ['Секунд с последнего приёма',health.seconds_since_last_admission??'Нет данных'],
+        ['Принято / отклонено (60 минутных интервалов)',`${m.accepted_60m} / ${m.rejected_60m}`],
+        ['Принято / отклонено (1440 минутных интервалов)',`${m.accepted_24h} / ${m.rejected_24h}`],
+        ['Доля отклонений, 24 ч',`${m.rejection_percent_24h}%`],
+        ['Средняя скорость за 60 мин',`${m.avg_accepted_per_minute_60m} событий/мин`],
+        ['Пик за минуту, принятые',m.peak_accepted_per_minute],
+        ['События в выборке сохранённых',m.recent_stored_sample?.size??'—'],
+        ['Ошибки в выборке',m.recent_stored_sample?.errors??'—'],
+        ['Задержка приёма p95, выборка',m.recent_stored_sample?.p95_delay_ms==null?'Нет данных':m.recent_stored_sample.p95_delay_ms+' мс'],
+        ['Замер доступен с',date(m.tracked_since)],
+    ];
+    return h('section',{},h('h3',{},'Мониторинг приёма'),
+        h('p',{class:'muted'},'Данные активности отражают успешные admission, а не проверку доступности приложения. Отклонения учитывают только аутентифицированные отказы по политикам. Почасовая история начинается с момента миграции; значения в минутных UTC-интервалах.'),
+        table(['Показатель','Значение'],values),
+        h('details',{},h('summary',{},'Почасовая нагрузка (UTC)'),
+            h('div',{class:'chart-scroll'},hourly.map(x=>h('div',{class:'bar-row analytics-rank'},
+                h('span',{},String(x.hour).slice(5,16).replace('T',' ')),
+                h('progress',{max,value:Number(x.accepted)+Number(x.rejected),title:`Принято: ${x.accepted}, отклонено: ${x.rejected}`}),
+                h('span',{},`${x.accepted} / ${x.rejected}`)))),
+            table(['Час UTC','Принято','Отклонено'],hourly.map(x=>[x.hour,x.accepted,x.rejected]))));
+}
 async function sourceDetail(path,id,epoch,signal) {
     const url=path+'/sources/'+enc(id); const loading=h('div',{role:'status'},'Загрузка…'); modal('Источник',loading); const dialog=modalEpoch;
     try {
-        const [r,s,project]=await Promise.all([get(url,{},signal),get(url+'/stats',{},signal),get(path,{},signal)]);
+        const [r,s,project]=await Promise.all([get(url,{},signal),get(url+'/stats',{idle_minutes:state.sourceManagement?.threshold||60},signal),get(path,{},signal)]);
         if (!active(epoch)||dialog!==modalEpoch) return;
         const root=h('div',{},h('h2',{},r.name),badge(sourceStates[r.status]||r.status),h('p',{},r.description||''),h('code',{},r.id),h('p',{},'Slug: '+r.slug),h('pre',{},JSON.stringify(r.metadata||{},null,2)),
-            table(['Показатель','Значение'],[['Сохранено',s.events],['За 24 часа',s.events_24h],['За 60 секунд',s.events_60s],['Принято с 0.1.7',s.accepted_events_total],['Отклонено политиками',s.rejected_events_total],['Последний приём',date(s.last_seen_at)],['Последняя запись',date(s.last_received_at)],['Активные токены источника',s.active_tokens]]),
+            table(['Показатель','Значение'],[['Сохранено',s.events],['За 24 часа (в хранилище)',s.events_24h],['За 60 секунд (в хранилище)',s.events_60s],['Принято всего',s.accepted_events_total],['Отклонено всего',s.rejected_events_total],['Последний приём',date(s.last_seen_at)],['Последняя запись',date(s.last_received_at)],['Активные токены источника',s.active_tokens]]),
+            sourceMonitoringView(s.ingestion),
             policyTable(project,r),h('div',{class:'actions'},button('Обновить статистику источника',()=>void sourceDetail(path,id,epoch,signal)),hasPermission('logs:read')?button('Открыть логи источника',()=>openSourceLogs(r.project_id,r.id)):null,canConnect()&&project.status!=='archived'&&r.status==='active'?button('Подключить приложение',()=>onboarding(path,project,r,epoch,signal,sourceTypes),'primary'):null));
         if (admin()) root.append(redactionButton(url+'/redaction',r.slug));
         if (hasPermission('sources:update')) {

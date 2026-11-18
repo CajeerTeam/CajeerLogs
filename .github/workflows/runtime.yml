@@ -103,6 +103,8 @@ jobs:
       - run: php tests/secure_installer.php
       - run: php tests/projects.php
       - run: php tests/sources.php
+      - run: php tests/source_monitoring.php
+      - run: CAJEER_TEST_DATABASE=1 php tests/source_monitoring_database.php
       - run: php tests/tokens.php
       - run: php tests/integrity.php
       - run: python3 tests/benchmark.py

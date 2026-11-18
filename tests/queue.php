@@ -34,5 +34,5 @@ $app->config()->set('app.env','production');$app->config()->set('app.url','https
 check($app->handle(new Request('POST','/api/v1/ingest/async',$headers+['Idempotency-Key'=>'test'],[],$body))->status===403,'production async requires TLS');
 check($app->handle(new Request('GET','/api/v1/ingest/jobs/1',$headers))->status===403,'production job status requires TLS');
 putenv('QUEUE_MAX_JOBS=0');check(rejects(fn()=>(new Application($root))->boot(),RuntimeException::class),'invalid queue capacity rejected');putenv('QUEUE_MAX_JOBS');
-check(Cajeer\Logs\Scheduler\Scheduler::TASKS===['retention'=>60,'auth_cleanup'=>300,'queue_cleanup'=>3600,'webhook_cleanup'=>3600],'bounded fixed scheduler intervals');
+check(Cajeer\Logs\Scheduler\Scheduler::TASKS===['retention'=>60,'auth_cleanup'=>300,'queue_cleanup'=>3600,'webhook_cleanup'=>3600,'source_metrics_cleanup'=>300],'bounded fixed scheduler intervals');
 echo "Queue lifecycle: $count checks passed\n";

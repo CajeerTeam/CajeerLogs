@@ -107,6 +107,7 @@ final class SourceRepository
         $updated=$this->sql("UPDATE sources s SET last_seen_at=clock_timestamp(),accepted_events_total=s.accepted_events_total+b.events
             FROM jsonb_to_recordset(CAST(:batch AS jsonb)) AS b(id uuid,events integer) WHERE s.project_id=:project AND s.id=b.id",['project'=>$project,'batch'=>$batch])->rowCount();
         if ($updated!==count($counts)) throw new \RuntimeException('Incomplete source admission; roll back transaction.');
+        (new SourceMonitoring($this->pdo))->count($project,$batch,'accepted');
     }
     private static function admissionRows(array $counts): string
     {
@@ -128,14 +129,16 @@ final class SourceRepository
         if (count($locked)!==count($counts)) throw new HttpException(403,'forbidden','Access denied.');
         $updated=$this->sql("UPDATE sources s SET rejected_events_total=s.rejected_events_total+b.events FROM jsonb_to_recordset(CAST(:batch AS jsonb)) AS b(id uuid,events integer) WHERE s.project_id=:project AND s.id=b.id",['project'=>$project,'batch'=>$batch])->rowCount();
         if ($updated!==count($counts)) throw new \RuntimeException('Incomplete rejection accounting; roll back transaction.');
+        (new SourceMonitoring($this->pdo))->count($project,$batch,'rejected');
     }
     private static function quotaExceeded(): never { throw new HttpException(429,'source_quota_exceeded','Source event quota exceeded.',['Retry-After'=>'60']); }
-    public function statistics(string $project,string $id): array
+    public function statistics(string $project,string $id,int $idleThresholdMinutes=60): array
     {
-        $row=$this->sql("SELECT s.last_seen_at,s.accepted_events_total,s.rejected_events_total,(SELECT count(*) FROM log_events l WHERE l.project_id=s.project_id AND l.source_id=s.id) AS events,(SELECT count(*) FROM log_events l WHERE l.project_id=s.project_id AND l.source_id=s.id AND received_at>=now()-interval '24 hours') AS events_24h,(SELECT count(*) FROM log_events l WHERE l.project_id=s.project_id AND l.source_id=s.id AND received_at>=now()-interval '60 seconds') AS events_60s,(SELECT max(received_at) FROM log_events l WHERE l.project_id=s.project_id AND l.source_id=s.id) AS last_received_at,(SELECT count(*) FROM api_tokens t WHERE t.project_id=s.project_id AND t.source_id=s.id AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>now())) AS active_tokens FROM sources s WHERE s.project_id=:project AND s.id=:id",['project'=>$project,'id'=>$id])->fetch();
+        $row=$this->sql("SELECT clock_timestamp() AS monitoring_server_time,s.status,s.ingestion_metrics_since,s.last_seen_at,s.accepted_events_total,s.rejected_events_total,(SELECT count(*) FROM log_events l WHERE l.project_id=s.project_id AND l.source_id=s.id) AS events,(SELECT count(*) FROM log_events l WHERE l.project_id=s.project_id AND l.source_id=s.id AND received_at>=now()-interval '24 hours') AS events_24h,(SELECT count(*) FROM log_events l WHERE l.project_id=s.project_id AND l.source_id=s.id AND received_at>=now()-interval '60 seconds') AS events_60s,(SELECT max(received_at) FROM log_events l WHERE l.project_id=s.project_id AND l.source_id=s.id) AS last_received_at,(SELECT count(*) FROM api_tokens t WHERE t.project_id=s.project_id AND t.source_id=s.id AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>now())) AS active_tokens FROM sources s WHERE s.project_id=:project AND s.id=:id",['project'=>$project,'id'=>$id])->fetch();
         if (!$row) throw new HttpException(404,'not_found','Source not found.');
         foreach (['events','events_24h','events_60s','active_tokens'] as $key) $row[$key]=(int)$row[$key];
         foreach (['accepted_events_total','rejected_events_total'] as $key) $row[$key]=(string)$row[$key];
+        $row['ingestion']=(new SourceMonitoring($this->pdo))->snapshot($project,$id,$idleThresholdMinutes,$row);
         return $row;
     }
 }
