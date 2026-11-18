@@ -1,3 +1,11 @@
+## 0.7.3 — Aggregation Engine (public-preview)
+
+- Production PostgreSQL minute aggregation engine with statement-level, transactionally updated counters and a per-event state ledger. Event updates, redactions, deletes and rollback change counts precisely once; ClickHouse replay does not double-count.
+- Bounded, resumable, row-locked historical per-project backfill. Existing API `/logs/stats` transparently switches to rollups only after backfill completion for representable filters, retaining exact original reads for complex queries and fractional-minute edges.
+- Operator commands for `analytics:rollups backfill|status|aggregate|verify`. Dimensional reconciliation compares every minute/source/level/service/host group, not only total counts, under a repeatable-read snapshot.
+- Added migration 0029, exhaustive unit and disposable PostgreSQL integration coverage, CI checks on the shipped ZIP and upgrade/backup compatibility. No ClickHouse DDL changed.
+- **Certification:** PostgreSQL/ClickHouse live E2E and load benchmarking still require real CI execution. `public-preview` remains in effect.
+
 ## 0.7.2 — Reliable Analytics Replication (public-preview)
 
 - PostgreSQL statement-level insert/update/delete triggers atomically upsert event revisions into a durable outbox (migration 0028), with scoped progress table for resumable existing-data backfill.

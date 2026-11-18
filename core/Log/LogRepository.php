@@ -171,6 +171,11 @@ final class LogRepository
     }
     public function statistics(LogQuery $query): array
     {
+        // Preserve exact results for rich search filters and pre-backfill projects.
+        // Rollups are scoped by the authenticated query and are never used before
+        // a completed, row-locked historical backfill.
+        $rollups=new \Cajeer\Logs\Analytics\PostgresRollupStore($this->pdo);
+        if ($rollups->eligible($query)) return $rollups->statistics($query);
         [$where,$params]=self::predicate($query);
         // All dimensions use the same bounded, permission-scoped PostgreSQL snapshot.
         // Only validated intervals reach this fixed SQL expression.

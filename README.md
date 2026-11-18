@@ -1,4 +1,6 @@
-## 0.7.2 — Reliable Analytics Replication
+## 0.7.3 — Aggregation Engine
+
+Version 0.7.3 adds exact, transactional minute rollups, project-scoped resumable historical backfill, safe minute/hour/day statistics, and dimensional reconciliation. See [Aggregation Engine](docs/Aggregation-Engine.md).
 
 Optional **working** PostgreSQL→ClickHouse transactional outbox, versioned analytics mirror, retry after ambiguous responses, lease recovery, per-project replay and resumable backfill. Captures inserts, redactions and deletes; see [replication operator guide](docs/Reliable-Analytics-Replication.md). The ClickHouse mirror is not yet used by the primary PostgreSQL Explorer, and this `public-preview` release requires actual database certification before production use.
 

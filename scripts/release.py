@@ -100,6 +100,10 @@ REQUIRED.update({'core/Analytics/AnalyticsReplicator.php','core/Console/Command/
                  'docs/Reliable-Analytics-Replication.md','examples/systemd/cajeerlogs-analytics-replication.service',
                  'examples/systemd/cajeerlogs-analytics-replication.timer'})
 
+REQUIRED.update({'core/Analytics/PostgresRollupStore.php','core/Console/Command/AnalyticsRollupCommand.php',
+                 'migrations/pgsql/0029_analytics_rollups.sql','tests/analytics_rollups.php',
+                 'tests/analytics_rollups_database.php','docs/Aggregation-Engine.md'})
+
 REQUIRED.update({'packages/ts-sdk/src/durable.ts', 'packages/ts-sdk/test/durable.test.mjs',
                  'packages/ts-sdk/test/process.mjs', 'docs/TypeScript-SDK-Stable.md'})
 
