@@ -40,6 +40,9 @@ final class IdentityController
         'GET /projects/{project}/webhooks/{webhook}/deliveries'=>'webhookDeliveries',
         'GET /projects/{project}/webhooks/{webhook}/attempts'=>'webhookAttempts',
         'POST /projects/{project}/webhooks/{webhook}/deliveries/{delivery}/retry'=>'retryWebhookDelivery',
+        'GET /projects/{project}/exports'=>'exportJobs', 'POST /projects/{project}/exports'=>'createExportJob',
+        'GET /projects/{project}/exports/{export}'=>'exportJob',
+        'GET /projects/{project}/exports/{export}/download'=>'downloadExportJob',
         'GET /projects/{project}/sources'=>'sources', 'POST /projects/{project}/sources'=>'createSource',
         'GET /projects/{project}/sources/{source}'=>'source',
         'PATCH /projects/{project}/sources/{source}'=>'updateSource', 'POST /projects/{project}/sources/{source}/disable'=>'disableSource',
@@ -119,7 +122,7 @@ final class IdentityController
             $this->identity->lock();
             $p=$this->identity->authenticate($r,$credential ?? [],in_array($action,['me','logout','logoutAll','totpSetup','totpEnable'],true),false);
             // Explicit password+factor operations already perform their own confirmation.
-            if (in_array($action,['retryDeadLetters','discardDeadLetters','pauseQueueDispatch','resumeQueueDispatch','createRole','updateRole','deleteRole','assignGlobalRole','assignProjectRole','createUser','updateUser','addMember','removeMember','createToken','createSystemToken','rotateToken','rotateSystemToken','configureSigning','retireSigningKey','setProjectSigning','revokeToken','revokeSystemToken','revokeProjectTokens','revokeAllSystemTokens','disableServiceAccount','createServiceAccount','updateToken','updateSystemToken','redactionSystemSet','redactionProjectSet','redactionSourceSet','createProject','updateProject','archiveProject','restoreProject','createSource','updateSource','disableSource','enableSource','archiveSource','restoreSource','createWebhook','updateWebhook','testWebhook','retryWebhookDelivery'],true)) $this->identity->requireFresh($p);
+            if (in_array($action,['retryDeadLetters','discardDeadLetters','pauseQueueDispatch','resumeQueueDispatch','createRole','updateRole','deleteRole','assignGlobalRole','assignProjectRole','createUser','updateUser','addMember','removeMember','createToken','createSystemToken','rotateToken','rotateSystemToken','configureSigning','retireSigningKey','setProjectSigning','revokeToken','revokeSystemToken','revokeProjectTokens','revokeAllSystemTokens','disableServiceAccount','createServiceAccount','updateToken','updateSystemToken','redactionSystemSet','redactionProjectSet','redactionSourceSet','createProject','updateProject','archiveProject','restoreProject','createSource','updateSource','disableSource','enableSource','archiveSource','restoreSource','createWebhook','updateWebhook','testWebhook','retryWebhookDelivery','createExportJob'],true)) $this->identity->requireFresh($p);
             $response=$this->$action($r,$p);
             return $response;
         }, maxAttempts: 3); } catch (HttpException $e) {
@@ -193,6 +196,54 @@ final class IdentityController
         unset($row);
         if ($transform!==null) $rows=array_map($transform,$rows);
         return new JsonResponse(['items'=>$rows,'next_cursor'=>$next]);
+    }
+    /** Bulk exports are session-bound, project-scoped and never accept a token credential. */
+    private function exportsFor(Request $r,array $p,?string $source=null): \Cajeer\Logs\Log\ExportQueue
+    {
+        $this->session($p);
+        $project=$this->id($r,'project');
+        $this->allow($p,'logs:read',$project,$source);
+        $this->allow($p,'logs:export',$project,$source);
+        return new \Cajeer\Logs\Log\ExportQueue($this->pdo,$this->app->basePath('storage/exports/private'));
+    }
+    private function createExportJob(Request $r,array $p): Response
+    {
+        $this->session($p);
+        $project=$this->id($r,'project');
+        $body=$this->body($r,['format','filters']);
+        [$filters,$format]=\Cajeer\Logs\Log\ExportQueue::filterInput($body,$project);
+        $queue=$this->exportsFor($r,$p,$filters['source_id']??null);
+        $job=$queue->create($project,$p['id'],$filters,$format);
+        $this->audit($r,$p,'logs.export_requested',$job['id'],['project_id'=>$project,'format'=>$format]);
+        return new JsonResponse(['job'=>$job],202,['Cache-Control'=>'no-store']);
+    }
+    private function exportJobs(Request $r,array $p): Response
+    {
+        $project=$this->id($r,'project');
+        $queue=$this->exportsFor($r,$p);
+        if (array_diff(array_keys($r->query),['limit'])!==[]) self::invalid('Unknown query parameter.');
+        $limit=filter_var($r->query['limit']??30,FILTER_VALIDATE_INT,['options'=>['min_range'=>1,'max_range'=>100]]);
+        if ($limit===false) self::invalid('Invalid export list limit.');
+        return new JsonResponse(['items'=>$queue->list($project,$p['id'],$limit)]);
+    }
+    private function exportJob(Request $r,array $p): Response
+    {
+        $project=$this->id($r,'project');
+        $queue=$this->exportsFor($r,$p);
+        $job=$queue->get($project,$p['id'],$this->id($r,'export'));
+        $this->exportsFor($r,$p,$job['source_id']);
+        return new JsonResponse(['job'=>$job]);
+    }
+    private function downloadExportJob(Request $r,array $p): Response
+    {
+        $project=$this->id($r,'project');
+        $queue=$this->exportsFor($r,$p);
+        $id=$this->id($r,'export');
+        $job=$queue->get($project,$p['id'],$id);
+        $this->exportsFor($r,$p,$job['source_id']);
+        $response=$queue->download($project,$p['id'],$id);
+        $this->audit($r,$p,'logs.export_downloaded',$id,['project_id'=>$project,'format'=>$job['format'],'checksum'=>$job['checksum']]);
+        return $response;
     }
     private function login(Request $r): Response
     {

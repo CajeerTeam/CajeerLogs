@@ -79,6 +79,13 @@ REQUIRED.update({'core/Integration/WebhookOutbox.php','migrations/pgsql/0026_web
 REQUIRED.update({'clients/python/cajeer_aapanel_manager.py', 'tests/aapanel_integration_stable.py',
                  'modules/aapanel-importer/README.md', 'examples/systemd/cajeerlogs-aapanel.service'})
 
+REQUIRED.update({'core/Log/ExportQueue.php','core/Log/ExportBudgetExceeded.php',
+                 'core/Http/FileDownloadResponse.php','core/Console/Command/ExportCommand.php',
+                 'public/admin/assets/pages/exports.js','migrations/pgsql/0027_export_jobs.sql',
+                 'tests/export_jobs.php','tests/export_jobs_database.php','docs/JSON-CSV-Export-Stable.md',
+                 'examples/systemd/cajeerlogs-export-worker.service','examples/systemd/cajeerlogs-export-worker.timer',
+                 'examples/systemd/cajeerlogs-export-cleanup.service','examples/systemd/cajeerlogs-export-cleanup.timer'})
+
 REQUIRED.update({'packages/ts-sdk/src/durable.ts', 'packages/ts-sdk/test/durable.test.mjs',
                  'packages/ts-sdk/test/process.mjs', 'docs/TypeScript-SDK-Stable.md'})
 

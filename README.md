@@ -1,3 +1,7 @@
+## 0.6.8 — JSON/CSV Export Stable
+
+Streamed asynchronous JSON/CSV exports, private artifact downloads and integrity verification. See [export operations](docs/JSON-CSV-Export-Stable.md).
+
 ## 0.6.7 — Webhooks Stable
 
 Project-scoped webhook subscriptions are now administered through the **working Admin Panel (Webhooks)** and API v1, with selectable committed log/source events, test sends, delivery history, manual retry, revision checks and tamper-evident management audit. Durable outbox, HMAC, DNS-pinned HTTPS egress and cron/systemd worker remain operational. Upgrade PostgreSQL with `php bin/cajeer migrate` before serving API traffic. [Operator guide](docs/Webhooks-Stable.md).
@@ -5,6 +9,9 @@ Project-scoped webhook subscriptions are now administered through the **working 
 # CajeerLogs
 
 Self-hosted PHP-first платформа централизованного логирования.
+
+
+Bulk JSON/CSV exports: [`docs/JSON-CSV-Export-Stable.md`](docs/JSON-CSV-Export-Stable.md) (PostgreSQL job queue, worker, 24-hour downloads).
 
 ## 0.6.6 — aaPanel Integration Stable
 

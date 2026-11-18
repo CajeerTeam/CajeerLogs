@@ -1,3 +1,13 @@
+## 0.6.8 — JSON/CSV Export Stable
+
+- Durable PostgreSQL export queue, project/owner-scoped session API, Admin Panel job controls and downloadable artifacts.
+- Streaming, repeatable-read keyset export with bounded 31-day filters, 1 million event/256 MiB/15-minute limits.
+- JSON arrays and CSV with spreadsheet-formula neutralization; SHA-256 and file-size verification before download.
+- At-most-one active worker per job using session advisory locks, restart recovery, explicit failure and expiry state.
+- Private (0700) artifact directory, temporary 0600 files, audit, expiration and cleanup CLI.
+- Migration 0027; existing page export and operator JSONL CLI remain compatible.
+- Requires a periodic `exports:work` and `exports:cleanup` runner. PostgreSQL E2E certification is still required.
+
 ## 0.6.7 — Webhooks Stable
 
 - Functional scoped Admin Panel and API subscription management, event filters and revision-based updates.

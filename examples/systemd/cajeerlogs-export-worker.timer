@@ -1,0 +1,11 @@
+[Unit]
+Description=Run CajeerLogs bulk export worker every ten seconds
+
+[Timer]
+OnBootSec=10s
+OnUnitInactiveSec=10s
+AccuracySec=1s
+Unit=cajeerlogs-export-worker.service
+
+[Install]
+WantedBy=timers.target

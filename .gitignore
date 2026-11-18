@@ -42,3 +42,5 @@
 /release-out/
 
 /.env.install.lock
+
+/storage/exports/

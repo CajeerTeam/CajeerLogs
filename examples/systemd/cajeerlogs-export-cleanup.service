@@ -1,0 +1,14 @@
+[Unit]
+Description=CajeerLogs private bulk export expiry cleanup
+After=postgresql.service
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/cajeerlogs
+ExecStart=/usr/bin/php /opt/cajeerlogs/bin/cajeer exports:cleanup
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/cajeerlogs/storage

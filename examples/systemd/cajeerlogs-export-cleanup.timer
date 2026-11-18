@@ -1,0 +1,10 @@
+[Unit]
+Description=Hourly CajeerLogs export cleanup
+
+[Timer]
+OnBootSec=5min
+OnUnitInactiveSec=1h
+Unit=cajeerlogs-export-cleanup.service
+
+[Install]
+WantedBy=timers.target
