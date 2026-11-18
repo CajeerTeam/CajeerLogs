@@ -11,7 +11,7 @@
       "Cajeer\\Logs\\Sdk\\": "src/"
     }
   },
-  "version": "0.7.4",
+  "version": "0.7.5",
   "suggest": {
     "monolog/monolog": "Monolog 3 handler"
   }

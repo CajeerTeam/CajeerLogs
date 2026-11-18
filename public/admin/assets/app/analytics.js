@@ -52,3 +52,35 @@ export function delta(current, previous) {
 export function explorerFilters(range, source, extra={}) {
     return {limit:'50',consistency:'live',from:utcInput(Date.parse(range.from)),to:utcInput(Date.parse(range.to)),...(source?{source_id:source}:{}),...extra};
 }
+
+/** The server returns exact [bucket,level] counts for both live SQL and verified rollups. */
+export function levelBuckets(stats, range, level) {
+    if (!errorLevels.includes(level) && !['debug','info','notice','warning'].includes(level)) throw new Error('Unknown log level.');
+    const lookup=new Map((stats.level_buckets||[]).filter(x=>x.level===level).map(x=>[Date.parse(x.timestamp),Number(x.count)]));
+    return denseBuckets(stats,range).map(b=>({...b,count:lookup.get(Date.parse(b.timestamp))||0}));
+}
+export function rateBuckets(stats, range) {
+    return denseBuckets(stats,range).map(b=>({...b,rate:b.count?100*b.errors/b.count:0}));
+}
+export function dimensionComparison(current, previous, dimension, limit=10) {
+    const key={by_level:'level',by_source:'source_id',by_service:'service',by_host:'host'}[dimension];
+    if (!key) throw new Error('Invalid comparison dimension.');
+    const rows=dimension==='by_level'
+        ? Object.entries(current.by_level||{}).map(([level,count])=>({level,count}))
+        : (current[dimension]||[]);
+    const oldRows=dimension==='by_level'
+        ? Object.entries(previous.by_level||{}).map(([level,count])=>({level,count}))
+        : (previous[dimension]||[]);
+    const complete=(stats,items)=>dimension==='by_level'||
+        (dimension==='by_source'?!stats.sources_truncated:items.length<10);
+    const currentComplete=complete(current,rows), previousComplete=complete(previous,oldRows);
+    const indexed=new Map();
+    for (const row of rows) indexed.set(String(row[key]),{key:String(row[key]),label:String(row.source||row[key]),count:Number(row.count)||0,previous:previousComplete?0:null});
+    for (const row of oldRows) {
+        const id=String(row[key]);
+        const item=indexed.get(id)||{key:id,label:String(row.source||id),count:currentComplete?0:null,previous:0};
+        item.previous=Number(row.count)||0;indexed.set(id,item);
+    }
+    return [...indexed.values()].map(x=>({...x,change:x.count===null||x.previous===null?null:x.count-x.previous}))
+        .sort((a,b)=>Math.max(b.count??0,b.previous??0)-Math.max(a.count??0,a.previous??0)||a.label.localeCompare(b.label)).slice(0,limit);
+}

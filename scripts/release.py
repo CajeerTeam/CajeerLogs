@@ -103,6 +103,9 @@ REQUIRED.update({'core/Analytics/AnalyticsReplicator.php','core/Console/Command/
 REQUIRED.update({'core/Database/Repository/SourceMonitoring.php', 'migrations/pgsql/0030_source_ingestion_monitoring.sql',
                  'tests/source_monitoring.php','tests/source_monitoring_database.php','docs/Source-Statistics-Health-0.7.4.md'})
 
+REQUIRED.update({'docs/Advanced-Analytics-Dashboard-0.7.5.md','tests/analytics_dashboard.mjs',
+                 'public/admin/assets/app/analytics.js','public/admin/assets/pages/overview.js'})
+
 REQUIRED.update({'core/Analytics/PostgresRollupStore.php','core/Console/Command/AnalyticsRollupCommand.php',
                  'migrations/pgsql/0029_analytics_rollups.sql','tests/analytics_rollups.php',
                  'tests/analytics_rollups_database.php','docs/Aggregation-Engine.md'})

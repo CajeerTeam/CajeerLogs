@@ -15,6 +15,8 @@ check(str_contains($sql,'ON CONFLICT (event_id) DO NOTHING'),'idempotent event-s
 check(str_contains($sql,'events=m.events-summed.n'),'updates and deletes retract previous contributions');
 check(str_contains($sql,'CHECK (events >= 0)'),'negative rollup counts rejected');
 check(str_contains($sql,'DELETE FROM analytics_rollup_minutes m USING old_rows o'),'empty dimension groups are purged');
+check(str_contains(file_get_contents(dirname(__DIR__).'/core/Analytics/PostgresRollupStore.php'),'GROUPING SETS ((),(level),(source_id,source),(bucket),(level,bucket)'),'level time-series use the real rollup counters');
+check(str_contains(file_get_contents(dirname(__DIR__).'/core/Log/LogRepository.php'),'GROUPING SETS ((),(level),(source_id,source),(bucket),(level,bucket)'),'raw time-series use the same grouping semantics');
 check(str_contains($sql,'analytics_rollup_legacy_source_idx'),'legacy source-less events remain on exact raw path');
 check(class_exists(PostgresRollupStore::class),'real rollup implementation autoloads');
 $q=LogQuery::parse(['project_id'=>'11111111-1111-4111-8111-111111111111','from'=>'2026-11-18T12:00:00Z','to'=>'2026-11-18T12:50:00Z'],'stats');

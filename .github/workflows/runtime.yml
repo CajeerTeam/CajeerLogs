@@ -10,11 +10,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: |
-          python3 scripts/release.py build release-out/CajeerLogs-0.7.2.zip
-          (cd release-out && sha256sum -c CajeerLogs-0.7.2.zip.sha256)
+          python3 scripts/release.py build release-out/CajeerLogs-0.7.5.zip
+          (cd release-out && sha256sum -c CajeerLogs-0.7.5.zip.sha256)
       - uses: actions/upload-artifact@v4
         with:
-          name: CajeerLogs-0.7.2-candidate-uncertified
+          name: CajeerLogs-0.7.5-candidate-uncertified
           path: release-out/
           if-no-files-found: error
   runtime:
@@ -57,8 +57,11 @@ jobs:
           fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
-          name: CajeerLogs-0.7.2-candidate-uncertified
+          name: CajeerLogs-0.7.5-candidate-uncertified
           path: release-out
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
@@ -103,6 +106,7 @@ jobs:
       - run: php tests/secure_installer.php
       - run: php tests/projects.php
       - run: php tests/sources.php
+      - run: node --test tests/analytics_dashboard.mjs
       - run: php tests/source_monitoring.php
       - run: CAJEER_TEST_DATABASE=1 php tests/source_monitoring_database.php
       - run: php tests/tokens.php
@@ -554,7 +558,7 @@ jobs:
           PY069
           )
           git archive "$previous069" | tar -x -C /tmp/cajeer-0.6.9
-          python3 scripts/certify.py database release-out/CajeerLogs-0.7.2.zip --from-010 /tmp/cajeer-0.1.0 --from-020 /tmp/cajeer-0.2.0 --from-029 /tmp/cajeer-0.2.9 --from-030 /tmp/cajeer-0.3.0 --from-032 /tmp/cajeer-0.3.2 --from-033 /tmp/cajeer-0.3.3 --from-034 /tmp/cajeer-0.3.4 --from-035 /tmp/cajeer-0.3.5 --from-036 /tmp/cajeer-0.3.6 --from-037 /tmp/cajeer-0.3.7 --from-038 /tmp/cajeer-0.3.8 --from-039 /tmp/cajeer-0.3.9 --from-040 /tmp/cajeer-0.4.0 --from-041 /tmp/cajeer-0.4.1 --from-042 /tmp/cajeer-0.4.2 --from-043 /tmp/cajeer-0.4.3 --from-044 /tmp/cajeer-0.4.4 --from-045 /tmp/cajeer-0.4.5 --from-046 /tmp/cajeer-0.4.6 --from-047 /tmp/cajeer-0.4.7 --from-048 /tmp/cajeer-0.4.8 --from-049 /tmp/cajeer-0.4.9 --from-0410 /tmp/cajeer-0.4.10 --from-050 /tmp/cajeer-0.5.0 --from-051 /tmp/cajeer-0.5.1 --from-052 /tmp/cajeer-0.5.2 --from-053 /tmp/cajeer-0.5.3 --from-054 /tmp/cajeer-0.5.4 --from-055 /tmp/cajeer-0.5.5 --from-056 /tmp/cajeer-0.5.6 --from-057 /tmp/cajeer-0.5.7 --from-058 /tmp/cajeer-0.5.8 --from-059 /tmp/cajeer-0.5.9 --from-0510 /tmp/cajeer-0.5.10 --from-060 /tmp/cajeer-0.6.0 --from-061 /tmp/cajeer-0.6.1 --from-062 /tmp/cajeer-0.6.2 --from-063 /tmp/cajeer-0.6.3 --from-064 /tmp/cajeer-0.6.4 --from-065 /tmp/cajeer-0.6.5 --from-066 /tmp/cajeer-0.6.6 --from-067 /tmp/cajeer-0.6.7 --from-068 /tmp/cajeer-0.6.8 --from-069 /tmp/cajeer-0.6.9 --output /tmp/database-certification.json
+          python3 scripts/certify.py database release-out/CajeerLogs-0.7.5.zip --from-010 /tmp/cajeer-0.1.0 --from-020 /tmp/cajeer-0.2.0 --from-029 /tmp/cajeer-0.2.9 --from-030 /tmp/cajeer-0.3.0 --from-032 /tmp/cajeer-0.3.2 --from-033 /tmp/cajeer-0.3.3 --from-034 /tmp/cajeer-0.3.4 --from-035 /tmp/cajeer-0.3.5 --from-036 /tmp/cajeer-0.3.6 --from-037 /tmp/cajeer-0.3.7 --from-038 /tmp/cajeer-0.3.8 --from-039 /tmp/cajeer-0.3.9 --from-040 /tmp/cajeer-0.4.0 --from-041 /tmp/cajeer-0.4.1 --from-042 /tmp/cajeer-0.4.2 --from-043 /tmp/cajeer-0.4.3 --from-044 /tmp/cajeer-0.4.4 --from-045 /tmp/cajeer-0.4.5 --from-046 /tmp/cajeer-0.4.6 --from-047 /tmp/cajeer-0.4.7 --from-048 /tmp/cajeer-0.4.8 --from-049 /tmp/cajeer-0.4.9 --from-0410 /tmp/cajeer-0.4.10 --from-050 /tmp/cajeer-0.5.0 --from-051 /tmp/cajeer-0.5.1 --from-052 /tmp/cajeer-0.5.2 --from-053 /tmp/cajeer-0.5.3 --from-054 /tmp/cajeer-0.5.4 --from-055 /tmp/cajeer-0.5.5 --from-056 /tmp/cajeer-0.5.6 --from-057 /tmp/cajeer-0.5.7 --from-058 /tmp/cajeer-0.5.8 --from-059 /tmp/cajeer-0.5.9 --from-0510 /tmp/cajeer-0.5.10 --from-060 /tmp/cajeer-0.6.0 --from-061 /tmp/cajeer-0.6.1 --from-062 /tmp/cajeer-0.6.2 --from-063 /tmp/cajeer-0.6.3 --from-064 /tmp/cajeer-0.6.4 --from-065 /tmp/cajeer-0.6.5 --from-066 /tmp/cajeer-0.6.6 --from-067 /tmp/cajeer-0.6.7 --from-068 /tmp/cajeer-0.6.8 --from-069 /tmp/cajeer-0.6.9 --output /tmp/database-certification.json
       - uses: actions/setup-java@v4
         if: matrix.php == '8.4' && matrix.postgres == '17'
         with:
@@ -598,10 +602,10 @@ jobs:
           /tmp/cajeer-browser-venv/bin/python -m playwright install --with-deps chromium firefox webkit
       - name: Admin panel E2E on the exact release archive (Chromium, Firefox, WebKit)
         if: matrix.php == '8.4' && matrix.postgres == '17'
-        run: /tmp/cajeer-browser-venv/bin/python scripts/certify.py admin release-out/CajeerLogs-0.7.2.zip --output /tmp/admin-certification.json
+        run: /tmp/cajeer-browser-venv/bin/python scripts/certify.py admin release-out/CajeerLogs-0.7.5.zip --output /tmp/admin-certification.json
       - name: Certify installed SDKs and importers from the exact verified release ZIP
         if: matrix.php == '8.4' && matrix.postgres == '17'
-        run: python3 scripts/integrations.py release-out/CajeerLogs-0.7.2.zip --output /tmp/sdk-integration-certification.json
+        run: python3 scripts/integrations.py release-out/CajeerLogs-0.7.5.zip --output /tmp/sdk-integration-certification.json
       - name: Upload SDK evidence only after real packaged tests pass
         if: matrix.php == '8.4' && matrix.postgres == '17'
         uses: actions/upload-artifact@v4
@@ -631,7 +635,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: CajeerLogs-0.7.2-candidate-uncertified
+          name: CajeerLogs-0.7.5-candidate-uncertified
           path: release-out
       - uses: actions/download-artifact@v4
         with:
@@ -647,14 +651,14 @@ jobs:
           path: /tmp/sdk-evidence
       - name: Verify full matrix, admin, real production and long-duration async performance on the identical archive
         run: |
-          (cd release-out && sha256sum -c CajeerLogs-0.7.2.zip.sha256)
-          python3 scripts/certify.py release release-out/CajeerLogs-0.7.2.zip --reports /tmp/database-evidence --admin-report /tmp/admin-evidence/admin-certification.json --sdk-report /tmp/sdk-evidence/sdk-integration-certification.json --output release-out/database-certification.json
+          (cd release-out && sha256sum -c CajeerLogs-0.7.5.zip.sha256)
+          python3 scripts/certify.py release release-out/CajeerLogs-0.7.5.zip --reports /tmp/database-evidence --admin-report /tmp/admin-evidence/admin-certification.json --sdk-report /tmp/sdk-evidence/sdk-integration-certification.json --output release-out/database-certification.json
       - uses: actions/upload-artifact@v4
         with:
-          name: CajeerLogs-0.7.2-certified-ci
+          name: CajeerLogs-0.7.5-certified-ci
           path: |
-            release-out/CajeerLogs-0.7.2.zip
-            release-out/CajeerLogs-0.7.2.zip.sha256
+            release-out/CajeerLogs-0.7.5.zip
+            release-out/CajeerLogs-0.7.5.zip.sha256
             release-out/database-certification.json
           if-no-files-found: error
 
@@ -709,12 +713,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: CajeerLogs-0.7.2-candidate-uncertified
+          name: CajeerLogs-0.7.5-candidate-uncertified
           path: release-out
       - name: Verify and extract exact release
         run: |
-          (cd release-out && sha256sum -c CajeerLogs-0.7.2.zip.sha256)
-          python3 scripts/release.py verify release-out/CajeerLogs-0.7.2.zip --extract /tmp/cajeerlogs-release
+          (cd release-out && sha256sum -c CajeerLogs-0.7.5.zip.sha256)
+          python3 scripts/release.py verify release-out/CajeerLogs-0.7.5.zip --extract /tmp/cajeerlogs-release
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.4'

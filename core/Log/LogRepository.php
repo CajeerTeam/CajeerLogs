@@ -190,10 +190,10 @@ final class LogRepository
             ), grouped AS (
                 SELECT level,source_id,source,service,host,bucket,count(*) AS n,
                     count(*) FILTER (WHERE level IN ('error','critical','alert','emergency')) AS errors,
-                    CASE WHEN GROUPING(level)=0 THEN 'level' WHEN GROUPING(source_id)=0 THEN 'source'
+                    CASE WHEN GROUPING(level)=0 AND GROUPING(bucket)=0 THEN 'level_bucket' WHEN GROUPING(level)=0 THEN 'level' WHEN GROUPING(source_id)=0 THEN 'source'
                          WHEN GROUPING(service)=0 THEN 'service' WHEN GROUPING(host)=0 THEN 'host'
                          WHEN GROUPING(bucket)=0 THEN 'bucket' ELSE 'total' END AS kind
-                FROM filtered GROUP BY GROUPING SETS ((),(level),(source_id,source),(bucket),(service),(host))
+                FROM filtered GROUP BY GROUPING SETS ((),(level),(source_id,source),(bucket),(level,bucket),(service),(host))
             ), ranked AS (
                 SELECT *,row_number() OVER(PARTITION BY kind ORDER BY n DESC,source_id,source,service,host,level,bucket) AS rn,
                     count(*) OVER(PARTITION BY kind) AS group_count FROM grouped
@@ -204,7 +204,7 @@ final class LogRepository
             FROM ranked WHERE (kind NOT IN ('source','service','host')) OR (kind='source' AND rn<=100) OR (kind IN ('service','host') AND rn<=10)
             ORDER BY kind,bucket,level,n DESC,source_id,source,service,host
             SQL;
-        $result=['total'=>0,'by_level'=>array_fill_keys(LogQuery::LEVELS,0),'by_source'=>[],'source_count'=>0,'sources_truncated'=>false,'by_service'=>[],'by_host'=>[],'buckets'=>[],'interval'=>$query->interval,'from'=>$query->filters['from'],'to'=>$query->filters['to']];
+        $result=['total'=>0,'by_level'=>array_fill_keys(LogQuery::LEVELS,0),'by_source'=>[],'source_count'=>0,'sources_truncated'=>false,'by_service'=>[],'by_host'=>[],'buckets'=>[],'level_buckets'=>[],'interval'=>$query->interval,'from'=>$query->filters['from'],'to'=>$query->filters['to']];
         foreach ($this->sql($sql,$params) as $row) {
             $n=(int)$row['n'];
             switch ($row['kind']) {
@@ -213,6 +213,7 @@ final class LogRepository
                 case 'source': $result['by_source'][]=['source_id'=>$row['source_id'],'source'=>$row['source'],'count'=>$n]; $result['source_count']=(int)$row['group_count']; $result['sources_truncated']=$result['source_count']>100; break;
                 case 'service': $result['by_service'][]=['service'=>$row['service'],'count'=>$n]; break;
                 case 'host': $result['by_host'][]=['host'=>$row['host'],'count'=>$n]; break;
+                case 'level_bucket': $result['level_buckets'][]=['timestamp'=>$row['bucket'],'level'=>$row['level'],'count'=>$n]; break;
                 case 'bucket': $result['buckets'][]=['timestamp'=>$row['bucket'],'count'=>$n,'errors'=>(int)$row['errors']]; break;
             }
         }

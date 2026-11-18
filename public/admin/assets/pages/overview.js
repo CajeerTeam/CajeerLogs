@@ -1,15 +1,15 @@
-import { levels, state, render, hasPermission } from '../app/store.js?v=0.7.4';
-import { h, button, card, empty, date, heading, needProject, table, field, select, input, form, checkbox, message } from '../components/ui.js?v=0.7.4';
-import { projectSelector } from '../app/projects.js?v=0.7.4';
-import { navigate } from '../app/routes.js?v=0.7.4';
-import { logTable } from '../components/log-table.js?v=0.7.4';
-import { get, request } from '../api/client.js?v=0.7.4';
-import { rangeFor, previousRange, denseBuckets, sourceHealth, delta, explorerFilters, utcInput, errorLevels } from '../app/analytics.js?v=0.7.4';
+import { levels, state, render, hasPermission } from '../app/store.js?v=0.7.5';
+import { h, button, card, empty, date, heading, needProject, table, field, select, input, form, checkbox, message } from '../components/ui.js?v=0.7.5';
+import { projectSelector } from '../app/projects.js?v=0.7.5';
+import { navigate } from '../app/routes.js?v=0.7.5';
+import { logTable } from '../components/log-table.js?v=0.7.5';
+import { get, request } from '../api/client.js?v=0.7.5';
+import { rangeFor, previousRange, denseBuckets, levelBuckets, rateBuckets, dimensionComparison, sourceHealth, delta, explorerFilters, utcInput, errorLevels } from '../app/analytics.js?v=0.7.5';
 
 const format = n => Number(n).toLocaleString('ru-RU',{maximumFractionDigits:2});
 const labels = {'15m':'15 минут','1h':'1 час','6h':'6 часов','24h':'24 часа','7d':'7 дней','30d':'30 дней','custom':'Свой период'};
 const intervalLabels={auto:'Автоматически',minute:'1 минута','5min':'5 минут',hour:'1 час',day:'1 день'};
-const newConfig = project => ({project,period:'24h',interval:'auto',source:'',sourceName:'',from:'',to:'',compare:false,refresh:false,threshold:60,critical:false,sourceQuery:'',sourceStatus:'all',cursor:null,previous:[]});
+const newConfig = project => ({project,period:'24h',interval:'auto',source:'',sourceName:'',from:'',to:'',compare:false,refresh:false,threshold:60,critical:false,chartLevel:'error',sourceQuery:'',sourceStatus:'all',cursor:null,previous:[]});
 function drill(project,range,source,extra={}) {
     if (state.project!==project || state.route!=='overview') return;
     state.filters=explorerFilters(range,source,extra); state.logPosition=null; navigate('logs');
@@ -47,6 +47,59 @@ function timeline(stats,range,project,source) {
     });
     graph.append(axis,cols);
     return card(h('h2',{},'Динамика событий (UTC)'),h('div',{class:'inline analytics-legend'},h('span',{},'Все события'),h('span',{},'Ошибки и выше'),h('span',{class:'muted'},intervalLabels[range.interval])),detail,h('div',{class:'chart-scroll analytics-scroll'},graph),!stats.total?empty('За выбранный период событий нет.'):null,h('details',{},h('summary',{},'Данные графика'),table(['Начало (UTC)','Конец (UTC)','События','Ошибки'],data.map(b=>[date(new Date(b.from).toISOString()),date(new Date(b.to).toISOString()),button(format(b.count),()=>drill(project,{from:new Date(b.from).toISOString(),to:new Date(b.to).toISOString()},source),'analytics-link'),button(format(b.errors),()=>drill(project,{from:new Date(b.from).toISOString(),to:new Date(b.to).toISOString()},source,{levels:JSON.stringify(errorLevels)}),'analytics-link')]))));
+}
+
+/** A real time series. Every focusable bin opens its exact half-open event range. */
+function scalarTimeline(title, data, range, project, source, accessor, suffix, extra={}) {
+    const peak=suffix==='%'?100:Math.max(1,...data.map(accessor));
+    const detail=h('p',{class:'analytics-chart-detail muted','aria-live':'polite'},'Выберите столбец для детализации в Explorer.');
+    const columns=h('div',{class:'analytics-columns'});
+    columns.style.setProperty('--bucket-count',String(data.length));
+    for (let i=0;i<data.length;i++) {
+        const b=data[i],value=accessor(b);
+        const exact={from:new Date(b.from).toISOString(),to:new Date(b.to).toISOString()};
+        const label=`${date(exact.from)} — ${date(exact.to)}: ${format(value)}${suffix}`;
+        const item=button('',()=>drill(project,exact,source,extra),'analytics-bucket',{'aria-label':label,title:label});
+        const fill=h('span',{class:'analytics-fill analytics-series-fill'});
+        fill.style.height=`${Math.max(0,Math.min(100,value/peak*100))}%`;
+        item.append(fill);
+        item.addEventListener('focus',()=>{detail.textContent=label;});
+        item.addEventListener('pointerenter',()=>{detail.textContent=label;});
+        columns.append(h('div',{class:'analytics-column'},item,h('span',{class:'analytics-tick','aria-hidden':'true'},i%Math.max(1,Math.ceil(data.length/8))===0?b.timestamp.slice(range.interval==='day'?5:11,range.interval==='day'?10:16):'')));
+    }
+    const graph=h('div',{class:'analytics-plot',role:'group','aria-label':title},
+        h('div',{class:'analytics-axis','aria-hidden':'true'},[1,.75,.5,.25,0].map(x=>h('span',{},format(peak*x)+suffix))),columns);
+    return card(h('h2',{},title),detail,h('div',{class:'chart-scroll analytics-scroll'},graph),
+        h('details',{},h('summary',{},'Точные значения'),table(['Начало (UTC)','Конец (UTC)','Значение'],data.map(b=>[date(new Date(b.from).toISOString()),date(new Date(b.to).toISOString()),button(format(accessor(b))+suffix,()=>drill(project,{from:new Date(b.from).toISOString(),to:new Date(b.to).toISOString()},source,extra),'analytics-link')]))));
+}
+function levelTrend(stats,range,project,source,config) {
+    const selectLevel=select('chartLevel',levels.map(l=>[l,l]),levels.includes(config.chartLevel)?config.chartLevel:'error');
+    selectLevel.addEventListener('change',()=>{config.chartLevel=selectLevel.value;void render();});
+    const data=levelBuckets(stats,range,selectLevel.value);
+    const chart=scalarTimeline('Уровень '+selectLevel.value+' по времени (UTC)',data,range,project,source,b=>b.count,' событий',{level:selectLevel.value});
+    chart.prepend(h('div',{class:'analytics-level-control'},field('Уровень для графика',selectLevel)));
+    return chart;
+}
+function errorRateTrend(stats,range,project,source) {
+    return scalarTimeline('Доля ошибок по времени (UTC)',rateBuckets(stats,range),range,project,source,b=>b.rate,'%',{levels:JSON.stringify(errorLevels)});
+}
+function comparisonPanel(current,previous,range,project,source) {
+    const before=previousRange(range);
+    const rows=[
+        ['Уровни','by_level',x=>({level:x.key})],
+        ['Источники','by_source',x=>({source:x.key})],
+        ['Сервисы','by_service',x=>({service:x.key})]
+    ];
+    const blocks=rows.map(([title,dimension,toFilter])=>{
+        const items=dimensionComparison(current,previous,dimension);
+        return card(h('h3',{},title),items.length?table(['Значение','Сейчас','Ранее','Изменение'],items.map(x=>[
+            h('div',{class:'analytics-comparison-name'},button(x.label,()=>drill(project,range,dimension==='by_source'?x.key:source,dimension==='by_source'?{}:toFilter(x)),'analytics-link'),button('Ранее',()=>drill(project,before,dimension==='by_source'?x.key:source,dimension==='by_source'?{}:toFilter(x)),'analytics-link muted small')),
+            x.count===null?'—':format(x.count),x.previous===null?'—':format(x.previous),h('span',{class:x.change===null?'muted':x.change>0?'analytics-change-up':x.change<0?'analytics-change-down':'muted'},x.change===null?'—':`${x.change>0?'+':''}${format(x.change)}`)
+        ])):empty('Нет данных в обоих периодах.'));
+    });
+    const previousData=denseBuckets(previous,before);
+    const previousChart=scalarTimeline('Предыдущий период: события (UTC)',previousData,before,project,source,b=>b.count,' событий');
+    return h('section',{class:'analytics-compare'},h('h2',{},'Сравнение периодов'),h('p',{class:'muted small'},`${date(before.from)} — ${date(before.to)}. «—» означает, что значение отсутствует в ограниченном топе и точное изменение неизвестно.`),previousChart,h('div',{class:'chart-grid'},blocks));
 }
 function controls(config,range,sourceItems,signal) {
     const options=[['','Все источники'],...sourceItems.map(s=>[s.id,`${s.name} (${s.slug})`])];
@@ -90,8 +143,9 @@ async function overview(signal, epoch, background=false) {
     const stats=value(statsResult),sources=value(sourcesResult),previous=value(previousResult),logs=value(logsResult);
     if(state.projects.find(p=>p.id===project)?.status==='archived')root.append(card(h('p',{class:'muted'},'Проект архивирован: новые события не принимаются; история доступна.')));
     root.append(controls(config,range,sources?.items||[],signal),h('p',{class:'muted small'},`${date(range.from)} — ${date(range.to)} · обновлено ${date(new Date(now).toISOString())}`));
-    if(stats)root.append(metrics(stats,previous,range,project,config.source),timeline(stats,range,project,config.source),h('div',{class:'chart-grid'},bars('По уровням',levels.map(l=>({label:l,count:stats.by_level[l]||0})),x=>drill(project,range,config.source,{level:x.label})),bars('Топ источников (10)',stats.by_source.slice(0,10).map(x=>({...x,label:x.source})),x=>drill(project,range,x.source_id)),bars('Топ сервисов (10)',(stats.by_service||[]).map(x=>({...x,label:x.service})),x=>drill(project,range,config.source,{service:x.service})),bars('Топ хостов (10)',(stats.by_host||[]).map(x=>({...x,label:x.host})),x=>drill(project,range,config.source,{host:x.host}))));
+    if(stats)root.append(metrics(stats,previous,range,project,config.source),timeline(stats,range,project,config.source),errorRateTrend(stats,range,project,config.source),levelTrend(stats,range,project,config.source,config),h('div',{class:'chart-grid'},bars('По уровням',levels.map(l=>({label:l,count:stats.by_level[l]||0})),x=>drill(project,range,config.source,{level:x.label})),bars('Топ источников (10)',stats.by_source.slice(0,10).map(x=>({...x,label:x.source})),x=>drill(project,range,x.source_id)),bars('Топ сервисов (10)',(stats.by_service||[]).map(x=>({...x,label:x.service})),x=>drill(project,range,config.source,{service:x.service})),bars('Топ хостов (10)',(stats.by_host||[]).map(x=>({...x,label:x.host})),x=>drill(project,range,config.source,{host:x.host}))));
     else root.append(errors(statsResult,'Метрики недоступны'));
+    if(config.compare&&previous)root.append(comparisonPanel(stats,previous,range,project,config.source));
     if(config.compare&&previousResult.status==='rejected')root.append(errors(previousResult,'Сравнение недоступно'));
     root.append(sourcesPanel(config,sources,range,project,now,signal));if(!sources)root.append(errors(sourcesResult,'Состояние источников недоступно'));
     const recent=card(h('div',{class:'page-head'},h('h2',{},'Последние события'),h('div',{class:'inline'},button(config.critical?'Все уровни':'Только критические',()=>{config.critical=!config.critical;void render();}),button('Все логи',()=>drill(project,range,config.source,config.critical?{levels:JSON.stringify(errorLevels.slice(1))}:{})))));

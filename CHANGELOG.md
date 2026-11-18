@@ -1,3 +1,11 @@
+## 0.7.5 — Advanced Analytics Dashboard (public-preview)
+
+- Added grouped per-level event time series to the existing project-scoped `/logs/stats` response, using the exact same raw PostgreSQL and verified-rollup query semantics.
+- Added navigable error-rate and selected-level timeline panels, keeping half-open UTC drill-down filters and RBAC enforcement through the existing Explorer.
+- Added side-by-side current/previous period trends and per-level/source/service comparison with explicit unknown markers when a top-N breakdown is truncated.
+- Added JS computation tests, browser scenario assertions and updated OpenAPI response schema. No PostgreSQL migration is required.
+- Full PostgreSQL/Docker/browser production certification remains subject to the CI environment.
+
 ## 0.7.4 — Source Statistics & Health (public-preview)
 
 - Added real, project-scoped PostgreSQL minute counters for accepted and policy-rejected events, transactionally updated by ingestion; idempotency replays and aborted transactions are not double-counted.

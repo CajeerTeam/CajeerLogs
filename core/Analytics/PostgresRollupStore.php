@@ -177,10 +177,10 @@ final class PostgresRollupStore
             ), grouped AS (
                 SELECT level,source_id,source,service,host,bucket,sum(n) AS n,
                     sum(n) FILTER (WHERE level IN ('error','critical','alert','emergency')) AS errors,
-                    CASE WHEN GROUPING(level)=0 THEN 'level' WHEN GROUPING(source_id)=0 THEN 'source'
+                    CASE WHEN GROUPING(level)=0 AND GROUPING(bucket)=0 THEN 'level_bucket' WHEN GROUPING(level)=0 THEN 'level' WHEN GROUPING(source_id)=0 THEN 'source'
                          WHEN GROUPING(service)=0 THEN 'service' WHEN GROUPING(host)=0 THEN 'host'
                          WHEN GROUPING(bucket)=0 THEN 'bucket' ELSE 'total' END AS kind
-                FROM normalized GROUP BY GROUPING SETS ((),(level),(source_id,source),(bucket),(service),(host))
+                FROM normalized GROUP BY GROUPING SETS ((),(level),(source_id,source),(bucket),(level,bucket),(service),(host))
             ), ranked AS (
                 SELECT *,row_number() OVER(PARTITION BY kind ORDER BY n DESC,source_id,source,service,host,level,bucket) AS rn,
                     count(*) OVER(PARTITION BY kind) AS group_count FROM grouped
@@ -194,7 +194,7 @@ final class PostgresRollupStore
             SQL;
         $stmt=$this->db->prepare($sql);$stmt->execute($params);
         $result=['total'=>0,'by_level'=>array_fill_keys(LogQuery::LEVELS,0),'by_source'=>[],
-            'source_count'=>0,'sources_truncated'=>false,'by_service'=>[],'by_host'=>[],'buckets'=>[],
+            'source_count'=>0,'sources_truncated'=>false,'by_service'=>[],'by_host'=>[],'buckets'=>[],'level_buckets'=>[],
             'interval'=>$query->interval,'from'=>$f['from'],'to'=>$f['to']];
         while ($row=$stmt->fetch(PDO::FETCH_ASSOC)) {
             $n=(int)$row['n'];
@@ -205,6 +205,7 @@ final class PostgresRollupStore
                     $result['source_count']=(int)$row['group_count'];$result['sources_truncated']=$result['source_count']>100;break;
                 case 'service':$result['by_service'][]=['service'=>$row['service'],'count'=>$n];break;
                 case 'host':$result['by_host'][]=['host'=>$row['host'],'count'=>$n];break;
+                case 'level_bucket':$result['level_buckets'][]=['timestamp'=>$row['bucket'],'level'=>$row['level'],'count'=>$n];break;
                 case 'bucket':$result['buckets'][]=['timestamp'=>$row['bucket'],'count'=>$n,'errors'=>(int)$row['errors']];break;
             }
         }

@@ -107,7 +107,7 @@ class Fixture:
             if body['revision']!=row['revision']:return err(409,'role_changed')
             if method=='DELETE':self.rbac_roles.remove(row);return send(status=204)
             row.update(name=body['name'],permissions=body['permissions'],revision=row['revision']+1);return send(row)
-        if path=='/health': return send({'status':'ok','version':'0.7.4'})
+        if path=='/health': return send({'status':'ok','version':'0.7.5'})
         if path=='/auth/token':
             credential=self.connection_credentials.get(req.headers.get('authorization','').removeprefix('Bearer '))
             return send({'token':credential['row']}) if credential else err(401,'unauthorized')
@@ -276,7 +276,7 @@ class Fixture:
             interval=q.get('interval','hour'); width={'minute':60,'5min':300,'hour':3600,'day':86400}[interval]
             start=datetime.datetime.fromisoformat(q['from'].replace('Z','+00:00')).timestamp()
             bucket=datetime.datetime.fromtimestamp(int(start//width)*width,datetime.timezone.utc).isoformat().replace('+00:00','Z')
-            return send({'total':2,'by_level':{'error':2,'warning':0},'by_source':[{'source':'app','source_id':S1,'count':2}],'source_count':1,'by_service':[{'service':'api','count':2}],'by_host':[{'host':'host-1','count':2}],'buckets':[{'timestamp':bucket,'count':2,'errors':2}],'interval':interval,'sources_truncated':False,'from':q.get('from'),'to':q.get('to')})
+            return send({'total':2,'by_level':{'error':2,'warning':0},'by_source':[{'source':'app','source_id':S1,'count':2}],'source_count':1,'by_service':[{'service':'api','count':2}],'by_host':[{'host':'host-1','count':2}],'buckets':[{'timestamp':bucket,'count':2,'errors':2}],'level_buckets':[{'timestamp':bucket,'level':'error','count':2}],'interval':interval,'sources_truncated':False,'from':q.get('from'),'to':q.get('to')})
         if path=='/logs':
             if self.fail_next: self.fail_next=False;return err(503,'service_unavailable')
             assert q['project_id'] in [P1,P2]
@@ -372,7 +372,7 @@ def run():
         browser=browser_for(p); ctx=browser.new_context(accept_downloads=True); page=ctx.new_page(); page.set_default_timeout(8000)
         errors=[]; page.on('pageerror',lambda e: errors.append(str(e)))
         # Actual PHP router, not intercepted, even in offline browser mode.
-        status,headers,body=http(url+'/admin');assert status==200 and b'0.7.4' in body
+        status,headers,body=http(url+'/admin');assert status==200 and b'0.7.5' in body
         assert "script-src 'self'" in {k.lower():v for k,v in headers.items()}['content-security-policy']
         assert http(url+'/api/v1/auth/me')[0]==401
         assert http(url+'/admin/assets/panel.js')[0]==200
@@ -431,8 +431,20 @@ def run():
         page.get_by_role('button',name='Выбрать',exact=True).first.click()
         expect(page.get_by_label('Источник dashboard')).to_have_value(S1)
         assert any(c[1]=='/logs/stats' and c[2].get('source_id')==S1 for c in f.calls)
+        expect(page.get_by_role('heading',name='Доля ошибок по времени (UTC)')).to_be_visible()
+        expect(page.get_by_role('heading',name='Сравнение периодов')).to_be_visible()
+        page.get_by_label('Уровень для графика').select_option('warning')
+        expect(page.get_by_role('heading',name='Уровень warning по времени (UTC)')).to_be_visible()
+        page.get_by_label('Уровень для графика').select_option('error')
+        expect(page.get_by_role('heading',name='Уровень error по времени (UTC)')).to_be_visible()
+        level_card=page.locator('section.card').filter(has=page.get_by_role('heading',name='Уровень error по времени (UTC)'))
+        level_card.locator('.analytics-bucket').first.click()
+        expect(page.get_by_role('heading',name='Логи',exact=True)).to_be_visible()
+        assert any(c[1]=='/logs' and c[2].get('level')=='error' and c[2].get('source_id')==S1 for c in f.calls)
+        nav(page,'overview')
+
         page.locator('.analytics-bucket').first.focus()
-        expect(page.locator('.analytics-chart-detail')).to_contain_text('событий')
+        expect(page.locator('.analytics-chart-detail').first).to_contain_text('событий')
         page.keyboard.press('Enter')
         expect(page.get_by_role('heading',name='Логи',exact=True)).to_be_visible()
         expect(page.get_by_label('Источник UUID',exact=True)).to_have_value(S1)

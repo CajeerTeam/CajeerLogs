@@ -36,6 +36,7 @@ try {
     $stats=$logs->statistics($q);
     prove($stats['total']===2&&$stats['by_level']['info']===1&&$stats['by_level']['error']===1&&$stats['source_count']===1,'rollup API returns exact scoped dimensional statistics');
     prove($stats['buckets'][0]['count']===2&&$stats['buckets'][0]['errors']===1,'rollups preserve chronological error counts');
+    prove(count($stats['level_buckets'])===2&&array_sum(array_column($stats['level_buckets'],'count'))===2,'level time series reconciles to exact rollup counts');
     prove($logs->statistics(LogQuery::parse(['project_id'=>$p,'from'=>$ts(25),'to'=>$ts(50)],'stats'))['total']===1,'partial-minute boundary reads exact raw edge');
     prove($logs->statistics(LogQuery::parse(['project_id'=>$p,'from'=>$ts(10),'to'=>$ts(20)],'stats'))['total']===1,'shorter-than-one-minute window does not overcount');
     prove($logs->statistics(LogQuery::parse(['project_id'=>$p,'from'=>$ts(0),'to'=>$ts(60),'level'=>'error'],'stats'))['total']===1,'level filter is applied to counters');
@@ -46,8 +47,10 @@ try {
     $stats=$logs->statistics($q);prove($stats['total']===1&&$stats['by_level']['info']===0&&$stats['by_level']['error']===1,'update retracts old bucket and dimensions');
     $q2=LogQuery::parse(['project_id'=>$p,'from'=>$ts(0),'to'=>$ts(120),'interval'=>'minute'],'stats');
     $stats=$logs->statistics($q2);prove($stats['total']===2&&$stats['by_level']['critical']===1&&count($stats['buckets'])===2,'moved event appears in the correct minute');
+    prove(array_sum(array_column($stats['level_buckets'],'count'))===$stats['total']&&count($stats['level_buckets'])===2,'level chart tracks changed timestamp and level');
     $pdo->exec("DELETE FROM log_events WHERE id='$b'");
     prove($logs->statistics($q2)['total']===1,'delete retracts counted event');
+    prove(array_sum(array_column($logs->statistics($q2)['level_buckets'],'count'))===1,'delete retracts level chart contribution');
     prove((int)$pdo->query("SELECT count(*) FROM analytics_rollup_minutes WHERE project_id='$p' AND events=0")->fetchColumn()===0,'zero-count dimension groups are removed after update/delete');
     prove($roll->verify($p,$ts(0),$ts(120))['match'],'full dimensions reconcile to raw events');
     // Deliberate same-total dimensional corruption must be caught by verify.
