@@ -1,3 +1,22 @@
+## 0.7.0 — SDK & Integrations Stable Release Candidate
+
+- All PHP/Monolog, Python, TypeScript and Kotlin clients, Nginx/aaPanel importers,
+  webhook outbox and JSON/CSV exporter remain available through API v1.
+- Fixed export download time-of-check/time-of-use by opening, SHA-256-verifying
+  and streaming from the same file descriptor (rejects symlinks, tampering and
+  unexpected inode changes). Added actual replacement and corruption tests.
+- Added an executable, hash-bound release SDK certification runner which
+  installs distributable packages from the **verified release ZIP** and tests
+  HTTP/HMAC, retries, crash recovery, concurrent clients, Nginx/aaPanel
+  collection, JVM interoperability and npm/Python/Composer/Gradle packages.
+- The final release gate rejects missing or incomplete SDK evidence and
+  requires the existing PostgreSQL matrix, browser runs and HTTPS sustained,
+  stress, soak and fault-injection certification on the identical ZIP.
+- Added 0.6.9 upgrade/backup compatibility and aligned 0.7.0 release packages,
+  OpenAPI, Admin Panel assets and CI artifact names. No new SQL migration.
+- **Certification status:** shipping source candidate; `public-preview` until
+  production CI evidence has actually passed. No unexecuted tests are claimed.
+
 ## 0.6.9 — Integration & Compatibility Certification
 
 - Run shipped PHP/PostgreSQL/SKD/queue/export integration with restart recovery, JSON/CSV checksum, and corruption rejection as mandatory disposable-database release gate.

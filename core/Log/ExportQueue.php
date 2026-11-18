@@ -92,10 +92,11 @@ final class ExportQueue
         $job=$this->get($project,$user,$id);
         if ($job['status']!=='ready') throw new HttpException(409,'export_not_ready','Export is not ready for download.');
         $path=$this->path($job['id'],$job['format']);
-        if (is_link($path)||!is_file($path)||filesize($path)!==$job['byte_count'] || !is_string($job['checksum']) || !hash_equals($job['checksum'],hash_file('sha256',$path)?:'')) {
-            throw new HttpException(410,'export_integrity_failed','Export file is missing or fails integrity verification.');
+        if (!is_string($job['checksum'])) {
+            throw new HttpException(410,'export_integrity_failed','Export checksum is missing.');
         }
-        return new FileDownloadResponse($path,'cajeerlogs-'.$job['id'].'.'.$job['format'],$job['format'],$job['byte_count']);
+        // The response verifies and retains the same open descriptor it streams.
+        return new FileDownloadResponse($path,'cajeerlogs-'.$job['id'].'.'.$job['format'],$job['format'],$job['byte_count'],$job['checksum']);
     }
     /** Claim a job under a session advisory lock that remains held until the result is committed. */
     private function claim(): ?array

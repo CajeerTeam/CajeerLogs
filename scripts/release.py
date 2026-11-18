@@ -86,7 +86,8 @@ REQUIRED.update({'core/Log/ExportQueue.php','core/Log/ExportBudgetExceeded.php',
                  'examples/systemd/cajeerlogs-export-worker.service','examples/systemd/cajeerlogs-export-worker.timer',
                  'examples/systemd/cajeerlogs-export-cleanup.service','examples/systemd/cajeerlogs-export-cleanup.timer'})
 
-REQUIRED.update({'docs/Integration-Compatibility-Certification.md'})
+REQUIRED.update({'docs/Integration-Compatibility-Certification.md',
+                 'scripts/integrations.py', 'docs/SDK-Integrations-Stable-0.7.0.md'})
 
 REQUIRED.update({'packages/ts-sdk/src/durable.ts', 'packages/ts-sdk/test/durable.test.mjs',
                  'packages/ts-sdk/test/process.mjs', 'docs/TypeScript-SDK-Stable.md'})

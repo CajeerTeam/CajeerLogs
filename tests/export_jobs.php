@@ -3,6 +3,7 @@ declare(strict_types=1);
 use Cajeer\Logs\Log\{ExportQueue,LogExport};
 use Cajeer\Logs\Http\HttpException;
 $app=require dirname(__DIR__).'/core/bootstrap.php';$app->boot();
+ob_start();
 $n=0;
 function check(bool $ok,string $description):void{global $n;if(!$ok)throw new RuntimeException('FAIL '.$description);$n++;echo "PASS $description\n";}
 function rejected(callable $fn,int $expected):bool{try{$fn();}catch(HttpException $e){return $e->status===$expected;}return false;}
@@ -25,4 +26,24 @@ check($same===$csv,'streaming and one-page CSV are identical');
 $fake=tmpfile();fwrite($fake,'payload');$stat=fstat($fake);$path=stream_get_meta_data($fake)['uri'];
 $r=new \Cajeer\Logs\Http\FileDownloadResponse($path,'cajeerlogs-'.$id.'.csv','csv',7);
 check($r->header('Content-Length')==='7'&&str_contains($r->header('Content-Disposition'),$id),'download response advertises bounded file length');fclose($fake);
+// Verify against the descriptor we will actually stream; replacing a pathname
+// must not turn an already authorized download into another file's bytes.
+$dir=sys_get_temp_dir().'/cl-export-'.bin2hex(random_bytes(6));mkdir($dir,0700);
+try {
+    $file=$dir.'/example.json';$old='{"message":"verified"}';
+    file_put_contents($file,$old);
+    $response=new \Cajeer\Logs\Http\FileDownloadResponse($file,'safe.json','json',strlen($old),hash('sha256',$old));
+    rename($file,$dir.'/previous.json');file_put_contents($file,'{"message":"replaced"}');
+    ob_start();$response->send();$bytes=ob_get_clean();
+    check($bytes===$old,'path replacement cannot change streamed verified bytes');
+    check(rejected(fn()=>new \Cajeer\Logs\Http\FileDownloadResponse($file,'safe.json','json',strlen($old),hash('sha256',$old)),410),'tampered content rejected before headers');
+    unlink($file);symlink($dir.'/previous.json',$file);
+    check(rejected(fn()=>new \Cajeer\Logs\Http\FileDownloadResponse($file,'safe.json','json',strlen($old),hash('sha256',$old)),410),'symlinked export rejected');
+    unlink($file);unlink($dir.'/previous.json');
+} finally {
+    foreach (glob($dir.'/*')?:[] as $entry) @unlink($entry);
+    rmdir($dir);
+}
+
 echo "Bulk export unit tests: $n passed\n";
+ob_end_flush();

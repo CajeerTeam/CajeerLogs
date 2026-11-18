@@ -2,35 +2,83 @@
 declare(strict_types=1);
 namespace Cajeer\Logs\Http;
 
-/** Stream a verified immutable private artifact without loading it into PHP memory. */
+/**
+ * Stream a private export from the exact descriptor that was verified.
+ * Never reopen the pathname after verifying its SHA-256: a worker or local
+ * process may replace the pathname before the web server starts streaming.
+ */
 final class FileDownloadResponse extends Response
 {
-    public function __construct(private readonly string $file,string $name,string $format,int $bytes)
+    /** @var resource|null */
+    private $stream = null;
+    private readonly int $bytes;
+
+    public function __construct(string $file, string $name, string $format, int $bytes, ?string $checksum = null)
     {
-        parent::__construct('',200,[
-            'Content-Type'=>$format==='csv'?'text/csv; charset=utf-8':'application/json; charset=utf-8',
-            'Content-Length'=>(string)$bytes,
-            'Content-Disposition'=>'attachment; filename="'.$name.'"',
-            'Cache-Control'=>'private, no-store',
-            'X-Content-Type-Options'=>'nosniff',
-        ]);
-    }
-    public function send(bool $head=false): void
-    {
-        // Open before emitting response headers; never follow symlinked artifacts.
-        if (is_link($this->file) || !is_file($this->file)) throw new HttpException(410,'export_missing','Export file is unavailable.');
-        $stream=fopen($this->file,'rb');
-        if ($stream===false) throw new HttpException(410,'export_missing','Export file is unavailable.');
+        if ($bytes < 0 || $bytes > 268435456 || ($checksum !== null && !preg_match('/^[a-f0-9]{64}$/D', $checksum))) {
+            throw new HttpException(410, 'export_integrity_failed', 'Invalid export metadata.');
+        }
+        // lstat + fstat fence the pathname against symlink and inode swaps at open.
+        clearstatcache(true, $file);
+        $pathStat = @lstat($file);
+        if (!is_array($pathStat) || ($pathStat['mode'] & 0170000) !== 0100000) {
+            throw new HttpException(410, 'export_missing', 'Export file is unavailable.');
+        }
+        $stream = @fopen($file, 'rb');
+        if ($stream === false) throw new HttpException(410, 'export_missing', 'Export file is unavailable.');
         try {
-            parent::send(true);
-            if (!$head) {
-                while (!feof($stream)) {
-                    $chunk=fread($stream,65536);
-                    if ($chunk===false) { error_log('CajeerLogs export stream read failed'); break; }
-                    if ($chunk==='') break;
-                    echo $chunk;
+            $opened = fstat($stream);
+            if (!is_array($opened) || ($opened['mode'] & 0170000) !== 0100000 ||
+                $opened['dev'] !== $pathStat['dev'] || $opened['ino'] !== $pathStat['ino'] ||
+                $opened['size'] !== $bytes || $opened['size'] !== $pathStat['size']) {
+                throw new HttpException(410, 'export_integrity_failed', 'Export file changed or fails integrity verification.');
+            }
+            if ($checksum !== null) {
+                $hash = hash_init('sha256');
+                $read = hash_update_stream($hash, $stream);
+                if ($read !== $bytes || !hash_equals($checksum, hash_final($hash)) || !rewind($stream)) {
+                    throw new HttpException(410, 'export_integrity_failed', 'Export file changed or fails integrity verification.');
                 }
             }
-        } finally { fclose($stream); }
+            $this->stream = $stream;
+            $this->bytes = $bytes;
+            parent::__construct('', 200, [
+                'Content-Type' => $format === 'csv' ? 'text/csv; charset=utf-8' : 'application/json; charset=utf-8',
+                'Content-Length' => (string) $bytes,
+                'Content-Disposition' => 'attachment; filename="' . $name . '"',
+                'Cache-Control' => 'private, no-store',
+                'X-Content-Type-Options' => 'nosniff',
+            ]);
+        } catch (\Throwable $error) {
+            fclose($stream);
+            throw $error;
+        }
+    }
+
+    public function send(bool $head = false): void
+    {
+        $stream = $this->stream;
+        if (!is_resource($stream)) throw new HttpException(410, 'export_missing', 'Export file is unavailable.');
+        $now = fstat($stream);
+        if (!is_array($now) || $now['size'] !== $this->bytes || !rewind($stream)) {
+            throw new HttpException(410, 'export_integrity_failed', 'Export file changed before download.');
+        }
+        parent::send(true);
+        if ($head) return;
+        $remaining = $this->bytes;
+        while ($remaining > 0) {
+            $chunk = fread($stream, min(65536, $remaining));
+            if ($chunk === false || $chunk === '') {
+                error_log('CajeerLogs export stream read failed');
+                break;
+            }
+            echo $chunk;
+            $remaining -= strlen($chunk);
+        }
+    }
+
+    public function __destruct()
+    {
+        if (is_resource($this->stream)) fclose($this->stream);
     }
 }
