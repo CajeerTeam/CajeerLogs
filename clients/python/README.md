@@ -1,6 +1,10 @@
-# CajeerLogs Python SDK (0.5.8)
+# CajeerLogs Python SDK 0.6.2
 
-Python 3.10+, без runtime-зависимостей. Из корня репозитория `python3 -m pip install ./clients/python` либо добавьте `clients/python` в PYTHONPATH. Для коллектора требуется Unix/Linux, SQLite и `fcntl`.
+Python 3.10–3.13, stdlib-only at runtime. `pip install ./clients/python`. The
+package contains the synchronous/async HTTP client, stdlib `logging` handlers,
+SQLite durable synchronous batching, async delivery spool, and file collector.
+
+## HTTP client (existing API)
 
 ```python
 import os
@@ -11,24 +15,99 @@ client = CajeerLogsClient(os.environ['CAJEER_URL'], os.environ['CAJEER_TOKEN'], 
 result = client.ingest({
     'timestamp': datetime.now(timezone.utc).isoformat(timespec='microseconds'),
     'source': 'app', 'level': 'info', 'message': 'Started',
-}, idempotency_key='job-42-start')
+})
 print(result['event_ids'])
 ```
 
-`ingest` принимает single event, список событий или объект `events`. Клиент проверяет полное подтверждение HTTP 201/200. Повторяемые ошибки сети, 408/429/500/502/503/504 обрабатываются с backoff (3 попытки по умолчанию); ключ и сериализованное тело сохраняются, для HMAC каждый раз новый nonce. Неповторяемый HTTP-код возвращается как `urllib.error.HTTPError`; исчерпанный retry — `DeliveryError` с ключом и статусом. При неизвестном результате повторяйте неизменные байты и тот же ключ до истечения 24-часового окна idempotency. `send_body(bytes, key)` используется для долговременного буфера. Клиент не следует redirects; HTTP вне loopback запрещён без явного `allow_insecure_http=True` (production CajeerLogs всё равно требует HTTPS).
+`ingest`, `ingest_async`, `wait_for_job`, `send_body`, `send_async_body` remain
+backward compatible. HTTP 201 or an authenticated, validated idempotent HTTP 200
+receipt confirms synchronous storage. HTTP 202 is **only** an async job
+admission; use `wait_for_job` to confirm actual completion. Bounded HTTP retries
+reuse exact JSON bytes and idempotency key and re-sign with a fresh HMAC nonce.
+Redirects are never followed, HTTPS is verified, and remote plaintext HTTP is
+rejected by default. `DeliveryError`, `JobPending` and `JobFailed` are explicit.
 
-`CajeerLogsHandler(client, 'app', 'backend')` — stdlib `logging.Handler`; синхронно отправляет запись, ошибки направляет в стандартный `handleError`. Не используйте его для логирования самого транспорта и не блокируйте критический request path при высокой нагрузке; пишите JSONL в локальный файл и используйте коллектор.
+## Durable `logging` with batching (new in 0.6.2)
+
+```python
+import logging
+import os
+from cajeer_logs_client import CajeerLogsClient
+from cajeer_batch_spool import DurableBatchSpool
+from cajeer_logging import CajeerLogsBufferedHandler
+
+client = CajeerLogsClient(os.environ['CAJEER_URL'], os.environ['CAJEER_TOKEN'], signed=True)
+# Directory must be private (0700) on Unix; data and locks must be private (0600).
+spool = DurableBatchSpool('/var/lib/myapp/cajeer/outbox.sqlite', client,
+                          max_events=10000, max_bytes=64*1024*1024,
+                          batch_events=100, batch_bytes=1048576)
+handler = CajeerLogsBufferedHandler(spool, source='app', service='backend',
+                                    flush_interval=2.0, fail_on_enqueue_error=True)
+logger = logging.getLogger('myapp')
+logger.addHandler(handler)
+logger.setLevel(logging.INFO)
+logger.info('User %s signed in', 42, extra={'tenant': 'alpha'})
+
+# During controlled shutdown: stop producer, drain, close, then close spool.
+logger.removeHandler(handler)
+handler.close()
+try:
+    spool.flush()  # Raises on failure and retains all unconfirmed data.
+finally:
+    spool.close()
+```
+
+`emit` commits each event to SQLite before returning. The background worker
+flushes grouped events; it does not log its own failures. Inspect
+`spool.status()`, `handler.last_delivery_error`, `handler.delivery_failures`,
+`handler.last_enqueue_error`, `handler.enqueue_failures`. Set
+`fail_on_enqueue_error=True` to propagate full/disk/validation errors; otherwise
+stdlib `logging.handleError` is used. **Do not treat logging's default failure
+handling as guaranteed acceptance.** `flush_interval=0` disables background
+network activity and requires explicit flushing or the CLI. Closing the handler
+stops its worker but does not delete the durable spool or guarantee remote ACK.
+
+For unattended recovery, run the following with the **same endpoint, token,
+signing settings and spool path** as the original process:
 
 ```sh
 export CAJEER_URL=https://logs.example.com
-# CAJEER_TOKEN передайте из секретного хранилища или файла окружения с mode 0600.
-cajeer-logs-collector --file /var/log/myapp/app.jsonl --state /var/lib/cajeer-collector/app.sqlite --source app --format jsonl --signed
+export CAJEER_TOKEN=... # use secret manager, not CLI args
+cajeer-logs-spool status --spool /var/lib/myapp/cajeer/outbox.sqlite --signed
+cajeer-logs-spool flush --spool /var/lib/myapp/cajeer/outbox.sqlite --signed
 ```
 
-Протокол HMAC, восстановление коллектора, ротация, ограничения и webhook-интеграция: [SDK & Integrations](../../docs/SDK-Integrations.md).
+Two producers can share a spool safely via SQLite transactions. Multiple
+flushers are serialized across processes by a private advisory lock; a competing
+flusher receives `SpoolBusy`. First attempts are recorded durably before HTTP.
+After loss of a response, the original key/body are replayed, **never** rebuilt.
+Once an ambiguous attempt exceeds the configurable safe replay window (23 hours
+by default) the queue fails closed with `SpoolExpired`, requiring manual
+reconciliation with the server. **Exactly once is not guaranteed** beyond the
+server's idempotency retention. A non-retryable HTTP status (e.g. 401) raises
+without dropping the batch. Rejected enqueues never count as accepted.
+Do not use `enqueue` for an `{'events': [...]}` wrapper; it accepts a single
+validated event per call. Batches are created automatically.
 
-For a self-hosted HTTPS server using a private certificate authority, pass `ca_file="/path/to/ca.pem"` to `CajeerLogsClient`. Certificate and hostname verification remain enabled.
+Use an app-controlled writable directory with sufficient disk space and
+restricted access. Keep spool files across deploys and don't put the spool in
+a repository, image layer, or container-ephemeral filesystem. For high-volume
+apps, configure an operational alarm on `queued_events`, `queued_bytes` and
+repeated delivery failures. Spool files may contain sensitive log context.
 
-## Асинхронная доставка и восстановление 0.5.8
+## Existing file collector and async durable spool
 
-`ingest_async(events, idempotency_key=...)` возвращает HTTP 202 receipt с `job_id`; это подтверждение постановки задания, **не записи событий**. `wait_for_job(receipt, timeout=30, poll_interval=.5)` проверяет фактическое завершение. `JobPending` оставляет возможность продолжить polling, `JobFailed` означает dead/cancelled. `send_async_body(exact_bytes,key)` позволяет повторить неизменные данные после потери ответа. Для гарантированного восстановления после перезапуска доступен `cajeer_delivery_spool.DurableAsyncSpool` (SQLite, bounded capacity, 0600, exclusive lock). Файловый коллектор поддерживает `--async --completion-timeout 30 --poll-interval .5` и переносит checkpoint только после `completed`. [Подробная процедура](../../docs/SDK-Delivery-Recovery.md).
+```sh
+export CAJEER_URL=https://logs.example.com
+# CAJEER_TOKEN must be injected via secret management.
+cajeer-logs-collector --file /var/log/myapp/app.jsonl --state /var/lib/myapp/cajeer-collector.sqlite \
+  --source app --format jsonl --signed
+```
+
+`cajeer_delivery_spool.DurableAsyncSpool` is still available for asynchronous
+admission plus verified job-completion polling (Unix/Linux, `fcntl`). The file
+collector supports `--async` with checkpoint-on-completion semantics and log
+rotation handling. The new `DurableBatchSpool` is portable across Unix and
+Windows when the respective OS file-locking APIs are available. For private
+certificate authorities use `ca_file='/path/to/ca.pem'`; hostname verification
+remains enabled. See [SDK Delivery Recovery](../../docs/SDK-Delivery-Recovery.md).

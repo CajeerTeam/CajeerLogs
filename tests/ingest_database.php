@@ -299,7 +299,7 @@ WORKER;
         $sdkResult=json_decode($sdkState['result'],true,32,JSON_THROW_ON_ERROR);
         verify($sdkResult['stored']===1 && count($sdkResult['event_ids'])===1,'SDK async event stored once with UUID receipt');
         $stmt=$separate->prepare('SELECT count(*) FROM log_events WHERE message=:message');
-        foreach (['sdk real postgres event','sdk collector real postgres event','sdk async real postgres event'] as $message) { $stmt->execute(['message'=>$message]);verify((int)$stmt->fetchColumn()===1,'SDK event committed exactly once'); }
+        foreach (['sdk real postgres event','sdk collector real postgres event','sdk async real postgres event','python 0.6.2 first real DB event','python 0.6.2 second real DB event'] as $message) { $stmt->execute(['message'=>$message]);verify((int)$stmt->fetchColumn()===1,'SDK event committed exactly once'); }
         if (count($sdkCommands)>1) { foreach (['sdk psr3 real postgres event','sdk monolog real postgres event','sdk buffered psr3 postgres event','sdk buffered monolog postgres event','sdk buffered monolog close event'] as $message) { $stmt->execute(['message'=>$message]);verify((int)$stmt->fetchColumn()===1,'logging adapter event committed'); } }
     } finally { proc_terminate($process); proc_close($process); if (is_file($log)) { unlink($log); } }
     echo "Ingest PostgreSQL: $count checks passed\n";

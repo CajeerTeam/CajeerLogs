@@ -4,6 +4,7 @@
 
 | Версия | Статус |
 |---|---|
+| 0.6.2 | Python SDK Stable; release gate required |
 | 0.6.1 | PHP / Monolog SDK Stable; release gate required |
 | 0.6.0 | High-Throughput Ingestion & Queue Processing; release gate required |
 | 0.5.10 | Load Testing & Performance Certification; Public Preview до полного CI |

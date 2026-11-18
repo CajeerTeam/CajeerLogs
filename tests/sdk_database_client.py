@@ -6,6 +6,9 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'clients/python'))
 from cajeer_logs_client import CajeerLogsClient
+from cajeer_batch_spool import DurableBatchSpool
+from cajeer_logging import CajeerLogsBufferedHandler
+import logging
 from cajeer_logs_collector import Collector
 
 client=CajeerLogsClient(os.environ['CL_TEST_URL'],os.environ['CL_TEST_TOKEN'],signed=True)
@@ -21,6 +24,15 @@ assert accepted['status']=='pending' and accepted['received']==1 and not accepte
 assert replay['replayed'] and replay['job_id']==accepted['job_id']
 assert client.job_status(accepted['job_id'],expected_count=1)['status']=='pending'
 with tempfile.TemporaryDirectory() as tmp:
+    with DurableBatchSpool(Path(tmp)/'python-062.sqlite',client,batch_events=2) as spool:
+        handler=CajeerLogsBufferedHandler(spool,'app',flush_interval=0,fail_on_enqueue_error=True)
+        logger=logging.getLogger('python.sdk.database.acceptance')
+        logger.setLevel(logging.INFO);logger.addHandler(handler);logger.propagate=False
+        logger.info('python 0.6.2 first real DB event',extra={'phase':'e2e'})
+        logger.info('python 0.6.2 second real DB event')
+        assert spool.status()['queued_events']==2
+        assert handler.flush()==2 and spool.status()['delivered_events']==2
+        logger.removeHandler(handler);handler.close()
     path=Path(tmp)/'log.txt';state=Path(tmp)/'state.sqlite';path.write_text('sdk collector real postgres event\n')
     col=Collector(path,state,client,'app','text',ZoneInfo('UTC'))
     try: assert col.step()==1 and col.step()==0

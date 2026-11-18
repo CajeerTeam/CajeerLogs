@@ -57,6 +57,10 @@ REQUIRED = {'release.json', 'core/bootstrap.php', 'bin/cajeer', 'public/index.ph
             'tests/restore_fence.php', 'docs/Database-Core-Release.md'}
 
 
+REQUIRED.update({'clients/python/cajeer_batch_spool.py','clients/python/cajeer_logging.py',
+                 'clients/python/cajeer_spool_cli.py','tests/python_sdk_stable.py',
+                 'docs/Python-SDK-Stable.md'})
+
 REQUIRED.update({'packages/php-sdk/src/DurableBatchDelivery.php','tests/sdk/php_buffered.php',
                  'tests/sdk/php_buffered_monolog.php','tests/sdk_buffered_wire.py',
                  'docs/PHP-Monolog-SDK-Stable.md'})
@@ -150,7 +154,7 @@ def allowed(name):
         return name in FILES
     if p.parts[0] == 'storage':
         return name in {'storage/.gitkeep', *(f'storage/{d}/.gitkeep' for d in ('app','archives','backups','cache','database','logs','tmp'))}
-    if p.parts[0] not in DIRS or any(x in BLOCKED or x.startswith('.') for x in p.parts[1:] if x not in ('.gitkeep', '.htaccess')):
+    if p.parts[0] not in DIRS or any(x in BLOCKED or x.endswith('.egg-info') or x.startswith('.') for x in p.parts[1:] if x not in ('.gitkeep', '.htaccess')):
         return False
     return p.suffix in SUFFIXES or p.name in {'Dockerfile', 'cajeer', '.gitkeep', '.htaccess', 'LICENSE', 'NOTICE'}
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import http.client
+from email.utils import parsedate_to_datetime
 import hmac
 import json
 import logging
@@ -201,11 +202,11 @@ class CajeerLogsClient:
             raise ValueError("Invalid delivery limits")
 
     def ingest(self, event: dict[str, Any] | list[dict[str, Any]], *, idempotency_key: str | None = None) -> dict[str, Any]:
-        return self.send_body(encode(event), idempotency_key or secrets.token_hex(16))
+        return self.send_body(encode(event), idempotency_key if idempotency_key is not None else secrets.token_hex(16))
 
     def ingest_async(self, event: dict[str, Any] | list[dict[str, Any]], *, idempotency_key: str | None = None) -> dict[str, Any]:
         """Durably enqueue; HTTP 202 confirms the job, not the event INSERT."""
-        return self.send_async_body(encode(event), idempotency_key or secrets.token_hex(16))
+        return self.send_async_body(encode(event), idempotency_key if idempotency_key is not None else secrets.token_hex(16))
 
     def send_body(self, body: bytes, key: str) -> dict[str, Any]:
         """Synchronous ingest; immutable bytes are safe to retry after a lost response."""
@@ -224,6 +225,8 @@ class CajeerLogsClient:
         events = payload.get("events", [payload])
         if not isinstance(events, list) or not 1 <= len(events) <= 100:
             raise ValueError("Invalid serialized event batch")
+        for event in events:
+            validate_event(event)
         count = len(events)
         url = f"{self.base_url.rstrip('/')}{self.api_prefix}/ingest" + ("/async" if async_mode else "")
         path = urllib.parse.urlsplit(url).path
@@ -253,7 +256,15 @@ class CajeerLogsClient:
                 exc.close()
                 if status not in (408, 429, 500, 502, 503, 504):
                     raise exc
-                if retry_after.isdigit(): wait = max(wait, int(retry_after))
+                if retry_after.isdigit():
+                    wait = max(wait, int(retry_after))
+                elif retry_after:
+                    try:
+                        future = parsedate_to_datetime(retry_after)
+                        if future.tzinfo is not None:
+                            wait = max(wait, (future - datetime.now(timezone.utc)).total_seconds())
+                    except (TypeError, ValueError, OverflowError):
+                        pass
             except (urllib.error.URLError, TimeoutError, OSError, ValueError, http.client.HTTPException):
                 pass
             if attempt + 1 == self.attempts or wait > 30:
@@ -299,20 +310,48 @@ class CajeerLogsClient:
             time.sleep(min(poll_interval, remaining))
 
 
+def record_to_event(record: logging.LogRecord, source: str, service: str | None,
+                    message: str) -> dict[str, Any]:
+    """Map stdlib records to the strict ingest schema, retaining safe extra context."""
+    level = ("critical" if record.levelno >= 50 else "error" if record.levelno >= 40 else
+             "warning" if record.levelno >= 30 else "info" if record.levelno >= 20 else "debug")
+    context: dict[str, Any] = {"logger": record.name}
+    if record.exc_info and record.exc_info[0] is not None:
+        context["exception_type"] = record.exc_info[0].__name__
+    standard = set(logging.makeLogRecord({}).__dict__) | {"message", "asctime"}
+
+    def normalize(value: Any, depth: int = 0) -> Any:
+        if depth > 5:
+            return "[depth limit]"
+        if value is None or isinstance(value, (str, bool, int)):
+            return value
+        if isinstance(value, float):
+            return value if math.isfinite(value) else str(value)
+        if isinstance(value, (list, tuple)):
+            return [normalize(v, depth + 1) for v in value[:64]]
+        if isinstance(value, dict):
+            return {str(k)[:128]: normalize(v, depth + 1)
+                    for k, v in list(value.items())[:64]}
+        return str(value)[:2048]
+
+    for key, value in vars(record).items():
+        if key not in standard and isinstance(key, str) and len(key) <= 128:
+            context[key] = normalize(value)
+    event = {"timestamp": datetime.fromtimestamp(record.created, timezone.utc).isoformat(timespec="microseconds"),
+             "source": source, "level": level, "message": message, "context": context}
+    if service:
+        event["service"] = service
+    return event
+
+
 class CajeerLogsHandler(logging.Handler):
-    """Synchronous stdlib logging adapter. Errors use logging.handleError."""
+    """Backward-compatible synchronous stdlib logging adapter."""
     def __init__(self, client: CajeerLogsClient, source: str, service: str | None = None):
         super().__init__()
         self.client, self.source, self.service = client, source, service
 
     def emit(self, record: logging.LogRecord):
         try:
-            level = "critical" if record.levelno >= 50 else "error" if record.levelno >= 40 else "warning" if record.levelno >= 30 else "info" if record.levelno >= 20 else "debug"
-            event = {"timestamp": datetime.fromtimestamp(record.created, timezone.utc).isoformat(timespec="microseconds"),
-                     "source": self.source, "level": level, "message": self.format(record),
-                     "context": {"logger": record.name}}
-            if self.service:
-                event["service"] = self.service
-            self.client.ingest(event)
+            self.client.ingest(record_to_event(record, self.source, self.service, self.format(record)))
         except Exception:
             self.handleError(record)

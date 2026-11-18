@@ -1,3 +1,11 @@
+## 0.6.2 — Python SDK Stable
+
+- Реальный durable synchronous Python batching на приватном SQLite spool: атомарная запись каждого события, фиксация неизменяемого HTTP batch и ключа до сети, bounded capacity, replay/restart recovery, защита от устаревших неоднозначных попыток.
+- Stdlib `logging` интеграция с background flusher, конфигурируемым fail-on-enqueue, сохранением `extra`, formatter/traceback, счётчиками неудачных enqueue и HTTP доставок.
+- CLI `cajeer-logs-spool status|flush`, изоляция endpoint/signing identity, межпроцессный lock; прежние синхронные и async API сохранены.
+- Собираемые wheel/sdist и проверка установки пакета, Python 3.10–3.13 CI, реальный loopback HTTP/HMAC/401/503/lost ACK/multiprocess тест, обновлённая документация и upgrade compatibility.
+- PostgreSQL migrations отсутствуют; production certification требует фактического полного CI/PostgreSQL прогона.
+
 ## 0.6.1 — PHP / Monolog SDK Stable
 
 - Production PHP SDK: durable file spool with atomic, fsynced event writes and immutable batch envelopes; persistent idempotency keys, validated HTTP receipts, restart/replay recovery, limits on batch events/bytes and queue capacity.

@@ -1,17 +1,39 @@
 [build-system]
-requires = ["setuptools>=61"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "cajeer-logs-client"
-version = "0.6.1"
-description = "CajeerLogs v1 HTTP SDK and durable file collector"
+version = "0.6.2"
+description = "CajeerLogs v1 Python SDK with durable synchronous/async delivery and log collectors"
 requires-python = ">=3.10"
-license = {text = "Apache-2.0"}
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 readme = "README.md"
+authors = [{name = "CajeerLogs"}]
+keywords = ["logging", "cajeerlogs", "observability", "durable-queue"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Logging",
+]
 
 [project.scripts]
 cajeer-logs-collector = "cajeer_logs_collector:main"
+cajeer-logs-spool = "cajeer_spool_cli:main"
 
 [tool.setuptools]
-py-modules = ["cajeer_logs_client", "cajeer_logs_collector", "cajeer_delivery_spool"]
+py-modules = [
+    "cajeer_logs_client",
+    "cajeer_logs_collector",
+    "cajeer_delivery_spool",
+    "cajeer_batch_spool",
+    "cajeer_logging",
+    "cajeer_spool_cli",
+]

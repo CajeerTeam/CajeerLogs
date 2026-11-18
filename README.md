@@ -2,6 +2,16 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.6.2 — Python SDK Stable
+
+Добавлен durable SQLite synchronous batching для Python приложений и
+`logging.Handler`: записи фиксируются локально до HTTP, пакеты сохраняют
+неизменные байты и idempotency key, выполняется recovery после перезапуска,
+добавлены фоновый flusher, CLI status/flush, контроль заполнения и проверки
+реального HTTP + HMAC + конкурирующих процессов. Python wheel/sdist и
+отдельная CI матрица для 3.10–3.13; существующие API и async collector не
+изменены. [Python SDK Stable](docs/Python-SDK-Stable.md).
+
 ## 0.6.1 — PHP / Monolog SDK Stable
 
 PHP SDK поддерживает опциональный файловый `DurableBatchDelivery`: события фиксируются
