@@ -1,0 +1,24 @@
+<?php
+declare(strict_types=1);
+require dirname(__DIR__).'/core/bootstrap.php';
+use Cajeer\Logs\Storage\{S3CompatibleDisk,ArchiveLifecycle};
+$port=getenv('S3_TEST_PORT');if ($port===false) throw new RuntimeException('S3_TEST_PORT required.');
+$n=0;$check=static function(bool $v,string $label)use(&$n):void{if (!$v) throw new RuntimeException('FAIL '.$label);$n++;echo "PASS $label\n";};
+$config=['endpoint'=>'http://127.0.0.1:'.$port,'bucket'=>'cajeer-test','access_key'=>'TESTACCESS','secret_key'=>'secret-test-signing-key','region'=>'us-east-1','path_style'=>true,'allow_insecure'=>true];
+$s3=new S3CompatibleDisk($config);$check($s3->configured(),'valid S3 configuration');
+$body=random_bytes(65000);$saved=$s3->putVerified('cajeerlogs/archive/v1/test/object.bin',$body);
+$check($saved['sha256']===hash('sha256',$body)&&$saved['bytes']===strlen($body),'signed PUT followed by signed verified GET');
+$check($s3->getVerified($saved['key'],$saved['sha256'])===$body,'signed GET and SHA-256');
+$rejected=static function(callable $f):bool{try{$f();}catch(Throwable){return true;}return false;};
+$check($rejected(fn()=> $s3->getVerified($saved['key'],str_repeat('f',64))),'tampered expected digest rejected');
+$check($rejected(fn()=> $s3->putVerified('../unsafe','hi')),'S3 path traversal rejected');
+$check($rejected(fn()=> $s3->putVerified('safe/a',str_repeat('x',16777217))),'oversized payload rejected');
+$check($rejected(fn()=>new S3CompatibleDisk(array_replace($config,['allow_insecure'=>false]))),'HTTP disallowed without explicit opt-in');
+$wrong=new S3CompatibleDisk(array_replace($config,['secret_key'=>'different-signing-secret']));
+$check($rejected(fn()=> $wrong->getVerified($saved['key'],$saved['sha256'])),'wrong AWS signing secret rejected by HTTP server');
+$s3->delete($saved['key']);$s3->delete($saved['key']);
+$check($rejected(fn()=> $s3->getVerified($saved['key'],$saved['sha256'])),'remote DELETE and missing object handling');
+$check(ArchiveLifecycle::month('2026-12')[2]==='202612','validated month partition');
+$check($rejected(fn()=>ArchiveLifecycle::month('2026-13')),'invalid archive month rejected');
+$check($rejected(fn()=>ArchiveLifecycle::uuid('not-uuid')),'invalid project UUID rejected');
+echo "S3 storage HTTP integration: $n checks passed\n";

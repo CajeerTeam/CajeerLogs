@@ -110,6 +110,11 @@ REQUIRED.update({'core/Log/ErrorAnalytics.php','migrations/pgsql/0031_error_anal
                  'public/admin/assets/pages/errors.js','tests/error_analytics.php',
                  'tests/error_analytics_database.php','docs/Error-Analytics-Reporting-0.7.6.md'})
 
+REQUIRED.update({'core/Storage/ArchiveLifecycle.php','core/Storage/S3CompatibleDisk.php',
+                 'core/Console/Command/StorageArchiveCommand.php','migrations/pgsql/0033_storage_tiers.sql',
+                 'tests/s3_storage.php','tests/s3_storage.py','tests/storage_tiers_database.php',
+                 'docs/Scalable-Storage-Retention-0.7.8.md'})
+
 REQUIRED.update({'migrations/pgsql/0032_advanced_search.sql','tests/advanced_search.php',
                  'tests/advanced_search_database.php','tests/advanced_search.mjs','docs/Advanced-Search-Engine-0.7.7.md'})
 

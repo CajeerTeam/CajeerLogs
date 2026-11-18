@@ -20,7 +20,20 @@ final class SchemaInspector
         try {
             $query=$this->pdo->prepare(<<<'SQL'
 WITH target AS (SELECT oid FROM pg_catalog.pg_namespace WHERE nspname=:schema),
-relations AS (SELECT c.* FROM pg_catalog.pg_class c JOIN target t ON t.oid=c.relnamespace),
+-- Only automatically created monthly warm partitions and their attached indexes are
+-- excluded from the immutable migration fingerprint. The partitioned parent,
+-- all other relations, constraints, functions and policies remain checked.
+archive_children AS (
+ SELECT child.oid FROM pg_catalog.pg_class child
+ JOIN target t ON t.oid=child.relnamespace
+ JOIN pg_catalog.pg_inherits inh ON inh.inhrelid=child.oid
+ JOIN pg_catalog.pg_class parent ON parent.oid=inh.inhparent
+ WHERE parent.relnamespace=t.oid AND parent.relname='archived_log_events'
+ AND child.relispartition AND child.relname ~ '^archived_log_events_20[0-9]{4}$'
+),
+relations AS (SELECT c.* FROM pg_catalog.pg_class c JOIN target t ON t.oid=c.relnamespace
+ WHERE NOT EXISTS (SELECT 1 FROM archive_children a WHERE a.oid=c.oid)
+ AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_index i JOIN archive_children a ON a.oid=i.indrelid WHERE i.indexrelid=c.oid)),
 objects AS (
  SELECT 'relation:'||c.relname AS key, jsonb_build_object('kind',c.relkind,'persistence',c.relpersistence,'rls',c.relrowsecurity,'force_rls',c.relforcerowsecurity,'replica_identity',c.relreplident,'partition',c.relispartition,'partition_bound',pg_get_expr(c.relpartbound,c.oid,false),'partition_key',CASE WHEN c.relkind='p' THEN pg_get_partkeydef(c.oid) END,'view',CASE WHEN c.relkind IN ('v','m') THEN pg_get_viewdef(c.oid,false) END) AS value
  FROM relations c WHERE c.relkind NOT IN ('i','I','S','t')

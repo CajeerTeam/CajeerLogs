@@ -1,3 +1,7 @@
+## Scalable Storage & Retention (0.7.8)
+
+Опциональная партиционированная warm-архивация и проверенное S3-хранение. [Инструкция оператора](docs/Scalable-Storage-Retention-0.7.8.md). Hot PostgreSQL остаётся основным поисковым хранилищем; evict выполняется только по `--confirm`.
+
 ## Advanced Search Engine (0.7.7)
 
 Полнотекстовый Explorer дополнен точными ограниченными фасетами и корреляцией событий через `related_event` / `relation` с проектной изоляцией. Новая миграция `0032_advanced_search.sql` создаёт составные индексы.

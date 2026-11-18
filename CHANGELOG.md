@@ -1,3 +1,11 @@
+## 0.7.8 — Scalable Storage & Retention (public-preview)
+
+- Месячные партиции warm-архива в PostgreSQL, безопасная инкрементальная архивация и восстановление исходных событий.
+- Реальный S3 Signature V4 PUT/GET/DELETE с HTTPS/TLS и полной readback/SHA-256 проверкой содержимого.
+- Ограниченный cold offload и восстановление сегментов, метаданные в PostgreSQL, явные команды горячего удаления и безвозвратной очистки.
+- Защита от обхода retention политик, совместимость существующих ingestion, rollups, репликации и поиска; миграция 0033.
+- Тест подписанного S3 HTTP и интеграционные тесты PostgreSQL включены в CI; production-сертификация остаётся отдельным этапом.
+
 ## 0.7.7 — Advanced Search Engine
 
 - Рабочий GET `/api/v1/logs/facets`: exact filtered counts by level, source, service, host, top 20 per dimension, scope/budget enforced.
