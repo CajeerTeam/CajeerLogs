@@ -1,3 +1,12 @@
+## 0.5.10 — Load Testing & Performance Certification
+
+- Новая программа нагрузочного тестирования live HTTP/CajeerLogs: sustained, трехступенчатый ramp stress, soak и fault-injection reverse proxy (HTTP 429/503, задержка и потеря ACK после принятой записи).
+- Проверка целостности каждого теста через API поиска (строгое совпадение множества ID), завершение реальных async jobs, повторная доставка с теми же байтами и idempotency key, новым HMAC nonce, обнаружение дубликатов.
+- Отчёт с p50/p95/p99, RPS, error rate, отклонениями от целевой подачи, фактическими inject-счётчиками и независимыми SLO gates; атомарная запись JSON с exit code 1 при неуспехе.
+- Профиль длительной сертификации только для отдельного стенда (минимальные длительности 60/120/900/60 секунд), запрет фиктивного `certified=true` для коротких прогонов, привязка к SHA256 верифицированного релиза и проверке live `/ready`.
+- Автоматизированные тесты генератора и негативных сценариев в CI; реальные короткие профили на production-style Docker/PostgreSQL/TLS стенде в release smoke.
+- Поддержка восстановления бэкапов 0.5.9 в 0.5.10; неизменная схема PostgreSQL (001–0025).
+
 ## 0.5.9 — Queue Operations & Observability
 
 - Транзакционный pause/resume dispatch с PostgreSQL fencing всех конкурентных claims; bounded drain CLI.

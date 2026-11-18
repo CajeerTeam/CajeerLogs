@@ -2,6 +2,17 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.5.10 — Load Testing & Performance Certification
+
+Исполняемый `scripts/load_test.py` проводит устойчивую нагрузку (sustained), ramp-stress (x1/x2/x4),
+soak и внедрение сбоев (429/503, потеря ответа после записи, задержка) через локальный HTTP reverse proxy
+на **реальный** HTTPS-сервис. Проверяются фактически сохранённые события, завершение async jobs,
+идемпотентность повторов, p50/p95/p99, throughput, error rate и соблюдение SLO. Публикация
+`certified=true` возможна лишь при явном `--certify`, полном наборе сценариев, минимальных
+длительностях и сравнении с проверенным архивом. Smoke Docker/PG/TLS выполняет ускоренный
+реальный прогон, не выдавая его за длительную сертификацию. Без миграций.
+[Инструкция и ограничения](docs/Load-Testing-Performance-Certification.md).
+
 ## 0.5.9 — Queue Operations & Observability
 
 Реальное управление PostgreSQL queue dispatch: `queue:dispatch`, `queue:pause [REASON] --confirm`, `queue:resume --confirm`, `queue:drain [SECONDS] --confirm`, защищённые административные маршруты, транзакционный аудит и система мониторинга очереди. Новые накопительные показатели принятых и завершённых событий, retries и dead-letter, гистограмма времени доставки, Prometheus alerts и Grafana. Требуется миграция **0025**. Подробности: [Queue Operations](docs/Queue-Operations-Observability.md). Канал `public-preview` до полного PostgreSQL/Docker CI.

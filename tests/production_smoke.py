@@ -69,10 +69,10 @@ def main():
             compose('up','-d','--wait','--wait-timeout','180')
             for _ in range(60):
                 try:
-                    data,_=http('GET','/ready'); assert data['version']=='0.5.9' and data['status']=='ok'; break
+                    data,_=http('GET','/ready'); assert data['version']=='0.5.10' and data['status']=='ok'; break
                 except (OSError, AssertionError, urllib.error.URLError): time.sleep(1)
             else: raise AssertionError('HTTPS readiness did not become healthy')
-            panel,h=http('GET','/admin/'); assert b'0.5.9' in panel and 'frame-ancestors' in h['Content-Security-Policy']
+            panel,h=http('GET','/admin/'); assert b'0.5.10' in panel and 'frame-ancestors' in h['Content-Security-Policy']
             assert b'app/router.js' in http('GET','/admin/assets/panel.js')[0]
             assert b'createApiClient' in http('GET','/admin/assets/api/client.js')[0]
             http('GET','/.env',expected=404)
@@ -194,6 +194,23 @@ def main():
             bench_v2=subprocess.check_output(['python3',str(ROOT/'scripts/benchmark.py'),'--url',url,'--project',integrated['project_id'],'--source','app','--requests','12','--batch','5','--concurrency','4','--ca-file',str(tls/'fullchain.pem'),'--verify-explorer','--confirm'],env=dict(env,CAJEER_TOKEN=integrated['token']['token'],CAJEER_SIGNING_KEY_ID=signing['current_key_id'],CAJEER_SIGNING_SECRET=signing['signing_secret']),text=True,timeout=150)
             measured_v2=json.loads(bench_v2); assert measured_v2['events_verified']==44 and measured_v2['errors']==0 and measured_v2['explorer_verified'] and measured_v2['signing_version']==2
             print(bench_v2,flush=True)
+            # Real four-scenario performance gate on this disposable Docker/PostgreSQL/TLS stack.
+            load_cmd=['python3',str(ROOT/'scripts/load_test.py'),'--url',url,'--project',pid,
+                      '--source','app','--scenario','all','--rate','4','--batch','2',
+                      '--concurrency','4','--async-percent','25',
+                      '--sustained-seconds','3','--stress-seconds','3',
+                      '--soak-seconds','3','--fault-seconds','3',
+                      '--drain-seconds','120','--p95-ms','5000','--fault-p95-ms','5000',
+                      '--min-rate-ratio','0.8','--ca-file',str(tls/'fullchain.pem'),'--confirm-disposable']
+            perf=subprocess.run(load_cmd,env=dict(env,CAJEER_TOKEN=t['token'],CAJEER_LOAD_TEST='1'),
+                                text=True,capture_output=True,timeout=180)
+            assert perf.returncode==0, 'Real load/fault tests did not pass on Docker PostgreSQL runtime'
+            perf_report=json.loads(perf.stdout)
+            assert perf_report['status']=='passed' and not perf_report['certified']
+            assert [p['scenario'] for p in perf_report['phases']]==['sustained','stress','soak','fault']
+            assert all(p['durable_events']==p['verified_events'] for p in perf_report['phases'])
+            assert perf_report['phases'][-1]['fault_injection']['lost_ack']>0
+            print('PASS live sustained/stress/soak/transport fault injection and exact durability verification',flush=True)
             assert json.loads(cli('db:verify'))['status']=='ok'
             assert json.loads(cli('db:performance'))['tables']
             assert json.loads(cli('db:explain',pid,'--analyze'))['plans']['latest']
