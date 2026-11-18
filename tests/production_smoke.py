@@ -20,7 +20,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from pipeline_scenario import exercise
+from pipeline_scenario import exercise, CajeerLogsClient, encode
 from monitoring_stack import monitoring_smoke
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -46,7 +46,7 @@ def main():
             return subprocess.run(cmd+list(args),cwd=ROOT,env=env,check=check,timeout=timeout,stdout=subprocess.PIPE if capture else None,text=True).stdout
         def cli(*args): return compose('exec','-T','app','php','bin/cajeer',*args,capture=True)
         context=ssl.create_default_context(cafile=str(tls/'fullchain.pem'))
-        def http(method,path,body=None,headers=None,expected=200):
+        def http(method,path,body=None,headers=None,expected=200,raw_response=False):
             raw=body if isinstance(body,bytes) else (None if body is None else json.dumps(body,separators=(',',':')).encode())
             hs={'Accept':'application/json'}; hs.update(headers or {})
             if raw is not None: hs['Content-Type']='application/json'
@@ -57,7 +57,7 @@ def main():
                 status=resp.code; data=resp.read(); h=resp.headers
             # Don't log response bodies that might include credentials.
             if status not in (expected if isinstance(expected,tuple) else (expected,)): raise AssertionError(f'{method} {path}: expected {expected}, got {status}')
-            return (json.loads(data) if h.get('Content-Type','').startswith('application/json') and data else data),h
+            return (json.loads(data) if not raw_response and h.get('Content-Type','').startswith('application/json') and data else data),h
         def session(data,headers):
             cookie=headers['Set-Cookie']; assert 'Secure' in cookie and 'HttpOnly' in cookie and 'SameSite=Strict' in cookie
             return {'Cookie':cookie.split(';',1)[0],'X-CSRF-Token':data['csrf_token'],'Origin':url}
@@ -69,10 +69,10 @@ def main():
             compose('up','-d','--wait','--wait-timeout','180')
             for _ in range(60):
                 try:
-                    data,_=http('GET','/ready'); assert data['version']=='0.6.8' and data['status']=='ok'; break
+                    data,_=http('GET','/ready'); assert data['version']=='0.6.9' and data['status']=='ok'; break
                 except (OSError, AssertionError, urllib.error.URLError): time.sleep(1)
             else: raise AssertionError('HTTPS readiness did not become healthy')
-            panel,h=http('GET','/admin/'); assert b'0.6.8' in panel and 'frame-ancestors' in h['Content-Security-Policy']
+            panel,h=http('GET','/admin/'); assert b'0.6.9' in panel and 'frame-ancestors' in h['Content-Security-Policy']
             assert b'app/router.js' in http('GET','/admin/assets/panel.js')[0]
             assert b'createApiClient' in http('GET','/admin/assets/api/client.js')[0]
             http('GET','/.env',expected=404)
@@ -191,6 +191,66 @@ def main():
             http('POST','/api/v1/auth/reauthenticate',{'password':admin,'otp':recovery_codes[2]},auth)
             integrated=exercise(http,url,auth,lambda:None,str(tls/'fullchain.pem'))
             signing=integrated['token']['signing']
+            # Deliberately stop every queue consumer before creating a real async job.
+            # The durable PostgreSQL receipt must survive and complete after restart.
+            compose('stop','queue')
+            sdk=CajeerLogsClient(url,integrated['token']['token'],
+                signing_key_id=signing['current_key_id'],hmac_secret=signing['signing_secret'],
+                ca_file=str(tls/'fullchain.pem'))
+            durable_event={'source':'app','level':'warning',
+                'timestamp':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                'message':'queue restart certification','request_id':'queue-restart-'+secrets.token_hex(8)}
+            durable_body=encode(durable_event)
+            durable_key='queue-restart-'+secrets.token_hex(12)
+            queued=sdk.send_async_body(durable_body,durable_key)
+            queued_id=queued['job_id']
+            job_url='/api/v1/ingest/jobs/'+queued_id
+            auth_token={'Authorization':'Bearer '+integrated['token']['token']}
+            status,_=http('GET',job_url,headers=auth_token)
+            assert status['status']=='pending', 'Stopped queue processed a job'
+            replay=sdk.send_async_body(durable_body,durable_key)
+            assert replay['replayed'] and replay['job_id']==queued_id
+            compose('up','-d','--wait','--wait-timeout','180','--scale','queue=2','queue')
+            for _ in range(100):
+                status,_=http('GET',job_url,headers=auth_token)
+                if status['status']=='completed':break
+                assert status['status'] in ('pending','running')
+                time.sleep(.5)
+            else: raise AssertionError('Durable async job did not recover after queue outage')
+            assert len(status['result']['event_ids'])==1
+            assert json.loads(cli('queue:verify'))['valid']
+            assert json.loads(cli('queue:project-verify'))['valid']
+            print('PASS real queue shutdown, persisted async receipt, idempotent retry and worker recovery',flush=True)
+            # Full JSON and CSV background exports from the authenticated Admin session.
+            # This exercises PostgreSQL leasing, the file store, checksums and live download.
+            exports='/api/v1/projects/'+integrated['project_id']+'/exports'
+            now=datetime.datetime.now(datetime.timezone.utc)
+            filters={'from':(now-datetime.timedelta(hours=2)).isoformat(),
+                     'to':(now+datetime.timedelta(hours=1)).isoformat()}
+            export_jobs=[]
+            for format in ('json','csv'):
+                result,_=http('POST',exports,{'format':format,'filters':filters},auth,202)
+                export_jobs.append(result['job'])
+                http('GET',exports+'/'+result['job']['id']+'/download',headers=auth,expected=409)
+            completed_exports=json.loads(cli('exports:work','2'))
+            assert completed_exports['ready']==2 and completed_exports['failed']==0
+            for export_job in export_jobs:
+                item,_=http('GET',exports+'/'+export_job['id'],headers=auth)
+                item=item['job']; assert item['status']=='ready' and item['row_count']==6
+                data,_=http('GET',exports+'/'+item['id']+'/download',headers=auth,raw_response=True)
+                assert len(data)==item['byte_count'] and hashlib.sha256(data).hexdigest()==item['checksum']
+                if item['format']=='json':
+                    rows=json.loads(data)
+                    assert len(rows)==6 and all(r['project_id']==integrated['project_id'] for r in rows)
+                else:
+                    assert len(data.decode('utf-8-sig').splitlines())==7
+                http('GET',exports+'/'+item['id']+'/download',headers=auth_token,expected=403)
+            # Corrupt a disposable on-disk artifact; it must never be streamed as valid data.
+            damaged=export_jobs[0]['id']
+            compose('exec','-T','app','php','-r',
+                f'file_put_contents("storage/exports/private/{damaged}.json","CORRUPT",FILE_APPEND);')
+            http('GET',exports+'/'+damaged+'/download',headers=auth,expected=410)
+            print('PASS live JSON/CSV background export, role enforcement, SHA-256 and file corruption rejection',flush=True)
             bench_v2=subprocess.check_output(['python3',str(ROOT/'scripts/benchmark.py'),'--url',url,'--project',integrated['project_id'],'--source','app','--requests','12','--batch','5','--concurrency','4','--ca-file',str(tls/'fullchain.pem'),'--verify-explorer','--confirm'],env=dict(env,CAJEER_TOKEN=integrated['token']['token'],CAJEER_SIGNING_KEY_ID=signing['current_key_id'],CAJEER_SIGNING_SECRET=signing['signing_secret']),text=True,timeout=150)
             measured_v2=json.loads(bench_v2); assert measured_v2['events_verified']==44 and measured_v2['errors']==0 and measured_v2['explorer_verified'] and measured_v2['signing_version']==2
             print(bench_v2,flush=True)

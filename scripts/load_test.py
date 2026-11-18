@@ -30,7 +30,7 @@ import urllib.parse
 import urllib.request
 import uuid
 
-VERSION = '0.6.8'
+VERSION = '0.6.9'
 MAX_RESPONSE = 4 * 1024 * 1024
 RETRYABLE = {429, 502, 503, 504}
 PHASES = ('sustained', 'stress', 'soak', 'fault')
@@ -535,7 +535,14 @@ def run_phase(client, phase, args):
     windows_ok = all(item['p95_ms'] <= p95_limit for item in minute_stats)
     steps_ok = all(item['scheduled'] >= item['target_rps'] * item['seconds'] * args.min_rate_ratio for item in step_counts)
     reads_ok = read_histogram.count > 0 and not read_errors and read_histogram.summarize()['p95_ms'] <= p95_limit
+    # A scheduler that admitted work but never completed it cannot qualify as throughput.
+    # Count only requests with durable HTTP receipts, not attempts waiting in the executor.
+    target_rate = sum(rate * seconds for seconds, rate in plan) / target_duration
+    effective_rate = (delivered / args.batch) / max(admission_seconds, .001)
     gates = {
+        'completion_accounting': attempts == scheduled and histogram.count == (delivered // args.batch),
+        'achieved_rate': effective_rate >= target_rate * args.min_rate_ratio * (
+            1 - (args.fault_error_rate if phase == 'fault' else args.max_error_rate)),
         'durable_consistency': verification == 'passed' and len(expected) == delivered,
         'error_rate': error_rate <= (args.fault_error_rate if phase == 'fault' else args.max_error_rate),
         'p95_latency': summary.get('p95_ms', float('inf')) <= p95_limit,
@@ -555,7 +562,7 @@ def run_phase(client, phase, args):
             'minute_latency': minute_stats, 'concurrent_search_latency': read_histogram.summarize(),
             'concurrent_search_errors': dict(read_errors), 'scheduled_requests': scheduled,
             'completed_requests': attempts, 'durable_events': delivered, 'verified_events': len(expected) if verification == 'passed' else 0,
-            'throughput_requests_per_second': round(rate, 3), 'latency': summary,
+            'throughput_requests_per_second': round(rate, 3), 'effective_ingest_rps': round(effective_rate, 3), 'latency': summary,
             'errors': dict(errors), 'error_rate': round(error_rate, 6), 'retry_attempts': retries,
             'idempotent_replays': replayed, 'async_jobs': len(jobs), 'search_pages': pages,
             'fault_injection': fault_stats, 'gates': gates}
@@ -579,7 +586,7 @@ def validate_args(args):
         if args.scenario != 'all' or args.sustained_seconds < 60 or args.stress_seconds < 120 or args.soak_seconds < 900 or args.fault_seconds < 60:
             raise ValueError('Certification requires all phases (sustained>=60s, stress>=120s, soak>=900s, fault>=60s)')
         if args.async_percent != 100 or args.batch < 2:
-            raise ValueError('0.6.2 certification requires 100% async traffic and multi-event batches')
+            raise ValueError('Certification requires 100% async traffic and multi-event batches')
         if not args.archive:
             raise ValueError('Certification requires --archive to bind results to a verified distribution')
 

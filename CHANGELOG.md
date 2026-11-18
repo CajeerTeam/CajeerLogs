@@ -1,3 +1,11 @@
+## 0.6.9 — Integration & Compatibility Certification
+
+- Run shipped PHP/PostgreSQL/SKD/queue/export integration with restart recovery, JSON/CSV checksum, and corruption rejection as mandatory disposable-database release gate.
+- Test real production queue interruption/recovery and stuck asynchronous jobs using the HTTPS/Docker stack.
+- Strengthen real sustained/stress/soak/fault evidence: achieved request rate, exact request completion, durable event accounting and mandatory gates must all pass.
+- Require verified 0.6.8 → 0.6.9 upgrade, support 0.6.8 backup restore without new schema migrations.
+- Stable is **not** inferred from local unit tests: the matrix, browser and 18+ minute HTTPS load certification remain required.
+
 ## 0.6.8 — JSON/CSV Export Stable
 
 - Durable PostgreSQL export queue, project/owner-scoped session API, Admin Panel job controls and downloadable artifacts.

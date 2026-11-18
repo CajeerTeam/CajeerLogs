@@ -1,3 +1,7 @@
+## 0.6.9 — Integration & Compatibility Certification
+
+This release retains API v1 and the PostgreSQL schema of 0.6.8. It requires real integrated verification of the SDK, durable ingest, queue recovery, webhook, JSON/CSV exports and retention on disposable databases, as well as sustained/stress/soak/fault testing of the HTTPS production stack. See [Integration and Compatibility Certification](docs/Integration-Compatibility-Certification.md). A successful build alone is not a certificate; release evidence must come from the real matrix and production smoke.
+
 ## 0.6.8 — JSON/CSV Export Stable
 
 Streamed asynchronous JSON/CSV exports, private artifact downloads and integrity verification. See [export operations](docs/JSON-CSV-Export-Stable.md).
