@@ -65,6 +65,9 @@ REQUIRED.update({'packages/php-sdk/src/DurableBatchDelivery.php','tests/sdk/php_
                  'tests/sdk/php_buffered_monolog.php','tests/sdk_buffered_wire.py',
                  'docs/PHP-Monolog-SDK-Stable.md'})
 
+REQUIRED.update({'packages/ts-sdk/src/durable.ts', 'packages/ts-sdk/test/durable.test.mjs',
+                 'packages/ts-sdk/test/process.mjs', 'docs/TypeScript-SDK-Stable.md'})
+
 # Runtime module graph is required even for an unstaged changed-files overlay.
 REQUIRED.update({
     'scripts/load_test.py','tests/load_test.py','docs/Load-Testing-Performance-Certification.md',

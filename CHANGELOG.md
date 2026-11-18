@@ -1,3 +1,10 @@
+## 0.6.3 — TypeScript SDK Stable
+
+- Node.js SDK: disk-backed bounded batching (`DurableBatchDelivery`), fsync/atomic persisted bodies, idempotent crash recovery, credential-scoped spool, 23h default fail-closed replay window.
+- Retry/HMAC: immutable JSON body and idempotency key, fresh signature nonce, optional abort signals; expanded real HTTP and multiprocess tests.
+- npm: package version 0.6.3, type declarations, Node.js 20+ ESM distribution with a reproducible build and package tests.
+- Server ingest API/schema unchanged; no PostgreSQL migrations.
+
 ## 0.6.2 — Python SDK Stable
 
 - Реальный durable synchronous Python batching на приватном SQLite spool: атомарная запись каждого события, фиксация неизменяемого HTTP batch и ключа до сети, bounded capacity, replay/restart recovery, защита от устаревших неоднозначных попыток.

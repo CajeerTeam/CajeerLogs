@@ -1,3 +1,7 @@
+## 0.6.3 — TypeScript SDK Stable
+
+Node.js 20+ ESM SDK with production HTTP/HMAC and optional durable batching, bounded local spool, crash recovery and typed receipts. See [TypeScript SDK Stable](docs/TypeScript-SDK-Stable.md) and [SDK package](packages/ts-sdk/README.md).
+
 # CajeerLogs
 
 Self-hosted PHP-first платформа централизованного логирования.

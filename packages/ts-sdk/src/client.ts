@@ -27,7 +27,13 @@ export class JobStatusError extends Error {
 }
 const jobIdValid = (value: unknown): value is string => typeof value === 'string' && /^[1-9][0-9]{0,18}$/.test(value) && BigInt(value) <= 9223372036854775807n
 const encoder = new TextEncoder()
-const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
+const delay = (ms: number, signal?: AbortSignal) => new Promise<void>((resolve, reject) => {
+  if (signal?.aborted) { reject(signal.reason); return }
+  const timer = setTimeout(done, ms)
+  function done() { signal?.removeEventListener('abort', aborted); resolve() }
+  function aborted() { clearTimeout(timer); signal?.removeEventListener('abort', aborted); reject(signal?.reason) }
+  signal?.addEventListener('abort', aborted, { once: true })
+})
 
 const fields = new Set(['timestamp','source','level','message','context','service','host','trace_id','request_id','tags'])
 const levels = new Set(['debug','info','notice','warning','error','critical','alert','emergency'])
@@ -44,7 +50,7 @@ const validTimestamp = (v: unknown): boolean => {
   const date = new Date(v)
   return Number.isFinite(date.getTime()) && date.getUTCFullYear() >= 1 && date.getUTCFullYear() <= 9999
 }
-function validateEvent(e: unknown): void {
+export function validateLogEvent(e: unknown): void {
   if (!object(e) || Object.keys(e).some(k=>!fields.has(k))) throw new Error('Invalid event fields')
   if (!text(e.source,100) || !/^[a-z0-9]+(?:-[a-z0-9]+)*$(?![\s\S])/.test(e.source) || !text(e.level,32) || !levels.has(e.level.toLowerCase()) || !text(e.message,16384) || !validTimestamp(e.timestamp)) throw new Error('Invalid required event field')
   for (const [key,max] of [['service',255],['host',255],['trace_id',128],['request_id',128]] as const) if (e[key] != null && !text(e[key],max)) throw new Error('Invalid optional event field')
@@ -96,32 +102,37 @@ export class CajeerLogsClient {
     this.signed = (options.signed ?? false) || this.signingKeyId !== undefined
     if (!Number.isInteger(this.attempts) || this.attempts < 1 || this.attempts > 10 || !Number.isFinite(this.timeout) || this.timeout <= 0 || this.timeout > 120000) throw new Error('Invalid delivery limits')
   }
-  async ingest(event: LogEvent | LogEvent[] | { events: LogEvent[] }, idempotencyKey = random()): Promise<IngestReceipt> {
+  /** Fingerprint binds a disk outbox to one API endpoint, credential and signing configuration. */
+  async spoolIdentity(): Promise<string> {
+    const material = JSON.stringify([this.url.href, this.token, this.signed, this.signingKeyId, this.signingSecret])
+    return hex(await crypto.subtle.digest('SHA-256', encoder.encode(material)))
+  }
+  async ingest(event: LogEvent | LogEvent[] | { events: LogEvent[] }, idempotencyKey = random(), signal?: AbortSignal): Promise<IngestReceipt> {
     const payload = Array.isArray(event) ? { events: event } : event
     if (!object(payload)) throw new Error('Invalid event or batch')
     const events = 'events' in payload ? payload.events : [payload]
     if (!Array.isArray(events) || events.length<1 || events.length>100 || ('events' in payload && Object.keys(payload).length!==1)) throw new Error('Invalid batch')
-    for (const item of events) validateEvent(item)
-    return this.sendBody(JSON.stringify(payload), idempotencyKey)
+    for (const item of events) validateLogEvent(item)
+    return this.sendBody(JSON.stringify(payload), idempotencyKey, signal)
   }
   /** Enqueue immutable events; HTTP 202 is durable admission, not completed storage. */
-  async ingestAsync(event: LogEvent | LogEvent[] | {events: LogEvent[]}, idempotencyKey = random()): Promise<AsyncDeliveryReceipt> {
+  async ingestAsync(event: LogEvent | LogEvent[] | {events: LogEvent[]}, idempotencyKey = random(), signal?: AbortSignal): Promise<AsyncDeliveryReceipt> {
     const payload = Array.isArray(event) ? { events: event } : event
     if (!object(payload)) throw new Error('Invalid event or batch')
     const events = 'events' in payload ? payload.events : [payload]
     if (!Array.isArray(events) || events.length < 1 || events.length > 100 || ('events' in payload && Object.keys(payload).length !== 1)) throw new Error('Invalid batch')
-    for (const item of events) validateEvent(item)
-    return this.sendAsyncBody(JSON.stringify(payload), idempotencyKey)
+    for (const item of events) validateLogEvent(item)
+    return this.sendAsyncBody(JSON.stringify(payload), idempotencyKey, signal)
   }
   /** Resume synchronous delivery with the exact persisted JSON text and key. */
-  async sendBody(body: string, idempotencyKey: string): Promise<IngestReceipt> {
-    return this.postBody(body, idempotencyKey, false) as Promise<IngestReceipt>
+  async sendBody(body: string, idempotencyKey: string, signal?: AbortSignal): Promise<IngestReceipt> {
+    return this.postBody(body, idempotencyKey, false, signal) as Promise<IngestReceipt>
   }
   /** Persist body and key BEFORE this call for recovery across process restarts. */
-  async sendAsyncBody(body: string, idempotencyKey: string): Promise<AsyncDeliveryReceipt> {
-    return this.postBody(body, idempotencyKey, true) as Promise<AsyncDeliveryReceipt>
+  async sendAsyncBody(body: string, idempotencyKey: string, signal?: AbortSignal): Promise<AsyncDeliveryReceipt> {
+    return this.postBody(body, idempotencyKey, true, signal) as Promise<AsyncDeliveryReceipt>
   }
-  private async postBody(body: string, idempotencyKey: string, asyncMode: boolean): Promise<IngestReceipt | AsyncDeliveryReceipt> {
+  private async postBody(body: string, idempotencyKey: string, asyncMode: boolean, signal?: AbortSignal): Promise<IngestReceipt | AsyncDeliveryReceipt> {
     if (encoder.encode(body).length > 1048576) throw new Error('Invalid body or idempotency key')
     const payload = JSON.parse(body)
     if (!object(payload) || ('events' in payload && Object.keys(payload).length !== 1)) throw new Error('Invalid serialized event batch')
@@ -129,6 +140,7 @@ export class CajeerLogsClient {
     const count = Array.isArray(events) ? events.length : 0
     if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(idempotencyKey) || count < 1 || count > 100) throw new Error('Invalid body or idempotency key')
     const url = asyncMode ? new URL(this.url.pathname + '/async', this.url) : this.url
+    if (signal?.aborted) throw signal.reason
     for (let attempt = 0; attempt < this.attempts; attempt++) {
       const headers: Record<string, string> = { 'Content-Type': 'application/json', Authorization: `Bearer ${this.token}`, 'Idempotency-Key': idempotencyKey }
       if (this.signed) {
@@ -142,8 +154,11 @@ export class CajeerLogsClient {
       }
       let status: number | null = null, wait = 250 * 2 ** attempt
       const controller = new AbortController()
-      const timer = setTimeout(() => controller.abort(), this.timeout)
+      const abort = () => controller.abort(signal?.reason)
+      signal?.addEventListener('abort', abort, { once: true })
+      const timer = setTimeout(() => controller.abort(new Error('Request timeout')), this.timeout)
       try {
+        if (signal?.aborted) throw signal.reason
         const response = await fetch(url, { method: 'POST', headers, body, signal: controller.signal, redirect: 'manual', credentials: 'omit' })
         status = response.status
         const retry = response.headers.get('Retry-After') ?? ''
@@ -156,9 +171,10 @@ export class CajeerLogsClient {
             if (r && r.accepted === true && r.received === count && r.stored === (status === 200 ? 0 : count) && r.rejected === 0 && r.replayed === (status === 200) && Array.isArray(r.event_ids) && r.event_ids.length === count && r.event_ids.every(id => typeof id === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(id)) && new Set(r.event_ids).size === count) return r as unknown as IngestReceipt
           }
         } else { await response.body?.cancel() }
-      } catch { /* network error or invalid receipt: retry SAME body, key, new HMAC nonce */ } finally { clearTimeout(timer) }
+      } catch { /* network error or invalid receipt: retry SAME body, key, new HMAC nonce */ } finally { clearTimeout(timer); signal?.removeEventListener('abort', abort) }
+      if (signal?.aborted) throw signal.reason
       if (attempt + 1 === this.attempts || wait > 30000 || (status !== null && ![200,201,202,408,429,500,502,503,504].includes(status))) throw new DeliveryError(status, idempotencyKey)
-      await delay(wait + Math.floor(Math.random() * 100))
+      await delay(wait + Math.floor(Math.random() * 100), signal)
     }
     throw new Error('Unreachable')
   }
@@ -173,11 +189,14 @@ export class CajeerLogsClient {
     return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
   }
   /** A GET does not enqueue, and authorization is checked against the live token family. */
-  async jobStatus(jobId: string, expectedCount?: number): Promise<JobStatus> {
+  async jobStatus(jobId: string, expectedCount?: number, signal?: AbortSignal): Promise<JobStatus> {
     if (!jobIdValid(jobId)) throw new Error('Invalid job ID')
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), this.timeout)
+    const abort = () => controller.abort(signal?.reason)
+    signal?.addEventListener('abort', abort, { once: true })
+    const timer = setTimeout(() => controller.abort(new Error('Request timeout')), this.timeout)
     try {
+      if (signal?.aborted) throw signal.reason
       const url = new URL(this.url.pathname + '/jobs/' + jobId, this.url)
       const response = await fetch(url, { method: 'GET', headers: { Authorization: `Bearer ${this.token}` }, signal: controller.signal, redirect: 'manual', credentials: 'omit' })
       if (response.status !== 200) { await response.body?.cancel(); throw new JobStatusError(response.status) }
@@ -188,14 +207,14 @@ export class CajeerLogsClient {
         if (!result || !Array.isArray(result.event_ids) || result.event_ids.length < 1 || result.event_ids.length > 100 || result.stored !== result.event_ids.length || (expectedCount !== undefined && result.stored !== expectedCount) || result.event_ids.some(id => typeof id !== 'string' || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(id)) || new Set(result.event_ids).size !== result.event_ids.length) throw new Error('Invalid job result')
       } else if (r.result !== null) throw new Error('Unexpected unfinished job result')
       return r as unknown as JobStatus
-    } finally { clearTimeout(timer) }
+    } finally { clearTimeout(timer); signal?.removeEventListener('abort', abort) }
   }
-  async waitForJob(receipt: AsyncDeliveryReceipt, timeoutMs = 30000, pollMs = 500): Promise<JobStatus> {
+  async waitForJob(receipt: AsyncDeliveryReceipt, timeoutMs = 30000, pollMs = 500, signal?: AbortSignal): Promise<JobStatus> {
     if (!jobIdValid(receipt.job_id) || !Number.isInteger(receipt.received) || receipt.received < 1 || receipt.received > 100 || !Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > 3600000 || !Number.isFinite(pollMs) || pollMs < 50 || pollMs > 30000) throw new Error('Invalid async receipt or polling limits')
     const deadline = performance.now() + timeoutMs
     for (;;) {
       try {
-        const state = await this.jobStatus(receipt.job_id, receipt.received)
+        const state = await this.jobStatus(receipt.job_id, receipt.received, signal)
         if (state.status === 'completed') return state
         if (state.status === 'dead' || state.status === 'cancelled') throw new JobFailedError(receipt.job_id, state.status)
       } catch (err) {
@@ -203,7 +222,7 @@ export class CajeerLogsClient {
       }
       const remaining = deadline - performance.now()
       if (remaining <= 0) throw new JobPendingError(receipt.job_id)
-      await delay(Math.min(pollMs, remaining))
+      await delay(Math.min(pollMs, remaining), signal)
     }
   }
 }

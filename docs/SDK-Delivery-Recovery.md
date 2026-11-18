@@ -106,3 +106,7 @@ try {
 ## Verification
 
 `python3 tests/sdk_wire.py` (existing sync/HMAC tests) and `python3 tests/sdk_async_wire.py` (four real HTTP clients, lost response after accepted POST, 503 retry, identical replay, terminal failures, invalid IDs/results, redirect denial, SQLite collector restart and outbox restart) are required in the release CI SDK job. Tests use an actual loopback HTTP server and real PHP/Python/Node/JVM HTTP requests; they do not claim PostgreSQL E2E coverage. The existing PostgreSQL integration and upgrade gates additionally test server-side durable idempotency and transaction boundaries. Full PostgreSQL/Docker certification is still required before changing the release channel from `public-preview`.
+
+## Node.js TypeScript SDK 0.6.3 — committed synchronous outbox
+
+`DurableBatchDelivery` (`packages/ts-sdk/src/durable.ts`) is an **opt-in** local durable batching transport for the synchronous ingest endpoint. After atomic write and fsync, `enqueue()` confirms local persistence; `flush()` checks committed HTTP 201/200 receipts, and only then removes each batch. After crash, replay uses the same body/key with a fresh HMAC nonce. The file spool binds to an endpoint/credential fingerprint; it fails closed on expired or corrupt pending batches. It is **not** a persistent async job-status poller: for async `ingestAsync`, callers must still store their body, key and 202 receipt externally if they need cross-restart status recovery. See [TypeScript SDK Stable](TypeScript-SDK-Stable.md).
