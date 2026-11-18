@@ -23,7 +23,7 @@ DIRS = {'admin', 'api', 'app', 'bin', 'clients', 'components', 'config', 'core',
 BLOCKED = {'vendor', 'node_modules', '__pycache__', 'build', 'dist', '.gradle', '.git', '.idea', '.vscode', 'release-out'}
 SUFFIXES = {'.php', '.py', '.js', '.mjs', '.ts', '.json', '.yaml', '.yml', '.sql', '.md', '.txt',
             '.html', '.css', '.vue', '.svg', '.png', '.jpg', '.jpeg', '.ico', '.webp', '.sh',
-            '.conf', '.service', '.timer', '.cron', '.toml', '.kts', '.kt', '.properties', '.xml', '.neon', '.example', '.cjr', '.webmanifest'}
+            '.conf', '.service', '.timer', '.cron', '.toml', '.kts', '.kt', '.java', '.properties', '.xml', '.neon', '.example', '.cjr', '.webmanifest'}
 REQUIRED = {'release.json', 'core/bootstrap.php', 'bin/cajeer', 'public/index.php', 'public/router.php',
             'admin/index.html', 'public/admin/assets/panel.js', 'public/admin/assets/panel.css',
             'api/openapi.yaml', 'openapi.yaml', 'compose.production.yaml', 'deploy/production/Dockerfile',
@@ -64,6 +64,13 @@ REQUIRED.update({'clients/python/cajeer_batch_spool.py','clients/python/cajeer_l
 REQUIRED.update({'packages/php-sdk/src/DurableBatchDelivery.php','tests/sdk/php_buffered.php',
                  'tests/sdk/php_buffered_monolog.php','tests/sdk_buffered_wire.py',
                  'docs/PHP-Monolog-SDK-Stable.md'})
+
+REQUIRED.update({
+    'clients/java-kotlin/src/main/kotlin/ru/cajeer/logs/CajeerLogsAsyncQueue.kt',
+    'clients/java-kotlin/src/main/kotlin/ru/cajeer/logs/CajeerLogsJulHandler.kt',
+    'tests/kotlin_sdk_stable.py', 'tests/sdk/KotlinQueueTest.kt',
+    'tests/sdk/KotlinQueueJavaTest.java', 'docs/Kotlin-SDK-Stable.md',
+})
 
 REQUIRED.update({'packages/ts-sdk/src/durable.ts', 'packages/ts-sdk/test/durable.test.mjs',
                  'packages/ts-sdk/test/process.mjs', 'docs/TypeScript-SDK-Stable.md'})

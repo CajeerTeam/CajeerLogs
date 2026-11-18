@@ -23,7 +23,7 @@ import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
 /** JVM 17+, no external runtime dependencies. Durable sync and async delivery. */
-data class LogEvent(val source: String, val level: String, val message: String,
+data class LogEvent @JvmOverloads constructor(val source: String, val level: String, val message: String,
     val timestamp: String = Instant.now().truncatedTo(ChronoUnit.MICROS).toString(), val service: String? = null,
     val host: String? = null, val context: Map<String, Any?> = emptyMap(),
     val traceId: String? = null, val requestId: String? = null, val tags: List<String> = emptyList()) {

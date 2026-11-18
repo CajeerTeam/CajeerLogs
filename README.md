@@ -1,10 +1,19 @@
-## 0.6.3 — TypeScript SDK Stable
-
-Node.js 20+ ESM SDK with production HTTP/HMAC and optional durable batching, bounded local spool, crash recovery and typed receipts. See [TypeScript SDK Stable](docs/TypeScript-SDK-Stable.md) and [SDK package](packages/ts-sdk/README.md).
-
 # CajeerLogs
 
 Self-hosted PHP-first платформа централизованного логирования.
+
+## 0.6.4 — Kotlin Client Stable
+
+Kotlin/JVM 17+ sender with bounded, nonblocking submit, event batching, immediate backpressure,
+validated HTTP/HMAC receipts, explicit ambiguous-response recovery, graceful draining,
+Java futures/AutoCloseable compatibility and a real `java.util.logging` adapter.
+Memory-backed delivery is **not durable across a forced JVM exit**; see the
+[Kotlin SDK operations guide](docs/Kotlin-SDK-Stable.md) and
+[Gradle/Maven client](clients/java-kotlin/README.md).
+
+## 0.6.3 — TypeScript SDK Stable
+
+Node.js 20+ ESM SDK with production HTTP/HMAC and optional durable batching, bounded local spool, crash recovery and typed receipts. See [TypeScript SDK Stable](docs/TypeScript-SDK-Stable.md) and [SDK package](packages/ts-sdk/README.md).
 
 ## 0.6.2 — Python SDK Stable
 

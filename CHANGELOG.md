@@ -1,3 +1,11 @@
+## 0.6.4 — Kotlin Client Stable
+
+- Kotlin 2.0 / JVM 17+ bounded background delivery queue with nonblocking submit, immediate queue-full errors, batching, timer/flush, graceful drain, confirmed futures and event accounting.
+- Real Java `CompletableFuture`/`AutoCloseable` interoperability and `java.util.logging` handler, with bounded context/trace serialization and explicit failures.
+- Retains existing HTTP/HMAC, validated receipts and original request/key replay; uncertain batches expose safe manual recovery, no false crash-durability claims.
+- Gradle Maven publication and loopback HTTP integration tests for HMAC, 503, lost ACK, 401, overloads, concurrent producers, backpressure and Java/JUL.
+- Upgrades and restore compatibility from 0.6.3, no PostgreSQL migration.
+
 ## 0.6.3 — TypeScript SDK Stable
 
 - Node.js SDK: disk-backed bounded batching (`DurableBatchDelivery`), fsync/atomic persisted bodies, idempotent crash recovery, credential-scoped spool, 23h default fail-closed replay window.
