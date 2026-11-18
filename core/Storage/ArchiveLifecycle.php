@@ -115,6 +115,9 @@ final class ArchiveLifecycle
             $s=$this->pdo->prepare('WITH candidates AS (
                 SELECT a.snapshot FROM archived_log_events a WHERE a.project_id=CAST(:project AS uuid)
                 AND a.received_at>=CAST(:start AS timestamptz) AND a.received_at<CAST(:end AS timestamptz)
+                -- Limit only genuinely missing hot rows. Previously a repeated restore
+                -- could get stuck forever on already-restored entries at the front.
+                AND NOT EXISTS (SELECT 1 FROM log_events l WHERE l.id=a.id)
                 ORDER BY a.received_at,a.id LIMIT :limit
             ), records AS (SELECT (jsonb_populate_record(NULL::log_events,snapshot)).* FROM candidates)
             INSERT INTO log_events ('.$columns.') SELECT '.$columns.' FROM records WHERE true ON CONFLICT (id) DO NOTHING');

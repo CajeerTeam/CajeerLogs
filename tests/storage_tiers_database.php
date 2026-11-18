@@ -41,6 +41,12 @@ try {
     $check((int)$pdo->query("SELECT count(*) FROM log_events WHERE id='$b'")->fetchColumn()===1,'restored event preserved');
     $check($archive->purgeWarm($p,$month,500)['purged']===2,'explicit warm purge removes staging copies');
     $check($archive->stage($p,$month,100)['staged']===2,'stage refreshes modified snapshots');
+    $check($archive->evict($p,$month,100)['evicted']===2,'both staged snapshots can be evicted');
+    $check($archive->restoreHot($p,$month,1)['restored']===1,'first paged restore processes one missing event');
+    $check($archive->restoreHot($p,$month,1)['restored']===1,'second paged restore skips already restored event');
+    $check($archive->restoreHot($p,$month,1)['restored']===0,'paged restore terminates after all missing rows');
+    $check((int)$pdo->query("SELECT count(*) FROM log_events WHERE project_id='$p'")->fetchColumn()===2,
+        'multiple restore batches preserve all original hot events');
     $port=getenv('S3_TEST_PORT');
     if ($port!==false) {
         $s3=new S3CompatibleDisk(['endpoint'=>'http://127.0.0.1:'.$port,'bucket'=>'cajeer-test','access_key'=>'TESTACCESS',

@@ -1,4 +1,6 @@
-## Analytics & Storage Certification (0.7.9)
+**0.8.0 — Analytics & Storage release candidate.** Исправлена постраничная процедура восстановления warm → hot, добавлена обязательная проверка обновления с 0.7.9 и синхронизированы версии SDK. [Порядок обновления и критерии сертификации](docs/Analytics-Storage-Stable-0.8.0.md). Полный статус Stable зависит от реального прохождения PostgreSQL/ClickHouse/S3, браузерных и нагрузочных проверок.
+
+## Analytics & Storage Certification (0.8.0)
 
 Расширены исполняемые проверки миграции PostgreSQL, репликации ClickHouse, точности rollups и реального переноса hot → warm → S3 cold → hot. Включены S3 HTTP fault injection, проверка восстановления очереди при отказе ClickHouse и обязательный SHA-256-связанный отчёт приёмки из собранного релизного ZIP. [Инструкция по проверкам](docs/Analytics-Storage-Certification-0.7.9.md). Статус `public-preview`: без целевого PostgreSQL/ClickHouse/S3 и реальных нагрузочных измерений production-сертификация не подтверждается.
 

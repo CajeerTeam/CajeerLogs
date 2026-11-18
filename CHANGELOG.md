@@ -1,3 +1,11 @@
+## 0.8.0 — Analytics & Storage release candidate
+
+- Fixed warm→hot recovery starvation: repeated small restore batches now skip rows already present in hot PostgreSQL before applying the batch limit.
+- Added regression coverage for multi-page restoration and an explicit 0.7.9→0.8.0 upgrade in the release database certification matrix.
+- Synchronized PHP, Python, TypeScript, Kotlin, API and Admin Panel versions; retained the PostgreSQL and ClickHouse 0.7.9 schema unchanged.
+- Added operational upgrade, reconciliation and rollback guidance, plus mandatory checks of packaged release evidence.
+- Release remains `public-preview` until the full PostgreSQL/ClickHouse/S3, SDK, browser and sustained/stress/soak/fault matrix passes in CI and on the target infrastructure.
+
 ## 0.7.9 — Analytics & Storage Certification (public-preview)
 
 - Run PostgreSQL migration and rollup accuracy checks, versioned ClickHouse replication and replay, and signed S3/partition recovery from the verified release archive.
