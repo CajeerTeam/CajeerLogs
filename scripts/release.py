@@ -57,6 +57,10 @@ REQUIRED = {'release.json', 'core/bootstrap.php', 'bin/cajeer', 'public/index.ph
             'tests/restore_fence.php', 'docs/Database-Core-Release.md'}
 
 
+REQUIRED.update({'packages/php-sdk/src/DurableBatchDelivery.php','tests/sdk/php_buffered.php',
+                 'tests/sdk/php_buffered_monolog.php','tests/sdk_buffered_wire.py',
+                 'docs/PHP-Monolog-SDK-Stable.md'})
+
 # Runtime module graph is required even for an unstaged changed-files overlay.
 REQUIRED.update({
     'scripts/load_test.py','tests/load_test.py','docs/Load-Testing-Performance-Certification.md',

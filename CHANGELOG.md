@@ -1,3 +1,11 @@
+## 0.6.1 — PHP / Monolog SDK Stable
+
+- Production PHP SDK: durable file spool with atomic, fsynced event writes and immutable batch envelopes; persistent idempotency keys, validated HTTP receipts, restart/replay recovery, limits on batch events/bytes and queue capacity.
+- Opt-in PSR-3 and Monolog 3 delivery integration, explicit flush/close, optional fail-open-to-spool mode with observable failure, PSR-3 message interpolation, safe context normalization, Monolog recursion protection; existing synchronous APIs unchanged.
+- Real loopback HTTP/HMAC fault tests, network outage, lost response, concurrent producers, byte boundary, security constraints and capacity checks; CI requires actual Monolog dependencies for SDK integration.
+- Version synchronization across runtime and client packages; backward-compatible 0.6.0 backup/upgrade support, release and certification updates. No PostgreSQL migration.
+- **Certification status:** release gate exists; external Docker/PostgreSQL and sustained production load require CI execution. See [runbook](docs/PHP-Monolog-SDK-Stable.md).
+
 ## 0.6.0 — High-Throughput Ingestion & Queue Processing Stable
 
 - Adaptive PostgreSQL microbatch claim: job count, validation version, JSONB payload bytes and 100-event/4-MiB SQL limits are checked **before** leasing additional jobs. Skip incompatible entries without locking their leases until a future dispatch.

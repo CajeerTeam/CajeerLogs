@@ -2,6 +2,16 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.6.1 — PHP / Monolog SDK Stable
+
+PHP SDK поддерживает опциональный файловый `DurableBatchDelivery`: события фиксируются
+в приватном spool (0700/0600) до отправки; пакеты до 100 событий / 1 MiB сохраняют
+неизменные JSON-байты и ключ идемпотентности между повторами и перезапусками.
+PSR-3 `Logger` и Monolog 3 `MonologHandler` используют этот транспорт по явному выбору;
+старое синхронное поведение сохранено. Проверки реального HTTP, HMAC, 503/401,
+потери ответов, конкурентной записи и restart recovery добавлены в CI.
+Без SQL-миграций. [Инструкция](docs/PHP-Monolog-SDK-Stable.md).
+
 ## 0.6.0 — High-Throughput Ingestion & Queue Processing Stable
 
 Боевое обновление PostgreSQL pipeline: по умолчанию воркеры объединяют до четырёх

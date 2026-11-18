@@ -1,4 +1,15 @@
-# SDK & Integrations — 0.0.7
+# SDK & Integrations
+
+## 0.6.1 — PHP / Monolog SDK Stable
+
+PHP SDK с этой версии поддерживает **опциональный** `DurableBatchDelivery` — приватный
+файловый spool с ограниченным batching и восстановлением точных JSON-байтов и
+Idempotency-Key после сбоя/перезапуска. PSR-3 и Monolog 3 используют общий
+транспорт при явном подключении; существующий синхронный путь не изменён.
+Для PHP-клиента, настройке `flush()`, контроля заполнения, режимов ошибок и
+ограничений файловой надёжности см. [PHP SDK Stable](PHP-Monolog-SDK-Stable.md).
+
+## Исторический релиз 0.0.7
 
 ## Обновление 0.0.6 → 0.0.7
 
@@ -33,7 +44,7 @@ Single event / `{"events":[...]}`; максимум 100 событий, 1 MiB н
 
 ### Повторные попытки
 
-SDK сериализуют один раз и повторяют точные байты с тем же ключом. По умолчанию до 3 попыток, exponential backoff с jitter, timeout 10 s; 408/429/500/502/503/504 и ошибки транспорта повторяемы; числовой Retry-After учитывается, при задержке свыше 30 s SDK возвращает отказ вместо немедленной повторной попытки. Прочие 4xx, включая 409, не повторяются автоматически. HMAC использует тот же scoped Bearer-token, свежие timestamp и nonce на каждой попытке; путь и хеш тела связаны подписью. Redirects не выполняются. HTTPS проверяет сертификат; HTTP по умолчанию только loopback. SDK не хранят долговременную очередь — после отказа вызывающий код должен сохранить тело и ключ либо использовать файловый collector. Новые доставки 0.2.7 имеют окно 1–30 дней (по умолчанию 7) в пределах цепочки ротаций credential. Legacy receipts сохраняют 24 часа и прежнего владельца. PHP `sendBody`, TypeScript `sendBody`, Python `send_body` и Kotlin `ingest(String, key)` позволяют повторить сохранённые JSON-байты с исходным ключом; SDK проверяют уникальные корректные UUID в receipt. При неизвестном результате старше окна нельзя гарантировать отсутствие дублей. Для длительных сбоев используйте файловый collector с ручным разрешением просроченных pending batches.
+SDK сериализуют один раз и повторяют точные байты с тем же ключом. По умолчанию до 3 попыток, exponential backoff с jitter, timeout 10 s; 408/429/500/502/503/504 и ошибки транспорта повторяемы; числовой Retry-After учитывается, при задержке свыше 30 s SDK возвращает отказ вместо немедленной повторной попытки. Прочие 4xx, включая 409, не повторяются автоматически. HMAC использует тот же scoped Bearer-token, свежие timestamp и nonce на каждой попытке; путь и хеш тела связаны подписью. Redirects не выполняются. HTTPS проверяет сертификат; HTTP по умолчанию только loopback. По умолчанию SDK не хранят долговременную очередь; исключение — опциональный PHP `DurableBatchDelivery` 0.6.1 и ранее добавленный Python `DurableAsyncSpool`. Для остальных клиентов после отказа вызывающий код должен сохранить тело и ключ либо использовать файловый collector. Новые доставки 0.2.7 имеют окно 1–30 дней (по умолчанию 7) в пределах цепочки ротаций credential. Legacy receipts сохраняют 24 часа и прежнего владельца. PHP `sendBody`, TypeScript `sendBody`, Python `send_body` и Kotlin `ingest(String, key)` позволяют повторить сохранённые JSON-байты с исходным ключом; SDK проверяют уникальные корректные UUID в receipt. При неизвестном результате старше окна нельзя гарантировать отсутствие дублей. Для длительных сбоев используйте файловый collector с ручным разрешением просроченных pending batches.
 
 Синхронные logging adapters могут задерживать основной поток; на высоконагруженных приложениях логируйте в локальный файл и выделите отдельный collector. Серверное redaction — best effort, не помещайте секреты в логи.
 
@@ -112,6 +123,7 @@ def verify(secret: str, delivery_id: str, timestamp: str, signature: str, raw: b
 ```sh
 python3 tests/python_ingest.py
 python3 tests/sdk_wire.py             # PHP, Python, Node/tsc, JDK/kotlinc или Gradle
+python3 tests/sdk_buffered_wire.py    # PHP durable batching, real HTTP, restart/fault; Monolog 3 с Composer
 php tests/webhooks.php
 # На отдельной PostgreSQL 17+ с DB_* и CREATE SCHEMA:
 CAJEER_TEST_DATABASE=1 php tests/webhook_database.php

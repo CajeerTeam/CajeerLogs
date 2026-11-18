@@ -68,6 +68,13 @@ final class CajeerLogsClient
         return $body;
     }
 
+    /** Canonical, validated event bytes for durable SDK spooling. */
+    public static function prepareEvent(array $event): string
+    {
+        if (array_is_list($event) || array_key_exists('events',$event)) throw new \InvalidArgumentException('Expected one event object.');
+        return self::encodeEvent($event);
+    }
+
     public function ingest(array $event, ?string $idempotencyKey = null): array
     {
         return $this->sendBody(self::encodeEvent($event),$idempotencyKey ?? bin2hex(random_bytes(16)));
