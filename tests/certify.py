@@ -15,7 +15,7 @@ import release
 
 class GateTest(unittest.TestCase):
     def setUp(self):
-        self.info={'version':'0.7.8','archive_sha256':'a'*64}
+        self.info={'version':'0.7.9','archive_sha256':'a'*64}
         self.reports=[dict(self.info, format=1, scope='database-core', status='passed', php_series=php, postgres_major=pg, php=php+'.1',postgres=pg+'.1',stages=[{'name':name,'status':'passed','exit_code':0} for name in certify.STAGES]) for php,pg in sorted(certify.MATRIX)]
 
     def test_full_matrix(self): certify.validate_matrix(self.reports,self.info)
@@ -100,6 +100,38 @@ class GateTest(unittest.TestCase):
             if mutation=='read_failure': r['phases'][2]['concurrent_search_errors']={'failed':1}
             if mutation=='duplicate_marker': r['phases'][1]['marker']=r['phases'][0]['marker']
             with self.assertRaises(ValueError): certify.validate_performance(r,self.info)
+
+    def storage_evidence(self):
+        return dict(self.info,format=1,scope='analytics-storage-e2e',status='passed',
+                    runtime={'php':'8.4.12','postgres':'170010','clickhouse':'25.8.3'},
+                    stages=[{'name':name,'status':'passed','exit_code':0,'checks':10,'seconds':0.5,
+                             **({'performance':{'events':300,'queries':12,
+                                 'ingest_events_per_second':100.,'replication_events_per_second':100.,
+                                 'stage_events_per_second':100.,'cold_events_per_second':100.,
+                                 'restore_events_per_second':100.,'aggregate_p95_ms':30.,
+                                 'min_ingest_events_per_second':10.,'min_replication_events_per_second':10.,
+                                 'max_aggregate_p95_ms':5000.}} if name=='storage-fault-recovery' else {})}
+                            for name,_ in certify.ANALYTICS_STORAGE_STAGES])
+
+    def test_analytics_storage_evidence(self):
+        certify.validate_analytics_storage(self.storage_evidence(),self.info)
+
+    def test_analytics_storage_missing_or_tampered_rejected(self):
+        for variant in ('missing','digest','version','failed','no_checks','bad_exit','wrong_runtime','reordered','missing_performance','failed_throughput','bad_latency'):
+            report=self.storage_evidence()
+            if variant=='missing': report['stages'].pop()
+            elif variant=='digest': report['archive_sha256']='0'*64
+            elif variant=='version': report['version']='0.7.8'
+            elif variant=='failed': report['status']='failed'
+            elif variant=='no_checks': report['stages'][0]['checks']=0
+            elif variant=='bad_exit': report['stages'][1]['exit_code']=1
+            elif variant=='wrong_runtime': report['runtime']['postgres']='160000'
+            elif variant=='reordered': report['stages'].reverse()
+            elif variant=='missing_performance': del report['stages'][-1]['performance']
+            elif variant=='failed_throughput': report['stages'][-1]['performance']['ingest_events_per_second']=1.
+            elif variant=='bad_latency': report['stages'][-1]['performance']['aggregate_p95_ms']=6000.
+            with self.subTest(variant=variant),self.assertRaises(ValueError):
+                certify.validate_analytics_storage(report,self.info)
 
     def test_admin_full(self): certify.validate_admin(self.admin_evidence(),self.info)
     def test_admin_missing_browser(self):

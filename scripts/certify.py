@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CajeerLogs 0.7.8 release gate, including live load/fault smoke. Executes real tests on a verified distribution.
+"""CajeerLogs 0.7.9 release gate, including live load/fault smoke. Executes real tests on a verified distribution.
 
 Database: explicit disposable PostgreSQL credentials and two empty restore targets.
 Admin: real browser/PHP/PostgreSQL E2E on the exact archive.
@@ -19,8 +19,9 @@ import tempfile
 import time
 
 import release
+from analytics_storage_certify import STAGES as ANALYTICS_STORAGE_STAGES
 
-VERSION = '0.7.8'
+VERSION = '0.7.9'
 DATABASE_TESTS = (
     'database', 'migration_engine_database', 'transaction_database',
     'identity_database', 'identity_security_database', 'audit_database', 'rate_limit_database', 'rbac_database', 'ingest_database', 'delivery_database', 'hmac_database', 'redaction_database', 'search_database',
@@ -36,7 +37,7 @@ MATRIX = {(php, pg) for php in ('8.4', '8.5') for pg in ('17', '18')}
 def archive_info(path):
     meta = release.verify(path)
     if meta['version'] != VERSION:
-        raise ValueError('Expected the 0.7.8 release archive')
+        raise ValueError('Expected the 0.7.9 release archive')
     return {'version': VERSION, 'archive_sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
 
 
@@ -251,6 +252,55 @@ def validate_sdk(report, info):
         raise ValueError('Incomplete or failed packaged SDK and importer verification')
 
 
+
+def validate_analytics_storage(report, info):
+    """Require live PG+ClickHouse+S3 evidence from the same verified archive.
+
+    A successful CI dependency is insufficient: each mandatory failure/recovery
+    test must have executed and produced PASS assertions, with a matching digest.
+    """
+    if (report.get('format') != 1 or report.get('scope') != 'analytics-storage-e2e'
+        or report.get('version') != info['version']
+        or report.get('archive_sha256') != info['archive_sha256']
+        or report.get('status') != 'passed'):
+        raise ValueError('Missing or mismatched analytics/storage certification report')
+    runtime = report.get('runtime')
+    if (not isinstance(runtime, dict)
+        or not str(runtime.get('php', '')).startswith(('8.4.', '8.5.'))
+        or not str(runtime.get('postgres', '')).isdigit()
+        or int(runtime['postgres']) < 170000
+        or not isinstance(runtime.get('clickhouse'), str)
+        or not runtime['clickhouse']):
+        raise ValueError('Invalid live analytics/storage runtime evidence')
+    stages = report.get('stages')
+    if (not isinstance(stages, list)
+        or [s.get('name') for s in stages if isinstance(s, dict)] != [name for name, _ in ANALYTICS_STORAGE_STAGES]
+        or len(stages) != len(ANALYTICS_STORAGE_STAGES)
+        or any(s.get('status') != 'passed' or s.get('exit_code') != 0
+               or type(s.get('checks')) is not int or s['checks'] < 1
+               or not isinstance(s.get('seconds'), (int, float)) or s['seconds'] < 0
+               for s in stages)):
+        raise ValueError('Incomplete or unsuccessful analytics/storage fault/recovery checks')
+    measured = stages[-1].get('performance')
+    if not isinstance(measured, dict) or measured.get('events') != 300 or measured.get('queries') != 12:
+        raise ValueError('Missing real measured analytics/storage workload')
+    for key in ('ingest_events_per_second', 'replication_events_per_second',
+                'stage_events_per_second', 'cold_events_per_second', 'restore_events_per_second'):
+        v = measured.get(key)
+        if not isinstance(v, (int, float)) or isinstance(v, bool) or not (0 < v < 1e7):
+            raise ValueError('Invalid analytics/storage throughput metric')
+    p95 = measured.get('aggregate_p95_ms')
+    if not isinstance(p95, (int, float)) or isinstance(p95, bool) or not (0 <= p95 < 1e7):
+        raise ValueError('Invalid ClickHouse p95 latency metric')
+    for actual, limit in (('ingest_events_per_second', 'min_ingest_events_per_second'),
+                          ('replication_events_per_second', 'min_replication_events_per_second')):
+        if not isinstance(measured.get(limit), (int, float)) or measured[limit] < 1 or measured[actual] < measured[limit]:
+            raise ValueError('Analytics/storage throughput below the required SLO')
+    cap = measured.get('max_aggregate_p95_ms')
+    if not isinstance(cap, (int, float)) or cap <= 0 or p95 > cap:
+        raise ValueError('ClickHouse query p95 above SLO')
+
+
 def final_release(args,report):
     paths=sorted(args.reports.rglob('database-certification.json'))
     reports=[json.loads(p.read_text()) for p in paths]
@@ -262,13 +312,16 @@ def final_release(args,report):
     sdk_report=json.loads(args.sdk_report.read_text())
     validate_sdk(sdk_report,report)
     report['sdk_report']=sdk_report
+    storage_report=json.loads(args.analytics_storage_report.read_text())
+    validate_analytics_storage(storage_report, report)
+    report['analytics_storage_report']=storage_report
     # CI also requires successful TLS/reconnect/pool, split-role, SDK and browser jobs.
     # The release report binds four core DB reports, admin browser evidence and production smoke.
     with tempfile.TemporaryDirectory(prefix='cl-core-production-') as tmp:
         root=Path(tmp)/'app'; release.verify(args.archive,root)
         # This stage operates on real isolated Docker/PG/TLS, then performs
         # all four long async workload phases. No fabricated or short smoke
-        # report can certify a stable 0.7.8 release.
+        # report can certify a stable 0.7.9 release.
         evidence_path=Path(tmp)/'throughput-certification.json'
         smoke_env=dict(os.environ,CAJEER_PERF_ARCHIVE_PATH=str(args.archive.resolve()),
                        CAJEER_PERF_REPORT_PATH=str(evidence_path))
@@ -283,7 +336,7 @@ def main():
     sub=p.add_subparsers(dest='command',required=True)
     d=sub.add_parser('database'); d.add_argument('archive',type=Path); d.add_argument('--from-010',type=Path,required=True); d.add_argument('--from-020',type=Path,required=True); d.add_argument('--from-029',type=Path,required=True); d.add_argument('--from-030',type=Path,required=True); d.add_argument('--from-032',type=Path,required=True); d.add_argument('--from-033',type=Path,required=True); d.add_argument('--from-034',type=Path,required=True); d.add_argument('--from-035',type=Path,required=True); d.add_argument('--from-036',type=Path,required=True); d.add_argument('--from-037',type=Path,required=True); d.add_argument('--from-038',type=Path,required=True); d.add_argument('--from-039',type=Path,required=True); d.add_argument('--from-040',type=Path,required=True); d.add_argument('--from-041',type=Path,required=True); d.add_argument('--from-042',type=Path,required=True); d.add_argument('--from-043',type=Path,required=True); d.add_argument('--from-044',type=Path,required=True); d.add_argument('--from-045',type=Path,required=True); d.add_argument('--from-046',type=Path,required=True); d.add_argument('--from-047',type=Path,required=True); d.add_argument('--from-048',type=Path,required=True); d.add_argument('--from-049',type=Path,required=True); d.add_argument('--from-0410',type=Path,required=True); d.add_argument('--from-050',type=Path,required=True); d.add_argument('--from-051',type=Path,required=True); d.add_argument('--from-052',type=Path,required=True); d.add_argument('--from-053',type=Path,required=True); d.add_argument('--from-054',type=Path,required=True); d.add_argument('--from-055',type=Path,required=True); d.add_argument('--from-056',type=Path,required=True); d.add_argument('--from-057',type=Path,required=True); d.add_argument('--from-058',type=Path,required=True); d.add_argument('--from-059',type=Path,required=True); d.add_argument('--from-0510',type=Path,required=True); d.add_argument('--from-060',type=Path,required=True); d.add_argument('--from-061',type=Path,required=True); d.add_argument('--from-062',type=Path,required=True); d.add_argument('--from-063',type=Path,required=True); d.add_argument('--from-064',type=Path,required=True); d.add_argument('--from-065',type=Path,required=True); d.add_argument('--from-066',type=Path,required=True); d.add_argument('--from-067',type=Path,required=True); d.add_argument('--from-068',type=Path,required=True); d.add_argument('--from-069',type=Path,required=True); d.add_argument('--output',type=Path,required=True)
     a=sub.add_parser('admin'); a.add_argument('archive',type=Path); a.add_argument('--output',type=Path,required=True)
-    r=sub.add_parser('release'); r.add_argument('archive',type=Path); r.add_argument('--reports',type=Path,required=True); r.add_argument('--admin-report',type=Path,required=True); r.add_argument('--sdk-report',type=Path,required=True); r.add_argument('--output',type=Path,required=True)
+    r=sub.add_parser('release'); r.add_argument('archive',type=Path); r.add_argument('--reports',type=Path,required=True); r.add_argument('--admin-report',type=Path,required=True); r.add_argument('--sdk-report',type=Path,required=True); r.add_argument('--analytics-storage-report',type=Path,required=True); r.add_argument('--output',type=Path,required=True)
     args=p.parse_args()
     report={'format':1,'scope':'database-core' if args.command=='database' else ('admin-panel' if args.command=='admin' else 'database-release-and-production-smoke'), 'status':'failed','stages':[], 'created_at':datetime.datetime.now(datetime.timezone.utc).isoformat()}
     try:

@@ -46,11 +46,37 @@ try {
         $s3=new S3CompatibleDisk(['endpoint'=>'http://127.0.0.1:'.$port,'bucket'=>'cajeer-test','access_key'=>'TESTACCESS',
             'secret_key'=>'secret-test-signing-key','region'=>'us-east-1','path_style'=>true,'allow_insecure'=>true]);
         $cold=new ArchiveLifecycle($pdo,$s3);
+        // Inject real signed HTTP failures against the S3 mock. Every failure
+        // must leave both the warm rows and the database manifest unchanged.
+        $faultFile=getenv('S3_TEST_FAULT_FILE');
+        if ($faultFile!==false && $faultFile!=='') {
+            foreach (['put_503','put_lost_ack','get_corrupt'] as $fault) {
+                if (file_put_contents($faultFile,$fault)===false) throw new RuntimeException('Cannot arm S3 fault');
+                $check($reject(fn()=> $cold->offload($p,$month,500)), 'S3 '.$fault.' aborts offload');
+                $check($cold->status($p)['warm_rows']===2 && $cold->status($p)['cold_objects']===0,
+                    'S3 '.$fault.' preserves the transactional warm archive');
+            }
+        }
         $uploaded=$cold->offload($p,$month,500);
         $check($uploaded['offloaded']===2 && $cold->status($p)['warm_rows']===0,'verified S3 offload removes warm rows atomically');
         $objects=$cold->coldObjects($p);$check(count($objects)===1 && $objects[0]['event_count']===2,'cold manifest written to PostgreSQL');
+        if ($faultFile!==false && $faultFile!=='') {
+            foreach (['get_503','get_corrupt'] as $fault) {
+                if (file_put_contents($faultFile,$fault)===false) throw new RuntimeException('Cannot arm S3 fault');
+                $check($reject(fn()=> $cold->restoreCold($p,$objects[0]['id'])),
+                    'S3 '.$fault.' aborts cold restore');
+                $check($cold->status($p)['warm_rows']===0 && $cold->status($p)['cold_objects']===1,
+                    'failed cold restore preserves manifest without incomplete warm rows');
+            }
+        }
         $check($cold->restoreCold($p,$objects[0]['id'])['restored']===2,'verified S3 download restores warm partition');
         $check($cold->restoreCold($p,$objects[0]['id'])['restored']===0,'cold replay is idempotent');
+        if ($faultFile!==false && $faultFile!=='') {
+            if (file_put_contents($faultFile,'delete_503')===false) throw new RuntimeException('Cannot arm S3 fault');
+            $check($reject(fn()=> $cold->purgeCold($p,$objects[0]['id'])),
+                'remote DELETE failure aborts cold purge');
+            $check($cold->status($p)['cold_objects']===1,'failed DELETE retains cold metadata');
+        }
         $check($cold->purgeCold($p,$objects[0]['id'])['deleted']===1,'explicit S3 purge deletes remote object and manifest');
         $check($cold->coldObjects($p)===[],'purged cold manifest removed');
     }

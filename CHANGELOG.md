@@ -1,3 +1,11 @@
+## 0.7.9 — Analytics & Storage Certification (public-preview)
+
+- Run PostgreSQL migration and rollup accuracy checks, versioned ClickHouse replication and replay, and signed S3/partition recovery from the verified release archive.
+- Inject real signed S3 PUT/GET/DELETE 503 responses, ambiguous committed PUTs and corrupted GET responses; verify transactional warm/cold preservation and recovery.
+- Exercise cross-tier data migration and ClickHouse outage recovery against disposable real PostgreSQL and ClickHouse services.
+- Bind the required analytics/storage E2E report to the release archive SHA-256 and fail the final certification gate if evidence is missing, incomplete or mismatched.
+- Maintain compatibility with the 0.7.8 schema and backup history; no new SQL migration. Production approval still requires target-environment performance and real S3 acceptance.
+
 ## 0.7.8 — Scalable Storage & Retention (public-preview)
 
 - Месячные партиции warm-архива в PostgreSQL, безопасная инкрементальная архивация и восстановление исходных событий.

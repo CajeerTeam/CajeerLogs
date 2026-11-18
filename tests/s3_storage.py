@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import threading
+import tempfile
 from pathlib import Path
 
 DATA = {}
@@ -45,7 +46,26 @@ class Handler(BaseHTTPRequestHandler):
             k = mac(k, 's3'); k = mac(k, 'aws4_request')
             if not hmac.compare_digest(hmac.new(k, string_to_sign.encode(), hashlib.sha256).hexdigest(), m[3]):
                 raise ValueError('signature mismatch')
-            if self.command == 'PUT':
+            # A one-shot failure requested by the isolated database scenario.
+            # Verify AWS SigV4 before consuming the fault, so unauthorized traffic
+            # cannot exhaust the test fault budget.
+            fault_file = os.environ.get('S3_TEST_FAULT_FILE')
+            mode = ''
+            if fault_file and os.path.exists(fault_file):
+                requested = Path(fault_file).read_text().strip()
+                if requested.startswith(self.command.lower() + '_'):
+                    mode = requested
+                    os.unlink(fault_file)
+            if mode in ('put_503', 'get_503', 'delete_503'):
+                status, result = 503, b'service unavailable (injected)'
+            elif mode == 'get_corrupt' and self.path in DATA:
+                status, result = 200, bytes(len(DATA[self.path]))
+            elif mode == 'put_lost_ack':
+                # Simulate S3 committing the bytes before the network loses the response.
+                DATA[self.path] = body
+                self.close_connection = True
+                return
+            elif self.command == 'PUT':
                 DATA[self.path] = body; status, result = 200, b''
             elif self.command == 'GET':
                 status, result = (200, DATA[self.path]) if self.path in DATA else (404, b'')
@@ -71,9 +91,20 @@ if __name__ == '__main__':
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        env = dict(os.environ, S3_TEST_PORT=str(server.server_port))
-        subprocess.run(['php', str(ROOT / 'tests/s3_storage.php')], cwd=ROOT, env=env, check=True)
-        if env.get('CAJEER_TEST_DATABASE') == '1':
-            subprocess.run(['php', str(ROOT / 'tests/storage_tiers_database.php')], cwd=ROOT, env=env, check=True)
+        with tempfile.TemporaryDirectory(prefix='cajeer-s3-fault-') as temp:
+            env = dict(os.environ, S3_TEST_PORT=str(server.server_port),
+                       S3_TEST_FAULT_FILE=str(Path(temp) / 'next-fault'))
+            os.environ['S3_TEST_FAULT_FILE'] = env['S3_TEST_FAULT_FILE']
+            subprocess.run(['php', str(ROOT / 'tests/s3_storage.php')], cwd=ROOT, env=env, check=True)
+            subprocess.run(['php', str(ROOT / 'tests/s3_storage_faults.php')], cwd=ROOT, env=env, check=True)
+            if env.get('CAJEER_TEST_DATABASE') == '1':
+                subprocess.run(['php', str(ROOT / 'tests/storage_tiers_database.php')], cwd=ROOT, env=env, check=True)
+            if env.get('CAJEER_TEST_INTEGRATED_STORAGE') == '1':
+                if env.get('CAJEER_TEST_DATABASE') != '1' or env.get('CAJEER_TEST_CLICKHOUSE') != '1':
+                    raise RuntimeError('Integrated tier test requires disposable PostgreSQL and ClickHouse.')
+                subprocess.run(['php', str(ROOT / 'tests/analytics_storage_database.php')], cwd=ROOT, env=env, check=True)
+                subprocess.run(['php', str(ROOT / 'tests/analytics_storage_load_database.php')], cwd=ROOT, env=env, check=True)
     finally:
+        os.environ.pop('S3_TEST_FAULT_FILE', None)
         server.shutdown()
+        server.server_close()

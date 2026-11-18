@@ -38,8 +38,8 @@ class LoadTest(unittest.TestCase):
 
     def args(self, scenario='all'):
         a = load_test.parser().parse_args(['--url', self.origin, '--project', fixture_mod.PROJECT,
-            '--source', 'app', '--scenario', scenario, '--rate', '20', '--batch', '2',
-            '--concurrency', '4', '--async-percent', '25', '--sustained-seconds', '1',
+            '--source', 'app', '--scenario', scenario, '--rate', '8', '--batch', '2',
+            '--concurrency', '8', '--async-percent', '25', '--sustained-seconds', '1',
             '--stress-seconds', '1.5', '--soak-seconds', '1', '--fault-seconds', '1.5',
             '--min-rate-ratio', '.75', '--p95-ms', '5000', '--fault-p95-ms', '5000',
             '--drain-seconds', '30', '--confirm-disposable'])

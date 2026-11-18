@@ -1,3 +1,7 @@
+## Analytics & Storage Certification (0.7.9)
+
+Расширены исполняемые проверки миграции PostgreSQL, репликации ClickHouse, точности rollups и реального переноса hot → warm → S3 cold → hot. Включены S3 HTTP fault injection, проверка восстановления очереди при отказе ClickHouse и обязательный SHA-256-связанный отчёт приёмки из собранного релизного ZIP. [Инструкция по проверкам](docs/Analytics-Storage-Certification-0.7.9.md). Статус `public-preview`: без целевого PostgreSQL/ClickHouse/S3 и реальных нагрузочных измерений production-сертификация не подтверждается.
+
 ## Scalable Storage & Retention (0.7.8)
 
 Опциональная партиционированная warm-архивация и проверенное S3-хранение. [Инструкция оператора](docs/Scalable-Storage-Retention-0.7.8.md). Hot PostgreSQL остаётся основным поисковым хранилищем; evict выполняется только по `--confirm`.
