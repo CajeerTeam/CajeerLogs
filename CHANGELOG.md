@@ -1,3 +1,12 @@
+## 0.7.6 — Error Analytics & Reporting
+
+- Real project-scoped fingerprint grouping of error/critical/alert/emergency events using a PostgreSQL normalization/hash function; partial error index (migration 0031).
+- New error trends, comparable preceding periods, classification of new/regressed error groups and source-aware drill-down to existing Explorer.
+- Audited JSON/CSV report download with explicit top-100 truncation, full counts, time buckets and CSV formula protection.
+- Admin Panel error reports page, source/time controls, error-group navigation.
+- Repeatable-read queries, access checks, rate limits and bounded search timeout; PostgreSQL integration test required by CI.
+- Channel remains public-preview until live PostgreSQL E2E and performance certification complete.
+
 ## 0.7.5 — Advanced Analytics Dashboard (public-preview)
 
 - Added grouped per-level event time series to the existing project-scoped `/logs/stats` response, using the exact same raw PostgreSQL and verified-rollup query semantics.

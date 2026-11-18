@@ -5,19 +5,19 @@ namespace Cajeer\Logs\Api\Controller;
 use Cajeer\Logs\Database\{DatabaseException,DatabaseFailure};
 use Cajeer\Logs\Http\{HttpException,JsonResponse,Request,Response,Router};
 use Cajeer\Logs\Kernel\Application;
-use Cajeer\Logs\Log\{LogQuery,LogExport,LogRepository,SearchRuntime,PageCursor};
+use Cajeer\Logs\Log\{LogQuery,LogExport,LogRepository,SearchRuntime,PageCursor,ErrorAnalytics};
 use Cajeer\Logs\Security\{Identity,RateLimiter};
 use PDO;
 use PDOException;
 
 final class LogsController
 {
-    public const ROUTES=['GET /logs'=>'searchLogs','GET /logs/stats'=>'logStatistics','GET /logs/export'=>'exportLogs','GET /logs/{event}'=>'getLogEvent'];
+    public const ROUTES=['GET /logs'=>'searchLogs','GET /logs/stats'=>'logStatistics','GET /logs/errors'=>'errorAnalytics','GET /logs/errors/report'=>'exportErrorReport','GET /logs/export'=>'exportLogs','GET /logs/{event}'=>'getLogEvent'];
     public function __construct(private readonly Application $app) {}
     public static function register(Router $router,Application $app,string $prefix): void
     {
         $controller=new self($app);
-        foreach (['/logs'=>'list','/logs/stats'=>'stats','/logs/export'=>'export','/logs/{event}'=>'detail'] as $path=>$mode) {
+        foreach (['/logs'=>'list','/logs/stats'=>'stats','/logs/errors'=>'errors','/logs/errors/report'=>'error_report','/logs/export'=>'export','/logs/{event}'=>'detail'] as $path=>$mode) {
             $router->add('GET',$prefix.$path,fn(Request $r): Response=>$controller->run($r,$mode));
         }
     }
@@ -38,14 +38,14 @@ final class LogsController
             $identity=Identity::fromConfig($pdo,true,'',$config);
             $p=$identity->authenticate($r,$credential);
             $rate->enforce('logs-'.$p['kind'].':'.$p['id'],$config->get('api.rate_limit'),60);
-            $policy->principal($rate,$p['kind'],$p['id'],match($mode){'stats'=>'analytics','export'=>'export',default=>'search'});
+            $policy->principal($rate,$p['kind'],$p['id'],match($mode){'stats','errors'=>'analytics','export','error_report'=>'export',default=>'search'});
             $project=$query->filters['project_id']; $source=$query->filters['source_id']??null;
             if ($p['kind']==='token' && $p['token']['source_id']!==null) {
                 if ($source!==null && $source!==$p['token']['source_id']) { Identity::forbidden(); }
                 $source=$p['token']['source_id'];
             }
             $identity->permission($p,'logs:read',$project,$source);
-            if ($mode==='export' && $p['kind']==='session') $identity->permission($p,'logs:export',$project,$source);
+            if (in_array($mode,['export','error_report'],true) && $p['kind']==='session') $identity->permission($p,'logs:export',$project,$source);
             $query=$query->scoped($source);
             $signer=in_array($mode,['list','export'],true)?PageCursor::forPrincipal($pdo,(string)$config->get('security.totp_key'),$p):null;
             $state=$signer?->open($query);
@@ -57,6 +57,17 @@ final class LogsController
                     return new JsonResponse(['data'=>$row],200,['Cache-Control'=>'no-store']);
                 }
                 if ($mode==='stats') { return new JsonResponse($engine->statistics($query),200,['Cache-Control'=>'no-store']); }
+                if ($mode==='errors' || $mode==='error_report') {
+                    $report=(new ErrorAnalytics($engine->connection()))->report($query);
+                    if ($mode==='error_report' && $query->format==='csv') {
+                        $body=ErrorAnalytics::csv($report);
+                        return new Response($body,200,['Content-Type'=>'text/csv; charset=utf-8','Cache-Control'=>'no-store',
+                            'Content-Disposition'=>'attachment; filename="cajeerlogs-error-report.csv"',
+                            'X-Content-SHA256'=>hash('sha256',$body)]);
+                    }
+                    return new JsonResponse($report,200,['Cache-Control'=>'no-store',
+                        ...($mode==='error_report'?['Content-Disposition'=>'attachment; filename="cajeerlogs-error-report.json"']:[])]);
+                }
                 $page=$engine->explore($query,$signer,$state,$limit);
                 if ($mode==='export') {
                     if (($match=$r->header('If-Match'))!==null && !hash_equals('"'.$page['page_digest'].'"',$match)) {
@@ -73,8 +84,8 @@ final class LogsController
                     return new JsonResponse($page,200,$headers);
                 }
                 return new JsonResponse($page,200,['Cache-Control'=>'no-store']);
-            });
-            if ($mode==='export') (new \Cajeer\Logs\Audit\AuditLogger($pdo))->record('logs.exported',['request_id'=>$r->requestId,'project_id'=>$project,'source_id'=>$source,'format'=>$query->format],$p['id'],$project,null,$p['kind']==='token'?'token':'user');
+            },in_array($mode,['errors','error_report'],true));
+            if (in_array($mode,['export','error_report'],true)) (new \Cajeer\Logs\Audit\AuditLogger($pdo))->record($mode==='error_report'?'errors.report_exported':'logs.exported',['request_id'=>$r->requestId,'project_id'=>$project,'source_id'=>$source,'format'=>$query->format],$p['id'],$project,null,$p['kind']==='token'?'token':'user');
             return $response;
         } catch (HttpException $e) {
             if ($e->status===403 && isset($p,$pdo)) (new \Cajeer\Logs\Audit\AuditLogger($pdo))->record('security.access_denied',['request_id'=>$r->requestId,'operation'=>'logs.'.$mode],$p['id'],null,'denied',$p['kind']==='token'?'token':'user');

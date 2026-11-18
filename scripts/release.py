@@ -106,6 +106,10 @@ REQUIRED.update({'core/Database/Repository/SourceMonitoring.php', 'migrations/pg
 REQUIRED.update({'docs/Advanced-Analytics-Dashboard-0.7.5.md','tests/analytics_dashboard.mjs',
                  'public/admin/assets/app/analytics.js','public/admin/assets/pages/overview.js'})
 
+REQUIRED.update({'core/Log/ErrorAnalytics.php','migrations/pgsql/0031_error_analytics.sql',
+                 'public/admin/assets/pages/errors.js','tests/error_analytics.php',
+                 'tests/error_analytics_database.php','docs/Error-Analytics-Reporting-0.7.6.md'})
+
 REQUIRED.update({'core/Analytics/PostgresRollupStore.php','core/Console/Command/AnalyticsRollupCommand.php',
                  'migrations/pgsql/0029_analytics_rollups.sql','tests/analytics_rollups.php',
                  'tests/analytics_rollups_database.php','docs/Aggregation-Engine.md'})

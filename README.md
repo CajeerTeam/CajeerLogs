@@ -1,3 +1,11 @@
+## Error analytics and reports (0.7.6)
+
+The Admin Panel includes **Отчёты об ошибках** with normalized error groups, trends,
+preceding-period comparison, source-scoped drill-down and JSON/CSV downloads.
+The real PostgreSQL queries read committed events with a bounded time window,
+and preserve exact counts across updates, deletes and retention.
+See [Error Analytics & Reporting](docs/Error-Analytics-Reporting-0.7.6.md).
+
 ## 0.7.3 — Aggregation Engine
 
 Version 0.7.3 adds exact, transactional minute rollups, project-scoped resumable historical backfill, safe minute/hour/day statistics, and dimensional reconciliation. See [Aggregation Engine](docs/Aggregation-Engine.md).

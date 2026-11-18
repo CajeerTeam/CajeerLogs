@@ -1,4 +1,4 @@
-import { levels } from './store.js?v=0.7.5';
+import { levels } from './store.js?v=0.7.6';
 
 export const listFields = Object.freeze([
  ['levels','Уровни',32],['sources','Источники',100],['services','Сервисы',255],['hosts','Hosts',255],
@@ -27,6 +27,7 @@ export function validateFilters(draft) {
  for(const key of ['from','to']) if(next[key]) { const v=next[key]; if(!Number.isFinite(Date.parse(v.endsWith('Z')?v:v+'Z'))) throw new Error('Некорректная дата.'); }
  const from=next.from?Date.parse(next.from.endsWith('Z')?next.from:next.from+'Z'):null,to=next.to?Date.parse(next.to.endsWith('Z')?next.to:next.to+'Z'):null;
  if(from!==null&&to!==null&&from>=to) throw new Error('Начало периода должно быть раньше конца.');
+ if(next.error_fingerprint&&(!/^[0-9a-f]{64}$/.test(next.error_fingerprint)||from===null||to===null||to-from>31*86400000)) throw new Error('Для группировки ошибок нужен отпечаток и диапазон до 31 дня.');
  if(next.context_path&&(from===null||to===null||to-from>31*86400000)) throw new Error('Для JSON-пути нужен диапазон до 31 дня.');
  if(next.context) { let obj;try{obj=JSON.parse(next.context);}catch{throw new Error('JSON context: некорректный JSON.');}if(!obj||Array.isArray(obj)||typeof obj!=='object')throw new Error('JSON context должен быть объектом.'); }
  if(next.context_equals) { if(!next.context_path)throw new Error('Укажите JSON-путь.');let v;try{v=JSON.parse(next.context_equals);}catch{throw new Error('Некорректное JSON-значение.');}if(v!==null&&typeof v==='object')throw new Error('Значение JSON-пути должно быть скаляром.'); }

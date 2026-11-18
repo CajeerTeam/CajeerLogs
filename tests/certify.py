@@ -15,7 +15,7 @@ import release
 
 class GateTest(unittest.TestCase):
     def setUp(self):
-        self.info={'version':'0.7.5','archive_sha256':'a'*64}
+        self.info={'version':'0.7.6','archive_sha256':'a'*64}
         self.reports=[dict(self.info, format=1, scope='database-core', status='passed', php_series=php, postgres_major=pg, php=php+'.1',postgres=pg+'.1',stages=[{'name':name,'status':'passed','exit_code':0} for name in certify.STAGES]) for php,pg in sorted(certify.MATRIX)]
 
     def test_full_matrix(self): certify.validate_matrix(self.reports,self.info)

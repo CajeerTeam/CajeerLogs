@@ -15,7 +15,7 @@ final class SearchRuntime
         if ($milliseconds<1 || $milliseconds>60000) throw new \InvalidArgumentException('Invalid search budget.');
     }
 
-    public function run(LogQuery $query,callable $read): mixed
+    public function run(LogQuery $query,callable $read,bool $repeatableRead=false): mixed
     {
         $end=hrtime(true)+$this->milliseconds*1000000;
         $limit=function() use ($end): void {
@@ -40,7 +40,7 @@ final class SearchRuntime
                 // A read-only operation may be abandoned safely after decoding/encoding.
                 if (hrtime(true)>=$end) throw self::timeout();
                 return $result;
-            },readOnly:true);
+            },isolation:$repeatableRead?'REPEATABLE READ':'READ COMMITTED',readOnly:true);
         } catch (PDOException $e) {
             if ((string)($e->errorInfo[0]??$e->getCode())==='57014') throw self::timeout();
             throw $e;

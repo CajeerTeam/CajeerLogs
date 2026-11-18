@@ -9,6 +9,7 @@ use Cajeer\Logs\Http\HttpException;
 final class LogRepository
 {
     public function __construct(private readonly PDO $pdo) {}
+    public function connection(): PDO { return $this->pdo; }
 
     private static array $metrics=['batch_attempts'=>0,'failed_batches'=>0,'rows_returned'=>0,'insert_seconds'=>0.0];
     public static function metrics(): array { return self::$metrics; }
@@ -55,6 +56,7 @@ final class LogRepository
                 'q'=>"search_vector @@ {$query->textFunction()}('simple', :q)",
                 'tag'=>'tags @> ARRAY[CAST(:tag AS text)]',
                 'context'=>'context @> CAST(:context AS jsonb)',
+                'error_fingerprint'=>"level IN ('error','critical','alert','emergency') AND log_error_signature(message,project_id,coalesce(service,'')) = :error_fingerprint",
                 default=>throw new \LogicException('Unexpected filter.'),
             };
             $params[$key]=$value;

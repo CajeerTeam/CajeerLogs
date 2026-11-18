@@ -11,7 +11,7 @@ use stdClass;
 final class LogQuery
 {
     public const LEVELS=['debug','info','notice','warning','error','critical','alert','emergency'];
-    private const FILTERS=['project_id','source_id','source','level','service','host','trace_id','request_id','from','to','q','tag','context','q_mode','levels','sources','source_ids','services','hosts','trace_ids','request_ids','tags_all','tags_any','context_path','context_equals'];
+    private const FILTERS=['project_id','source_id','source','level','service','host','trace_id','request_id','from','to','q','tag','context','q_mode','levels','sources','source_ids','services','hosts','trace_ids','request_ids','tags_all','tags_any','context_path','context_equals','error_fingerprint'];
     public const LIST_FILTERS=['levels'=>32,'sources'=>100,'source_ids'=>36,'services'=>255,'hosts'=>255,'trace_ids'=>128,'request_ids'=>128,'tags_all'=>128,'tags_any'=>128];
     private function __construct(public readonly array $filters, public readonly int $limit, public readonly ?string $cursor, public readonly string $interval, public readonly string $format, public readonly string $consistency) {}
 
@@ -20,7 +20,8 @@ final class LogQuery
         $allowed=match($mode) {
             'list'=>[...self::FILTERS,'limit','cursor','consistency'],
             'export'=>[...self::FILTERS,'limit','cursor','format','consistency'],
-            'stats'=>[...self::FILTERS,'interval'],
+            'stats','errors'=>[...self::FILTERS,'interval'],
+            'error_report'=>[...self::FILTERS,'interval','format'],
             'detail'=>['project_id','source_id'],
             default=>throw new \LogicException('Unknown query mode.'),
         };
@@ -49,6 +50,11 @@ final class LogQuery
             $items=array_values(array_unique($items)); sort($items,SORT_STRING);
             $f[$key]=json_encode($items,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
         }
+        if (array_key_exists('error_fingerprint',$input)) {
+            $signature=self::value($input,'error_fingerprint',64);
+            if (!preg_match('/^[0-9a-f]{64}$/D',$signature)) self::invalid('Invalid error fingerprint.');
+            $f['error_fingerprint']=$signature;
+        }
         if (array_key_exists('q_mode',$input)) {
             $modeValue=self::value($input,'q_mode',6);
             if (!isset($f['q']) || !in_array($modeValue,['web','plain','phrase'],true)) self::invalid('q_mode requires q and must be web, plain or phrase.');
@@ -76,6 +82,7 @@ final class LogQuery
             if (is_array($value)||$value instanceof stdClass) self::invalid('context_equals must be a JSON scalar.');
             self::checkJson($value); $f['context_equals']=$raw;
         }
+        if (isset($f['error_fingerprint']) && !self::boundedRange($f)) self::invalid('Error fingerprint requires a time range of at most 31 days.');
         $limit=50;
         if (array_key_exists('limit',$input)) {
             $v=self::value($input,'limit',3);
@@ -85,8 +92,8 @@ final class LogQuery
         $cursor=array_key_exists('cursor',$input)?self::value($input,'cursor',1024):null;
         $interval=array_key_exists('interval',$input)?self::value($input,'interval',6):'hour';
         if (!in_array($interval,['minute','5min','hour','day'],true)) { self::invalid('interval must be minute, 5min, hour or day.'); }
-        if ($mode==='stats' && (!isset($f['from'],$f['to']) || (new DateTimeImmutable($f['to']))>(new DateTimeImmutable($f['from']))->modify('+31 days'))) { self::invalid('Statistics require from and to spanning at most 31 days.'); }
-        if ($mode==='stats' && in_array($interval,['minute','5min'],true)) {
+        if (in_array($mode,['stats','errors','error_report'],true) && (!isset($f['from'],$f['to']) || (new DateTimeImmutable($f['to']))>(new DateTimeImmutable($f['from']))->modify('+31 days'))) { self::invalid('Statistics require from and to spanning at most 31 days.'); }
+        if (in_array($mode,['stats','errors','error_report'],true) && in_array($interval,['minute','5min'],true)) {
             $max=$interval==='minute'?'+6 hours':'+2 days';
             if (new DateTimeImmutable($f['to'])>(new DateTimeImmutable($f['from']))->modify($max)) self::invalid('Statistics interval exceeds its bucket budget.');
         }

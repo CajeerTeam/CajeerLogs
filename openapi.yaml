@@ -2,8 +2,8 @@
   "openapi": "3.1.1",
   "info": {
     "title": "CajeerLogs API",
-    "version": "0.7.5",
-    "description": "Identity & Access, synchronous and durable asynchronous PostgreSQL ingestion, job status, project-scoped search, statistics, bounded page export, and durable background JSON/CSV exports. Outgoing webhooks support scoped subscription management, event selection, delivery history, replay, test delivery and audit through the Admin Panel/API or CLI. TOTP enrollment, recovery codes and administrator enrollment policy. Token rotation, scoped service accounts, credential request quotas and bulk revocation. Mandatory project/token HMAC and separately encrypted rotating signing keys. Session lifecycle, account profile and recovery-code regeneration. Private saved log views with canonical search filters and table layout. Administrator user directory, effective project access, scoped access audit and reauthenticated 2FA reset. Token detail, service account statistics, filtered security audit and explicit HMAC overlap retirement. Append-only audit chain with result/actor/time filters and bounded NDJSON export."
+    "version": "0.7.6",
+    "description": "Identity & Access, synchronous and durable asynchronous PostgreSQL ingestion, job status, project-scoped search, statistics, bounded page export, and durable background JSON/CSV exports. Outgoing webhooks support scoped subscription management, event selection, delivery history, replay, test delivery and audit through the Admin Panel/API or CLI. TOTP enrollment, recovery codes and administrator enrollment policy. Token rotation, scoped service accounts, credential request quotas and bulk revocation. Mandatory project/token HMAC and separately encrypted rotating signing keys. Session lifecycle, account profile and recovery-code regeneration. Private saved log views with canonical search filters and table layout. Administrator user directory, effective project access, scoped access audit and reauthenticated 2FA reset. Token detail, service account statistics, filtered security audit and explicit HMAC overlap retirement. Append-only audit chain with result/actor/time filters and bounded NDJSON export. Error analytics supplies scoped fingerprint grouping, comparison trends and JSON/CSV reports over bounded time windows."
   },
   "servers": [
     {
@@ -3791,6 +3791,16 @@
               ],
               "default": "live"
             }
+          },
+          {
+            "name": "error_fingerprint",
+            "in": "query",
+            "required": false,
+            "description": "SHA-256 error grouping fingerprint; requires a time range of at most 31 days.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
           }
         ],
         "responses": {
@@ -4623,6 +4633,16 @@
             "description": "Quoted page_digest from the displayed page. Returns 412 if the page changed.",
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "error_fingerprint",
+            "in": "query",
+            "required": false,
+            "description": "SHA-256 error grouping fingerprint; requires a time range of at most 31 days.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
             }
           }
         ],
@@ -13159,6 +13179,824 @@
           }
         }
       }
+    },
+    "/logs/errors": {
+      "get": {
+        "operationId": "errorAnalytics",
+        "summary": "Exact project-scoped fingerprint groups, UTC trend and equal-duration comparison over 31 days",
+        "description": "Groups error, critical, alert and emergency events by a versioned normalized message+service fingerprint. Reads authoritative PostgreSQL rows; changes, redaction and retention are reflected immediately. Returns exact totals and up to 100 groups with a truncation flag; previous-group counts are null when unknown due to truncation.",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "description": "Required project UUID; permission checked for every operation.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "source_id",
+            "in": "query",
+            "required": false,
+            "description": "Source UUID; automatically restricted to the token source if bound.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "description": "Exact registered source slug.",
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "level",
+            "in": "query",
+            "required": false,
+            "description": "Exact PSR-3 level.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "debug",
+                "info",
+                "notice",
+                "warning",
+                "error",
+                "critical",
+                "alert",
+                "emergency"
+              ]
+            }
+          },
+          {
+            "name": "service",
+            "in": "query",
+            "required": false,
+            "description": "Exact service.",
+            "schema": {
+              "type": "string",
+              "maxLength": 255
+            }
+          },
+          {
+            "name": "host",
+            "in": "query",
+            "required": false,
+            "description": "Exact host.",
+            "schema": {
+              "type": "string",
+              "maxLength": 255
+            }
+          },
+          {
+            "name": "trace_id",
+            "in": "query",
+            "required": false,
+            "description": "Exact trace ID.",
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "request_id",
+            "in": "query",
+            "required": false,
+            "description": "Exact request ID.",
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "description": "Inclusive occurred_at lower bound.",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "description": "Exclusive occurred_at upper bound.",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "description": "PostgreSQL websearch_to_tsquery simple configuration.",
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "tag",
+            "in": "query",
+            "required": false,
+            "description": "Exact tag.",
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "context",
+            "in": "query",
+            "required": false,
+            "description": "JSON object encoded as query string; JSONB containment.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096
+            }
+          },
+          {
+            "name": "q_mode",
+            "in": "query",
+            "required": false,
+            "description": "Full-text mode. web (default): websearch syntax; plain: all terms; phrase: adjacent terms. Requires q.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "web",
+                "plain",
+                "phrase"
+              ],
+              "default": "web"
+            }
+          },
+          {
+            "name": "levels",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of PSR-3 levels; any match. 1..16 strings.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"error\",\"warning\"]"
+            }
+          },
+          {
+            "name": "sources",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of registered source slugs; any match, within the requested project and effective source scope.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"app\",\"worker\"]"
+            }
+          },
+          {
+            "name": "source_ids",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of source UUIDs; any match, intersected with effective source scope.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"22222222-2222-4222-8222-222222222222\"]"
+            }
+          },
+          {
+            "name": "services",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of exact service strings; any match.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"api\",\"worker\"]"
+            }
+          },
+          {
+            "name": "hosts",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of exact host strings; any match.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"host1\",\"host2\"]"
+            }
+          },
+          {
+            "name": "trace_ids",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of exact trace IDs; any match.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"trace-1\",\"trace-2\"]"
+            }
+          },
+          {
+            "name": "request_ids",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of exact request IDs; any match.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"req-1\",\"req-2\"]"
+            }
+          },
+          {
+            "name": "tags_all",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of exact tags; all must be present.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"db\",\"prod\"]"
+            }
+          },
+          {
+            "name": "tags_any",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of exact tags; at least one must be present.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"db\",\"queue\"]"
+            }
+          },
+          {
+            "name": "context_path",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of 1..8 nonblank string path segments. Requires from/to spanning at most 31 days. Without context_equals, checks path existence, including JSON null.",
+            "schema": {
+              "type": "string",
+              "maxLength": 2048,
+              "example": "[\"nested\",\"region\"]"
+            }
+          },
+          {
+            "name": "context_equals",
+            "in": "query",
+            "required": false,
+            "description": "Exact JSON scalar at context_path (string, number, boolean or null); type-sensitive. Raw JSON numeric precision is preserved.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "\"eu\""
+            }
+          },
+          {
+            "name": "error_fingerprint",
+            "in": "query",
+            "required": false,
+            "description": "SHA-256 error grouping fingerprint; requires a time range of at most 31 days.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          {
+            "name": "interval",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "minute",
+                "5min",
+                "hour",
+                "day"
+              ]
+            },
+            "description": "Trend bucket granularity (minute at most 6 hours, 5min at most 2 days)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Error report including top fingerprint groups, trend buckets and comparison totals",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or HTTPS required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid query",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Shared request or event quota exceeded. Retry-After is the request limiter delay in whole seconds; additional budgets may still apply.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage unavailable or search processing budget exceeded (search_timeout; Retry-After: 5).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/logs/errors/report": {
+      "get": {
+        "operationId": "exportErrorReport",
+        "summary": "Download error grouping and comparison report as JSON or CSV",
+        "description": "Same consistent database snapshot as error analytics, with export permission for session users and an audited download. CSV includes a maximum of 100 groups; check group_count/groups_truncated in the JSON report for completeness.",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "description": "Required project UUID; permission checked for every operation.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "source_id",
+            "in": "query",
+            "required": false,
+            "description": "Source UUID; automatically restricted to the token source if bound.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "description": "Exact registered source slug.",
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "level",
+            "in": "query",
+            "required": false,
+            "description": "Exact PSR-3 level.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "debug",
+                "info",
+                "notice",
+                "warning",
+                "error",
+                "critical",
+                "alert",
+                "emergency"
+              ]
+            }
+          },
+          {
+            "name": "service",
+            "in": "query",
+            "required": false,
+            "description": "Exact service.",
+            "schema": {
+              "type": "string",
+              "maxLength": 255
+            }
+          },
+          {
+            "name": "host",
+            "in": "query",
+            "required": false,
+            "description": "Exact host.",
+            "schema": {
+              "type": "string",
+              "maxLength": 255
+            }
+          },
+          {
+            "name": "trace_id",
+            "in": "query",
+            "required": false,
+            "description": "Exact trace ID.",
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "request_id",
+            "in": "query",
+            "required": false,
+            "description": "Exact request ID.",
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "description": "Inclusive occurred_at lower bound.",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "description": "Exclusive occurred_at upper bound.",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "description": "PostgreSQL websearch_to_tsquery simple configuration.",
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "tag",
+            "in": "query",
+            "required": false,
+            "description": "Exact tag.",
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "context",
+            "in": "query",
+            "required": false,
+            "description": "JSON object encoded as query string; JSONB containment.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096
+            }
+          },
+          {
+            "name": "q_mode",
+            "in": "query",
+            "required": false,
+            "description": "Full-text mode. web (default): websearch syntax; plain: all terms; phrase: adjacent terms. Requires q.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "web",
+                "plain",
+                "phrase"
+              ],
+              "default": "web"
+            }
+          },
+          {
+            "name": "levels",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of PSR-3 levels; any match. 1..16 strings.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"error\",\"warning\"]"
+            }
+          },
+          {
+            "name": "sources",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of registered source slugs; any match, within the requested project and effective source scope.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"app\",\"worker\"]"
+            }
+          },
+          {
+            "name": "source_ids",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of source UUIDs; any match, intersected with effective source scope.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"22222222-2222-4222-8222-222222222222\"]"
+            }
+          },
+          {
+            "name": "services",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of exact service strings; any match.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"api\",\"worker\"]"
+            }
+          },
+          {
+            "name": "hosts",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of exact host strings; any match.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"host1\",\"host2\"]"
+            }
+          },
+          {
+            "name": "trace_ids",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of exact trace IDs; any match.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"trace-1\",\"trace-2\"]"
+            }
+          },
+          {
+            "name": "request_ids",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of exact request IDs; any match.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"req-1\",\"req-2\"]"
+            }
+          },
+          {
+            "name": "tags_all",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of exact tags; all must be present.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"db\",\"prod\"]"
+            }
+          },
+          {
+            "name": "tags_any",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of exact tags; at least one must be present.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "[\"db\",\"queue\"]"
+            }
+          },
+          {
+            "name": "context_path",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of 1..8 nonblank string path segments. Requires from/to spanning at most 31 days. Without context_equals, checks path existence, including JSON null.",
+            "schema": {
+              "type": "string",
+              "maxLength": 2048,
+              "example": "[\"nested\",\"region\"]"
+            }
+          },
+          {
+            "name": "context_equals",
+            "in": "query",
+            "required": false,
+            "description": "Exact JSON scalar at context_path (string, number, boolean or null); type-sensitive. Raw JSON numeric precision is preserved.",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "example": "\"eu\""
+            }
+          },
+          {
+            "name": "error_fingerprint",
+            "in": "query",
+            "required": false,
+            "description": "SHA-256 error grouping fingerprint; requires a time range of at most 31 days.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          {
+            "name": "interval",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "minute",
+                "5min",
+                "hour",
+                "day"
+              ]
+            },
+            "description": "Trend bucket granularity (minute at most 6 hours, 5min at most 2 days)."
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "json",
+                "csv"
+              ],
+              "default": "json"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "JSON report or UTF-8 CSV group table",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or HTTPS required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid query",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Shared request or event quota exceeded. Retry-After is the request limiter delay in whole seconds; additional budgets may still apply.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage unavailable or search processing budget exceeded (search_timeout; Retry-After: 5).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -13710,11 +14548,33 @@
             "items": {
               "type": "object",
               "properties": {
-                "timestamp": {"type": "string", "format": "date-time"},
-                "level": {"type": "string", "enum": ["debug", "info", "notice", "warning", "error", "critical", "alert", "emergency"]},
-                "count": {"type": "integer", "minimum": 0}
+                "timestamp": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "level": {
+                  "type": "string",
+                  "enum": [
+                    "debug",
+                    "info",
+                    "notice",
+                    "warning",
+                    "error",
+                    "critical",
+                    "alert",
+                    "emergency"
+                  ]
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": 0
+                }
               },
-              "required": ["timestamp", "level", "count"]
+              "required": [
+                "timestamp",
+                "level",
+                "count"
+              ]
             }
           },
           "interval": {
