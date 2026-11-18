@@ -2,6 +2,14 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.6.6 — aaPanel Integration Stable
+
+Local production multi-site aaPanel operator: discovery of site access/error/JSON logs,
+per-site/source durable checkpoints, isolate-and-retry failures, stream control,
+rotation recovery, JSON backlog/error monitoring and a hardened systemd unit.
+Sources are registered through existing Admin Panel; the collector is local to
+the aaPanel server. See [aaPanel operator](modules/aapanel-importer/README.md).
+
 ## 0.6.5 — Nginx Log Import Stable
 
 Real file-based incremental Nginx importer with SQLite-confirmed offsets, immutable

@@ -73,6 +73,8 @@ REQUIRED.update({
 })
 
 REQUIRED.update({'clients/python/cajeer_logs_collector.py', 'tests/nginx_import_stable.py', 'docs/Nginx-Log-Import-Stable.md'})
+REQUIRED.update({'clients/python/cajeer_aapanel_manager.py', 'tests/aapanel_integration_stable.py',
+                 'modules/aapanel-importer/README.md', 'examples/systemd/cajeerlogs-aapanel.service'})
 
 REQUIRED.update({'packages/ts-sdk/src/durable.ts', 'packages/ts-sdk/test/durable.test.mjs',
                  'packages/ts-sdk/test/process.mjs', 'docs/TypeScript-SDK-Stable.md'})

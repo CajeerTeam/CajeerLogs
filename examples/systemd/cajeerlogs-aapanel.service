@@ -1,0 +1,24 @@
+[Unit]
+Description=CajeerLogs aaPanel multi-site importer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cajeer
+Group=cajeer
+EnvironmentFile=/etc/cajeer-aapanel/ingest.env
+WorkingDirectory=/opt/cajeerlogs
+ExecStart=/usr/bin/python3 /opt/cajeerlogs/clients/python/cajeer_aapanel_manager.py --config /etc/cajeer-aapanel/config.json run --auto-discover
+Restart=on-failure
+RestartSec=10s
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadOnlyPaths=/www/wwwlogs
+ReadWritePaths=/var/lib/cajeer-aapanel /etc/cajeer-aapanel
+
+[Install]
+WantedBy=multi-user.target

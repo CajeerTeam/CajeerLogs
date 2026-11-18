@@ -1,3 +1,12 @@
+## 0.6.6 — aaPanel Integration Stable
+
+- Per-site multi-stream aaPanel manager on the real Nginx HTTP/SQLite importer.
+- Auto-discovery (explicit enrollment), local config and CLI controls, read-only site scans.
+- Independent per-site checkpoint/retry, reliable rotation, fail-isolated operation,
+  persistent JSON health/backlog metrics and systemd service.
+- Real HTTP integration regression, CI and release packaging gates; no PostgreSQL migration.
+- New sources must exist in CajeerLogs project before enabling ingestion.
+
 ## 0.6.5 — Nginx Log Import Stable
 
 - Nginx file collector: durable incremental HTTP ingest with SQLite checkpoint, verified

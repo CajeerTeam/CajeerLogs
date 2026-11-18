@@ -1,9 +1,9 @@
 {
   "name": "cajeerlogs/aapanel-importer",
   "type": "module",
-  "version": "0.0.7",
+  "version": "0.6.6",
   "requires": {
-    "cajeerlogs": ">=0.0.7 <0.2.0"
+    "cajeerlogs": ">=0.6.5 <0.7.0"
   },
   "permissions": [
     "logs.import",
