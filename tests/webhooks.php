@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 require dirname(__DIR__).'/core/bootstrap.php';
-use Cajeer\Logs\Integration\WebhookDispatcher;
+use Cajeer\Logs\Integration\{WebhookDispatcher,WebhookOutbox};
 $count=0;
 function check(bool $ok,string $message): void {global $count;if (!$ok) throw new RuntimeException('FAIL '.$message);$count++;echo "PASS $message\n";}
 check(WebhookDispatcher::host('https://hooks.example.com/receive')==='hooks.example.com','valid HTTPS webhook');
@@ -13,4 +13,9 @@ check(WebhookDispatcher::publicIp('8.8.8.8'),'public IPv4 allowed');
 $body='{"event":"logs.ingested"}';$secret=str_repeat('a',32);$id='11111111-1111-4111-8111-111111111111';$ts='1767225600';
 check(WebhookDispatcher::signature($id,$ts,$body,$secret)===hash_hmac('sha256',"cajeerlogs-webhook-v1\n$id\n$ts\n".hash('sha256',$body),$secret),'canonical webhook signature');
 check(WebhookDispatcher::signature($id,$ts,$body,$secret)!==WebhookDispatcher::signature($id,$ts,$body.' ',$secret),'signature binds exact body');
+check(WebhookOutbox::events(['logs.ingested','source.created'])===['logs.ingested','source.created'],'event filter accepts subscribed event types');
+foreach ([[], ['source.created','source.created'],['unknown.event'],['logs.ingested',123],['source.created','source.disabled','source.enabled','source.archived','source.restored','logs.ingested','extra']] as $invalid) {
+    try { WebhookOutbox::events($invalid); check(false,'invalid event list rejected'); }
+    catch (\Cajeer\Logs\Http\HttpException $e) { check($e->status===422,'invalid event list rejected'); }
+}
 echo "Webhook security: $count checks passed\n";

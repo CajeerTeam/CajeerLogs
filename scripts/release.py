@@ -73,6 +73,9 @@ REQUIRED.update({
 })
 
 REQUIRED.update({'clients/python/cajeer_logs_collector.py', 'tests/nginx_import_stable.py', 'docs/Nginx-Log-Import-Stable.md'})
+REQUIRED.update({'core/Integration/WebhookOutbox.php','migrations/pgsql/0026_webhook_subscriptions.sql',
+                 'public/admin/assets/pages/webhooks.js','tests/webhook_subscriptions_database.php','docs/Webhooks-Stable.md'})
+
 REQUIRED.update({'clients/python/cajeer_aapanel_manager.py', 'tests/aapanel_integration_stable.py',
                  'modules/aapanel-importer/README.md', 'examples/systemd/cajeerlogs-aapanel.service'})
 

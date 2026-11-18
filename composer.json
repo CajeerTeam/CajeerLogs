@@ -67,6 +67,7 @@
     "test:search-database": "@php tests/search_database.php",
     "test:webhooks": "@php tests/webhooks.php",
     "test:webhook-database": "@php tests/webhook_database.php",
+    "test:webhook-subscriptions-database": "@php tests/webhook_subscriptions_database.php",
     "test:queue": "@php tests/queue.php",
     "test:queue-database": "@php tests/queue_database.php",
     "test:security": "@php tests/security_operations.php",

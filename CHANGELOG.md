@@ -1,3 +1,12 @@
+## 0.6.7 — Webhooks Stable
+
+- Functional scoped Admin Panel and API subscription management, event filters and revision-based updates.
+- Atomic producer for `logs.ingested`, `source.created`, `source.disabled`, `source.enabled`, `source.archived`, `source.restored`.
+- Durable `webhook.test` probe, failed-delivery retry, attempt history, delivery counts and management audit.
+- PostgreSQL migration 0026, upgraded public OpenAPI, and real database integration checks.
+- Fixed stale production Admin Panel module cache versions so the entire module graph passes `admin/verify.mjs`.
+- Maintains HTTPS-only outbound signatures, lease recovery, retries and 0.6.6 subscription compatibility.
+
 ## 0.6.6 — aaPanel Integration Stable
 
 - Per-site multi-stream aaPanel manager on the real Nginx HTTP/SQLite importer.

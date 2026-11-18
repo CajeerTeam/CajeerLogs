@@ -33,6 +33,13 @@ final class IdentityController
         'DELETE /projects/{project}/members/{user}'=>'removeMember',
         'GET /projects/{project}/saved-views'=>'savedViews', 'POST /projects/{project}/saved-views'=>'createSavedView',
         'GET /projects/{project}/saved-views/{view}'=>'savedView', 'PATCH /projects/{project}/saved-views/{view}'=>'updateSavedView', 'DELETE /projects/{project}/saved-views/{view}'=>'deleteSavedView',
+        'GET /projects/{project}/webhooks'=>'webhooks', 'POST /projects/{project}/webhooks'=>'createWebhook',
+        'GET /projects/{project}/webhooks/stats'=>'webhookStats',
+        'GET /projects/{project}/webhooks/{webhook}'=>'webhook', 'PATCH /projects/{project}/webhooks/{webhook}'=>'updateWebhook',
+        'POST /projects/{project}/webhooks/{webhook}/test'=>'testWebhook',
+        'GET /projects/{project}/webhooks/{webhook}/deliveries'=>'webhookDeliveries',
+        'GET /projects/{project}/webhooks/{webhook}/attempts'=>'webhookAttempts',
+        'POST /projects/{project}/webhooks/{webhook}/deliveries/{delivery}/retry'=>'retryWebhookDelivery',
         'GET /projects/{project}/sources'=>'sources', 'POST /projects/{project}/sources'=>'createSource',
         'GET /projects/{project}/sources/{source}'=>'source',
         'PATCH /projects/{project}/sources/{source}'=>'updateSource', 'POST /projects/{project}/sources/{source}/disable'=>'disableSource',
@@ -112,7 +119,7 @@ final class IdentityController
             $this->identity->lock();
             $p=$this->identity->authenticate($r,$credential ?? [],in_array($action,['me','logout','logoutAll','totpSetup','totpEnable'],true),false);
             // Explicit password+factor operations already perform their own confirmation.
-            if (in_array($action,['retryDeadLetters','discardDeadLetters','pauseQueueDispatch','resumeQueueDispatch','createRole','updateRole','deleteRole','assignGlobalRole','assignProjectRole','createUser','updateUser','addMember','removeMember','createToken','createSystemToken','rotateToken','rotateSystemToken','configureSigning','retireSigningKey','setProjectSigning','revokeToken','revokeSystemToken','revokeProjectTokens','revokeAllSystemTokens','disableServiceAccount','createServiceAccount','updateToken','updateSystemToken','redactionSystemSet','redactionProjectSet','redactionSourceSet','createProject','updateProject','archiveProject','restoreProject','createSource','updateSource','disableSource','enableSource','archiveSource','restoreSource'],true)) $this->identity->requireFresh($p);
+            if (in_array($action,['retryDeadLetters','discardDeadLetters','pauseQueueDispatch','resumeQueueDispatch','createRole','updateRole','deleteRole','assignGlobalRole','assignProjectRole','createUser','updateUser','addMember','removeMember','createToken','createSystemToken','rotateToken','rotateSystemToken','configureSigning','retireSigningKey','setProjectSigning','revokeToken','revokeSystemToken','revokeProjectTokens','revokeAllSystemTokens','disableServiceAccount','createServiceAccount','updateToken','updateSystemToken','redactionSystemSet','redactionProjectSet','redactionSourceSet','createProject','updateProject','archiveProject','restoreProject','createSource','updateSource','disableSource','enableSource','archiveSource','restoreSource','createWebhook','updateWebhook','testWebhook','retryWebhookDelivery'],true)) $this->identity->requireFresh($p);
             $response=$this->$action($r,$p);
             return $response;
         }, maxAttempts: 3); } catch (HttpException $e) {
@@ -598,11 +605,87 @@ final class IdentityController
         }
         return $this->page($r,$query,$params,'id',false,true);
     }
+    /** Webhook administration uses the established identity, CSRF, fresh-login and audit transaction. */
+    private function webhookProject(Request $r,array $p,bool $write=false): string
+    {
+        $this->session($p);
+        $project=$this->id($r,'project');
+        $this->allow($p,$write?'services:manage':'services:read',$project);
+        $this->one('SELECT id FROM projects WHERE id=:id',['id'=>$project]);
+        return $project;
+    }
+    private function webhookOutbox(): \Cajeer\Logs\Integration\WebhookOutbox
+    { return new \Cajeer\Logs\Integration\WebhookOutbox($this->pdo); }
+    private function webhooks(Request $r,array $p): Response
+    {
+        $project=$this->webhookProject($r,$p);
+        return new JsonResponse(['items'=>$this->webhookOutbox()->listProject($project),'supported_events'=>\Cajeer\Logs\Integration\WebhookOutbox::EVENTS],200,['Cache-Control'=>'no-store']);
+    }
+    private function webhook(Request $r,array $p): Response
+    {
+        $project=$this->webhookProject($r,$p);
+        return new JsonResponse($this->webhookOutbox()->detail($project,$this->id($r,'webhook')),200,['Cache-Control'=>'no-store']);
+    }
+    private function createWebhook(Request $r,array $p): Response
+    {
+        $project=$this->webhookProject($r,$p,true);
+        $d=$this->body($r,['url','secret_env','events']);
+        if (!is_string($d['url']??null)||!is_string($d['secret_env']??null)) self::invalid('URL and environment secret are required.');
+        $hook=$this->webhookOutbox();
+        $id=$hook->add($project,$d['url'],$d['secret_env'],$d['events']??['logs.ingested']);
+        $this->audit($r,$p,'webhook.created',$id,['project_id'=>$project,'events'=>$d['events']??['logs.ingested']]);
+        return new JsonResponse($hook->detail($project,$id),201,['Cache-Control'=>'no-store']);
+    }
+    private function updateWebhook(Request $r,array $p): Response
+    {
+        $project=$this->webhookProject($r,$p,true);$id=$this->id($r,'webhook');
+        $d=$this->body($r,['url','secret_env','events','enabled','revision']);
+        if (!is_int($d['revision']??null) || $d['revision']<1) self::invalid('Invalid webhook revision.');
+        $revision=$d['revision'];unset($d['revision']);
+        $row=$this->webhookOutbox()->update($project,$id,$revision,$d);
+        $this->audit($r,$p,'webhook.updated',$id,['project_id'=>$project,'fields'=>array_keys($d),'revision'=>$row['revision']]);
+        return new JsonResponse($row,200,['Cache-Control'=>'no-store']);
+    }
+    private function testWebhook(Request $r,array $p): Response
+    {
+        $project=$this->webhookProject($r,$p,true);$id=$this->id($r,'webhook');
+        if ($r->body()!=='' && $r->body()!=='{}') self::invalid('Test webhook does not accept custom payload.');
+        $delivery=$this->webhookOutbox()->test($project,$id);
+        $this->audit($r,$p,'webhook.test_queued',$id,['project_id'=>$project,'delivery_id'=>$delivery]);
+        return new JsonResponse(['delivery_id'=>$delivery,'status'=>'pending'],202,['Cache-Control'=>'no-store']);
+    }
+    private function webhookDeliveries(Request $r,array $p): Response
+    {
+        $project=$this->webhookProject($r,$p);$id=$this->id($r,'webhook');
+        $limit=filter_var($r->query['limit']??50,FILTER_VALIDATE_INT,['options'=>['min_range'=>1,'max_range'=>100]]);
+        if ($limit===false) self::invalid('Invalid limit.');
+        return new JsonResponse(['items'=>$this->webhookOutbox()->deliveries($project,$id,(int)$limit)],200,['Cache-Control'=>'no-store']);
+    }
+    private function webhookAttempts(Request $r,array $p): Response
+    {
+        $project=$this->webhookProject($r,$p);$id=$this->id($r,'webhook');
+        return new JsonResponse(['items'=>$this->webhookOutbox()->historyProject($project,$id)],200,['Cache-Control'=>'no-store']);
+    }
+    private function webhookStats(Request $r,array $p): Response
+    {
+        $project=$this->webhookProject($r,$p);
+        return new JsonResponse(['items'=>$this->webhookOutbox()->stats($project)],200,['Cache-Control'=>'no-store']);
+    }
+    private function retryWebhookDelivery(Request $r,array $p): Response
+    {
+        $project=$this->webhookProject($r,$p,true);$id=$this->id($r,'webhook');$delivery=$this->id($r,'delivery');
+        if ($r->body()!=='' && $r->body()!=='{}') self::invalid('Retry does not accept payload changes.');
+        $this->webhookOutbox()->detail($project,$id);
+        $changed=$this->webhookOutbox()->retry($delivery,$project,$id);
+        if (!$changed) throw new HttpException(409,'conflict','Delivery must be failed and the subscription enabled.');
+        $this->audit($r,$p,'webhook.delivery_retried',$id,['project_id'=>$project,'delivery_id'=>$delivery]);
+        return new JsonResponse(['delivery_id'=>$delivery,'status'=>'pending'],200,['Cache-Control'=>'no-store']);
+    }
     private function createSource(Request $r,array $p): Response
     {
         $this->session($p); $project=$this->id($r,'project'); $this->allow($p,'sources:create',$project);
         $d=$this->sourceData($r,['name','slug']); [$name,$slug]=$this->nameSlug($d); unset($d['name'],$d['slug']);
-        $this->one('SELECT id FROM projects WHERE id=:id',['id'=>$project]); $id=(new SourceRepository($this->pdo))->create($project,$name,$slug,$d); $this->audit($r,$p,'source.created',$id,['project_id'=>$project]); return new JsonResponse(['id'=>$id],201);
+        $this->one('SELECT id FROM projects WHERE id=:id',['id'=>$project]); $id=(new SourceRepository($this->pdo))->create($project,$name,$slug,$d); $this->audit($r,$p,'source.created',$id,['project_id'=>$project]); (new \Cajeer\Logs\Integration\EventApiDispatcher($this->pdo))->publish($project,'source.created',['source_id'=>$id]); return new JsonResponse(['id'=>$id],201);
     }
     private function source(Request $r,array $p): Response
     {
@@ -620,7 +703,7 @@ final class IdentityController
     {
         $this->session($p); $project=$this->id($r,'project'); $source=$this->id($r,'source'); $this->allow($p,'sources:state',$project);
         $d=$this->body($r,['revision']); $row=(new SourceRepository($this->pdo))->transition($project,$source,ProjectRepository::revision($d['revision']??null),$action);
-        $this->audit($r,$p,'source.'.$action,$source,['project_id'=>$project,'revision'=>$row['revision'],'status'=>$row['status']]); return new JsonResponse($row);
+        $this->audit($r,$p,'source.'.$action,$source,['project_id'=>$project,'revision'=>$row['revision'],'status'=>$row['status']]); (new \Cajeer\Logs\Integration\EventApiDispatcher($this->pdo))->publish($project,'source.'.match($action){'disable'=>'disabled','enable'=>'enabled','archive'=>'archived','restore'=>'restored'},['source_id'=>$source,'status'=>$row['status']]); return new JsonResponse($row);
     }
     private function disableSource(Request $r,array $p): Response { return $this->changeSourceState($r,$p,'disable'); }
     private function enableSource(Request $r,array $p): Response { return $this->changeSourceState($r,$p,'enable'); }

@@ -1,19 +1,20 @@
-import { state, names, active, render, installRenderer } from './store.js?v=0.5.9';
-import { $, h, button, message, clearModal, heading } from '../components/ui.js?v=0.5.9';
-import { clearSession, bootstrap } from './session.js?v=0.5.9';
-import { loadProjects, refreshProject } from './projects.js?v=0.5.9';
-import { navigation } from './shell.js?v=0.5.9';
-import { currentRoute, permitted } from './routes.js?v=0.5.9';
-import { overview } from '../pages/overview.js?v=0.5.9';
-import { logs } from '../pages/logs.js?v=0.5.9';
-import { projects } from '../pages/projects.js?v=0.5.9';
-import { tokens } from '../pages/tokens.js?v=0.5.9';
-import { security } from '../pages/security.js?v=0.5.9';
-import { users } from '../pages/users.js?v=0.5.9';
-import { system } from '../pages/system.js?v=0.5.9';
-import { rbac } from '../pages/rbac.js?v=0.5.9';
-import { queue } from '../pages/queue.js?v=0.5.9';
-import { settings } from '../pages/settings.js?v=0.5.9';
+import { state, names, active, render, installRenderer } from './store.js?v=0.6.7';
+import { $, h, button, message, clearModal, heading } from '../components/ui.js?v=0.6.7';
+import { clearSession, bootstrap } from './session.js?v=0.6.7';
+import { loadProjects, refreshProject } from './projects.js?v=0.6.7';
+import { navigation } from './shell.js?v=0.6.7';
+import { currentRoute, permitted } from './routes.js?v=0.6.7';
+import { overview } from '../pages/overview.js?v=0.6.7';
+import { logs } from '../pages/logs.js?v=0.6.7';
+import { projects } from '../pages/projects.js?v=0.6.7';
+import { tokens } from '../pages/tokens.js?v=0.6.7';
+import { security } from '../pages/security.js?v=0.6.7';
+import { users } from '../pages/users.js?v=0.6.7';
+import { system } from '../pages/system.js?v=0.6.7';
+import { rbac } from '../pages/rbac.js?v=0.6.7';
+import { queue } from '../pages/queue.js?v=0.6.7';
+import { webhooks } from '../pages/webhooks.js?v=0.6.7';
+import { settings } from '../pages/settings.js?v=0.6.7';
 
 async function renderRoute({ focus = false, background = false } = {}) {
     if (!state.user)
@@ -37,7 +38,7 @@ async function renderRoute({ focus = false, background = false } = {}) {
     document.title = names[state.route] + ' — CajeerLogs';
     if (focus) main.focus();
     try {
-        if (['overview', 'logs', 'projects', 'tokens', 'security', 'queue'].includes(state.route)) {
+        if (['overview', 'logs', 'projects', 'tokens', 'security', 'queue', 'webhooks'].includes(state.route)) {
             if(state.project) await refreshProject(signal, background);
             if(!active(epoch)||signal.aborted)return;
             if(!state.projects.length) { await loadProjects(signal,false,background); if(active(epoch)&&!signal.aborted&&state.project) await refreshProject(signal, background); }
@@ -65,7 +66,7 @@ window.addEventListener('pageshow', e => { if (e.persisted) {
     clearSession();
     void bootstrap();
 } });
-const pages = { overview, logs, projects, tokens, security, users, rbac, system, settings, queue };
+const pages = { overview, logs, projects, tokens, security, users, rbac, system, settings, queue, webhooks };
 
 installRenderer(renderRoute);
 

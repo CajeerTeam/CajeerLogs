@@ -1,3 +1,7 @@
+## 0.6.7 — Webhooks Stable
+
+Project-scoped webhook subscriptions are now administered through the **working Admin Panel (Webhooks)** and API v1, with selectable committed log/source events, test sends, delivery history, manual retry, revision checks and tamper-evident management audit. Durable outbox, HMAC, DNS-pinned HTTPS egress and cron/systemd worker remain operational. Upgrade PostgreSQL with `php bin/cajeer migrate` before serving API traffic. [Operator guide](docs/Webhooks-Stable.md).
+
 # CajeerLogs
 
 Self-hosted PHP-first платформа централизованного логирования.
