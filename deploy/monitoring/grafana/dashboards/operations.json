@@ -2,7 +2,7 @@
   "uid": "cajeer-operations",
   "title": "CajeerLogs Operations",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "30s",
   "time": {
     "from": "now-6h",
@@ -270,6 +270,116 @@
           "expr": "cajeerlogs_webhook_pending",
           "refId": "A",
           "legendFormat": "{{role}} {{mode}} {{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "title": "Queue dispatch state",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cajeer-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 48,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "cajeerlogs_queue_dispatch_paused",
+          "refId": "A",
+          "legendFormat": "{{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "title": "Queue accepted / completed events per second",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cajeer-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 48,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "rate(cajeerlogs_queue_accepted_events_total[5m]) or rate(cajeerlogs_queue_completed_events_total[5m])",
+          "refId": "A",
+          "legendFormat": "{{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "title": "Queue completion p95 (seconds)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cajeer-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 56,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95,sum by(le) (rate(cajeerlogs_queue_delivery_latency_seconds_bucket[5m])))",
+          "refId": "A",
+          "legendFormat": "{{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "title": "Queue retries / dead-letter per minute",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cajeer-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 56,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "increase(cajeerlogs_queue_retries_total[5m]) or increase(cajeerlogs_queue_dead_letter_total[5m])",
+          "refId": "A",
+          "legendFormat": "{{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "title": "Queue active jobs and capacity",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cajeer-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 64,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "cajeerlogs_queue_active_jobs or cajeerlogs_queue_max_jobs",
+          "refId": "A",
+          "legendFormat": "{{instance}}"
         }
       ]
     }

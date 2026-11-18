@@ -56,6 +56,9 @@ final class IdentityController
         'POST /system/tokens/revoke-all'=>'revokeAllSystemTokens',
         'GET /projects/{project}/queue/dead'=>'deadLetters', 'GET /projects/{project}/queue/jobs/{job}'=>'queueJob',
         'POST /projects/{project}/queue/dead/retry'=>'retryDeadLetters', 'POST /projects/{project}/queue/dead/discard'=>'discardDeadLetters',
+        'GET /system/queue/dispatch'=>'queueDispatchStatus',
+        'POST /system/queue/dispatch/pause'=>'pauseQueueDispatch',
+        'POST /system/queue/dispatch/resume'=>'resumeQueueDispatch',
         'GET /system/report'=>'report',
     ];
     private Identity $identity;
@@ -109,7 +112,7 @@ final class IdentityController
             $this->identity->lock();
             $p=$this->identity->authenticate($r,$credential ?? [],in_array($action,['me','logout','logoutAll','totpSetup','totpEnable'],true),false);
             // Explicit password+factor operations already perform their own confirmation.
-            if (in_array($action,['retryDeadLetters','discardDeadLetters','createRole','updateRole','deleteRole','assignGlobalRole','assignProjectRole','createUser','updateUser','addMember','removeMember','createToken','createSystemToken','rotateToken','rotateSystemToken','configureSigning','retireSigningKey','setProjectSigning','revokeToken','revokeSystemToken','revokeProjectTokens','revokeAllSystemTokens','disableServiceAccount','createServiceAccount','updateToken','updateSystemToken','redactionSystemSet','redactionProjectSet','redactionSourceSet','createProject','updateProject','archiveProject','restoreProject','createSource','updateSource','disableSource','enableSource','archiveSource','restoreSource'],true)) $this->identity->requireFresh($p);
+            if (in_array($action,['retryDeadLetters','discardDeadLetters','pauseQueueDispatch','resumeQueueDispatch','createRole','updateRole','deleteRole','assignGlobalRole','assignProjectRole','createUser','updateUser','addMember','removeMember','createToken','createSystemToken','rotateToken','rotateSystemToken','configureSigning','retireSigningKey','setProjectSigning','revokeToken','revokeSystemToken','revokeProjectTokens','revokeAllSystemTokens','disableServiceAccount','createServiceAccount','updateToken','updateSystemToken','redactionSystemSet','redactionProjectSet','redactionSourceSet','createProject','updateProject','archiveProject','restoreProject','createSource','updateSource','disableSource','enableSource','archiveSource','restoreSource'],true)) $this->identity->requireFresh($p);
             $response=$this->$action($r,$p);
             return $response;
         }, maxAttempts: 3); } catch (HttpException $e) {
@@ -770,6 +773,21 @@ final class IdentityController
     }
     private function retryDeadLetters(Request $r,array $p): Response {return $this->changeDeadLetters($r,$p,'retry');}
     private function discardDeadLetters(Request $r,array $p): Response {return $this->changeDeadLetters($r,$p,'discard');}
+    private function queueDispatchStatus(Request $r,array $p): Response {
+        $this->session($p); $this->allow($p,'system:read');
+        return new JsonResponse((new \Cajeer\Logs\Queue\QueueOperations($this->pdo))->status(),200,['Cache-Control'=>'no-store']);
+    }
+    private function queueDispatchChange(Request $r,array $p,bool $pause): Response {
+        $this->session($p); $this->allow($p,'system:read');
+        $d=$this->body($r,['confirm','reason']);
+        if (($d['confirm']??null)!==true || (!$pause && array_key_exists('reason',$d))) self::invalid('Explicit confirmation required.');
+        try { $reason=\Cajeer\Logs\Queue\QueueOperations::reason($d['reason']??null); }
+        catch (\InvalidArgumentException) { self::invalid('Invalid queue dispatch reason.'); }
+        $result=(new \Cajeer\Logs\Queue\QueueOperations($this->pdo))->setPaused($pause,$reason,$p['id'],$r->requestId);
+        return new JsonResponse($result,200,['Cache-Control'=>'no-store']);
+    }
+    private function pauseQueueDispatch(Request $r,array $p): Response { return $this->queueDispatchChange($r,$p,true); }
+    private function resumeQueueDispatch(Request $r,array $p): Response { return $this->queueDispatchChange($r,$p,false); }
     private function projectSecurityAudit(Request $r,array $p): Response { $this->session($p); $project=$this->id($r,'project'); $this->allow($p,'audit:read',$project); $this->one('SELECT id FROM projects WHERE id=:id',['id'=>$project]); return $this->securityAudit($r,$project,$p); }
     private function systemSecurityAudit(Request $r,array $p): Response { return $this->securityAudit($r,$this->tokenProject($r,$p,true),$p); }
     private function securityAudit(Request $r,?string $project,array $p): Response

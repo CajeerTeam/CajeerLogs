@@ -2,7 +2,7 @@
 declare(strict_types=1);
 namespace Cajeer\Logs\Console\Command;
 use Cajeer\Logs\Kernel\Application;
-use Cajeer\Logs\Queue\{PostgresQueueDriver,Worker,QueueAccounting,QueueFairness,BackpressurePolicy,WorkerPolicy,WorkerPool,WorkerRegistry,RetryPolicy};
+use Cajeer\Logs\Queue\{PostgresQueueDriver,Worker,QueueAccounting,QueueFairness,BackpressurePolicy,WorkerPolicy,WorkerPool,WorkerRegistry,RetryPolicy,QueueOperations};
 use Cajeer\Logs\Database\ConnectionManager;
 final class QueueWorkCommand
 {
@@ -34,6 +34,23 @@ final class QueueWorkCommand
             }
             echo json_encode($report,JSON_THROW_ON_ERROR|JSON_PRETTY_PRINT).PHP_EOL;
             return $report['available']&&($report['status']??'ok')==='ok'?0:1;
+        }
+        if (in_array($command,['queue:dispatch','queue:pause','queue:resume','queue:drain'],true)) {
+            $ops=new QueueOperations($this->app->container()->get(\PDO::class));
+            try {
+                $result=match($command) {
+                    'queue:dispatch' => $args===[]?$ops->status():null,
+                    'queue:pause' => count($args)>=1 && count($args)<=2 && end($args)==='--confirm'
+                        ? $ops->setPaused(true,count($args)===2?$args[0]:null):null,
+                    'queue:resume' => $args===['--confirm']?$ops->setPaused(false):null,
+                    'queue:drain' => count($args)>=1 && count($args)<=2 && end($args)==='--confirm'
+                        ? $ops->drain(count($args)===2?QueueOperations::duration($args[0]):0,'operator drain'):null,
+                    default => null,
+                };
+            } catch (\InvalidArgumentException $e) {fwrite(STDERR,$e->getMessage().PHP_EOL);return 64;}
+            if ($result===null) {fwrite(STDERR,"Usage: queue:dispatch | queue:pause [REASON] --confirm | queue:resume --confirm | queue:drain [SECONDS] --confirm\n");return 64;}
+            echo json_encode($result,JSON_THROW_ON_ERROR|JSON_PRETTY_PRINT).PHP_EOL;
+            return ($result['drained']??true)?0:1;
         }
         if (in_array($command,['queue:projects','queue:project','queue:project-set','queue:project-verify','queue:project-reconcile'],true)) {
             $fair=new QueueFairness($this->app->container()->get(\PDO::class));

@@ -17,6 +17,31 @@ final class OperationsMetrics
         foreach ($dead as $name=>$value) $values[$name]=(float)$value;
         $fairTotals=$pdo->query("SELECT count(*) AS projects,coalesce(sum(running_jobs),0) AS running,coalesce(sum(pending_jobs),0) AS pending,coalesce(sum(dispatched),0) AS dispatched,coalesce(sum(rejected),0) AS rejected FROM queue_project_state")->fetch();
         foreach ($fairTotals as $name=>$value) $values['queue_project_'.$name]=(float)$value;
+        // Durable monotonic counters maintained in the same transaction as each
+        // job transition; aggregate by project, never expose project UUID labels.
+        $totals=$pdo->query(<<<'SQL'
+            SELECT coalesce(sum(accepted_jobs_total),0) AS accepted_jobs_total,
+                coalesce(sum(accepted_events_total),0) AS accepted_events_total,
+                coalesce(sum(completed_jobs_total),0) AS completed_jobs_total,
+                coalesce(sum(completed_events_total),0) AS completed_events_total,
+                coalesce(sum(retried_jobs_total),0) AS retries_total,
+                coalesce(sum(dead_jobs_total),0) AS dead_letter_total,
+                coalesce(sum(lease_expirations_total),0) AS lease_expirations_total,
+                coalesce(sum(delivery_latency_ms_total),0) AS latency_ms_total,
+                coalesce(sum(delivery_le_1),0) AS latency_le_1,
+                coalesce(sum(delivery_le_5),0) AS latency_le_5,
+                coalesce(sum(delivery_le_30),0) AS latency_le_30,
+                coalesce(sum(delivery_le_300),0) AS latency_le_300
+            FROM queue_project_state
+            SQL)->fetch(PDO::FETCH_ASSOC);
+        foreach ($totals as $name=>$value) $values['queue_'.$name]=(float)$value;
+        $dispatch=$pdo->query("SELECT paused::integer AS paused,generation,
+            CASE WHEN paused THEN greatest(0,extract(epoch from clock_timestamp()-changed_at)) ELSE 0 END AS paused_age_seconds
+            FROM queue_dispatch_control WHERE queue='ingest-v1'")->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($dispatch)) throw new \RuntimeException('Queue dispatch control is missing.');
+        $values['queue_dispatch_paused']=(float)$dispatch['paused'];
+        $values['queue_dispatch_generation']=(float)$dispatch['generation'];
+        $values['queue_dispatch_paused_age_seconds']=(float)$dispatch['paused_age_seconds'];
         $capacity=(new \Cajeer\Logs\Queue\QueueAccounting($pdo))->status();
         foreach ($capacity as $name=>$value) $values['queue_'.$name]=(float)$value;
         $policy=\Cajeer\Logs\Queue\BackpressurePolicy::fromConfig($this->app->config());
@@ -41,7 +66,26 @@ final class OperationsMetrics
     {
         try { $snapshot=$this->snapshot($probe); } catch (\Throwable) { return "# TYPE cajeerlogs_operations_available gauge\ncajeerlogs_operations_available 0\n"; }
         $out="# TYPE cajeerlogs_operations_available gauge\ncajeerlogs_operations_available 1\n";
-        foreach ($snapshot['database'] as $name=>$value) { if ($probe!==null && str_starts_with($name,'app_storage_')) continue; $out.="# TYPE cajeerlogs_$name gauge\ncajeerlogs_$name $value\n"; }
+        $counterFields=['accepted_jobs_total','accepted_events_total','completed_jobs_total','completed_events_total',
+            'retries_total','dead_letter_total','lease_expirations_total'];
+        foreach ($snapshot['database'] as $name=>$value) {
+            if ($probe!==null && str_starts_with($name,'app_storage_')) continue;
+            if (in_array($name,['queue_latency_ms_total','queue_latency_le_1','queue_latency_le_5','queue_latency_le_30','queue_latency_le_300'],true)) continue;
+            $kind=in_array(substr($name,strlen('queue_')),$counterFields,true)?'counter':'gauge';
+            $out.="# TYPE cajeerlogs_$name $kind\ncajeerlogs_$name $value\n";
+        }
+        $data=$snapshot['database'];
+        $count=(float)($data['queue_completed_jobs_total']??0);
+        $sum=(float)($data['queue_latency_ms_total']??0)/1000;
+        $out.="# HELP cajeerlogs_queue_delivery_latency_seconds Time from durable acceptance to completed job, observed since migration 0025\n";
+        $out.="# TYPE cajeerlogs_queue_delivery_latency_seconds histogram\n";
+        foreach (['1'=>'1','5'=>'5','30'=>'30','300'=>'300'] as $limit=>$label) {
+            $value=(float)($data['queue_latency_le_'.$limit]??0);
+            $out.='cajeerlogs_queue_delivery_latency_seconds_bucket{le="'.$label.'"} '.$value."\n";
+        }
+        $out.='cajeerlogs_queue_delivery_latency_seconds_bucket{le="+Inf"} '.$count."\n";
+        $out.='cajeerlogs_queue_delivery_latency_seconds_sum '.$sum."\n";
+        $out.='cajeerlogs_queue_delivery_latency_seconds_count '.$count."\n";
         $out.="# TYPE cajeerlogs_queue_admission_rejections_total counter\n";
         foreach (['jobs','events','bytes','paused'] as $cause) {
             $total=(int)($snapshot['database']['queue_rejected_'.$cause]??0);

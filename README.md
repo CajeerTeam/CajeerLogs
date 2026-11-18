@@ -2,6 +2,10 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.5.9 — Queue Operations & Observability
+
+Реальное управление PostgreSQL queue dispatch: `queue:dispatch`, `queue:pause [REASON] --confirm`, `queue:resume --confirm`, `queue:drain [SECONDS] --confirm`, защищённые административные маршруты, транзакционный аудит и система мониторинга очереди. Новые накопительные показатели принятых и завершённых событий, retries и dead-letter, гистограмма времени доставки, Prometheus alerts и Grafana. Требуется миграция **0025**. Подробности: [Queue Operations](docs/Queue-Operations-Observability.md). Канал `public-preview` до полного PostgreSQL/Docker CI.
+
 ## 0.5.8 — Delivery Guarantees & SDK Recovery
 
 SDK Python, TypeScript, PHP и Kotlin поддерживают `ingestAsync`/`ingest_async`, `sendAsyncBody`, проверяемое чтение `/ingest/jobs/{id}` и ожидание терминального `completed`. HTTP 202 подтверждает только durable admission. При потере ответа повторяются **те же байты и Idempotency-Key**, но после подтверждения 202 SDK не создаёт новый job, а проверяет его статус. Python collector `--async` и защищённый SQLite `DurableAsyncSpool` выдерживают перезапуск с сохранением квитанций и контрольных точек. Новых миграций нет. См. [Delivery & SDK Recovery](docs/SDK-Delivery-Recovery.md). Канал `public-preview` до полного PostgreSQL/Docker CI.

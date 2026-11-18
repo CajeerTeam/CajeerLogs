@@ -1,3 +1,11 @@
+## 0.5.9 — Queue Operations & Observability
+
+- Транзакционный pause/resume dispatch с PostgreSQL fencing всех конкурентных claims; bounded drain CLI.
+- Сессионные admin endpoints, CSRF/recent authentication, аудит изменений состояния.
+- Точные PostgreSQL counters и histogram времени выполнения, независимые от PHP worker и не создающие project-ID Prometheus labels.
+- Queue Center в System Report/Admin UI, дополнительные Grafana панели и alert rules.
+- Миграция 0025, upgrade с 0.5.8 и тесты конкурентных claims. Сохраняется public-preview до полной CI сертификации.
+
 ## 0.5.8 — Delivery Guarantees & SDK Recovery
 
 - Real async admission (HTTP 202) and durable job completion handling in Python, TypeScript, PHP and Kotlin SDKs. SDKs re-send identical bytes and idempotency key after ambiguous POST outcomes, generate fresh HMAC nonces, validate job IDs and completed event IDs, never treat 202 as an INSERT acknowledgement.

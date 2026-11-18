@@ -2,7 +2,7 @@
   "openapi": "3.1.1",
   "info": {
     "title": "CajeerLogs API",
-    "version": "0.5.8",
+    "version": "0.5.9",
     "description": "Identity & Access, synchronous and durable asynchronous PostgreSQL ingestion, job status, project-scoped search, statistics and export. Outgoing webhooks and lifecycle administration use the CLI. TOTP enrollment, recovery codes and administrator enrollment policy. Token rotation, scoped service accounts, credential request quotas and bulk revocation. Mandatory project/token HMAC and separately encrypted rotating signing keys. Session lifecycle, account profile and recovery-code regeneration. Private saved log views with canonical search filters and table layout. Administrator user directory, effective project access, scoped access audit and reauthenticated 2FA reset. Token detail, service account statistics, filtered security audit and explicit HMAC overlap retirement. Append-only audit chain with result/actor/time filters and bounded NDJSON export."
   },
   "servers": [
@@ -11841,6 +11841,327 @@
                 "additionalProperties": false
               }
             }
+          }
+        }
+      }
+    },
+    "/system/queue/dispatch": {
+      "get": {
+        "operationId": "queueDispatchStatus",
+        "summary": "Read cluster-wide queue dispatch state (system:read)",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Durable dispatch state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "paused",
+                    "generation",
+                    "reason",
+                    "changed_at",
+                    "changed_by",
+                    "age_seconds",
+                    "live_running",
+                    "expired_leases",
+                    "ready_jobs"
+                  ],
+                  "properties": {
+                    "paused": {
+                      "type": "boolean"
+                    },
+                    "generation": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "reason": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "changed_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "changed_by": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "uuid"
+                    },
+                    "age_seconds": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "live_running": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "expired_leases": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "ready_jobs": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "$ref": "#/components/responses/InvalidPayload"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        }
+      }
+    },
+    "/system/queue/dispatch/pause": {
+      "post": {
+        "operationId": "pauseQueueDispatch",
+        "summary": "Pause new queue claims; administrator session, CSRF and recent authentication required",
+        "security": [
+          {
+            "session": [],
+            "csrf": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "confirm": {
+                    "const": true
+                  },
+                  "reason": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "description": "Optional safe operator reason without credentials"
+                  }
+                },
+                "required": [
+                  "confirm"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Durable dispatch state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "paused",
+                    "generation",
+                    "reason",
+                    "changed_at",
+                    "changed_by",
+                    "age_seconds",
+                    "live_running",
+                    "expired_leases",
+                    "ready_jobs"
+                  ],
+                  "properties": {
+                    "paused": {
+                      "type": "boolean"
+                    },
+                    "generation": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "reason": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "changed_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "changed_by": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "uuid"
+                    },
+                    "age_seconds": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "live_running": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "expired_leases": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "ready_jobs": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "$ref": "#/components/responses/InvalidPayload"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        }
+      }
+    },
+    "/system/queue/dispatch/resume": {
+      "post": {
+        "operationId": "resumeQueueDispatch",
+        "summary": "Resume new queue claims; administrator session, CSRF and recent authentication required",
+        "security": [
+          {
+            "session": [],
+            "csrf": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "confirm": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "confirm"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Durable dispatch state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "paused",
+                    "generation",
+                    "reason",
+                    "changed_at",
+                    "changed_by",
+                    "age_seconds",
+                    "live_running",
+                    "expired_leases",
+                    "ready_jobs"
+                  ],
+                  "properties": {
+                    "paused": {
+                      "type": "boolean"
+                    },
+                    "generation": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "reason": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "changed_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "changed_by": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "uuid"
+                    },
+                    "age_seconds": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "live_running": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "expired_leases": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "ready_jobs": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "$ref": "#/components/responses/InvalidPayload"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
           }
         }
       }

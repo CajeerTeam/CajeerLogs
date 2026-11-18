@@ -61,6 +61,7 @@ REQUIRED = {'release.json', 'core/bootstrap.php', 'bin/cajeer', 'public/index.ph
 REQUIRED.update({
     'clients/python/cajeer_delivery_spool.py','tests/sdk_async_wire.py','tests/sdk/async.php','tests/sdk/async.mjs','tests/sdk/AsyncWireTest.kt',
     'packages/php-sdk/src/JobPendingException.php','packages/php-sdk/src/JobFailedException.php','packages/php-sdk/src/JobStatusException.php','docs/SDK-Delivery-Recovery.md',
+    'core/Queue/QueueOperations.php','migrations/pgsql/0025_queue_operations_metrics.sql','tests/queue_operations.php','tests/queue_operations_database.php','docs/Queue-Operations-Observability.md',
     'core/Queue/QueueFairness.php','migrations/pgsql/0024_project_queue_fairness.sql','tests/queue_fairness.php','tests/queue_fairness_database.php','docs/Multi-Project-Queue-Fairness.md',
     'core/Queue/BackpressurePolicy.php','migrations/pgsql/0023_queue_backpressure.sql','tests/queue_backpressure.php','tests/queue_backpressure_database.php','docs/Backpressure-Admission-Control.md',
     'core/Queue/DeadLetterManager.php','public/admin/assets/pages/queue.js','tests/dead_letter_database.php','docs/Dead-Letter-Management.md',

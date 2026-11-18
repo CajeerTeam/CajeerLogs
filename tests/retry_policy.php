@@ -31,6 +31,7 @@ final class EmptyClaimStatement extends PDOStatement {
     public function __construct(){}
     public function fetch(int $mode=PDO::FETCH_DEFAULT,int $cursorOrientation=PDO::FETCH_ORI_NEXT,int $cursorOffset=0):mixed{return false;}
     public function closeCursor():bool{return true;}
+    public function fetchColumn(int $column=0):mixed{return 0;}
 }
 final class RecoveryPDO extends PDO {
     private bool $active=false;public int $claims=0;

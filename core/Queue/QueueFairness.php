@@ -103,7 +103,7 @@ final class QueueFairness
     public function snapshot(?string $project=null): array
     {
         if ($project!==null && !self::validProject($project)) throw new \InvalidArgumentException('Invalid project UUID.');
-        $sql='SELECT project_id,weight,max_jobs,max_events,max_bytes,max_running_jobs,active_jobs,pending_jobs,running_jobs,active_events,active_bytes,virtual_finish,dispatched,rejected,last_claim_at FROM queue_project_state';
+        $sql='SELECT project_id,weight,max_jobs,max_events,max_bytes,max_running_jobs,active_jobs,pending_jobs,running_jobs,active_events,active_bytes,virtual_finish,dispatched,rejected,last_claim_at,accepted_jobs_total,accepted_events_total,completed_jobs_total,completed_events_total,retried_jobs_total,dead_jobs_total,lease_expirations_total,delivery_latency_ms_total,delivery_le_1,delivery_le_5,delivery_le_30,delivery_le_300 FROM queue_project_state';
         $sql.=$project===null?' ORDER BY project_id LIMIT 100':' WHERE project_id=CAST(:project AS uuid)';
         $q=$this->pdo->prepare($sql);$q->execute($project===null?[]:['project'=>$project]);
         return array_map(static function(array $row): array {

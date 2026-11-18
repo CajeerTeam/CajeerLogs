@@ -59,7 +59,8 @@ final class MigrationSql
             foreach ($statements as $statement) {
                 $w=$statement['words']; $first=$w[0];
                 if (!in_array($first,['CREATE','ALTER','DROP','INSERT','UPDATE','DELETE','SELECT','WITH','COMMENT'],true) || in_array('CONCURRENTLY',$w,true)) throw new DatabaseException('Unsupported migration statement or missing concurrent-index directive.');
-                if ($first==='CREATE' && !in_array($w[1]??'',['TABLE','INDEX','UNIQUE','SEQUENCE','VIEW','FUNCTION','TRIGGER'],true)) throw new DatabaseException('Unsupported CREATE in transactional migration.');
+                if ($first==='CREATE' && !in_array($w[1]??'',['TABLE','INDEX','UNIQUE','SEQUENCE','VIEW','FUNCTION','TRIGGER'],true)
+                    && !(array_slice($w,1,3)===['OR','REPLACE','FUNCTION'])) throw new DatabaseException('Unsupported CREATE in transactional migration.');
                 if (in_array($first,['ALTER','DROP'],true) && !in_array($w[1]??'',['TABLE','INDEX','SEQUENCE','VIEW','FUNCTION'],true)) throw new DatabaseException('Unsupported schema operation in migration.');
             }
         }

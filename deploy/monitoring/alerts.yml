@@ -95,3 +95,28 @@ groups:
         for: 5m
         labels: {severity: warning}
         annotations: {summary: 'Dead-letter jobs require operator investigation'}
+      - alert: CajeerLogsQueueDispatchPaused
+        expr: cajeerlogs_queue_dispatch_paused == 1
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: 'Queue dispatch manually paused; accepted jobs are not being claimed'}
+      - alert: CajeerLogsQueueRetriesHigh
+        expr: increase(cajeerlogs_queue_retries_total[5m]) > 50
+        for: 3m
+        labels: {severity: warning}
+        annotations: {summary: 'Queue retries elevated in the last five minutes'}
+      - alert: CajeerLogsQueueDeadLetterGrowth
+        expr: increase(cajeerlogs_queue_dead_letter_total[10m]) > 10
+        for: 2m
+        labels: {severity: warning}
+        annotations: {summary: 'Dead-letter transitions increasing'}
+      - alert: CajeerLogsQueueNoWorkers
+        expr: (cajeerlogs_queue_project_pending > 0) and on(job,instance) (cajeerlogs_queue_workers_active == 0) and on(job,instance) (cajeerlogs_queue_dispatch_paused == 0)
+        for: 3m
+        labels: {severity: critical}
+        annotations: {summary: 'Pending jobs with no active queue workers'}
+      - alert: CajeerLogsQueueCompletionStalled
+        expr: (cajeerlogs_queue_project_pending > 0) and on(job,instance) (increase(cajeerlogs_queue_completed_jobs_total[10m]) == 0) and on(job,instance) (cajeerlogs_queue_dispatch_paused == 0)
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: 'Pending jobs without durable completion for ten minutes'}

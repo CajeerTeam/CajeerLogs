@@ -124,6 +124,9 @@ final class PostgresQueueDriver implements QueueDriverInterface
     public function claim(): ?array {
         return (new TransactionManager($this->pdo))->run(function () {
             $this->workerTimeout(false);
+            // The shared row lock is held until this claim commits; a pause waits
+            // for all pre-existing claim transactions before it can commit.
+            if (!QueueOperations::canClaim($this->pdo)) return null;
             // Lock the least-served ready project BEFORE the job row. Another worker
             // skips the locked project, making progress on another project instead.
             $fair=new QueueFairness($this->pdo);
@@ -168,6 +171,7 @@ final class PostgresQueueDriver implements QueueDriverInterface
         if (isset($first['skipped']) || $max===1) return [$first];
         $more=(new TransactionManager($this->pdo))->run(function() use ($first,$max): array {
             $this->workerTimeout(false);
+            if (!QueueOperations::canClaim($this->pdo)) return [];
             $fair=new QueueFairness($this->pdo);
             $state=$fair->lockProject($first['project_id']);
             $remaining=(int)$state['max_running_jobs']===0?$max-1:max(0,(int)$state['max_running_jobs']-(int)$state['running_jobs']);

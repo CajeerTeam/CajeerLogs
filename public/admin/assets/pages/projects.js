@@ -1,14 +1,14 @@
-import { roles, state, projectPath, admin, manage, hasPermission, active, render, selectProject } from '../app/store.js?v=0.5.8';
-import { h, button, card, field, input, select, badge, date, enc, message, notify, modalEpoch, clearModal, modal, form, heading, needProject, table } from '../components/ui.js?v=0.5.8';
-import { loadProjects, projectSelector } from '../app/projects.js?v=0.5.8';
-import { assignmentDialog } from './rbac.js?v=0.5.8';
-import { directoryPicker } from './users.js?v=0.5.8';
-import { pagedList } from '../components/pagination.js?v=0.5.8';
-import { nameFields, nameBody, mutationSuccess, confirmAction } from '../components/mutations.js?v=0.5.8';
-import { get, write } from '../api/client.js?v=0.5.8';
-import { sourceHealth } from '../app/analytics.js?v=0.5.8';
-import { effectivePolicy, testPayload } from '../app/source-connection.js?v=0.5.8';
-import { onboarding, verifyConnection, openSourceLogs } from '../components/source-onboarding.js?v=0.5.8';
+import { roles, state, projectPath, admin, manage, hasPermission, active, render, selectProject } from '../app/store.js?v=0.5.9';
+import { h, button, card, field, input, select, badge, date, enc, message, notify, modalEpoch, clearModal, modal, form, heading, needProject, table } from '../components/ui.js?v=0.5.9';
+import { loadProjects, projectSelector } from '../app/projects.js?v=0.5.9';
+import { assignmentDialog } from './rbac.js?v=0.5.9';
+import { directoryPicker } from './users.js?v=0.5.9';
+import { pagedList } from '../components/pagination.js?v=0.5.9';
+import { nameFields, nameBody, mutationSuccess, confirmAction } from '../components/mutations.js?v=0.5.9';
+import { get, write } from '../api/client.js?v=0.5.9';
+import { sourceHealth } from '../app/analytics.js?v=0.5.9';
+import { effectivePolicy, testPayload } from '../app/source-connection.js?v=0.5.9';
+import { onboarding, verifyConnection, openSourceLogs } from '../components/source-onboarding.js?v=0.5.9';
 
 const canConnect=()=>hasPermission('tokens:create')&&hasPermission('tokens:signing')&&hasPermission('logs:write')&&hasPermission('logs:read');
 const sourceTypes = [['application','Приложение'],['server','Сервер'],['nginx','Nginx'],['aapanel','aaPanel'],['custom','Другой']];

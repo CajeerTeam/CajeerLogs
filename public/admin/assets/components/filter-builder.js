@@ -1,7 +1,7 @@
-import { levels, state, active, render, projectPath } from '../app/store.js?v=0.5.8';
-import { h, button, field, input, select, form, message } from './ui.js?v=0.5.8';
-import { get } from '../api/client.js?v=0.5.8';
-import { listFields, defaultFilters, readList, validateFilters, preset, removeFilter } from '../app/filters.js?v=0.5.8';
+import { levels, state, active, render, projectPath } from '../app/store.js?v=0.5.9';
+import { h, button, field, input, select, form, message } from './ui.js?v=0.5.9';
+import { get } from '../api/client.js?v=0.5.9';
+import { listFields, defaultFilters, readList, validateFilters, preset, removeFilter } from '../app/filters.js?v=0.5.9';
 
 // A list of independently editable values; hidden field is solely the existing API wire format.
 function listEditor(key,label,raw,max,options=[],ordered=false) {

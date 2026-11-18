@@ -4,6 +4,7 @@
 
 | Версия | Статус |
 |---|---|
+| 0.5.9 | Queue Operations & Observability; Public Preview до полного CI |
 | 0.5.8 | Delivery Guarantees & SDK Recovery; Public Preview до полного CI |
 | 0.5.7 | Multi-Project Queue Fairness; предыдущая версия |
 | 0.5.6 | Backpressure & Admission Control; предыдущая версия |

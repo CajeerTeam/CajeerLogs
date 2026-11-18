@@ -37,6 +37,7 @@ final class SystemReport
             'checks' => $checks,
             'database' => $db,
             'queue' => $queue,
+            'queue_dispatch' => $db['status']==='ok'?(new \Cajeer\Logs\Queue\QueueOperations($this->app->container()->get(\PDO::class)))->status():null,
             'operations' => $operations,
             'backup' => $backup,
             'queue_workers' => (new \Cajeer\Logs\Queue\WorkerRegistry($this->app->basePath('storage/cache')))->snapshot(),
