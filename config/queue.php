@@ -4,7 +4,7 @@ return [
     'default' => 'pgsql',
     'worker' => [
         'processes' => env_raw('QUEUE_WORKER_PROCESSES', '2'),
-        'batch_jobs' => env_raw('QUEUE_WORKER_BATCH_JOBS', '1'),
+        'batch_jobs' => env_raw('QUEUE_WORKER_BATCH_JOBS', '4'),
         'max_jobs' => env_raw('QUEUE_WORKER_MAX_JOBS', '1000'),
         'max_seconds' => env_raw('QUEUE_WORKER_MAX_SECONDS', '3600'),
         'memory_mb' => env_raw('QUEUE_WORKER_MEMORY_MB', '256'),

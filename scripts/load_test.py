@@ -30,7 +30,7 @@ import urllib.parse
 import urllib.request
 import uuid
 
-VERSION = '0.5.10'
+VERSION = '0.6.0'
 MAX_RESPONSE = 4 * 1024 * 1024
 RETRYABLE = {429, 502, 503, 504}
 PHASES = ('sustained', 'stress', 'soak', 'fault')
@@ -578,6 +578,8 @@ def validate_args(args):
             raise ValueError('Certification requires verified HTTPS')
         if args.scenario != 'all' or args.sustained_seconds < 60 or args.stress_seconds < 120 or args.soak_seconds < 900 or args.fault_seconds < 60:
             raise ValueError('Certification requires all phases (sustained>=60s, stress>=120s, soak>=900s, fault>=60s)')
+        if args.async_percent != 100 or args.batch < 2:
+            raise ValueError('0.6.0 certification requires 100% async traffic and multi-event batches')
         if not args.archive:
             raise ValueError('Certification requires --archive to bind results to a verified distribution')
 
@@ -667,7 +669,7 @@ def parser():
     p.add_argument('--max-error-rate', type=float, default=.01)
     p.add_argument('--fault-error-rate', type=float, default=.01)
     p.add_argument('--min-rate-ratio', type=float, default=.95)
-    p.add_argument('--archive', help='Full 0.5.10 release distribution, for SHA256 binding')
+    p.add_argument('--archive', help='Full 0.6.0 release distribution, for SHA256 binding')
     p.add_argument('--certify', action='store_true', help='Require full durations, actual /ready version and complete 4-phase gate')
     p.add_argument('--output', help='Atomic JSON evidence report path')
     p.add_argument('--confirm-disposable', action='store_true', help='Required: write durable logs to a disposable instance/project')

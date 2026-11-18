@@ -73,6 +73,31 @@ class LoadTest(unittest.TestCase):
             else:
                 os.environ['CAJEER_TOKEN'] = saved
 
+    def test_queue_only_async_and_certification_threshold(self):
+        import os
+        saved = os.environ.get('CAJEER_TOKEN')
+        os.environ['CAJEER_TOKEN'] = fixture_mod.TOKEN
+        try:
+            args = self.args('sustained')
+            args.async_percent = 100
+            args.batch = 10
+            result = load_test.run(args)
+            self.assertEqual(result['status'], 'passed', result)
+            phase = result['phases'][0]
+            self.assertEqual(phase['completed_requests'], phase['async_jobs'])
+            self.assertEqual(phase['durable_events'], phase['verified_events'])
+            args.url = 'https://example.test'
+            args.certify = True
+            args.archive = '/invalid/path.zip'
+            args.scenario = 'all'
+            args.sustained_seconds, args.stress_seconds, args.soak_seconds, args.fault_seconds = 60, 120, 900, 60
+            args.async_percent = 20
+            with self.assertRaisesRegex(ValueError, '100% async'):
+                load_test.validate_args(args)
+        finally:
+            if saved is None: os.environ.pop('CAJEER_TOKEN', None)
+            else: os.environ['CAJEER_TOKEN'] = saved
+
     def test_cli_opt_in_and_live_json_output(self):
         import os
         import subprocess

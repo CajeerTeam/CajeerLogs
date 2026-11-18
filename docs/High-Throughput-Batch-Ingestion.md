@@ -4,7 +4,7 @@
 
 CajeerLogs already supports a single atomic PostgreSQL `jsonb_to_recordset` INSERT for HTTP batches (up to 100 events), with validation, redaction, authorization, project pagination fencing, and per-job durable receipts. Version 0.5.5 also groups *compatible queued jobs* into a single SQL INSERT, without changing the HTTP API, event limits, receipt format or database schema.
 
-The new worker path is active when `QUEUE_WORKER_BATCH_JOBS` is between 2 and 16. Raw CLI/environment defaults to **1** (no behavioral change); `compose.production.yaml` defaults to **4**. A normal `queue:pool` worker uses this configuration. `queue:work N` still processes no more than N claims, even when N is smaller than the microbatch configuration; continuous workers also honor the remaining recycling budget.
+The new worker path is active when `QUEUE_WORKER_BATCH_JOBS` is between 2 and 16. Starting in 0.6.0, both ordinary CLI and production Compose default to **4**; `QUEUE_WORKER_BATCH_JOBS=1` remains available for fallback. A normal `queue:pool` worker uses this configuration. `queue:work N` still processes no more than N claims, even when N is smaller than the microbatch configuration; continuous workers also honor the remaining recycling budget.
 
 Each group begins with the ordinary durable `claim()` operation, which prioritizes expired-lease recovery. A second PostgreSQL transaction obtains up to N−1 *ready pending* jobs with the same `project_id` and `token_id` using `FOR UPDATE SKIP LOCKED`. Each job receives its own lease ID and `job_attempts` row before the transaction commits. An expired lease that must be deferred or a job at its attempts limit retains the preexisting single-claim behavior.
 
@@ -25,7 +25,7 @@ QUEUE_LEASE_SECONDS=120
 QUEUE_PROCESS_TIMEOUT_SECONDS=90
 ```
 
-A microbatch does **not** enlarge HTTP request limits, bypass the authorization/rate-limit policy, grant more worker connections, or alter `QUEUE_MAX_JOBS`. Large full-size jobs may provide no benefit: if a group exceeds the 100-event/4 MiB limit it is processed individually. Configure a smaller batch size if this is the usual workload. More processes do not imply linear throughput, especially when PostgreSQL WAL, project locks or queue accounting dominate.
+A microbatch does **not** enlarge HTTP request limits, bypass the authorization/rate-limit policy, grant more worker connections, or alter `QUEUE_MAX_JOBS`. Large full-size jobs may provide no benefit: the 0.6.0 claim planner prevents an oversized group from being claimed, leaving those jobs for later individual/group dispatch. Configure a smaller batch size if this is the usual workload. More processes do not imply linear throughput, especially when PostgreSQL WAL, project locks or queue accounting dominate.
 
 ## Repeatable real PostgreSQL comparison
 

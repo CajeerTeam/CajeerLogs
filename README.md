@@ -2,6 +2,23 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.6.0 — High-Throughput Ingestion & Queue Processing Stable
+
+Боевое обновление PostgreSQL pipeline: по умолчанию воркеры объединяют до четырёх
+совместимых заданий. Admission, quota, lease, request validation и idempotency
+сохранены. Прежде чем захватывать дополнительные jobs, планировщик сверяет
+validation version, число событий (не более 100) и фактический размер JSONB
+(консервативный предел 4 MiB), поэтому заведомо непомещающиеся группы больше
+не откатываются и не запускаются в режиме индивидуального fallback.
+
+В пути выполнения группы leases и payload читаются одним SQL-запросом под
+упорядоченными строковыми блокировками, а результаты попыток подтверждаются
+одним обновлением в той же транзакции, что log_events, outbox и job receipts.
+Fallback сохраняется только для действительно некорректных заданий и не
+повторяет неоднозначный COMMIT. CI release gate требует проверку полного async pipeline на
+HTTPS/PostgreSQL со стрессом, soak и внедрением отказов. Новых SQL-миграций нет;
+см. [0.6.0 runbook](docs/High-Throughput-0.6.0.md).
+
 ## 0.5.10 — Load Testing & Performance Certification
 
 Исполняемый `scripts/load_test.py` проводит устойчивую нагрузку (sustained), ramp-stress (x1/x2/x4),

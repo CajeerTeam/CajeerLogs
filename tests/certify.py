@@ -15,7 +15,7 @@ import release
 
 class GateTest(unittest.TestCase):
     def setUp(self):
-        self.info={'version':'0.5.10','archive_sha256':'a'*64}
+        self.info={'version':'0.6.0','archive_sha256':'a'*64}
         self.reports=[dict(self.info, format=1, scope='database-core', status='passed', php_series=php, postgres_major=pg, php=php+'.1',postgres=pg+'.1',stages=[{'name':name,'status':'passed','exit_code':0} for name in certify.STAGES]) for php,pg in sorted(certify.MATRIX)]
 
     def test_full_matrix(self): certify.validate_matrix(self.reports,self.info)
@@ -38,6 +38,29 @@ class GateTest(unittest.TestCase):
         with self.assertRaises(ValueError): certify.validate_matrix(self.reports,self.info)
     def admin_evidence(self):
         return dict(self.info,format=1,scope='admin-panel',status='passed',php_series='8.4',postgres_major='17',php='8.4.1',postgres='17.1',stages=[{'name':name,'status':'passed','exit_code':0} for name in certify.ADMIN_STAGES])
+
+    def performance_evidence(self):
+        return dict(self.info,format=1,scope='load-performance',status='passed',certified=True,
+                    certification_requested=True,readiness_confirmed=True,
+                    phases=[{'scenario':name,'status':'passed','duration_target_seconds':duration,
+                             'admission_seconds':duration,'async_jobs':100,'durable_events':200,
+                             'verified_events':200,'errors':{},'gates':{'durable_consistency':True},
+                             'fault_injection':{'pre503':1,'pre429':1,'lost_ack':1,'delay':1,'upstream_success':1}}
+                            for name,duration in zip(('sustained','stress','soak','fault'),(60,120,900,60))])
+
+    def test_full_live_performance_evidence(self):
+        certify.validate_performance(self.performance_evidence(),self.info)
+
+    def test_short_or_unverified_performance_cannot_certify(self):
+        for mutation in ('short','sync','hash','fault','gate','uncertified'):
+            r=self.performance_evidence()
+            if mutation=='short': r['phases'][2]['duration_target_seconds']=3
+            if mutation=='sync': r['phases'][1]['async_jobs']=0
+            if mutation=='hash': r['archive_sha256']='b'*64
+            if mutation=='fault': r['phases'][3]['fault_injection']['lost_ack']=0
+            if mutation=='gate': r['phases'][1]['gates']['durable_consistency']=False
+            if mutation=='uncertified': r['certified']=False
+            with self.assertRaises(ValueError): certify.validate_performance(r,self.info)
 
     def test_admin_full(self): certify.validate_admin(self.admin_evidence(),self.info)
     def test_admin_missing_browser(self):
@@ -63,7 +86,7 @@ class GateTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             tmp=Path(temp); archive=tmp/'release.zip'; release.build(ROOT,archive)
             out=tmp/'evidence.json'; env=dict(os.environ,CAJEER_TEST_DATABASE='0')
-            result=subprocess.run([sys.executable,str(ROOT/'scripts/certify.py'),'database',str(archive),'--from-010',str(tmp),'--from-020',str(tmp),'--from-029',str(tmp),'--from-030',str(tmp),'--from-032',str(tmp),'--from-033',str(tmp),'--from-034',str(tmp),'--from-035',str(tmp),'--from-036',str(tmp),'--from-037',str(tmp),'--from-038',str(tmp),'--from-039',str(tmp),'--from-040',str(tmp),'--from-041',str(tmp),'--from-042',str(tmp),'--from-043',str(tmp),'--from-044',str(tmp),'--from-045',str(tmp),'--from-046',str(tmp),'--from-047',str(tmp),'--from-048',str(tmp),'--from-049',str(tmp),'--from-0410',str(tmp),'--from-050',str(tmp),'--from-051',str(tmp),'--from-052',str(tmp),'--from-053',str(tmp),'--from-054',str(tmp),'--from-055',str(tmp),'--from-056',str(tmp),'--from-057',str(tmp),'--from-058',str(tmp),'--from-059',str(tmp),'--output',str(out)],env=env,capture_output=True)
+            result=subprocess.run([sys.executable,str(ROOT/'scripts/certify.py'),'database',str(archive),'--from-010',str(tmp),'--from-020',str(tmp),'--from-029',str(tmp),'--from-030',str(tmp),'--from-032',str(tmp),'--from-033',str(tmp),'--from-034',str(tmp),'--from-035',str(tmp),'--from-036',str(tmp),'--from-037',str(tmp),'--from-038',str(tmp),'--from-039',str(tmp),'--from-040',str(tmp),'--from-041',str(tmp),'--from-042',str(tmp),'--from-043',str(tmp),'--from-044',str(tmp),'--from-045',str(tmp),'--from-046',str(tmp),'--from-047',str(tmp),'--from-048',str(tmp),'--from-049',str(tmp),'--from-0410',str(tmp),'--from-050',str(tmp),'--from-051',str(tmp),'--from-052',str(tmp),'--from-053',str(tmp),'--from-054',str(tmp),'--from-055',str(tmp),'--from-056',str(tmp),'--from-057',str(tmp),'--from-058',str(tmp),'--from-059',str(tmp),'--from-0510',str(tmp),'--output',str(out)],env=env,capture_output=True)
             self.assertNotEqual(result.returncode,0)
             self.assertEqual(json.loads(out.read_text())['status'],'failed')
             self.assertEqual(json.loads(out.read_text())['stages'],[])

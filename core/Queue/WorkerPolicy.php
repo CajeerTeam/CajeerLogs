@@ -6,7 +6,7 @@ use Cajeer\Logs\Config\ConfigRepository;
 /** Limits apply to continuous workers; finite queue:work N retains its existing semantics. */
 final class WorkerPolicy
 {
-    public const DEFAULTS=['processes'=>2,'batch_jobs'=>1,'max_jobs'=>1000,'max_seconds'=>3600,'memory_mb'=>256,'poll_min_ms'=>50,'poll_max_ms'=>1000,'lease_seconds'=>120,'claim_timeout_ms'=>5000,'process_timeout_seconds'=>90,'shutdown_grace_seconds'=>120];
+    public const DEFAULTS=['processes'=>2,'batch_jobs'=>4,'max_jobs'=>1000,'max_seconds'=>3600,'memory_mb'=>256,'poll_min_ms'=>50,'poll_max_ms'=>1000,'lease_seconds'=>120,'claim_timeout_ms'=>5000,'process_timeout_seconds'=>90,'shutdown_grace_seconds'=>120];
     private const RANGES=['processes'=>[1,32],'batch_jobs'=>[1,16],'max_jobs'=>[0,1000000],'max_seconds'=>[0,86400],'memory_mb'=>[0,4096],'poll_min_ms'=>[10,5000],'poll_max_ms'=>[10,10000],'lease_seconds'=>[10,3600],'claim_timeout_ms'=>[100,60000],'process_timeout_seconds'=>[1,3500],'shutdown_grace_seconds'=>[1,3600]];
     public readonly array $values;
     public function __construct(array $values=[])

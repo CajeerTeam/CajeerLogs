@@ -66,6 +66,7 @@ REQUIRED.update({
     'core/Queue/QueueFairness.php','migrations/pgsql/0024_project_queue_fairness.sql','tests/queue_fairness.php','tests/queue_fairness_database.php','docs/Multi-Project-Queue-Fairness.md',
     'core/Queue/BackpressurePolicy.php','migrations/pgsql/0023_queue_backpressure.sql','tests/queue_backpressure.php','tests/queue_backpressure_database.php','docs/Backpressure-Admission-Control.md',
     'core/Queue/DeadLetterManager.php','public/admin/assets/pages/queue.js','tests/dead_letter_database.php','docs/Dead-Letter-Management.md',
+    'tests/throughput_planner.php','docs/High-Throughput-0.6.0.md',
     'tests/worker_microbatch.php','tests/worker_microbatch_database.php','docs/High-Throughput-Batch-Ingestion.md',
     'core/Queue/RetryPolicy.php','tests/retry_policy.php','docs/Retry-Failure-Recovery.md',
     'core/Queue/WorkerPolicy.php','core/Queue/WorkerRegistry.php','core/Queue/WorkerPool.php','tests/worker_runtime.php','docs/Worker-Operations.md',

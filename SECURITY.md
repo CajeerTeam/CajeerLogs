@@ -4,6 +4,7 @@
 
 | Версия | Статус |
 |---|---|
+| 0.6.0 | High-Throughput Ingestion & Queue Processing; release gate required |
 | 0.5.10 | Load Testing & Performance Certification; Public Preview до полного CI |
 | 0.5.9 | Queue Operations & Observability; Public Preview до полного CI |
 | 0.5.8 | Delivery Guarantees & SDK Recovery; Public Preview до полного CI |

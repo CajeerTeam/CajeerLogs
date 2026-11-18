@@ -26,7 +26,7 @@ final class MicroStatement extends PDOStatement {
         if (str_contains($this->query,'INSERT INTO log_events')) $this->db->inserts++;
         if (str_contains($this->query,'INSERT INTO webhook_deliveries')) $this->db->outbox++;
         if (str_contains($this->query,"UPDATE jobs SET status='completed'")) $this->db->results[$this->params['id']]=json_decode($this->params['result'],true,16,JSON_THROW_ON_ERROR);
-        if (str_contains($this->query,"UPDATE job_attempts SET outcome='completed'")) $this->db->attemptUpdates++;
+        if (str_contains($this->query,"UPDATE job_attempts SET outcome='completed'")) $this->db->attemptUpdates+=intdiv(count($this->params),2);
         return true;
     }
     public function fetch(int $mode=PDO::FETCH_DEFAULT,int $cursorOrientation=PDO::FETCH_ORI_NEXT,int $cursorOffset=0): mixed {
@@ -48,10 +48,23 @@ final class MicroStatement extends PDOStatement {
             $ids=array_column($rows,'id');$this->db->lastInserted=count($ids);
             return array_reverse($ids); // PostgreSQL RETURNING order is not guaranteed
         }
+        if (str_contains($this->query, "AS lease_live") && str_contains($this->query, 'FOR UPDATE')) {
+            $rows=[];
+            foreach($this->params as $key=>$id) {
+                if (!str_starts_with($key,'id')) continue;
+                $job=$this->db->jobs[(string)$id]??null;
+                if ($job!==null) $rows[]=['id'=>(string)$id,'project_id'=>$job['project'],
+                    'token_id'=>$job['token'],'attempts'=>1,
+                    'lease_id'=>'99999999-9999-4999-8999-999999999999',
+                    'lease_live'=>true,'body'=>$job['body']];
+            }
+            usort($rows,fn($a,$b)=>(int)$a['id']<=>(int)$b['id']);
+            return $rows;
+        }
         if (str_contains($this->query,'SELECT key,value FROM settings')) return [];
         return [];
     }
-    public function rowCount(): int {return 1;}
+    public function rowCount(): int {return str_contains($this->query,"UPDATE job_attempts SET outcome='completed'")?intdiv(count($this->params),2):1;}
     public function closeCursor(): bool {return true;}
 }
 $db=new MicroPDO();
@@ -63,6 +76,7 @@ check($db->inserts===1&&$db->lastInserted===3&&$db->outbox===2,'one log INSERT a
 check(count($db->results['1']['event_ids'])===2&&count($db->results['2']['event_ids'])===1&&$db->results['1']['stored']===2&&$db->results['2']['stored']===1,'per-job event receipts preserve input order and boundaries');
 check(count(array_unique([...$db->results['1']['event_ids'],...$db->results['2']['event_ids']]))===3,'no cross-job duplicate IDs');
 check($db->attemptUpdates===2&&$db->commits===1&&!$db->active,'both attempts completed in one transaction');
+check(count(array_filter($db->calls,fn($call)=>str_contains($call[0], 'AS lease_live')))===1&&count(array_filter($db->calls,fn($call)=>str_contains($call[0], "UPDATE job_attempts SET outcome='completed'")))===1,'single lease/payload query and single atomic attempt update for group');
 check(rejects(fn()=>$driver->claimBatch(17))&&rejects(fn()=>$driver->processBatch([])),'invalid claim/process bounds rejected');
 check((new WorkerPolicy(['batch_jobs'=>4]))->get('batch_jobs')===4,'worker batch size policy');
 check(rejects(fn()=>new WorkerPolicy(['batch_jobs'=>0]))&&rejects(fn()=>new WorkerPolicy(['batch_jobs'=>17])),'policy rejects unsafe batch sizes');

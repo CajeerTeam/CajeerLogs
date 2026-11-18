@@ -1,4 +1,4 @@
-"""Real 0.1.0, 0.2.0, 0.2.9, 0.3.0 or 0.3.1 or 0.3.2 or 0.3.3 or 0.3.4 or 0.3.5 or 0.3.6 or 0.3.7 or 0.3.8 or 0.3.9 or 0.4.0 or 0.4.1 or 0.4.2 or 0.4.3 or 0.4.4 or 0.4.5 or 0.4.6 or 0.4.7 or 0.4.8 or 0.4.9 or 0.4.10 or 0.5.0 or 0.5.1 or 0.5.2 or 0.5.3 or 0.5.4 or 0.5.5 or 0.5.6 or 0.5.7 or 0.5.8 or 0.5.9 -> 0.5.10 upgrade using the previous source tree and PostgreSQL.
+"""Real 0.1.0, 0.2.0, 0.2.9, 0.3.0 or 0.3.1 or 0.3.2 or 0.3.3 or 0.3.4 or 0.3.5 or 0.3.6 or 0.3.7 or 0.3.8 or 0.3.9 or 0.4.0 or 0.4.1 or 0.4.2 or 0.4.3 or 0.4.4 or 0.4.5 or 0.4.6 or 0.4.7 or 0.4.8 or 0.4.9 or 0.4.10 or 0.5.0 or 0.5.1 or 0.5.2 or 0.5.3 or 0.5.4 or 0.5.5 or 0.5.6 or 0.5.7 or 0.5.8 or 0.5.9 -> 0.6.0 upgrade using the previous source tree and PostgreSQL.
 
 Usage: CAJEER_TEST_DATABASE=1 python3 tests/upgrade_release.py /path/to/previous
 Requires a disposable DB_* database and a separate empty CAJEER_TEST_UPGRADE_RESTORE_DB.
@@ -97,7 +97,7 @@ def main(previous):
             package=p/'release.zip'; release.build(ROOT,package); extracted=p/'new'; release.verify(package,extracted)
             shutil.copytree(extracted,tree,dirs_exist_ok=True)
             assert (tree/'.env').read_bytes()==before
-            assert cli('version').strip()=='0.5.10'
+            assert cli('version').strip()=='0.6.0'
             if old_version in ('0.4.6','0.4.7','0.4.8','0.4.9','0.4.10','0.5.0','0.5.1','0.5.2','0.5.3','0.5.4','0.5.5','0.5.6','0.5.7','0.5.8','0.5.9'):
                 proof=json.loads(cli('upgrade:check',backup['id'])); assert proof['status']=='ok' and proof['backup_sha256']==backup['sha256'] and proof['pending']==sorted(expected)
                 assert (tree/'.env').read_bytes()==before
@@ -112,7 +112,7 @@ def main(previous):
             assert project_state['active_jobs']==1 and project_state['active_events']==1 and project_state['weight']==1
             assert json.loads(cli('audit:verify'))['valid']; cli('queue:work','10'); assert json.loads(cli('queue:verify'))['valid']; assert json.loads(cli('queue:capacity'))['active_jobs']==0; assert json.loads(cli('db:verify'))['status']=='ok'
             with server():
-                assert call('GET','/ready')[0]['version']=='0.5.10'
+                assert call('GET','/ready')[0]['version']=='0.6.0'
                 assert call('GET','/api/v1/auth/me',headers=auth)[0]['user']['email']=='upgrade@example.test'
                 assert call('GET',f'/api/v1/logs/{eid}?project_id={pid}',headers=bearer)[0]['data']['message']=='previous release proof'
                 assert call('GET',f'/api/v1/ingest/jobs/{jid}',headers=bearer)[0]['status']=='completed'

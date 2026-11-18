@@ -62,11 +62,20 @@ try {
     $pdo->exec('ALTER TABLE webhook_deliveries DROP CONSTRAINT micro_reject');
     $pdo->exec("UPDATE jobs SET available_at=clock_timestamp()-interval '1 second' WHERE id IN ($g,$h)");
     verify($queue->processBatch($queue->claimBatch(2))===['completed','completed'],'two failed jobs can complete after recovery');
-    // Jobs individually valid may exceed the combined 100-event/4MiB limit.
-    $i=$send('micro-i',$mk('i',60),$writer['token']);$j=$send('micro-j',$mk('j',60),$writer['token']);
+    // A 60-event job, another 60-event job and a 1-event job are all valid.
+    // An adaptive claim must SKIP the second (too large together), take the
+    // third, and leave the second pending for a later fair dispatch.
+    $i=$send('micro-i',$mk('i',60),$writer['token']);$j=$send('micro-j',$mk('j',60),$writer['token']);$k=$send('micro-k',$mk('k',1),$writer['token']);
     $before=(int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn();
-    verify($queue->processBatch($queue->claimBatch(2))===['completed','completed'],'oversized group falls back to individually valid jobs');
-    verify((int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===$before+120&&$account->verify()['valid'],'120 events stored exactly once across two commits');
+    $oversizeFirst=$queue->claimBatch(3);
+    verify(count($oversizeFirst)===2 && array_map(static fn($c)=>(string)$c['id'],$oversizeFirst)===[$i,$k],
+        'adaptive claim skips too-large middle job and leases compatible later job');
+    verify($queue->processBatch($oversizeFirst)===['completed','completed'],'61 events committed in one atomic transaction');
+    $oversizeSecond=$queue->claimBatch(2);
+    verify(count($oversizeSecond)===1 && (string)$oversizeSecond[0]['id']===$j && $queue->processBatch($oversizeSecond)===['completed'],
+        '60-event job left pending then completed without group rollback');
+    verify((int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===$before+121&&$account->verify()['valid'],
+        '121 events stored once and queue accounting remains exact');
     // Measure actual SQL batch attempts for identical four-job workloads.
     // Wall-clock timings are evidence, NOT a flaky pass/fail throughput claim.
     foreach(range(1,4) as $n) $send('micro-single-bench-'.$n,$mk('single-'.$n,1),$writer['token']);

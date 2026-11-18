@@ -152,16 +152,42 @@ final class PostgresQueueDriver implements QueueDriverInterface
                 $deferred=$this->sql("UPDATE jobs SET status='pending',available_at=lease_until+CAST(:delay AS integer)*interval '1 second',lease_id=NULL,lease_until=NULL,reserved_at=NULL,last_error='lease_expired' WHERE id=:id AND lease_until+CAST(:delay_check AS integer)*interval '1 second'>clock_timestamp()",['id'=>$row['id'],'delay'=>$delay,'delay_check'=>$delay])->rowCount();
                 if ($deferred===1) return ['skipped'=>true];
             }
-            $claimed=$this->sql("UPDATE jobs SET status='running',attempts=attempts+1,reserved_at=clock_timestamp(),lease_until=clock_timestamp()+CAST(:seconds AS integer)*interval '1 second',lease_id=gen_random_uuid() WHERE id=:id RETURNING id,lease_id,attempts,project_id,token_id",['id'=>$row['id'],'seconds'=>$this->workerPolicy?->get('lease_seconds')??120])->fetch();
+            $claimed=$this->sql("UPDATE jobs SET status='running',attempts=attempts+1,reserved_at=clock_timestamp(),lease_until=clock_timestamp()+CAST(:seconds AS integer)*interval '1 second',lease_id=gen_random_uuid() WHERE id=:id RETURNING id,lease_id,attempts,project_id,token_id,payload_events,payload_bytes,COALESCE(payload->>'validation_version','1') AS validation_version",['id'=>$row['id'],'seconds'=>$this->workerPolicy?->get('lease_seconds')??120])->fetch();
             $this->sql('INSERT INTO job_attempts(job_id,attempt) VALUES (:id,:attempt)',['id'=>$claimed['id'],'attempt'=>$claimed['attempts']]);
             $fair->dispatched($project['project_id']);
             return $claimed;
         }, maxAttempts: 3);
     }
-    /** Claim several compatible ready jobs with one SQL round trip. The first
-     * claim retains the established expired-lease recovery ordering. Additional
-     * jobs must use the same project and token, so a single authenticated log
-     * INSERT can process the group without weakening project boundaries.
+    /** Deterministic bounded packing of already ordered candidate metadata.
+     * The IDs returned here are the only extra jobs leased by claimBatch().
+     * Unsupported validation versions and malformed jobs are left for normal
+     * isolated processing; no job is silently dropped or marked complete.
+     * @return list<string> */
+    public static function selectCompatible(array $first,array $candidates,int $limit): array
+    {
+        if ($limit<0 || $limit>15) throw new \InvalidArgumentException('Invalid additional claim limit.');
+        $events=(int)($first['payload_events']??0);
+        $bytes=(int)($first['payload_bytes']??0);
+        if ($limit===0 || $events<1 || $events>=\Cajeer\Logs\Log\IngestValidator::MAX_BATCH ||
+            $bytes<1 || $bytes>=IngestBatch::SQL_BYTES) return [];
+        $version=(string)($first['validation_version']??'1');$ids=[];
+        foreach ($candidates as $row) {
+            $additionalEvents=(int)($row['payload_events']??0);
+            $additionalBytes=(int)($row['payload_bytes']??0);
+            if ((string)($row['validation_version']??'1')!==$version || $additionalEvents<1 || $additionalBytes<1 ||
+                $events+$additionalEvents>\Cajeer\Logs\Log\IngestValidator::MAX_BATCH ||
+                $bytes+$additionalBytes>IngestBatch::SQL_BYTES) continue;
+            $ids[]=(string)$row['id'];
+            $events+=$additionalEvents;$bytes+=$additionalBytes;
+            if (count($ids)===$limit) break;
+        }
+        return $ids;
+    }
+
+    /** Claim only jobs that actually fit in one authenticated log INSERT.
+     * PostgreSQL JSONB byte counts are a conservative bound on the normalized
+     * SQL payload. We intentionally leave oversized jobs pending for a later
+     * claim rather than claim/roll back the entire group on every dispatch.
      * @return list<array> */
     public function claimBatch(int $max=4): array
     {
@@ -177,30 +203,43 @@ final class PostgresQueueDriver implements QueueDriverInterface
             $remaining=(int)$state['max_running_jobs']===0?$max-1:max(0,(int)$state['max_running_jobs']-(int)$state['running_jobs']);
             $limit=min($max-1,$remaining);
             if ($limit===0) return [];
-            // Bounded positive integer; never interpolate user-supplied SQL.
-            $stmt=$this->sql(<<<SQL
-                WITH picked AS MATERIALIZED (
-                    SELECT id FROM jobs
-                    WHERE queue='ingest-v1' AND status='pending'
-                        AND project_id=CAST(:project AS uuid) AND token_id=CAST(:token AS uuid)
-                        AND available_at<=statement_timestamp() AND attempts<max_attempts
-                    ORDER BY available_at,id LIMIT $limit FOR UPDATE SKIP LOCKED
-                ), claimed AS (
-                    UPDATE jobs j SET status='running',attempts=attempts+1,
+            $events=(int)$first['payload_events'];
+            $bytes=(int)$first['payload_bytes'];
+            if ($events<1 || $events>=\Cajeer\Logs\Log\IngestValidator::MAX_BATCH ||
+                $bytes<1 || $bytes>=IngestBatch::SQL_BYTES) return [];
+            $scan=min(64,max(8,$limit*4));
+            $candidates=$this->sql(<<<SQL
+                SELECT id,payload_events,payload_bytes,
+                    COALESCE(payload->>'validation_version','1') AS validation_version
+                FROM jobs
+                WHERE queue='ingest-v1' AND status='pending'
+                    AND project_id=CAST(:project AS uuid) AND token_id=CAST(:token AS uuid)
+                    AND available_at<=statement_timestamp() AND attempts<max_attempts
+                ORDER BY available_at,id LIMIT $scan FOR UPDATE SKIP LOCKED
+                SQL,['project'=>$first['project_id'],'token'=>$first['token_id']])->fetchAll(PDO::FETCH_ASSOC);
+            $ids=self::selectCompatible($first,$candidates,$limit);
+            if ($ids===[]) return [];
+            $params=['seconds'=>$this->workerPolicy?->get('lease_seconds')??120];
+            $placeholders=[];
+            foreach ($ids as $i=>$id) { $name='id'.$i;$params[$name]=$id;$placeholders[]=':'.$name; }
+            $in=implode(',',$placeholders);
+            $claimed=$this->sql(<<<SQL
+                WITH claimed AS (
+                    UPDATE jobs SET status='running',attempts=attempts+1,
                         reserved_at=clock_timestamp(),
                         lease_until=clock_timestamp()+CAST(:seconds AS integer)*interval '1 second',
                         lease_id=gen_random_uuid()
-                    FROM picked WHERE j.id=picked.id
-                    RETURNING j.id,j.lease_id,j.attempts,j.project_id,j.token_id
+                    WHERE id IN ($in) AND status='pending'
+                    RETURNING id,lease_id,attempts,project_id,token_id,payload_events,payload_bytes,
+                        COALESCE(payload->>'validation_version','1') AS validation_version
                 ), recorded AS (
                     INSERT INTO job_attempts(job_id,attempt)
                     SELECT id,attempts FROM claimed RETURNING job_id
                 ) SELECT c.* FROM claimed c JOIN recorded a ON a.job_id=c.id ORDER BY c.id
-                SQL,['project'=>$first['project_id'],'token'=>$first['token_id'],
-                    'seconds'=>$this->workerPolicy?->get('lease_seconds')??120]);
-            $extra=$stmt->fetchAll(PDO::FETCH_ASSOC);
-            if ($extra!==[]) $fair->dispatched($first['project_id'],count($extra));
-            return $extra;
+                SQL,$params)->fetchAll(PDO::FETCH_ASSOC);
+            if (count($claimed)!==count($ids)) throw new \RuntimeException('Incomplete atomic group claim.');
+            $fair->dispatched($first['project_id'],count($claimed));
+            return $claimed;
         },maxAttempts:3);
         return [$first,...$more];
     }
@@ -226,16 +265,33 @@ final class PostgresQueueDriver implements QueueDriverInterface
                 $this->workerTimeout(true);
                 $project=$claims[0]['project_id'];$token=$claims[0]['token_id'];
                 $ordered=$claims;
-                usort($ordered,static fn($a,$b)=>((int)$a['id']<=> (int)$b['id']));
+                usort($ordered,static fn($a,$b)=>((int)$a['id']<=>(int)$b['id']));
+                // One bounded, ordered row-lock/read instead of 3 SQL round trips
+                // per job. The lease is checked AFTER acquiring the row lock.
+                $params=['limit'=>IngestBatch::JOB_DECODE_BYTES];$placeholders=[];
+                foreach ($ordered as $i=>$claim) {
+                    $name='id'.$i;$params[$name]=$claim['id'];$placeholders[]=':'.$name;
+                }
+                $in=implode(',',$placeholders);
+                $rows=$this->sql(<<<SQL
+                    SELECT id,project_id,token_id,attempts,lease_id,
+                        lease_until>clock_timestamp() AS lease_live,
+                        CASE WHEN payload_bytes<=CAST(:limit AS integer) THEN payload::text END AS body
+                    FROM jobs WHERE queue='ingest-v1' AND status='running' AND id IN ($in)
+                    ORDER BY id FOR UPDATE
+                    SQL,$params)->fetchAll(PDO::FETCH_ASSOC);
+                if (count($rows)!==$count) throw new \RuntimeException('Stale job in microbatch.');
                 $events=[];$sources=[];$sizes=[];$version=null;
-                foreach ($ordered as $claim) {
-                    // Locks in ID order prevent deadlocks with other multi-job workers.
-                    $row=$this->sql("SELECT id,project_id,token_id,attempts FROM jobs WHERE id=:id AND queue='ingest-v1' AND status='running' AND lease_id=:lease FOR UPDATE",['id'=>$claim['id'],'lease'=>$claim['lease_id']])->fetch();
-                    if (!$row || !$this->leaseLive($claim)) throw new \RuntimeException('Stale job in microbatch.');
+                foreach ($ordered as $i=>$claim) {
+                    $row=$rows[$i];
+                    if ((string)$row['id']!==(string)$claim['id'] ||
+                        !hash_equals((string)$row['lease_id'],(string)$claim['lease_id']) ||
+                        !in_array($row['lease_live'],[true,'t','1',1],true) ||
+                        (int)$row['attempts']!==(int)$claim['attempts'])
+                        throw new \RuntimeException('Stale job in microbatch.');
                     if ($row['project_id']!==$project || $row['token_id']!==$token) throw new \RuntimeException('Incompatible job in microbatch.');
-                    $body=$this->sql('SELECT CASE WHEN payload_bytes<=CAST(:limit AS integer) THEN payload::text END FROM jobs WHERE id=:id',['id'=>$claim['id'],'limit'=>IngestBatch::JOB_DECODE_BYTES])->fetchColumn();
-                    if (!is_string($body)) throw new HttpException(413,'payload_too_large','Stored job exceeds decoding limit.');
-                    [$part,$mapped,$v]=IngestBatch::decodeJob($body);
+                    if (!is_string($row['body'])) throw new HttpException(413,'payload_too_large','Stored job exceeds decoding limit.');
+                    [$part,$mapped,$v]=IngestBatch::decodeJob($row['body']);
                     if ($version!==null && $version!==$v) throw new \RuntimeException('Mixed validation versions in microbatch.');
                     $version=$v;
                     foreach ($mapped as $slug=>$sourceId) {
@@ -257,8 +313,17 @@ final class PostgresQueueDriver implements QueueDriverInterface
                     // Preserve one outbox publication per original durable job.
                     (new \Cajeer\Logs\Integration\EventApiDispatcher($this->pdo))->publishCommittedLogs($project,$individual);
                     $this->sql("UPDATE jobs SET status='completed',payload='{}'::jsonb,result=CAST(:result AS jsonb),completed_at=clock_timestamp(),lease_id=NULL,lease_until=NULL,reserved_at=NULL,last_error=NULL WHERE id=:id",['id'=>$jobId,'result'=>json_encode(['event_ids'=>$individual,'stored'=>count($individual)],JSON_THROW_ON_ERROR)]);
-                    if ($this->sql("UPDATE job_attempts SET outcome='completed',finished_at=clock_timestamp() WHERE job_id=:id AND attempt=:attempt AND outcome='running'",['id'=>$jobId,'attempt'=>$claim['attempts']])->rowCount()!==1) throw new \RuntimeException('Missing running job attempt; roll back microbatch.');
                 }
+                // All attempt transitions are part of the same transaction as
+                // events, outbox records, job receipts and capacity counters.
+                $attempts=[];$params=[];
+                foreach ($ordered as $i=>$claim) {
+                    $params['job'.$i]=$claim['id'];$params['attempt'.$i]=$claim['attempts'];
+                    $attempts[]='(CAST(:job'.$i.' AS bigint),CAST(:attempt'.$i.' AS integer))';
+                }
+                $pairs=implode(',',$attempts);
+                if ($this->sql("UPDATE job_attempts SET outcome='completed',finished_at=clock_timestamp() WHERE (job_id,attempt) IN ($pairs) AND outcome='running'",$params)->rowCount()!==$count)
+                    throw new \RuntimeException('Missing running job attempt; roll back microbatch.');
                 return array_fill(0,$count,'completed');
             },maxAttempts:3);
         } catch (\Throwable $e) {

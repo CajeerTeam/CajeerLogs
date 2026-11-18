@@ -1,4 +1,4 @@
-# CajeerLogs 0.5.10 — Load Testing & Performance Certification
+# CajeerLogs 0.6.0 — Load Testing & Performance Certification
 
 ## Что исполняется
 
@@ -19,7 +19,7 @@
 
 1. Развернуть отдельный стек с PostgreSQL 17/18, работающим queue worker, HTTPS и **новым пустым проектом** с source `app`.
 2. Выпустить API-токен для этого source с разрешениями `logs:write`, `logs:read` и с достаточными rate limits (иначе SLO корректно провалятся). Не передавать секреты через аргументы командной строки.
-3. Убедиться, что worker завершает async tasks и нет чужой нагрузки. Для проверяемой сертификации необходимо иметь полный release archive 0.5.10 (не overlay обновлённых файлов).
+3. Убедиться, что worker завершает async tasks и нет чужой нагрузки. Для проверяемой сертификации необходимо иметь полный release archive 0.6.0 (не overlay обновлённых файлов).
 
 ```bash
 export CAJEER_TOKEN='your-disposable-test-token'
@@ -31,19 +31,21 @@ export CAJEER_LOAD_TEST=1
 python3 scripts/load_test.py \
   --url https://logs-staging.example.test \
   --project '11111111-1111-4111-8111-111111111111' --source app \
-  --rate 8 --batch 5 --concurrency 16 --async-percent 20 \
+  --rate 8 --batch 20 --concurrency 16 --async-percent 100 \
   --sustained-seconds 120 --stress-seconds 180 \
   --soak-seconds 1800 --fault-seconds 120 \
   --p95-ms 2000 --fault-p95-ms 4000 --max-error-rate 0.01 \
   --min-rate-ratio 0.95 \
-  --archive /safe/path/CajeerLogs-0.5.10.zip --certify \
+  --archive /safe/path/CajeerLogs-0.6.0.zip --certify \
   --output /safe/path/performance-certification.json \
   --confirm-disposable
 ```
 
 Опционально указать `--ca-file /path/to/test-ca.pem`, если это частный CA. Сценарий `--scenario fault` можно выполнять отдельно, он всегда выдаёт `certified: false` (диагностический профиль). Максимум 64 потока, rate ≤2000 запросов/с, batch ≤100 событий, 2 млн запросов на фазу, таймаут ожидания drain ограничен; для высоких скоростей увеличивайте `--max-requests`, сравнивайте с фактическими квотами БД, token bucket, network и параметрами приложения. Если достигнут cap до окончания интервала, gate падает.
 
-`--certify` требует *все четыре* профиля, продолжительность не меньше `60/120/900/60` секунд, полный архив с корректным SHA256-manifest и ответ `/ready` со статусом `ok` и версией `0.5.10`. Отчёт содержит фактический hash архива, тайминги, SLO threshold, status каждого gate и `certified` (true только если все условия пройдены). Это **результат конкретного запуска и нагрузки**, а не общая гарантия capacity/HA или независимая аккредитация. Отчёт не подписывается криптографически; доверие к нему зависит от защищённого CI-раннера и сохранения неизменённого evidence.
+В версии 0.6.0 `--certify` дополнительно требует 100% async и batch >= 2, чтобы подтвердить именно путь PostgreSQL queue, а не только sync ingestion.
+
+`--certify` требует *все четыре* профиля, продолжительность не меньше `60/120/900/60` секунд, полный архив с корректным SHA256-manifest и ответ `/ready` со статусом `ok` и версией `0.6.0`. Отчёт содержит фактический hash архива, тайминги, SLO threshold, status каждого gate и `certified` (true только если все условия пройдены). Это **результат конкретного запуска и нагрузки**, а не общая гарантия capacity/HA или независимая аккредитация. Отчёт не подписывается криптографически; доверие к нему зависит от защищённого CI-раннера и сохранения неизменённого evidence.
 
 ## Автоматизированные проверки релиза
 

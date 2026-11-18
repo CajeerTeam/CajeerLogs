@@ -1,3 +1,12 @@
+## 0.6.0 — High-Throughput Ingestion & Queue Processing Stable
+
+- Adaptive PostgreSQL microbatch claim: job count, validation version, JSONB payload bytes and 100-event/4-MiB SQL limits are checked **before** leasing additional jobs. Skip incompatible entries without locking their leases until a future dispatch.
+- One ordered SQL row-lock/payload/lease read per group; one transactional SQL statement closes all `job_attempts`; individual receipts and webhook outbox publications remain fully atomic.
+- 4 compatible jobs per worker iteration is now the default, with `QUEUE_WORKER_BATCH_JOBS=1` as a safe operational rollback. HTTP contracts and PostgreSQL schema remain unchanged.
+- Live production-style Docker/PostgreSQL/TLS smoke upgraded to 100% async high-batch ingest, fault and end-to-end persistence verification; final CI release certification requires an additional genuine long-duration load run and an exact 0.6.0 distribution.
+- Backup/upgrade continuity from 0.5.10, CI release and multi-version checks, replay and queue-accounting assertions.
+- **Certification not implied by shipping code**: evidence must come from actual production-style DB/TLS/load runs on the deployed environment.
+
 ## 0.5.10 — Load Testing & Performance Certification
 
 - Новая программа нагрузочного тестирования live HTTP/CajeerLogs: sustained, трехступенчатый ramp stress, soak и fault-injection reverse proxy (HTTP 429/503, задержка и потеря ACK после принятой записи).

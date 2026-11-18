@@ -40,7 +40,7 @@ def main():
         project='clsmoke'+secrets.token_hex(5)
         cmd=['docker','compose','--project-name',project,'--env-file',str(env_file),'-f',str(ROOT/'compose.production.yaml')]
         # Do not let developer environment override disposable test credentials.
-        env={k:v for k,v in os.environ.items() if k not in ('APP_URL','DB_PASSWORD','POSTGRES_ADMIN_PASSWORD','PROMETHEUS_TOKEN','CAJEER_TLS_DIR','CAJEER_HTTPS_BIND','CAJEER_HTTPS_PORT','COMPOSE_PROJECT_NAME','COMPOSE_PROFILES','SECURITY_SESSION_IDLE_SECONDS','SECURITY_REAUTH_SECONDS','SECURITY_2FA_REQUIRED_ROLES','SECURITY_2FA_REQUIRED_PERMISSIONS','API_RATE_EXPORT_PER_MINUTE','API_RATE_BURST_PERCENT','QUEUE_WORKER_PROCESSES','QUEUE_WORKER_MAX_JOBS','QUEUE_WORKER_MAX_SECONDS','QUEUE_WORKER_MEMORY_MB','QUEUE_POLL_MIN_MS','QUEUE_POLL_MAX_MS','QUEUE_LEASE_SECONDS','QUEUE_CLAIM_TIMEOUT_MS','QUEUE_PROCESS_TIMEOUT_SECONDS','QUEUE_SHUTDOWN_GRACE_SECONDS','CAJEER_QUEUE_STOP_GRACE')}
+        env={k:v for k,v in os.environ.items() if k not in ('APP_URL','DB_PASSWORD','POSTGRES_ADMIN_PASSWORD','PROMETHEUS_TOKEN','CAJEER_TLS_DIR','CAJEER_HTTPS_BIND','CAJEER_HTTPS_PORT','COMPOSE_PROJECT_NAME','COMPOSE_PROFILES','SECURITY_SESSION_IDLE_SECONDS','SECURITY_REAUTH_SECONDS','SECURITY_2FA_REQUIRED_ROLES','SECURITY_2FA_REQUIRED_PERMISSIONS','API_RATE_EXPORT_PER_MINUTE','API_RATE_BURST_PERCENT','QUEUE_WORKER_PROCESSES','QUEUE_WORKER_BATCH_JOBS','QUEUE_WORKER_MAX_JOBS','QUEUE_WORKER_MAX_SECONDS','QUEUE_WORKER_MEMORY_MB','QUEUE_POLL_MIN_MS','QUEUE_POLL_MAX_MS','QUEUE_LEASE_SECONDS','QUEUE_CLAIM_TIMEOUT_MS','QUEUE_PROCESS_TIMEOUT_SECONDS','QUEUE_SHUTDOWN_GRACE_SECONDS','CAJEER_QUEUE_STOP_GRACE')}
         env.update(CAJEER_ADMIN_EMAIL='release@example.test',CAJEER_ADMIN_PASSWORD=admin)
         def compose(*args, capture=False, check=True, timeout=600):
             return subprocess.run(cmd+list(args),cwd=ROOT,env=env,check=check,timeout=timeout,stdout=subprocess.PIPE if capture else None,text=True).stdout
@@ -69,10 +69,10 @@ def main():
             compose('up','-d','--wait','--wait-timeout','180')
             for _ in range(60):
                 try:
-                    data,_=http('GET','/ready'); assert data['version']=='0.5.10' and data['status']=='ok'; break
+                    data,_=http('GET','/ready'); assert data['version']=='0.6.0' and data['status']=='ok'; break
                 except (OSError, AssertionError, urllib.error.URLError): time.sleep(1)
             else: raise AssertionError('HTTPS readiness did not become healthy')
-            panel,h=http('GET','/admin/'); assert b'0.5.10' in panel and 'frame-ancestors' in h['Content-Security-Policy']
+            panel,h=http('GET','/admin/'); assert b'0.6.0' in panel and 'frame-ancestors' in h['Content-Security-Policy']
             assert b'app/router.js' in http('GET','/admin/assets/panel.js')[0]
             assert b'createApiClient' in http('GET','/admin/assets/api/client.js')[0]
             http('GET','/.env',expected=404)
@@ -196,8 +196,8 @@ def main():
             print(bench_v2,flush=True)
             # Real four-scenario performance gate on this disposable Docker/PostgreSQL/TLS stack.
             load_cmd=['python3',str(ROOT/'scripts/load_test.py'),'--url',url,'--project',pid,
-                      '--source','app','--scenario','all','--rate','4','--batch','2',
-                      '--concurrency','4','--async-percent','25',
+                      '--source','app','--scenario','all','--rate','4','--batch','20',
+                      '--concurrency','4','--async-percent','100',
                       '--sustained-seconds','3','--stress-seconds','3',
                       '--soak-seconds','3','--fault-seconds','3',
                       '--drain-seconds','120','--p95-ms','5000','--fault-p95-ms','5000',
@@ -209,8 +209,43 @@ def main():
             assert perf_report['status']=='passed' and not perf_report['certified']
             assert [p['scenario'] for p in perf_report['phases']]==['sustained','stress','soak','fault']
             assert all(p['durable_events']==p['verified_events'] for p in perf_report['phases'])
+            assert all(p['async_jobs']>0 for p in perf_report['phases'])
+            assert json.loads(cli('queue:verify'))['valid'] and json.loads(cli('queue:project-verify'))['valid']
+            assert json.loads(cli('queue:capacity'))['active_jobs']==0
             assert perf_report['phases'][-1]['fault_injection']['lost_ack']>0
             print('PASS live sustained/stress/soak/transport fault injection and exact durability verification',flush=True)
+            # Full qualification is enabled by scripts/certify.py release only.
+            # It uses the same real workers, PostgreSQL and trusted HTTPS origin
+            # as the short integration smoke; no mock server or synthetic RPS.
+            archive=os.environ.get('CAJEER_PERF_ARCHIVE_PATH')
+            report_path=os.environ.get('CAJEER_PERF_REPORT_PATH')
+            if bool(archive)!=bool(report_path):
+                raise AssertionError('Incomplete high-throughput certification configuration')
+            if archive:
+                assert Path(archive).is_file() and Path(report_path).is_absolute()
+                full_cmd=['python3',str(ROOT/'scripts/load_test.py'),'--url',url,
+                    '--project',pid,'--source','app','--scenario','all','--rate','4',
+                    '--read-rps','1','--batch','20','--concurrency','12',
+                    '--async-percent','100',
+                    '--sustained-seconds','60','--stress-seconds','120',
+                    '--soak-seconds','900','--fault-seconds','60',
+                    '--drain-seconds','300','--p95-ms','5000','--fault-p95-ms','8000',
+                    '--min-rate-ratio','.85','--ca-file',str(tls/'fullchain.pem'),
+                    '--archive',archive,'--certify','--output',report_path,
+                    '--confirm-disposable']
+                full_run=subprocess.run(full_cmd,env=dict(env,CAJEER_TOKEN=t['token'],CAJEER_LOAD_TEST='1'),
+                                        text=True,capture_output=True,timeout=3000)
+                if full_run.returncode!=0:
+                    # No credentials, response body or private payload in the error.
+                    raise AssertionError('Live long-duration high-throughput certification failed')
+                full_report=json.loads(Path(report_path).read_text())
+                assert full_report['status']=='passed' and full_report['certified']
+                assert all(p['durable_events']==p['verified_events'] and p['async_jobs']>0
+                           for p in full_report['phases'])
+                assert json.loads(cli('queue:verify'))['valid']
+                assert json.loads(cli('queue:project-verify'))['valid']
+                assert json.loads(cli('queue:capacity'))['active_jobs']==0
+                print('PASS sustained/stress/soak/fault live async throughput certification',flush=True)
             assert json.loads(cli('db:verify'))['status']=='ok'
             assert json.loads(cli('db:performance'))['tables']
             assert json.loads(cli('db:explain',pid,'--analyze'))['plans']['latest']
