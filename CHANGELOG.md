@@ -1,3 +1,17 @@
+## 0.6.5 — Nginx Log Import Stable
+
+- Nginx file collector: durable incremental HTTP ingest with SQLite checkpoint, verified
+  pending batch receipts, restart recovery and existing rename/reopen handling.
+- New `nginx-json` parser for Nginx `log_format escape=json`: UTC timestamps,
+  method/path/status/byte count and bounded request/upstream durations. URL query,
+  referrer, user-agent, host and unrecognized fields are discarded.
+- Opt-in `--copytruncate`: archived copy must match acknowledged prefix, be stable,
+  unique and uncompressed before recovery; otherwise fail closed. Concurrent writes
+  during copytruncate may still be lost by logrotate, so rename+reopen is preferred.
+- Real loopback HTTP/HMAC/SQLite/restart/rotation/ambiguous archive integration test,
+  CI runbook, version synchronization and upgrade compatibility from 0.6.4.
+- No PostgreSQL migration; certification requires complete CI and target host test.
+
 ## 0.6.4 — Kotlin Client Stable
 
 - Kotlin 2.0 / JVM 17+ bounded background delivery queue with nonblocking submit, immediate queue-full errors, batching, timer/flush, graceful drain, confirmed futures and event accounting.

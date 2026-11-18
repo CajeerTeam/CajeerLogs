@@ -2,6 +2,14 @@
 
 Self-hosted PHP-first платформа централизованного логирования.
 
+## 0.6.5 — Nginx Log Import Stable
+
+Real file-based incremental Nginx importer with SQLite-confirmed offsets, immutable
+HTTP batches, HMAC, rename/reopen rotation, opt-in verified copytruncate archive
+recovery, and combined/common/error/structured JSON access parsing. Corrupt,
+missing or ambiguous rotation history stops collection without advancing the
+checkpoint. See [Nginx importer runbook](docs/Nginx-Log-Import-Stable.md).
+
 ## 0.6.4 — Kotlin Client Stable
 
 Kotlin/JVM 17+ sender with bounded, nonblocking submit, event batching, immediate backpressure,

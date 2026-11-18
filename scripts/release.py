@@ -72,6 +72,8 @@ REQUIRED.update({
     'tests/sdk/KotlinQueueJavaTest.java', 'docs/Kotlin-SDK-Stable.md',
 })
 
+REQUIRED.update({'clients/python/cajeer_logs_collector.py', 'tests/nginx_import_stable.py', 'docs/Nginx-Log-Import-Stable.md'})
+
 REQUIRED.update({'packages/ts-sdk/src/durable.ts', 'packages/ts-sdk/test/durable.test.mjs',
                  'packages/ts-sdk/test/process.mjs', 'docs/TypeScript-SDK-Stable.md'})
 

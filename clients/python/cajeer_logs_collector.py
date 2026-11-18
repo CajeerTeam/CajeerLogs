@@ -3,6 +3,8 @@
 from __future__ import annotations
 import argparse
 import fcntl
+from decimal import Decimal
+import math
 import glob
 import hashlib
 import json
@@ -24,6 +26,81 @@ ERROR = re.compile(r'^(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}) \[([a-z]+)\] (.*)$')
 LEVEL = {'warn': 'warning', 'emerg': 'emergency', 'crit': 'critical'}
 
 
+def _strict_json(text: str) -> dict:
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            if key in result:
+                raise ValueError('Duplicate JSON key')
+            result[key] = value
+        return result
+    def invalid_constant(_):
+        raise ValueError('Unsupported JSON number')
+    from decimal import Decimal
+    data = json.loads(text, object_pairs_hook=pairs, parse_constant=invalid_constant, parse_float=Decimal)
+    if not isinstance(data, dict):
+        raise ValueError('Log line must be a JSON object')
+    return data
+
+
+def _request_line(request: str):
+    # Only method, sanitized path, and HTTP protocol go to ingest. No URL query,
+    # fragment, proxy host, referrer, user-agent or credentials can leak here.
+    pieces = request.split(' ')
+    if len(pieces) != 3:
+        raise ValueError('Invalid Nginx request line')
+    method, target, protocol = pieces
+    if not re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]{0,31}', method) or not re.fullmatch(r'HTTP/[0-9](?:\.[0-9])?', protocol):
+        raise ValueError('Invalid Nginx HTTP request')
+    if method.upper() == 'CONNECT':
+        path = '[authority]'
+    elif target.startswith(('http://', 'https://')):
+        from urllib.parse import urlsplit
+        url = urlsplit(target)
+        path = url.path or '/'
+    elif target.startswith('/') or target == '*':
+        path = target.split('?', 1)[0].split('#', 1)[0]
+    else:
+        raise ValueError('Invalid Nginx request target')
+    if not path or re.search(r'[\x00-\x1f\x7f]', path):
+        raise ValueError('Invalid Nginx path')
+    return method, path, protocol
+
+
+def _access_event(event: dict, ip: str | None, stamp: str, request: str, status, size, extras: dict | None = None):
+    if not re.fullmatch(r'[1-5][0-9]{2}', str(status)) or type(status) is bool:
+        raise ValueError('Invalid Nginx status')
+    code = int(status)
+    method, path, protocol = _request_line(request)
+    context = {'method': method, 'path': path, 'status': code}
+    if ip is not None and ip != '-':
+        if not isinstance(ip, str) or len(ip) > 128 or re.search(r'[\x00-\x20\x7f]', ip):
+            raise ValueError('Invalid Nginx remote address')
+        context['remote_addr'] = ip
+    if size not in (None, '-'):
+        if type(size) is bool or not re.fullmatch(r'[0-9]{1,18}', str(size)):
+            raise ValueError('Invalid Nginx bytes sent')
+        context['bytes_sent'] = int(size)
+    else:
+        context['bytes_sent'] = None
+    if extras:
+        for name in ('request_time', 'upstream_response_time'):
+            value = extras.get(name)
+            if value is None or value == '-':
+                continue
+            # Nginx can provide multiple upstream timings; avoid returning an
+            # unsanitized/free-form value to the remote server.
+            if not isinstance(value, (int, float, str, Decimal)) or isinstance(value, bool):
+                raise ValueError('Invalid Nginx duration')
+            try: seconds = float(value)
+            except ValueError: raise ValueError('Invalid Nginx duration') from None
+            if not math.isfinite(seconds) or not 0 <= seconds <= 86400:
+                raise ValueError('Invalid Nginx duration')
+            context[name + '_ms'] = round(seconds * 1000, 3)
+    event.update(timestamp=stamp, level='error' if code >= 500 else 'warning' if code >= 400 else 'info',
+                 message=f'{method} {path} {protocol} {code}', context=context)
+
+
 def parse_line(raw: bytes, fmt: str, source: str, zone: ZoneInfo, service: str | None = None) -> dict:
     text = raw.decode('utf-8').rstrip('\r\n')
     if not text.strip() or '\0' in text:
@@ -32,14 +109,6 @@ def parse_line(raw: bytes, fmt: str, source: str, zone: ZoneInfo, service: str |
     if service:
         event['service'] = service
     if fmt in ('jsonl', 'cajeer-jsonl'):
-        def object_pairs(pairs):
-            result = {}
-            for key, value in pairs:
-                if key in result: raise ValueError("Duplicate JSON key")
-                result[key] = value
-            return result
-        def invalid_constant(_): raise ValueError("Unsupported JSON number")
-        from decimal import Decimal
         def decimal_value(raw):
             raw = str(raw)
             value = float(raw)
@@ -47,7 +116,7 @@ def parse_line(raw: bytes, fmt: str, source: str, zone: ZoneInfo, service: str |
             if not isfinite(value): raise ValueError("Unsupported JSON number")
             digits = re.split("[eE]",raw,1)[0].replace("-","").replace(".","").strip("0")
             return raw if len(digits)>15 or (value==0 and digits) else value
-        data = json.loads(text,object_pairs_hook=object_pairs,parse_constant=invalid_constant,parse_float=Decimal)
+        data = _strict_json(text)
         if not isinstance(data, dict):
             raise ValueError('JSONL line must be an object')
         if fmt == 'cajeer-jsonl':
@@ -70,17 +139,38 @@ def parse_line(raw: bytes, fmt: str, source: str, zone: ZoneInfo, service: str |
         m = ACCESS.fullmatch(text)
         if not m:
             raise ValueError('Unsupported Nginx access format (use combined/common)')
-        ip, stamp, request, status, size, referer, agent = m.groups()
-        # Do not forward URL query/fragment, referrer or user agent; may contain secrets.
-        pieces = request.split(' ')
-        if len(pieces) != 3:
-            raise ValueError('Invalid Nginx request line')
-        method, target, protocol = pieces
-        target = target.split('?', 1)[0].split('#', 1)[0]
-        code = int(status)
-        event.update(timestamp=datetime.strptime(stamp[:3] + str(('Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec').index(stamp[3:6])+1).zfill(2) + stamp[6:], '%d/%m/%Y:%H:%M:%S %z').astimezone(timezone.utc).isoformat(),
-                     level='error' if code >= 500 else 'warning' if code >= 400 else 'info',
-                     message=f'{method} {target} {protocol} {code}', context={'remote_addr': ip, 'method': method, 'path': target, 'status': code, 'bytes_sent': None if size == '-' else int(size)})
+        ip, stamp, request, status, size, _referer, _agent = m.groups()
+        # Parse $time_local with the timezone offset provided in each access record.
+        month = ('Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec')
+        if stamp[3:6] not in month:
+            raise ValueError('Invalid Nginx timestamp')
+        iso = datetime.strptime(stamp[:3] + str(month.index(stamp[3:6])+1).zfill(2) + stamp[6:],
+                                '%d/%m/%Y:%H:%M:%S %z').astimezone(timezone.utc).isoformat()
+        _access_event(event, ip, iso, request, status, size)
+    elif fmt == 'nginx-json':
+        # A dedicated structured Nginx log_format escape=json; ordinary JSONL
+        # application events use the separate `jsonl` parser above.
+        data = _strict_json(text)
+        iso = data.get('time_iso8601', data.get('time', data.get('@timestamp')))
+        if not isinstance(iso, str):
+            raise ValueError('Nginx JSON requires time_iso8601')
+        try:
+            parsed = datetime.fromisoformat(iso.replace('Z', '+00:00'))
+            if parsed.tzinfo is None:
+                raise ValueError('Timezone required')
+            stamp = parsed.astimezone(timezone.utc).isoformat()
+        except (ValueError, OverflowError):
+            raise ValueError('Invalid Nginx JSON timestamp') from None
+        request = data.get('request')
+        if not isinstance(request, str):
+            method = data.get('request_method')
+            path = data.get('request_uri', data.get('uri'))
+            protocol = data.get('server_protocol', 'HTTP/1.1')
+            if not all(isinstance(v, str) for v in (method, path, protocol)):
+                raise ValueError('Nginx JSON requires request or request_method/request_uri')
+            request = f'{method} {path} {protocol}'
+        _access_event(event, data.get('remote_addr'), stamp, request, data.get('status'),
+                      data.get('body_bytes_sent', data.get('bytes_sent')), data)
     elif fmt == 'nginx-error':
         m = ERROR.fullmatch(text)
         if not m:
@@ -98,9 +188,9 @@ class CollectorError(ValueError):
 class Collector:
     def __init__(self, path: Path, state: Path, client: CajeerLogsClient, source: str, fmt: str,
                  zone: ZoneInfo, service: str | None = None, rotated_glob: str | None = None, batch: int = 50,
-                 async_mode: bool = False, completion_timeout: float = 30, poll_interval: float = 0.5):
+                 async_mode: bool = False, completion_timeout: float = 30, poll_interval: float = 0.5, copytruncate: bool = False):
         self.path, self.client, self.source, self.fmt, self.zone, self.service = path.absolute(), client, source, fmt, zone, service
-        self.rotated_glob, self.batch = rotated_glob, batch
+        self.rotated_glob, self.batch, self.copytruncate = rotated_glob, batch, copytruncate
         self.async_mode, self.completion_timeout, self.poll_interval = async_mode, completion_timeout, poll_interval
         if not 0 < completion_timeout <= 3600 or not 0.05 <= poll_interval <= 30: raise CollectorError("Invalid async poll settings")
         if not re.fullmatch(r'[a-z0-9]+(?:-[a-z0-9]+)*', source) or not 1 <= batch <= 100:
@@ -174,6 +264,45 @@ class Collector:
             except FileNotFoundError: continue
             if stat.S_ISREG(st.st_mode): yield st
 
+    def recover_copytruncate(self, dev, inode, offset, fingerprint) -> bool:
+        """Switch to a fully copied, uncompressed archive whose acknowledged
+        prefix agrees with the checkpoint. Never guess which copy is correct.
+
+        copytruncate is intrinsically racy (writes during copy/truncate can be
+        lost by logrotate); rename+reopen remains the preferred lossless mode.
+        """
+        if not self.copytruncate or offset <= 0 or fingerprint is None:
+            return False
+        retired = {(d, i) for d, i in self.db.execute('SELECT dev,inode FROM retired')}
+        matches = []
+        for candidate in sorted(glob.glob(self.rotated_glob or str(self.path) + '.*')):
+            if candidate.endswith(('.gz', '.xz', '.bz2', '.zst')) or candidate == str(self.state) or candidate.startswith(str(self.state) + '.') or candidate.startswith(str(self.state) + '-'):
+                continue
+            try:
+                fd = os.open(candidate, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            except FileNotFoundError:
+                continue
+            except OSError:
+                continue
+            with os.fdopen(fd, 'rb') as f:
+                statinfo = os.fstat(f.fileno())
+                if not stat.S_ISREG(statinfo.st_mode) or (statinfo.st_dev, statinfo.st_ino) in retired or (statinfo.st_dev, statinfo.st_ino) == (dev, inode) or statinfo.st_size < offset:
+                    continue
+                if self.fingerprint(f, offset) != fingerprint:
+                    continue
+                # Files still being copied are not safe recovery candidates.
+                if time.time() - statinfo.st_mtime < 2:
+                    return False
+                matches.append(statinfo)
+        if not matches:
+            return False
+        if len(matches) != 1:
+            raise CollectorError('Ambiguous copytruncate archives; reconcile before resuming')
+        target = matches[0]
+        with self.db:
+            self.db.execute('UPDATE checkpoint SET dev=?,inode=? WHERE id=1', (target.st_dev, target.st_ino))
+        return True
+
     def step(self) -> int:
         dev, inode, offset, fingerprint, pending, key, end, end_hash, created, pending_job_id = self.row()
         if pending is not None:
@@ -205,7 +334,9 @@ class Collector:
                         if (candidate.st_dev,candidate.st_ino) != (st.st_dev,st.st_ino):
                             self.db.execute('INSERT OR IGNORE INTO retired VALUES (?,?,?,?)',(candidate.st_dev,candidate.st_ino,candidate.st_mtime_ns,candidate.st_size))
             if st.st_size < offset or (fingerprint is not None and self.fingerprint(f, offset) != fingerprint):
-                raise CollectorError('File truncated or rewritten; refusing to skip or duplicate data')
+                if (dev, inode) == (st.st_dev, st.st_ino) and self.recover_copytruncate(dev, inode, offset, fingerprint):
+                    return -1  # resume from the matching archived copy next step
+                raise CollectorError('File truncated or rewritten; no verified stable copytruncate archive; refusing to skip or duplicate data')
             f.seek(offset)
             events, end = [], offset
             max_line = 131072 if self.fmt == 'cajeer-jsonl' else 65536
@@ -266,9 +397,9 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--file', required=True, type=Path); parser.add_argument('--state', required=True, type=Path)
     parser.add_argument('--url', default=os.getenv('CAJEER_URL')); parser.add_argument('--source', required=True)
-    parser.add_argument('--format', choices=['text','jsonl','cajeer-jsonl','nginx-access','nginx-error'], default='text')
+    parser.add_argument('--format', choices=['text','jsonl','cajeer-jsonl','nginx-access','nginx-json','nginx-error'], default='text')
     parser.add_argument('--timezone', default='UTC'); parser.add_argument('--service'); parser.add_argument('--rotated-glob')
-    parser.add_argument('--batch', type=int, default=50); parser.add_argument('--signed', action='store_true'); parser.add_argument('--once', action='store_true')
+    parser.add_argument('--copytruncate', action='store_true', help='Recover from a matching uncompressed logrotate copy; rename+reopen is preferred'); parser.add_argument('--batch', type=int, default=50); parser.add_argument('--signed', action='store_true'); parser.add_argument('--once', action='store_true')
     parser.add_argument('--async', dest='async_mode', action='store_true', help='Commit checkpoint only after job completed')
     parser.add_argument('--completion-timeout', type=float, default=30); parser.add_argument('--poll-interval', type=float, default=0.5)
     parser.add_argument('--interval', type=float, default=2); parser.add_argument('--api-prefix', default='/api/v1')
@@ -280,7 +411,7 @@ def main(argv=None):
         nonlocal stopped; stopped = True
     signal.signal(signal.SIGTERM, stop); signal.signal(signal.SIGINT, stop)
     try:
-        collector = Collector(args.file,args.state,CajeerLogsClient(args.url,token,signed=args.signed,api_prefix=args.api_prefix,signing_key_id=os.environ.get("CAJEER_SIGNING_KEY_ID"),hmac_secret=os.environ.get("CAJEER_SIGNING_SECRET")),args.source,args.format,ZoneInfo(args.timezone),args.service,args.rotated_glob,args.batch,args.async_mode,args.completion_timeout,args.poll_interval)
+        collector = Collector(args.file,args.state,CajeerLogsClient(args.url,token,signed=args.signed,api_prefix=args.api_prefix,signing_key_id=os.environ.get("CAJEER_SIGNING_KEY_ID"),hmac_secret=os.environ.get("CAJEER_SIGNING_SECRET")),args.source,args.format,ZoneInfo(args.timezone),args.service,args.rotated_glob,args.batch,args.async_mode,args.completion_timeout,args.poll_interval,args.copytruncate)
         while not stopped:
             n = collector.step()
             if n > 0: print(f'Committed {n} events',flush=True)
