@@ -108,6 +108,8 @@ final class Application
         $this->container->singleton(ProjectRepository::class, fn(): ProjectRepository => new ProjectRepository($this->container->get(PDO::class)));
         $this->container->singleton(SourceRepository::class, fn(): SourceRepository => new SourceRepository($this->container->get(PDO::class)));
         $this->container->singleton(TokenRepository::class, fn(): TokenRepository => new TokenRepository($this->container->get(PDO::class)));
+        $this->container->singleton(\Cajeer\Logs\Analytics\ClickHouseHttpClient::class, fn()=>new \Cajeer\Logs\Analytics\ClickHouseHttpClient($config->get('analytics.clickhouse')));
+        $this->container->singleton(\Cajeer\Logs\Analytics\ClickHouseAnalyticsStore::class, fn()=>new \Cajeer\Logs\Analytics\ClickHouseAnalyticsStore($this->container->get(\Cajeer\Logs\Analytics\ClickHouseHttpClient::class)));
         $this->container->singleton(Diagnostics::class, fn(): Diagnostics => new Diagnostics($this));
         $this->container->singleton(HealthCheck::class, fn(): HealthCheck => new HealthCheck($this));
         $this->container->singleton(SystemReport::class, fn(): SystemReport => new SystemReport($this));
@@ -123,6 +125,7 @@ final class Application
             $value = $config->get($key);
             if (!is_string($value) || trim($value) === '') { throw new \RuntimeException("Invalid configuration: $key"); }
         }
+        if (!in_array($config->get('analytics.default'), ['postgres','clickhouse'], true)) throw new \RuntimeException('Invalid ANALYTICS_DRIVER.');
         if (!in_array($config->get('app.env'), ['production', 'local', 'development', 'test'], true)) {
             throw new \RuntimeException('Invalid APP_ENV.');
         }

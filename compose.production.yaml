@@ -1,7 +1,7 @@
 # Run with --env-file .env.production. See docs/First-Public-Release.md.
 name: cajeerlogs
 x-runtime: &runtime
-  image: cajeerlogs:0.6.2
+  image: cajeerlogs:0.7.1
   build:
     context: .
     dockerfile: deploy/production/Dockerfile
@@ -20,6 +20,12 @@ x-runtime: &runtime
     DB_SCHEMA: public
     DB_SSLMODE: disable
     DB_REQUIRE_TLS: 'false'
+    CLICKHOUSE_DSN: ${CLICKHOUSE_DSN:-http://clickhouse:8123}
+    CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-cajeer_logs}
+    CLICKHOUSE_USERNAME: ${CLICKHOUSE_USERNAME:-cajeer_logs}
+    CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-}
+    CLICKHOUSE_ALLOW_INSECURE: ${CLICKHOUSE_ALLOW_INSECURE:-false}
+    CLICKHOUSE_TIMEOUT_SECONDS: ${CLICKHOUSE_TIMEOUT_SECONDS:-5}
     SECURITY_TRUSTED_PROXIES: ${SECURITY_TRUSTED_PROXIES:-}
     API_RATE_LIMIT_PER_MINUTE: ${API_RATE_LIMIT_PER_MINUTE:-600}
     API_RATE_SEARCH_PER_MINUTE: ${API_RATE_SEARCH_PER_MINUTE:-120}
@@ -90,6 +96,22 @@ x-runtime: &runtime
     db:
       condition: service_healthy
 services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.8
+    profiles: [analytics]
+    environment:
+      CLICKHOUSE_DB: ${CLICKHOUSE_DATABASE:-cajeer_logs}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USERNAME:-cajeer_logs}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: '1'
+    volumes: [chdata:/var/lib/clickhouse]
+    networks: [backend]
+    healthcheck:
+      test: [CMD-SHELL, 'clickhouse-client --user "$${CLICKHOUSE_USER}" --password "$${CLICKHOUSE_PASSWORD}" --query "SELECT 1"']
+      interval: 10s
+      timeout: 5s
+      retries: 15
+    restart: unless-stopped
   db:
     image: postgres:17
     environment:
@@ -184,7 +206,7 @@ services:
       app:
         condition: service_healthy
   gateway:
-    image: cajeerlogs-gateway:0.6.2
+    image: cajeerlogs-gateway:0.7.1
     build:
       context: .
       dockerfile: deploy/production/Dockerfile
@@ -206,6 +228,7 @@ networks:
   ingress: {}
   egress: {}
 volumes:
+  chdata: {}
   pgdata: {}
   config: {}
   storage: {}

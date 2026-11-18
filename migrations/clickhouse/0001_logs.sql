@@ -1,9 +1,10 @@
--- CajeerLogs ClickHouse recommended schema for high-load analytics
+-- ClickHouse analytics schema. Never use this table for authorization or as the primary durable log store.
 CREATE DATABASE IF NOT EXISTS cajeer_logs;
-
 CREATE TABLE IF NOT EXISTS cajeer_logs.log_events
 (
     id UUID,
+    project_id UUID,
+    source_id UUID,
     occurred_at DateTime64(3, 'UTC'),
     received_at DateTime64(3, 'UTC'),
     source LowCardinality(String),
@@ -18,5 +19,5 @@ CREATE TABLE IF NOT EXISTS cajeer_logs.log_events
 )
 ENGINE = MergeTree
 PARTITION BY toYYYYMM(occurred_at)
-ORDER BY (source, service, level, occurred_at, id)
+ORDER BY (project_id, source_id, occurred_at, id)
 TTL toDateTime(occurred_at) + INTERVAL 180 DAY;

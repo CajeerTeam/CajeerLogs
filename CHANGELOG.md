@@ -1,3 +1,11 @@
+## 0.7.1 — ClickHouse Integration Core (public-preview)
+
+- Replaced the ClickHouse no-op adapter with a real bounded HTTP transport (TLS and CA verification, deadline, no redirects, bounded results, server-side typed bind parameters, scoped aggregation and JSONEachRow writes).
+- Shipped executable ClickHouse schema migrations with SHA-256 history, repeat-safe DDL, project/source columns and safe fallback of unscoped 0.7.0 legacy rows to nil UUIDs. The existing MergeTree sort key is not silently rewritten.
+- Operator commands for status, migration, validated batch insertion and project-bound aggregation; optional internal-only ClickHouse 25.8 Compose profile with persistent storage.
+- Added wire-level HTTP tests, mandatory real ClickHouse integration CI using the **shipped ZIP**, version and backup compatibility checks. No new PostgreSQL migrations.
+- PostgreSQL remains the canonical store; automatic replication and dashboard switchover are **not** claimed for 0.7.1 (planned for 0.7.2). Real ClickHouse tests must pass CI before claiming certification.
+
 ## 0.7.0 — SDK & Integrations Stable Release Candidate
 
 - All PHP/Monolog, Python, TypeScript and Kotlin clients, Nginx/aaPanel importers,

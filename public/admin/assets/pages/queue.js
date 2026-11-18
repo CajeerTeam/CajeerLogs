@@ -1,7 +1,7 @@
-import { state, active, hasPermission, projectPath } from '../app/store.js?v=0.7.0';
-import { projectSelector } from '../app/projects.js?v=0.7.0';
-import { get, request } from '../api/client.js?v=0.7.0';
-import { h, heading, card, field, input, select, button, table, date, text, message, modal, clearModal, notify, needProject } from '../components/ui.js?v=0.7.0';
+import { state, active, hasPermission, projectPath } from '../app/store.js?v=0.7.1';
+import { projectSelector } from '../app/projects.js?v=0.7.1';
+import { get, request } from '../api/client.js?v=0.7.1';
+import { h, heading, card, field, input, select, button, table, date, text, message, modal, clearModal, notify, needProject } from '../components/ui.js?v=0.7.1';
 const reasons=['transaction_conflict','lock_timeout','statement_timeout','database_error','processing_error','invalid_payload','lease_expired','attempts_exhausted'];
 export async function queue(signal,epoch) {
     const root=h('div',{},heading('Проблемные задания','Проверка причин отказа, повтор и отказ от durable jobs.'),projectSelector());

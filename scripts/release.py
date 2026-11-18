@@ -89,6 +89,11 @@ REQUIRED.update({'core/Log/ExportQueue.php','core/Log/ExportBudgetExceeded.php',
 REQUIRED.update({'docs/Integration-Compatibility-Certification.md',
                  'scripts/integrations.py', 'docs/SDK-Integrations-Stable-0.7.0.md'})
 
+REQUIRED.update({'core/Analytics/ClickHouseHttpClient.php','core/Analytics/ClickHouseMigrator.php',
+                 'core/Analytics/ClickHouseAnalyticsStore.php','core/Console/Command/ClickHouseCommand.php',
+                 'migrations/clickhouse/0001_logs.sql','migrations/clickhouse/0002_legacy_scope.sql',
+                 'tests/clickhouse_http.py','tests/clickhouse_database.php','docs/ClickHouse.md'})
+
 REQUIRED.update({'packages/ts-sdk/src/durable.ts', 'packages/ts-sdk/test/durable.test.mjs',
                  'packages/ts-sdk/test/process.mjs', 'docs/TypeScript-SDK-Stable.md'})
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CajeerLogs 0.7.0 release gate, including live load/fault smoke. Executes real tests on a verified distribution.
+"""CajeerLogs 0.7.1 release gate, including live load/fault smoke. Executes real tests on a verified distribution.
 
 Database: explicit disposable PostgreSQL credentials and two empty restore targets.
 Admin: real browser/PHP/PostgreSQL E2E on the exact archive.
@@ -20,7 +20,7 @@ import time
 
 import release
 
-VERSION = '0.7.0'
+VERSION = '0.7.1'
 DATABASE_TESTS = (
     'database', 'migration_engine_database', 'transaction_database',
     'identity_database', 'identity_security_database', 'audit_database', 'rate_limit_database', 'rbac_database', 'ingest_database', 'delivery_database', 'hmac_database', 'redaction_database', 'search_database',
@@ -36,7 +36,7 @@ MATRIX = {(php, pg) for php in ('8.4', '8.5') for pg in ('17', '18')}
 def archive_info(path):
     meta = release.verify(path)
     if meta['version'] != VERSION:
-        raise ValueError('Expected the 0.7.0 release archive')
+        raise ValueError('Expected the 0.7.1 release archive')
     return {'version': VERSION, 'archive_sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
 
 
@@ -268,7 +268,7 @@ def final_release(args,report):
         root=Path(tmp)/'app'; release.verify(args.archive,root)
         # This stage operates on real isolated Docker/PG/TLS, then performs
         # all four long async workload phases. No fabricated or short smoke
-        # report can certify a stable 0.7.0 release.
+        # report can certify a stable 0.7.1 release.
         evidence_path=Path(tmp)/'throughput-certification.json'
         smoke_env=dict(os.environ,CAJEER_PERF_ARCHIVE_PATH=str(args.archive.resolve()),
                        CAJEER_PERF_REPORT_PATH=str(evidence_path))
