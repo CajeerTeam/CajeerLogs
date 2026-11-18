@@ -60,6 +60,8 @@ def check(pred, description):
     print('PASS', description, flush=True)
 
 server = ThreadingHTTPServer(('127.0.0.1', 0), API)
+server.daemon_threads=True
+server.block_on_close=False
 thread = threading.Thread(target=server.serve_forever, daemon=True)
 thread.start()
 try:
@@ -153,4 +155,8 @@ try:
               'symlinked active log fails closed without affecting other sources')
     print('aaPanel multi-site HTTP certification passed', flush=True)
 finally:
-    server.shutdown(); server.server_close()
+    # A live HTTP/1.1 fixture may retain an idle request handler. Never let
+    # cleanup of a disposable fixture stall the integration process indefinitely.
+    stopper=threading.Thread(target=server.shutdown,daemon=True)
+    stopper.start();stopper.join(timeout=5)
+    server.server_close();thread.join(timeout=5)

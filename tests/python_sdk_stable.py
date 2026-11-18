@@ -37,7 +37,8 @@ def event(message: str):
 
 
 class Receiver(BaseHTTPRequestHandler):
-    protocol_version = 'HTTP/1.1'
+    # No persistent fixture connections: cleanup must not depend on a client closing idle sockets.
+    protocol_version = 'HTTP/1.0'
 
     def log_message(self, *_):
         pass
@@ -253,6 +254,8 @@ def test_security(url, home):
 
 def main():
     server = ThreadingHTTPServer(('127.0.0.1',0),Receiver)
+    server.daemon_threads=True
+    server.block_on_close=False
     thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     url=f'http://127.0.0.1:{server.server_port}'
     try:
@@ -266,6 +269,8 @@ def main():
             assert sum(len(v) for v in writes.values()) >= 128
             print('PASS durable Python SDK real HTTP, HMAC, concurrent processes, logging',flush=True)
     finally:
-        server.shutdown();server.server_close();thread.join(timeout=5)
+        stopper=threading.Thread(target=server.shutdown,daemon=True)
+        stopper.start();stopper.join(timeout=5)
+        server.server_close();thread.join(timeout=5)
 
 if __name__=='__main__': main()

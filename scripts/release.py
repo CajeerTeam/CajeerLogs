@@ -278,6 +278,10 @@ def mode(name):
     return 0o755 if name == 'bin/cajeer' or name.endswith('.sh') else 0o644
 
 
+
+REQUIRED.update({'scripts/integration_stability.py', 'tests/integration_stability.py',
+                 'docs/Integration-Test-Stabilization-0.8.1.md'})
+
 def build(root, output):
     files = source_files(root)
     meta = manifest(files)

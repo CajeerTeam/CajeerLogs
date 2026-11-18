@@ -93,6 +93,8 @@ checked(parse_line(access('/a'), 'nginx-access', 'nginx', ZONE)['message'] == 'G
         'Nginx combined parser retains supported legacy format')
 
 server = ThreadingHTTPServer(('127.0.0.1', 0), Ingest)
+server.daemon_threads=True
+server.block_on_close=False
 thread = threading.Thread(target=server.serve_forever, daemon=True)
 thread.start()
 try:
@@ -176,5 +178,7 @@ try:
             else: raise AssertionError('ambiguous copytruncate archives must fail')
         finally: col.close()
 finally:
-    server.shutdown(); server.server_close(); thread.join(timeout=5)
+    stopper=threading.Thread(target=server.shutdown,daemon=True)
+    stopper.start();stopper.join(timeout=5)
+    server.server_close();thread.join(timeout=5)
 print('PASS Nginx importer real HTTP and recovery suite complete')

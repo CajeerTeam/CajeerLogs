@@ -1,3 +1,19 @@
+## 0.8.1 — Integration Test Stabilization (public-preview)
+
+- Added the executable, SHA-256-bound integration stability runner. It verifies and extracts the
+  *exact release ZIP* into two fresh private workspaces, exercises real loopback HTTP clients,
+  SDK batching, Nginx/aaPanel importers, ClickHouse transport and S3 signed requests, and
+  rejects crashes, timeouts, missing steps or skipped passes.
+- Fixed database pipeline and upgrade certification to consume the same released ZIP rather
+  than rebuilding a potentially different artifact from the checkout. The end-to-end pipeline
+  is run twice using independent disposable PostgreSQL schemas.
+- Added 0.8.0 → 0.8.1 historic upgrade and backup compatibility to mandatory database checks.
+- Hardened stage timeout handling to terminate entire test process groups, avoiding leaked
+  PHP servers or workers between integration runs. Independent network fixtures use bounded cleanup.
+- Integrated repeated-execution evidence into CI and the final certification gate.
+  Tests requiring real PostgreSQL/ClickHouse/S3 still need to pass in the CI environment;
+  `public-preview` remains in effect.
+
 ## 0.8.0 — Analytics & Storage release candidate
 
 - Fixed warm→hot recovery starvation: repeated small restore batches now skip rows already present in hot PostgreSQL before applying the batch limit.

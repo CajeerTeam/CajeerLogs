@@ -26,6 +26,8 @@ class LoadTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.server = ThreadingHTTPServer(('127.0.0.1', 0), fixture_mod.Fixture)
+        cls.server.daemon_threads = True
+        cls.server.block_on_close = False
         cls.worker = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.worker.start()
         cls.origin = f'http://127.0.0.1:{cls.server.server_port}'

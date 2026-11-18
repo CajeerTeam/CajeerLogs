@@ -32,8 +32,15 @@ def main():
     def sql(statement):
         subprocess.run(['psql','-X','-v','ON_ERROR_STOP=1','-c',statement],env=pg,check=True,timeout=30,stdout=subprocess.DEVNULL)
     with tempfile.TemporaryDirectory(prefix='cl-pipeline-') as tmp:
-        tree=Path(tmp)/'app'; archive=Path(tmp)/'release.zip'
-        build(ROOT,archive); verify(archive,tree)
+        tree=Path(tmp)/'app'
+        supplied=os.environ.get('CAJEER_TEST_RELEASE_ARCHIVE')
+        if os.environ.get('CAJEER_TEST_REQUIRE_ARCHIVE')=='1' and not supplied:
+            raise RuntimeError('Certification requires its exact release ZIP')
+        archive=Path(supplied).resolve() if supplied else Path(tmp)/'release.zip'
+        if not supplied: build(ROOT,archive)
+        verified=verify(archive,tree)
+        if verified['version']!=json.loads((ROOT/'release.json').read_text())['version']:
+            raise RuntimeError('Pipeline tested a different release version')
         with socket.socket() as sock: sock.bind(('127.0.0.1',0)); port=sock.getsockname()[1]
         url=f'http://127.0.0.1:{port}'; password=secrets.token_hex(24)
         env=dict(os.environ,APP_ENV='test',APP_URL=url,APP_DEBUG='false',DB_SCHEMA=schema,SECURITY_2FA_REQUIRED_FOR_ADMINS='false',SECURITY_TOTP_KEY=secrets.token_hex(32),CAJEER_ADMIN_EMAIL='pipeline@example.test',CAJEER_ADMIN_PASSWORD=password,INGEST_REQUIRE_HMAC='false',INGEST_MAX_EVENT_AGE_SECONDS='0',INGEST_MAX_EVENT_FUTURE_SECONDS='0',API_RATE_LIMIT_PER_MINUTE='600',CAJEER_WEBHOOK_PIPELINE=secrets.token_hex(32))

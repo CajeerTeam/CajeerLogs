@@ -107,7 +107,7 @@ class Fixture:
             if body['revision']!=row['revision']:return err(409,'role_changed')
             if method=='DELETE':self.rbac_roles.remove(row);return send(status=204)
             row.update(name=body['name'],permissions=body['permissions'],revision=row['revision']+1);return send(row)
-        if path=='/health': return send({'status':'ok','version':'0.8.0'})
+        if path=='/health': return send({'status':'ok','version':'0.8.1'})
         if path=='/auth/token':
             credential=self.connection_credentials.get(req.headers.get('authorization','').removeprefix('Bearer '))
             return send({'token':credential['row']}) if credential else err(401,'unauthorized')
@@ -372,7 +372,7 @@ def run():
         browser=browser_for(p); ctx=browser.new_context(accept_downloads=True); page=ctx.new_page(); page.set_default_timeout(8000)
         errors=[]; page.on('pageerror',lambda e: errors.append(str(e)))
         # Actual PHP router, not intercepted, even in offline browser mode.
-        status,headers,body=http(url+'/admin');assert status==200 and b'0.8.0' in body
+        status,headers,body=http(url+'/admin');assert status==200 and b'0.8.1' in body
         assert "script-src 'self'" in {k.lower():v for k,v in headers.items()}['content-security-policy']
         assert http(url+'/api/v1/auth/me')[0]==401
         assert http(url+'/admin/assets/panel.js')[0]==200

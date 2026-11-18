@@ -30,7 +30,7 @@ import urllib.parse
 import urllib.request
 import uuid
 
-VERSION = '0.8.0'
+VERSION = '0.8.1'
 MAX_RESPONSE = 4 * 1024 * 1024
 RETRYABLE = {429, 502, 503, 504}
 PHASES = ('sustained', 'stress', 'soak', 'fault')
