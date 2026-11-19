@@ -352,6 +352,7 @@ def main():
 REQUIRED.update({'core/Database/PostgresBoolean.php', 'tests/security_hardening.php', 'docs/Security-Review-Hardening-0.8.3.md'})
 
 REQUIRED.update({'scripts/supply_chain.py', 'tests/supply_chain.py', 'docs/Reproducible-Builds-Supply-Chain-0.8.4.md'})
+REQUIRED.update({'tests/migration_certification.php','tests/migration_scale_database.php','docs/Migration-Schema-Certification-0.8.5.md'})
 
 if __name__ == '__main__':
     main()

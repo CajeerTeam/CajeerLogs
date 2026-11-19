@@ -20,7 +20,7 @@ import time
 
 import release
 
-VERSION = '0.8.4'
+VERSION = '0.8.5'
 STAGES = (
     ('postgres-migration', ('php', 'tests/migration_engine_database.php')),
     ('rollup-reconciliation', ('php', 'tests/analytics_rollups_database.php')),
@@ -77,7 +77,7 @@ def runtime_probe(root: Path, env: dict) -> dict:
 def run(archive: Path, output: Path) -> bool:
     info = release.verify(archive)
     if info['version'] != VERSION:
-        raise ValueError('Expected release 0.8.4')
+        raise ValueError('Expected release 0.8.5')
     report = {
         'format': 1, 'scope': 'analytics-storage-e2e', 'version': VERSION,
         'archive_sha256': hashlib.sha256(archive.read_bytes()).hexdigest(),

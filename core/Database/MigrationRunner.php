@@ -22,6 +22,7 @@ final class MigrationRunner
         foreach ($paths as $path) {
             $name=basename($path);
             if (!preg_match('/^(\d{4})_[a-z0-9_]+\.sql$/D',$name,$m) || (int)$m[1]!==$expected++) throw new DatabaseException('Migration filenames must be sequential and unique.');
+            if (is_link($path) || !is_file($path) || !is_readable($path)) throw new DatabaseException('Unsafe migration file: '.$name);
             $sql=file_get_contents($path);
             if ($sql===false || trim($sql)==='') throw new DatabaseException('Unreadable or empty migration: '.$name);
             $files[$name]=['sql'=>$sql,'checksum'=>hash('sha256',$sql)]+MigrationSql::parse($sql);
@@ -80,7 +81,7 @@ final class MigrationRunner
             }
             if ($row['status']==='applied') throw new DatabaseException('Migration journal claims an unapplied migration: '.$name);
             if ($file && (!hash_equals($file['checksum'],$row['checksum']) || $file['mode']!==$row['mode'])) throw new DatabaseException('Pending migration journal mismatch: '.$name);
-            if (!$file && $row['mode']!=='transactional') throw new DatabaseException('Unfinished nontransactional migration is missing from this release: '.$name);
+            if (!$file) throw new DatabaseException('Unfinished migration is missing from this release: '.$name);
         }
     }
     /** Read-only consistent catalog/history snapshot, refuses to observe a partially applied migration. */

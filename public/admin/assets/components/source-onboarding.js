@@ -1,10 +1,10 @@
-import { state, active, render } from '../app/store.js?v=0.8.4';
-import { h, button, field, input, select, form, modal, modalEpoch, clearModal, message, copy, notify, enc } from './ui.js?v=0.8.4';
-import { request, get, apiPrefix } from '../api/client.js?v=0.8.4';
-import { testPayload, signedHeaders, receipt, pythonExample } from '../app/source-connection.js?v=0.8.4';
-import { nameFields, nameBody } from './mutations.js?v=0.8.4';
-import { navigate } from '../app/routes.js?v=0.8.4';
-import { detail } from './event-inspector.js?v=0.8.4';
+import { state, active, render } from '../app/store.js?v=0.8.5';
+import { h, button, field, input, select, form, modal, modalEpoch, clearModal, message, copy, notify, enc } from './ui.js?v=0.8.5';
+import { request, get, apiPrefix } from '../api/client.js?v=0.8.5';
+import { testPayload, signedHeaders, receipt, pythonExample } from '../app/source-connection.js?v=0.8.5';
+import { nameFields, nameBody } from './mutations.js?v=0.8.5';
+import { navigate } from '../app/routes.js?v=0.8.5';
+import { detail } from './event-inspector.js?v=0.8.5';
 
 export function openSourceLogs(project,source,extra={}) {
     if(state.project!==project) return;

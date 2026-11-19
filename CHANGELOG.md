@@ -1,3 +1,12 @@
+## 0.8.5 — Migration & Schema Certification
+
+- ClickHouse migrations reject unknown, duplicated, gapped and checksum-mismatched history before executing new DDL.
+- PostgreSQL runner rejects missing pending migration journal entries and migration-file symlinks.
+- Real PostgreSQL 100,000-row migration certification: concurrent index, checkpointed backfill, new-connection recovery, schema drift, checksum tamper, advisory-lock conflicts and transactional rollback.
+- Four-version PHP/PostgreSQL release gate requires the large-database test and its artifact-bound evidence.
+- Migration SQL history (PostgreSQL 0001–0033, ClickHouse 0001–0003) is unchanged.
+- Full PostgreSQL 17/18 and ClickHouse certification remains contingent on running real CI infrastructure.
+
 ## 0.8.4 — Reproducible Builds & Supply Chain
 
 - Изолированные двукратные сборки релизного ZIP с побайтовой сверкой.

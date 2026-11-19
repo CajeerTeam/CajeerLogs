@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CajeerLogs 0.8.4 release gate, including live load/fault smoke. Executes real tests on a verified distribution.
+"""CajeerLogs 0.8.5 release gate, including live load/fault smoke. Executes real tests on a verified distribution.
 
 Database: explicit disposable PostgreSQL credentials and two empty restore targets.
 Admin: real browser/PHP/PostgreSQL E2E on the exact archive.
@@ -24,15 +24,15 @@ import supply_chain
 from analytics_storage_certify import STAGES as ANALYTICS_STORAGE_STAGES
 from integration_stability import STAGES as STABILITY_STAGES
 
-VERSION = '0.8.4'
+VERSION = '0.8.5'
 DATABASE_TESTS = (
-    'database', 'migration_engine_database', 'transaction_database',
+    'database', 'migration_engine_database', 'migration_scale_database', 'transaction_database',
     'identity_database', 'identity_security_database', 'audit_database', 'rate_limit_database', 'rbac_database', 'ingest_database', 'delivery_database', 'hmac_database', 'redaction_database', 'search_database',
     'log_repository_database', 'error_analytics_database', 'analytics_rollups_database', 'webhook_database', 'webhook_subscriptions_database', 'export_jobs_database', 'queue_database', 'dead_letter_database','worker_microbatch_database', 'queue_backpressure_database','queue_fairness_database','queue_operations_database',
     'projects_database', 'sources_database', 'source_monitoring_database', 'tokens_database',
     'integrity_database', 'security_database',
 )
-STAGES = tuple(DATABASE_TESTS) + ('pipeline', 'pipeline-repeat', 'aapanel-integration', 'upgrade-0.1.0', 'upgrade-0.2.0', 'upgrade-0.2.9', 'upgrade-0.3.0', 'upgrade-0.3.2', 'upgrade-0.3.3', 'upgrade-0.3.4', 'upgrade-0.3.5', 'upgrade-0.3.6', 'upgrade-0.3.7', 'upgrade-0.3.8', 'upgrade-0.3.9', 'upgrade-0.4.0', 'upgrade-0.4.1', 'upgrade-0.4.2', 'upgrade-0.4.3','upgrade-0.4.4','upgrade-0.4.5', 'upgrade-0.4.6', 'upgrade-0.4.7','upgrade-0.4.8','upgrade-0.4.9','upgrade-0.4.10','upgrade-0.5.0','upgrade-0.5.1','upgrade-0.5.2','upgrade-0.5.3','upgrade-0.5.4','upgrade-0.5.5','upgrade-0.5.6','upgrade-0.5.7','upgrade-0.5.8','upgrade-0.5.9','upgrade-0.5.10','upgrade-0.6.0','upgrade-0.6.1','upgrade-0.6.2','upgrade-0.6.3','upgrade-0.6.4','upgrade-0.6.5','upgrade-0.6.6','upgrade-0.6.7','upgrade-0.6.8','upgrade-0.6.9','upgrade-0.7.9','upgrade-0.8.0','upgrade-0.8.1','upgrade-0.8.2','upgrade-0.8.3')
+STAGES = tuple(DATABASE_TESTS) + ('pipeline', 'pipeline-repeat', 'aapanel-integration', 'upgrade-0.1.0', 'upgrade-0.2.0', 'upgrade-0.2.9', 'upgrade-0.3.0', 'upgrade-0.3.2', 'upgrade-0.3.3', 'upgrade-0.3.4', 'upgrade-0.3.5', 'upgrade-0.3.6', 'upgrade-0.3.7', 'upgrade-0.3.8', 'upgrade-0.3.9', 'upgrade-0.4.0', 'upgrade-0.4.1', 'upgrade-0.4.2', 'upgrade-0.4.3','upgrade-0.4.4','upgrade-0.4.5', 'upgrade-0.4.6', 'upgrade-0.4.7','upgrade-0.4.8','upgrade-0.4.9','upgrade-0.4.10','upgrade-0.5.0','upgrade-0.5.1','upgrade-0.5.2','upgrade-0.5.3','upgrade-0.5.4','upgrade-0.5.5','upgrade-0.5.6','upgrade-0.5.7','upgrade-0.5.8','upgrade-0.5.9','upgrade-0.5.10','upgrade-0.6.0','upgrade-0.6.1','upgrade-0.6.2','upgrade-0.6.3','upgrade-0.6.4','upgrade-0.6.5','upgrade-0.6.6','upgrade-0.6.7','upgrade-0.6.8','upgrade-0.6.9','upgrade-0.7.9','upgrade-0.8.0','upgrade-0.8.1','upgrade-0.8.2','upgrade-0.8.3','upgrade-0.8.4')
 ADMIN_STAGES = ('release-runtime','http-runtime','health-monitoring','worker-runtime','worker-microbatch','throughput-planner','queue-backpressure','queue-fairness','queue-operations','retry-policy','monitoring-config','backup-operations', 'secure-installer', 'deployment-policy', 'deployment-tls', 'security-hardening', 'frontend-build', 'browser-ui-chromium', 'browser-db-chromium', 'browser-db-firefox', 'browser-db-webkit')
 MATRIX = {(php, pg) for php in ('8.4', '8.5') for pg in ('17', '18')}
 
@@ -40,7 +40,7 @@ MATRIX = {(php, pg) for php in ('8.4', '8.5') for pg in ('17', '18')}
 def archive_info(path):
     meta = release.verify(path)
     if meta['version'] != VERSION:
-        raise ValueError('Expected the 0.8.4 release archive')
+        raise ValueError('Expected the 0.8.5 release archive')
     return {'version': VERSION, 'archive_sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
 
 
@@ -133,15 +133,18 @@ def probe_runtime(root, env):
 
 def database(args, report):
     env = database_environment()
-    previous = {'0.1.0': args.from_010.resolve(), '0.2.0': args.from_020.resolve(), '0.2.9': args.from_029.resolve(), '0.3.0': args.from_030.resolve(), '0.3.2': args.from_032.resolve(), '0.3.3': args.from_033.resolve(), '0.3.4': args.from_034.resolve(), '0.3.5': args.from_035.resolve(), '0.3.6': args.from_036.resolve(), '0.3.7': args.from_037.resolve(), '0.3.8': args.from_038.resolve(), '0.3.9': args.from_039.resolve(), '0.4.0': args.from_040.resolve(), '0.4.1': args.from_041.resolve(), '0.4.2': args.from_042.resolve(), '0.4.3': args.from_043.resolve(), '0.4.4': args.from_044.resolve(), '0.4.5': args.from_045.resolve(), '0.4.6': args.from_046.resolve(), '0.4.7': args.from_047.resolve(),'0.4.8': args.from_048.resolve(),'0.4.9': args.from_049.resolve(),'0.4.10': args.from_0410.resolve(),'0.5.0': args.from_050.resolve(),'0.5.1': args.from_051.resolve(),'0.5.2': args.from_052.resolve(),'0.5.3': args.from_053.resolve(),'0.5.4': args.from_054.resolve(),'0.5.5': args.from_055.resolve(), '0.5.6': args.from_056.resolve(), '0.5.7': args.from_057.resolve(), '0.5.8': args.from_058.resolve(), '0.5.9': args.from_059.resolve(), '0.5.10': args.from_0510.resolve(), '0.6.0': args.from_060.resolve(), '0.6.1': args.from_061.resolve(), '0.6.2': args.from_062.resolve(), '0.6.3': args.from_063.resolve(), '0.6.4': args.from_064.resolve(), '0.6.5': args.from_065.resolve(), '0.6.6': args.from_066.resolve(), '0.6.7': args.from_067.resolve(), '0.6.8': args.from_068.resolve(), '0.6.9': args.from_069.resolve(), '0.7.9': args.from_079.resolve(), '0.8.0': args.from_080.resolve(), '0.8.1': args.from_081.resolve(), '0.8.2': args.from_082.resolve(), '0.8.3': args.from_083.resolve()}
+    previous = {'0.1.0': args.from_010.resolve(), '0.2.0': args.from_020.resolve(), '0.2.9': args.from_029.resolve(), '0.3.0': args.from_030.resolve(), '0.3.2': args.from_032.resolve(), '0.3.3': args.from_033.resolve(), '0.3.4': args.from_034.resolve(), '0.3.5': args.from_035.resolve(), '0.3.6': args.from_036.resolve(), '0.3.7': args.from_037.resolve(), '0.3.8': args.from_038.resolve(), '0.3.9': args.from_039.resolve(), '0.4.0': args.from_040.resolve(), '0.4.1': args.from_041.resolve(), '0.4.2': args.from_042.resolve(), '0.4.3': args.from_043.resolve(), '0.4.4': args.from_044.resolve(), '0.4.5': args.from_045.resolve(), '0.4.6': args.from_046.resolve(), '0.4.7': args.from_047.resolve(),'0.4.8': args.from_048.resolve(),'0.4.9': args.from_049.resolve(),'0.4.10': args.from_0410.resolve(),'0.5.0': args.from_050.resolve(),'0.5.1': args.from_051.resolve(),'0.5.2': args.from_052.resolve(),'0.5.3': args.from_053.resolve(),'0.5.4': args.from_054.resolve(),'0.5.5': args.from_055.resolve(), '0.5.6': args.from_056.resolve(), '0.5.7': args.from_057.resolve(), '0.5.8': args.from_058.resolve(), '0.5.9': args.from_059.resolve(), '0.5.10': args.from_0510.resolve(), '0.6.0': args.from_060.resolve(), '0.6.1': args.from_061.resolve(), '0.6.2': args.from_062.resolve(), '0.6.3': args.from_063.resolve(), '0.6.4': args.from_064.resolve(), '0.6.5': args.from_065.resolve(), '0.6.6': args.from_066.resolve(), '0.6.7': args.from_067.resolve(), '0.6.8': args.from_068.resolve(), '0.6.9': args.from_069.resolve(), '0.7.9': args.from_079.resolve(), '0.8.0': args.from_080.resolve(), '0.8.1': args.from_081.resolve(), '0.8.2': args.from_082.resolve(), '0.8.3': args.from_083.resolve(), '0.8.4': args.from_084.resolve()}
     for version,path in previous.items():
         if json.loads((path/'release.json').read_text())['version'] != version:
             raise ValueError(f'Expected actual source tree {version}')
     with tempfile.TemporaryDirectory(prefix='cl-core-certify-') as tmp:
         root = Path(tmp)/'app'; release.verify(args.archive,root)
         report.update(probe_runtime(root,env))
+        env['CAJEER_MIGRATION_CERT_REPORT']=str(Path(tmp)/'migration-scale.json')
+        env['CAJEER_MIGRATION_CERT_ARCHIVE_SHA256']=report['archive_sha256']
         for name in DATABASE_TESTS:
             run_stage(report,name,['php',f'tests/{name}.php'],root,env)
+        report['migration_scale']=json.loads(Path(env['CAJEER_MIGRATION_CERT_REPORT']).read_text())
         # The nested HTTP pipeline and upgrades MUST run the exact externally verified ZIP.
         # Fresh schemas per pass catch state leaks, duplicate ids and unsafe cleanup.
         env['CAJEER_TEST_RELEASE_ARCHIVE'] = str(args.archive.resolve())
@@ -166,6 +169,13 @@ def validate_matrix(reports, info):
             raise ValueError('Missing or failed mandatory database test')
         if not str(r.get('php','')).startswith(pair[0]+'.') or not str(r.get('postgres','')).startswith(pair[1]+'.'):
             raise ValueError('Database runtime version mismatch')
+        scale=r.get('migration_scale')
+        if (not isinstance(scale,dict) or scale.get('version') != VERSION
+            or scale.get('status') != 'passed' or scale.get('archive_sha256') != info['archive_sha256']
+            or scale.get('test_rows') != 100000 or scale.get('backfill_checksum') != '5000050000'
+            or not isinstance(scale.get('checks'),int) or scale['checks'] < 20
+            or not str(scale.get('postgresql_version','')).startswith(pair[1]+'.')):
+            raise ValueError('Missing or invalid large-database migration certification')
         seen.add(pair)
     if seen!=MATRIX:
         raise ValueError('All four PHP/PostgreSQL combinations are mandatory')
@@ -411,7 +421,7 @@ def final_release(args,report):
         root=Path(tmp)/'app'; release.verify(args.archive,root)
         # This stage operates on real isolated Docker/PG/TLS, then performs
         # all four long async workload phases. No fabricated or short smoke
-        # report can certify a stable 0.8.4 release.
+        # report can certify a stable 0.8.5 release.
         evidence_path=Path(tmp)/'throughput-certification.json'
         smoke_env=dict(os.environ,CAJEER_PERF_ARCHIVE_PATH=str(args.archive.resolve()),
                        CAJEER_PERF_REPORT_PATH=str(evidence_path))
@@ -424,7 +434,7 @@ def final_release(args,report):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     sub=p.add_subparsers(dest='command',required=True)
-    d=sub.add_parser('database'); d.add_argument('archive',type=Path); d.add_argument('--from-010',type=Path,required=True); d.add_argument('--from-020',type=Path,required=True); d.add_argument('--from-029',type=Path,required=True); d.add_argument('--from-030',type=Path,required=True); d.add_argument('--from-032',type=Path,required=True); d.add_argument('--from-033',type=Path,required=True); d.add_argument('--from-034',type=Path,required=True); d.add_argument('--from-035',type=Path,required=True); d.add_argument('--from-036',type=Path,required=True); d.add_argument('--from-037',type=Path,required=True); d.add_argument('--from-038',type=Path,required=True); d.add_argument('--from-039',type=Path,required=True); d.add_argument('--from-040',type=Path,required=True); d.add_argument('--from-041',type=Path,required=True); d.add_argument('--from-042',type=Path,required=True); d.add_argument('--from-043',type=Path,required=True); d.add_argument('--from-044',type=Path,required=True); d.add_argument('--from-045',type=Path,required=True); d.add_argument('--from-046',type=Path,required=True); d.add_argument('--from-047',type=Path,required=True); d.add_argument('--from-048',type=Path,required=True); d.add_argument('--from-049',type=Path,required=True); d.add_argument('--from-0410',type=Path,required=True); d.add_argument('--from-050',type=Path,required=True); d.add_argument('--from-051',type=Path,required=True); d.add_argument('--from-052',type=Path,required=True); d.add_argument('--from-053',type=Path,required=True); d.add_argument('--from-054',type=Path,required=True); d.add_argument('--from-055',type=Path,required=True); d.add_argument('--from-056',type=Path,required=True); d.add_argument('--from-057',type=Path,required=True); d.add_argument('--from-058',type=Path,required=True); d.add_argument('--from-059',type=Path,required=True); d.add_argument('--from-0510',type=Path,required=True); d.add_argument('--from-060',type=Path,required=True); d.add_argument('--from-061',type=Path,required=True); d.add_argument('--from-062',type=Path,required=True); d.add_argument('--from-063',type=Path,required=True); d.add_argument('--from-064',type=Path,required=True); d.add_argument('--from-065',type=Path,required=True); d.add_argument('--from-066',type=Path,required=True); d.add_argument('--from-067',type=Path,required=True); d.add_argument('--from-068',type=Path,required=True); d.add_argument('--from-069',type=Path,required=True); d.add_argument('--from-079',type=Path,required=True); d.add_argument('--from-080',type=Path,required=True); d.add_argument('--from-081',type=Path,required=True); d.add_argument('--from-082',type=Path,required=True); d.add_argument('--from-083',type=Path,required=True); d.add_argument('--output',type=Path,required=True)
+    d=sub.add_parser('database'); d.add_argument('archive',type=Path); d.add_argument('--from-010',type=Path,required=True); d.add_argument('--from-020',type=Path,required=True); d.add_argument('--from-029',type=Path,required=True); d.add_argument('--from-030',type=Path,required=True); d.add_argument('--from-032',type=Path,required=True); d.add_argument('--from-033',type=Path,required=True); d.add_argument('--from-034',type=Path,required=True); d.add_argument('--from-035',type=Path,required=True); d.add_argument('--from-036',type=Path,required=True); d.add_argument('--from-037',type=Path,required=True); d.add_argument('--from-038',type=Path,required=True); d.add_argument('--from-039',type=Path,required=True); d.add_argument('--from-040',type=Path,required=True); d.add_argument('--from-041',type=Path,required=True); d.add_argument('--from-042',type=Path,required=True); d.add_argument('--from-043',type=Path,required=True); d.add_argument('--from-044',type=Path,required=True); d.add_argument('--from-045',type=Path,required=True); d.add_argument('--from-046',type=Path,required=True); d.add_argument('--from-047',type=Path,required=True); d.add_argument('--from-048',type=Path,required=True); d.add_argument('--from-049',type=Path,required=True); d.add_argument('--from-0410',type=Path,required=True); d.add_argument('--from-050',type=Path,required=True); d.add_argument('--from-051',type=Path,required=True); d.add_argument('--from-052',type=Path,required=True); d.add_argument('--from-053',type=Path,required=True); d.add_argument('--from-054',type=Path,required=True); d.add_argument('--from-055',type=Path,required=True); d.add_argument('--from-056',type=Path,required=True); d.add_argument('--from-057',type=Path,required=True); d.add_argument('--from-058',type=Path,required=True); d.add_argument('--from-059',type=Path,required=True); d.add_argument('--from-0510',type=Path,required=True); d.add_argument('--from-060',type=Path,required=True); d.add_argument('--from-061',type=Path,required=True); d.add_argument('--from-062',type=Path,required=True); d.add_argument('--from-063',type=Path,required=True); d.add_argument('--from-064',type=Path,required=True); d.add_argument('--from-065',type=Path,required=True); d.add_argument('--from-066',type=Path,required=True); d.add_argument('--from-067',type=Path,required=True); d.add_argument('--from-068',type=Path,required=True); d.add_argument('--from-069',type=Path,required=True); d.add_argument('--from-079',type=Path,required=True); d.add_argument('--from-080',type=Path,required=True); d.add_argument('--from-081',type=Path,required=True); d.add_argument('--from-082',type=Path,required=True); d.add_argument('--from-083',type=Path,required=True); d.add_argument('--from-084',type=Path,required=True); d.add_argument('--output',type=Path,required=True)
     a=sub.add_parser('admin'); a.add_argument('archive',type=Path); a.add_argument('--output',type=Path,required=True)
     r=sub.add_parser('release'); r.add_argument('archive',type=Path); r.add_argument('--reports',type=Path,required=True); r.add_argument('--admin-report',type=Path,required=True); r.add_argument('--sdk-report',type=Path,required=True); r.add_argument('--analytics-storage-report',type=Path,required=True); r.add_argument('--integration-report',type=Path,required=True); r.add_argument('--supply-chain-report',type=Path,required=True); r.add_argument('--reproducibility-report',type=Path,required=True); r.add_argument('--output',type=Path,required=True)
     args=p.parse_args()
