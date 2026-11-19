@@ -112,6 +112,8 @@ REQUIRED.update({'core/Log/ErrorAnalytics.php','migrations/pgsql/0031_error_anal
 
 REQUIRED.add('docs/Analytics-Storage-Stable-0.8.0.md')
 REQUIRED.add('tests/archive_restore_paging.php')
+REQUIRED.update({'scripts/failure_recovery.py','tests/failure_recovery.py',
+                 'tests/component_recovery_database.php','docs/Full-E2E-Failure-Recovery-0.8.2.md'})
 
 REQUIRED.update({'scripts/analytics_storage_certify.py','tests/analytics_storage_database.php','tests/analytics_storage_load_database.php','tests/s3_storage_faults.php',
                  'docs/Analytics-Storage-Certification-0.7.9.md'})

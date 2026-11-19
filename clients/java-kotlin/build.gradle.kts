@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "ru.cajeer.logs"
-version = "0.8.1"
+version = "0.8.2"
 
 repositories { mavenCentral() }
 kotlin {

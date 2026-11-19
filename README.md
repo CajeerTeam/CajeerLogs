@@ -1,4 +1,4 @@
-**0.8.1 — Integration Test Stabilization.** Реальные интеграционные HTTP-сценарии из неизменяемого релизного ZIP запускаются повторно в изолированных окружениях; тесты обновлений и сквозного pipeline теперь используют тот же архив. [Тестирование и приёмка 0.8.1](docs/Integration-Test-Stabilization-0.8.1.md). Канал остаётся `public-preview` до прохождения полного PostgreSQL/ClickHouse/S3, SDK, браузерного и нагрузочного CI.
+**0.8.2 — Integration Test Stabilization.** Реальные интеграционные HTTP-сценарии из неизменяемого релизного ZIP запускаются повторно в изолированных окружениях; тесты обновлений и сквозного pipeline теперь используют тот же архив. [Тестирование и приёмка 0.8.2](docs/Integration-Test-Stabilization-0.8.2.md). Канал остаётся `public-preview` до прохождения полного PostgreSQL/ClickHouse/S3, SDK, браузерного и нагрузочного CI.
 
 ## Analytics & Storage Certification (0.8.0)
 

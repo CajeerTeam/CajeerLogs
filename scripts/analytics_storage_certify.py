@@ -20,11 +20,12 @@ import time
 
 import release
 
-VERSION = '0.8.1'
+VERSION = '0.8.2'
 STAGES = (
     ('postgres-migration', ('php', 'tests/migration_engine_database.php')),
     ('rollup-reconciliation', ('php', 'tests/analytics_rollups_database.php')),
     ('replication-replay', ('php', 'tests/analytics_replication_database.php')),
+    ('service-stop-and-recovery', (sys.executable, 'scripts/failure_recovery.py')),
     ('storage-fault-recovery', (sys.executable, 'tests/s3_storage.py')),
 )
 
@@ -76,7 +77,7 @@ def runtime_probe(root: Path, env: dict) -> dict:
 def run(archive: Path, output: Path) -> bool:
     info = release.verify(archive)
     if info['version'] != VERSION:
-        raise ValueError('Expected release 0.8.1')
+        raise ValueError('Expected release 0.8.2')
     report = {
         'format': 1, 'scope': 'analytics-storage-e2e', 'version': VERSION,
         'archive_sha256': hashlib.sha256(archive.read_bytes()).hexdigest(),
@@ -105,6 +106,12 @@ def run(archive: Path, output: Path) -> bool:
                     stage['exit_code'] = process.returncode
                     lines = process.stdout.splitlines()
                     stage['checks'] = sum(line.startswith('PASS ') for line in lines)
+                    if name == 'service-stop-and-recovery':
+                        records = [json.loads(line[len('RECOVERY_JSON:'):])
+                                   for line in lines if line.startswith('RECOVERY_JSON:')]
+                        if len(records) != 1 or stage['checks'] < 12:
+                            raise RuntimeError('Missing real service stop/start and recovery checks')
+                        stage['recovery'] = records[0]
                     if name == 'storage-fault-recovery':
                         metrics = [json.loads(line[len('PERFORMANCE_JSON:'):])
                                    for line in lines if line.startswith('PERFORMANCE_JSON:')]

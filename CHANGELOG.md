@@ -1,3 +1,11 @@
+## 0.8.2 — Full E2E & Failure Recovery (public-preview)
+
+- Added executable stop/start recovery against **real disposable PostgreSQL 17 and ClickHouse 25.8** service containers, requiring explicit CI service IDs, image verification and opt-in. A stopped service is restarted in a finally block.
+- Added independent PHP-process recovery of an abandoned replication lease, pending outbox retries, idempotent replay, cross-project isolation, rollup reconciliation, and versioned update/delete after a PostgreSQL restart.
+- Made stopped-service E2E evidence mandatory for analytics/storage certification; reports are verified against the exact release ZIP SHA-256. No mock or closed-port substitution counts as proof of service restart.
+- Extended supported database upgrade certification to the actual 0.8.1 source baseline; no new SQL migrations or API breaking changes.
+- The channel remains public-preview until GitHub CI and target-environment PostgreSQL/ClickHouse/S3, browser and load acceptance complete.
+
 ## 0.8.1 — Integration Test Stabilization (public-preview)
 
 - Added the executable, SHA-256-bound integration stability runner. It verifies and extracts the
