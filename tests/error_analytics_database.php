@@ -38,7 +38,7 @@ try {
     checkError(count($shared)===1 && $shared[0]['previous_count']===1 && $shared[0]['classification']==='regressed','numeric and IP identifiers collapse into stable fingerprint');
     checkError($report['groups'][1]['classification']==='new'||$report['groups'][0]['classification']==='new','new groups detected');
     $sig=$shared[0]['fingerprint'];
-    $q2=LogQuery::parse($filters+['error_fingerprint'=>$sig],'list');
+    $q2=LogQuery::parse(array_diff_key($filters,['interval'=>true])+['error_fingerprint'=>$sig],'list');
     checkError(count($repo->page($q2)['items'])===2,'fingerprint drilldown includes only matching events');
     checkError(count($repo->page($q2->scoped($b))['items'])===0,'source-bound drilldown enforces isolation');
     $rOther=$errors->report(LogQuery::parse(['project_id'=>$other,'from'=>$filters['from'],'to'=>$filters['to']],'errors'));
