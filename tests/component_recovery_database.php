@@ -14,7 +14,7 @@ if (getenv('APP_ENV') !== 'test' || getenv('CAJEER_TEST_DATABASE') !== '1'
 }
 $phase=$argv[1]??''; $file=$argv[2]??'';
 if (!in_array($phase,['seed','outage','recover','verify','cleanup'],true) || $file==='') exit(64);
-$adminApp=new Application(dirname(__DIR__));$adminApp->boot();
+$adminApp=require dirname(__DIR__).'/core/bootstrap.php';$adminApp->boot();
 $admin=$adminApp->container()->get(PDO::class);
 $state=[];
 if ($phase!=='seed') {
