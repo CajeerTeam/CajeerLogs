@@ -1,3 +1,9 @@
+## 0.8.6 — Upgrade & Rollback Certification
+
+- Certify old-version installation, live upgrade, PostgreSQL backup restoration and rollback of the original binary plus pre-upgrade database in a separate disposable database.
+- Gate release on the verified 0.8.5 → 0.8.6 transition as well as retained historical upgrade paths.
+- Preserve the production database; do not perform in-place schema downgrades or publish unsafe rollbacks.
+
 ## 0.8.5 — Migration & Schema Certification
 
 - ClickHouse migrations reject unknown, duplicated, gapped and checksum-mismatched history before executing new DDL.
