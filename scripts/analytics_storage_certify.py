@@ -74,6 +74,17 @@ def runtime_probe(root: Path, env: dict) -> dict:
     return {'php': data['php'], 'postgres': str(data['postgres']), 'clickhouse': data['clickhouse']}
 
 
+def safe_diagnostic(value: str, env: dict) -> str:
+    """Report test failures without copying credentials into CI logs/evidence."""
+    for key in ('DB_PASSWORD', 'DB_MIGRATION_PASSWORD', 'CLICKHOUSE_PASSWORD',
+                'PGPASSWORD', 'AWS_SECRET_ACCESS_KEY', 'CAJEER_SECRET_KEY',
+                'APP_KEY', 'JWT_SECRET'):
+        secret = env.get(key, '')
+        if secret and len(secret) >= 3:
+            value = value.replace(secret, '[REDACTED]')
+    return value[-2500:]
+
+
 def run(archive: Path, output: Path) -> bool:
     info = release.verify(archive)
     if info['version'] != VERSION:
@@ -119,7 +130,10 @@ def run(archive: Path, output: Path) -> bool:
                             raise RuntimeError('Missing measured analytics/storage workload')
                         stage['performance'] = metrics[0]
                     if process.returncode != 0 or stage['checks'] == 0:
-                        raise RuntimeError('Failed analytics/storage stage: ' + name)
+                        stage['diagnostic'] = safe_diagnostic(
+                            (process.stdout or '') + '\n' + (process.stderr or ''), env)
+                        raise RuntimeError('Failed analytics/storage stage: ' + name
+                                           + ' (exit=' + str(process.returncode) + ')')
                     stage['status'] = 'passed'
                     print(f'PASS {name}: {stage["checks"]} real checks', flush=True)
                 finally:
@@ -127,7 +141,11 @@ def run(archive: Path, output: Path) -> bool:
             report['status'] = 'passed'
     except (Exception, KeyboardInterrupt) as exc:
         report['error_type'] = type(exc).__name__
-        print('Analytics/storage certification failed: ' + type(exc).__name__, file=sys.stderr)
+        report['error_message'] = safe_diagnostic(str(exc), env if 'env' in locals() else {})
+        print('Analytics/storage certification failed: ' + report['error_message'], file=sys.stderr)
+        for stage in report['stages']:
+            if stage['status'] == 'failed' and stage.get('diagnostic'):
+                print(stage['diagnostic'], file=sys.stderr)
     finally:
         atomic_json(output, report)
     return report['status'] == 'passed'
