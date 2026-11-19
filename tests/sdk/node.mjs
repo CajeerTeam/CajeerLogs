@@ -8,7 +8,7 @@ if (!(await c.sendBody(JSON.stringify(event),'ts-lost')).replayed) throw new Err
 try { await c.ingest([event,event],'ts-duplicate'); throw new Error('Duplicate receipt accepted') } catch(e) { if(!(e instanceof DeliveryError)) throw e }
 for (const [key,status] of [['ts-denied',401],['ts-redirect',307],['ts-malformed',201]]) {
   try { await c.ingest(event,key); throw new Error('Expected failure') }
-  catch(e) { if(!(e instanceof DeliveryError) || e.status !== status) throw e }
+  catch(e) { if(!(e instanceof DeliveryError) || e.status !== status || (status === 401 && (e.apiError !== 'unauthorized' || e.requestId !== 'a'.repeat(32)))) throw e }
 }
 for (const bad of [{timestamp:'2026-02-30T00:00:00Z'},{message:123},{context:null},{tags:[null]},{source:'APP'},{message:'bad\x1b'},{context:{n:NaN}},{message:'\uD800'}]) {
   let rejected=false

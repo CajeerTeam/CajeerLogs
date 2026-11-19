@@ -20,6 +20,29 @@ from datetime import datetime, timezone
 from typing import Any
 
 
+def _api_error_from_http(exc: urllib.error.HTTPError) -> None:
+    """Attach safe server error metadata without changing HTTPError compatibility.
+
+    Never expose a server-supplied message, details, or unbounded response body.
+    """
+    exc.api_error = None
+    exc.request_id = None
+    try:
+        if 'application/json' not in exc.headers.get('Content-Type', '').lower():
+            return
+        raw = exc.read(65537)
+        if len(raw) > 65536:
+            return
+        body = json.loads(raw)
+        code, request_id = body.get('error'), body.get('request_id')
+        if (isinstance(code, str) and re.fullmatch(r'[a-z][a-z0-9_]{0,127}', code)
+                and isinstance(request_id, str) and re.fullmatch(r'[a-f0-9]{32}', request_id)):
+            exc.api_error = code
+            exc.request_id = request_id
+    except (ValueError, TypeError, OSError, AttributeError):
+        pass
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
@@ -253,6 +276,7 @@ class CajeerLogsClient:
             except urllib.error.HTTPError as exc:
                 status = exc.code
                 retry_after = exc.headers.get("Retry-After", "")
+                _api_error_from_http(exc)
                 exc.close()
                 if status not in (408, 429, 500, 502, 503, 504):
                     raise exc
@@ -278,11 +302,15 @@ class CajeerLogsClient:
         url = f"{self.base_url.rstrip('/')}{self.api_prefix}/ingest/jobs/{job_id}"
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect(), urllib.request.HTTPSHandler(context=ssl.create_default_context(cafile=self.ca_file)))
         request = urllib.request.Request(url, headers={"Authorization": f"Bearer {self.token}"}, method="GET")
-        with opener.open(request, timeout=self.timeout) as response:
-            if response.status != 200: raise ValueError("Unexpected job response")
-            raw = response.read(65537)
-            if len(raw) > 65536: raise ValueError("Oversized job response")
-            return validate_job_status(json.loads(raw), job_id, expected_count)
+        try:
+            with opener.open(request, timeout=self.timeout) as response:
+                if response.status != 200: raise ValueError("Unexpected job response")
+                raw = response.read(65537)
+                if len(raw) > 65536: raise ValueError("Oversized job response")
+                return validate_job_status(json.loads(raw), job_id, expected_count)
+        except urllib.error.HTTPError as exc:
+            _api_error_from_http(exc)
+            raise
 
     def wait_for_job(self, receipt: dict[str, Any], *, timeout: float = 30, poll_interval: float = 0.5) -> dict[str, Any]:
         """Confirm committed event IDs. On timeout keep the receipt and retry polling later."""

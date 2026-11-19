@@ -1,3 +1,11 @@
+## 0.9.2 — Stable API v1 (2026-11-19)
+
+- Pinned the unchanged 0.9.1 OpenAPI v1 surface as a SHA-256 protected compatibility baseline. Every shipped operation, parameter, request body, response and error is compared with the previous contract.
+- Execute the real PHP Router for all 122 operations and exercise OPTIONS/Allow, 400/404/405/422/500/503, JSON error envelopes and request ID propagation, without requiring database access.
+- Harden cross-SDK error handling without changing successful ingest wire formats, HMAC signatures, idempotency or retry semantics: safe server `error` code and `request_id` available in PHP/TypeScript delivery exceptions and on Python `HTTPError`.
+- CI and release ZIP verification reject incompatible API changes, missing runtime routes, mismatched published OpenAPI copies and broken SDK wire behavior. Historical PostgreSQL upgrade/rollback from 0.9.1 is included in the release matrix.
+- No PostgreSQL migrations and no breaking /api/v1 changes; production acceptance still requires locked dependencies and full integration CI.
+
 ## 0.9.1 — Release Baseline & Supply Chain (2026-11-19)
 
 - Pinned PHP-FPM and Nginx OCI base index digests; pinned PostgreSQL and ClickHouse production Compose images to published digests.

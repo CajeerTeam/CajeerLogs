@@ -16,7 +16,7 @@ import tomllib
 
 import release
 
-VERSION = '0.9.1'
+VERSION = '0.9.2'
 
 
 class InvalidRelease(ValueError):
@@ -39,6 +39,8 @@ def identity(root: Path) -> dict:
     require(info.get('name') == 'CajeerLogs' and info.get('version') == VERSION,
             'Release metadata identity mismatch')
     require(info.get('channel') == 'stable', 'Release is not marked stable')
+    require(obj('api/openapi.yaml')['info']['version'] == VERSION and load('api/openapi.yaml') == load('openapi.yaml'),
+            'Published API v1 version or source mismatch')
     require(obj('admin/package.json').get('version') == VERSION, 'Admin package version mismatch')
     require(obj('packages/ts-sdk/package.json').get('version') == VERSION, 'TypeScript SDK version mismatch')
     require(obj('packages/php-sdk/composer.json').get('version') == VERSION, 'PHP SDK version mismatch')
@@ -70,7 +72,7 @@ def identity(root: Path) -> dict:
                 'Production image tag mismatch: ' + image)
     require('cajeerlogs:0.7.5' not in compose and 'cajeerlogs-gateway:0.7.5' not in compose,
             'Legacy production image tag')
-    for setting in ("APP_ENV: production", "CAJEER_RELEASE_VERSION: '0.9.1'", "APP_DEBUG: 'false'", "read_only: true", "no-new-privileges:true",
+    for setting in ("APP_ENV: production", "CAJEER_RELEASE_VERSION: '0.9.2'", "APP_DEBUG: 'false'", "read_only: true", "no-new-privileges:true",
                     "SECURITY_2FA_REQUIRED_FOR_ADMINS: 'true'", "PROMETHEUS_TOKEN: ${PROMETHEUS_TOKEN:?Set PROMETHEUS_TOKEN}"):
         require(setting in compose, 'Missing production security control: ' + setting)
     docker = load('deploy/production/Dockerfile')
@@ -86,6 +88,9 @@ def verify(archive: Path) -> dict:
         root = Path(temp) / 'extracted'
         meta = release.verify(archive, root)
         require(meta.get('version') == VERSION, 'Archive manifest version mismatch')
+        checked = subprocess.run([sys.executable, 'scripts/api_contract.py', '--root', str(root)],
+                                 cwd=root, capture_output=True, text=True, timeout=90)
+        require(checked.returncode == 0, 'Published API v1 contract failed: ' + checked.stderr[-1200:])
         return identity(root)
 
 

@@ -57,7 +57,7 @@ class Handler(BaseHTTPRequestHandler):
             elif key.endswith('-malformed'): status=201
             elif collector_fail: status=503
             else: status=201
-            body=json.dumps({'accepted':True,'received':n,'stored':0 if status==200 else n,'rejected':0,'event_ids':[f'00000000-0000-4000-8000-{i+1:012x}' for i in range(n)] if not key.endswith('-duplicate') else ['00000000-0000-4000-8000-000000000001']*n,'replayed':status==200}).encode() if status in (200,201) and not key.endswith('-malformed') else b'{}'
+            body=json.dumps({'accepted':True,'received':n,'stored':0 if status==200 else n,'rejected':0,'event_ids':[f'00000000-0000-4000-8000-{i+1:012x}' for i in range(n)] if not key.endswith('-duplicate') else ['00000000-0000-4000-8000-000000000001']*n,'replayed':status==200}).encode() if status in (200,201) and not key.endswith('-malformed') else (json.dumps({'error':'unauthorized','message':'Authentication required.','request_id':'a'*32}).encode() if status==401 else b'{}')
             self.send_response(status)
             if status==307: self.send_header('Location','/capture')
             if status==503: self.send_header('Retry-After','0')
@@ -86,7 +86,7 @@ try:
     except DeliveryError: check(True,'Python rejects false 201 receipt')
     for key,status in [('python-denied',401),('python-redirect',307)]:
         try: client.ingest(event,idempotency_key=key); raise AssertionError('expected error')
-        except urllib.error.HTTPError as e: check(e.code==status,'Python rejects '+str(status))
+        except urllib.error.HTTPError as e: check(e.code==status and (status!=401 or (e.api_error=='unauthorized' and e.request_id=='a'*32)), 'Python rejects '+str(status)+' with safe structured error')
     for bad in ({'timestamp':'2026-02-30T00:00:00Z'},{'message':123},{'context':None},{'tags':[None]},{'source':'APP'},{'message':'bad\x1b'},{'context':{'n':float('nan')}}):
         try: client.ingest(event|bad,idempotency_key='python-invalid'); raise AssertionError('Invalid event accepted')
         except ValueError: pass

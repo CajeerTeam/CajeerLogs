@@ -10,7 +10,8 @@ export interface ClientOptions {
   allowInsecureHttp?: boolean
 }
 export class DeliveryError extends Error {
-  constructor(public readonly status: number | null, public readonly idempotencyKey: string) {
+  constructor(public readonly status: number | null, public readonly idempotencyKey: string,
+              public readonly apiError: string | null = null, public readonly requestId: string | null = null) {
     super(`CajeerLogs delivery failed (HTTP ${status ?? 'unknown'}); retry with the same body and key`)
   }
 }
@@ -153,6 +154,7 @@ export class CajeerLogsClient {
         Object.assign(headers, { 'X-Log-Timestamp': timestamp, 'X-Log-Nonce': nonce, 'X-Log-Signature': hex(await crypto.subtle.sign('HMAC', key, encoder.encode(canonical))) })
       }
       let status: number | null = null, wait = 250 * 2 ** attempt
+      let apiError: string | null = null, requestId: string | null = null
       const controller = new AbortController()
       const abort = () => controller.abort(signal?.reason)
       signal?.addEventListener('abort', abort, { once: true })
@@ -170,10 +172,18 @@ export class CajeerLogsClient {
           } else {
             if (r && r.accepted === true && r.received === count && r.stored === (status === 200 ? 0 : count) && r.rejected === 0 && r.replayed === (status === 200) && Array.isArray(r.event_ids) && r.event_ids.length === count && r.event_ids.every(id => typeof id === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(id)) && new Set(r.event_ids).size === count) return r as unknown as IngestReceipt
           }
+        } else if (status >= 400) {
+          try {
+            const value = await this.readBoundedJson(response)
+            if (object(value) && typeof value.error === 'string' && /^[a-z][a-z0-9_]{0,127}$/.test(value.error)
+                && typeof value.request_id === 'string' && /^[a-f0-9]{32}$/.test(value.request_id)) {
+              apiError = value.error; requestId = value.request_id
+            }
+          } catch { /* Untrusted/oversized error body; status remains authoritative. */ }
         } else { await response.body?.cancel() }
       } catch { /* network error or invalid receipt: retry SAME body, key, new HMAC nonce */ } finally { clearTimeout(timer); signal?.removeEventListener('abort', abort) }
       if (signal?.aborted) throw signal.reason
-      if (attempt + 1 === this.attempts || wait > 30000 || (status !== null && ![200,201,202,408,429,500,502,503,504].includes(status))) throw new DeliveryError(status, idempotencyKey)
+      if (attempt + 1 === this.attempts || wait > 30000 || (status !== null && ![200,201,202,408,429,500,502,503,504].includes(status))) throw new DeliveryError(status, idempotencyKey, apiError, requestId)
       await delay(wait + Math.floor(Math.random() * 100), signal)
     }
     throw new Error('Unreachable')

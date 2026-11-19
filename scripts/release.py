@@ -212,6 +212,8 @@ REQUIRED.update({
 
 REQUIRED.update({'scripts/dependency_locks.py', 'tests/dependency_locks.py',
                  'docs/Release-Baseline-Supply-Chain-0.9.1.md'})
+REQUIRED.update({'api/v1-baseline-0.9.1.json.gz', 'scripts/api_contract.py', 'tests/api_contract.py',
+                 'tests/api_router_contract.php', 'docs/API-v1-Compatibility-0.9.2.md'})
 
 def digest(data):
     return hashlib.sha256(data).hexdigest()
@@ -227,7 +229,7 @@ def allowed(name):
         return name in {'storage/.gitkeep', *(f'storage/{d}/.gitkeep' for d in ('app','archives','backups','cache','database','logs','tmp'))}
     if p.parts[0] not in DIRS or any(x in BLOCKED or x.endswith('.egg-info') or x.startswith('.') for x in p.parts[1:] if x not in ('.gitkeep', '.htaccess')):
         return False
-    return p.suffix in SUFFIXES or p.name in {'Dockerfile', 'cajeer', '.gitkeep', '.htaccess', 'LICENSE', 'NOTICE'}
+    return name == 'api/v1-baseline-0.9.1.json.gz' or p.suffix in SUFFIXES or p.name in {'Dockerfile', 'cajeer', '.gitkeep', '.htaccess', 'LICENSE', 'NOTICE'}
 
 
 def source_files(root):

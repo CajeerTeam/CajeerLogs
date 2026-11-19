@@ -115,7 +115,7 @@ final class CajeerLogsClient
                 array_push($headers,'X-Log-Timestamp: '.$ts,'X-Log-Nonce: '.$nonce,'X-Log-Signature: '.hash_hmac('sha256',$canonical,$this->signingSecret??$this->token));
             }
             $ctx=stream_context_create(['http'=>['method'=>'POST','header'=>implode("\r\n",$headers),'content'=>$body,'timeout'=>$this->timeout,'ignore_errors'=>true,'follow_location'=>0,'max_redirects'=>0], 'ssl'=>['verify_peer'=>true,'verify_peer_name'=>true,'allow_self_signed'=>false]]);
-            $status=null; $wait=0.25*2**$i;
+            $status=null; $wait=0.25*2**$i; $apiError=null; $requestId=null;
             $stream=@fopen($url,'rb',false,$ctx);
             if ($stream!==false) {
                 try {
@@ -125,6 +125,13 @@ final class CajeerLogsClient
                         if (preg_match('~^Retry-After:\s*(\d+)\s*$~i',$header,$m)) { $wait=max($wait,(float)$m[1]); }
                     }
                     $raw=stream_get_contents($stream,65537);
+                    if ($status!==null && $status>=400 && is_string($raw) && strlen($raw)<=65536) {
+                        $error=json_decode($raw,true,32);
+                        if (is_array($error) && is_string($error['error']??null) && preg_match('/^[a-z][a-z0-9_]{0,127}$/D',$error['error'])
+                            && is_string($error['request_id']??null) && preg_match('/^[a-f0-9]{32}$/D',$error['request_id'])) {
+                            $apiError=$error['error']; $requestId=$error['request_id'];
+                        }
+                    }
                     if (in_array($status,$async?[200,202]:[200,201],true) && is_string($raw) && strlen($raw)<=65536) {
                         $r=json_decode($raw,true);
                         if ($async && is_array($r) && ($r['accepted']??null)===true && ($r['received']??null)===count($events)
@@ -135,7 +142,7 @@ final class CajeerLogsClient
                     }
                 } finally { fclose($stream); }
             }
-            if ($i+1===$this->attempts || $wait>30 || ($status!==null && !in_array($status,[200,201,408,429,500,502,503,504],true))) { throw new DeliveryException($status,$key); }
+            if ($i+1===$this->attempts || $wait>30 || ($status!==null && !in_array($status,[200,201,408,429,500,502,503,504],true))) { throw new DeliveryException($status,$key,$apiError,$requestId); }
             usleep((int)($wait*1000000)+random_int(0,100000));
         }
         throw new \LogicException('Unreachable');
