@@ -151,6 +151,34 @@ class LoadTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             load_test.validate_args(args)
 
+    def test_certification_refuses_weakened_slos_and_tiny_loads(self):
+        args = self.args()
+        args.url = 'https://example.test'
+        args.certify = True
+        args.archive = 'verified-at-execution.zip'
+        args.rate = 4
+        args.read_rps = 1
+        args.batch = 20
+        args.concurrency = 12
+        args.max_requests = 10000
+        args.async_percent = 100
+        args.sustained_seconds, args.stress_seconds = 60, 120
+        args.soak_seconds, args.fault_seconds = 900, 60
+        args.p95_ms, args.fault_p95_ms = 5000, 8000
+        args.min_rate_ratio = .85
+        args.max_error_rate = args.fault_error_rate = .01
+        load_test.validate_args(args)
+        for attr, value in (('rate', 1), ('read_rps', .1), ('batch', 2),
+                            ('concurrency', 2), ('p95_ms', 1000000),
+                            ('fault_p95_ms', 9000), ('min_rate_ratio', .5),
+                            ('max_error_rate', .1), ('fault_error_rate', .1),
+                            ('max_requests', 500)):
+            saved = getattr(args, attr)
+            setattr(args, attr, value)
+            with self.subTest(attr=attr), self.assertRaisesRegex(ValueError, 'weaken'):
+                load_test.validate_args(args)
+            setattr(args, attr, saved)
+
     def test_redirect_is_not_followed_with_token(self):
         self.assertIsNone(load_test.NoRedirect().redirect_request(None, None, 307, '', {}, 'https://elsewhere.invalid'))
 

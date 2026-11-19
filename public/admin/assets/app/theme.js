@@ -1,4 +1,4 @@
-import { button, select } from '../components/ui.js?v=0.8.7';
+import { button, select } from '../components/ui.js?v=0.8.9';
 
 const key = 'cajeer-theme';
 let preference = 'system';

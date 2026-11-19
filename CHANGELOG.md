@@ -1,3 +1,12 @@
+## 0.8.9 — Final Release Acceptance
+
+- Independent executable security acceptance of the verified release ZIP, with isolated credentials, test assertions, bounded execution and SHA-256-bound evidence.
+- Fail-closed release certification now requires the complete security evidence in addition to the four PHP/PostgreSQL database combinations, browser, SDK, integration stability, recovery and long-duration live queue performance.
+- Enforce the actual 0.8.8 → 0.8.9 upgrade/rollback rehearsal in the PostgreSQL matrix; preserve history and compatibility.
+- Wire the security CI job and artifact into the public release dependency chain; no certified artifact if any mandatory stage fails.
+- Harden the live `--certify` path against weakened load/latency/error SLOs and cross-check measured demand, latency and error data in the final gate.
+- Fix stale 0.8.7 cache-busting import versions across 33 Admin Panel assets; verify the entire 43-asset dependency graph.
+
 ## 0.8.8 — Documentation & Operations Readiness
 
 - Added real read-only incident triage from operational checks, conservative fail-closed classification and scenario-linked runbooks.

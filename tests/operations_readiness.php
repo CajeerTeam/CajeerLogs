@@ -17,7 +17,7 @@ function rejected(callable $callback): bool {
     return false;
 }
 $time = '2026-11-19T10:00:00Z';
-$source = ['version'=>'0.8.8','checks'=>[
+$source = ['version'=>'0.8.9','checks'=>[
     'runtime'=>true, 'database_readiness'=>false, 'queue_accounting'=>false,
     'worker_queue'=>false, 'restore_rehearsal_fresh'=>false, 'storage_headroom'=>true],
     'skipped'=>['retention_progress','backup_archive_verified','retention_progress']];
@@ -28,14 +28,14 @@ check($report['critical'][0]['runbook']==='docs/runbooks/database-outage.md', 'd
 check($report['warnings'][0]['runbook']==='docs/runbooks/queue-backlog.md', 'stale worker has queue runbook');
 check(count($report['skipped'])===2 && $report['skipped'][1]==='retention_progress', 'skipped checks are deduplicated and not passed');
 check(!str_contains(json_encode($report, JSON_THROW_ON_ERROR), 'backup_id'), 'raw input and backup identities not exposed');
-$degraded = IncidentTriage::classify(['version'=>'0.8.8', 'checks'=>['runtime'=>true, 'worker_queue'=>false]], $time);
+$degraded = IncidentTriage::classify(['version'=>'0.8.9', 'checks'=>['runtime'=>true, 'worker_queue'=>false]], $time);
 check($degraded['status']==='degraded' && IncidentTriage::exitCode($degraded)===1, 'worker failure is degraded');
-$ok = IncidentTriage::classify(['version'=>'0.8.8', 'checks'=>['runtime'=>true], 'skipped'=>['backup_archive_verified']], $time);
+$ok = IncidentTriage::classify(['version'=>'0.8.9', 'checks'=>['runtime'=>true], 'skipped'=>['backup_archive_verified']], $time);
 check($ok['status']==='ok' && IncidentTriage::exitCode($ok)===0 && $ok['skipped']===['backup_archive_verified'], 'unchecked backup stays explicitly skipped');
-$unknown = IncidentTriage::classify(['version'=>'0.8.8','checks'=>['unknown_future_guard'=>false]], $time);
+$unknown = IncidentTriage::classify(['version'=>'0.8.9','checks'=>['unknown_future_guard'=>false]], $time);
 check($unknown['status']==='critical' && $unknown['critical'][0]['check']==='unknown_future_guard', 'unknown future failures fail closed');
-check(rejected(fn()=>IncidentTriage::classify(['version'=>'0.8.8','checks'=>['runtime'=>'false']],$time)), 'non-boolean check cannot spoof success');
-check(rejected(fn()=>IncidentTriage::classify(['version'=>'0.8.8','checks'=>['runtime'=>true]],'invalid')), 'invalid evidence clock rejected');
+check(rejected(fn()=>IncidentTriage::classify(['version'=>'0.8.9','checks'=>['runtime'=>'false']],$time)), 'non-boolean check cannot spoof success');
+check(rejected(fn()=>IncidentTriage::classify(['version'=>'0.8.9','checks'=>['runtime'=>true]],'invalid')), 'invalid evidence clock rejected');
 $base = sys_get_temp_dir() . '/cajeer-incident-' . bin2hex(random_bytes(8));
 mkdir($base, 0700);
 try {

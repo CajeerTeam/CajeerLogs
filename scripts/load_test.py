@@ -30,7 +30,7 @@ import urllib.parse
 import urllib.request
 import uuid
 
-VERSION = '0.8.8'
+VERSION = '0.8.9'
 MAX_RESPONSE = 4 * 1024 * 1024
 RETRYABLE = {429, 502, 503, 504}
 PHASES = ('sustained', 'stress', 'soak', 'fault')
@@ -589,6 +589,15 @@ def validate_args(args):
             raise ValueError('Certification requires 100% async traffic and multi-event batches')
         if not args.archive:
             raise ValueError('Certification requires --archive to bind results to a verified distribution')
+        # Certified means the release's fixed minimum SLO, not operator-chosen
+        # weaker values. A report with 1 request/sec and an unbounded p95 must
+        # never be allowed to call itself production certified.
+        if (args.rate < 4 or args.read_rps < 1 or args.batch < 20 or
+                args.concurrency < 12 or args.max_requests < 10000 or
+                args.p95_ms > 5000 or args.fault_p95_ms > 8000 or
+                args.min_rate_ratio < .85 or args.max_error_rate > .01 or
+                args.fault_error_rate > .01):
+            raise ValueError('Certification cannot weaken the fixed 0.8.9 throughput, latency and error SLO')
 
 
 def get_release_metadata(args, client):
@@ -676,7 +685,7 @@ def parser():
     p.add_argument('--max-error-rate', type=float, default=.01)
     p.add_argument('--fault-error-rate', type=float, default=.01)
     p.add_argument('--min-rate-ratio', type=float, default=.95)
-    p.add_argument('--archive', help='Full 0.6.2 release distribution, for SHA256 binding')
+    p.add_argument('--archive', help='Exact release ZIP, for SHA256 binding')
     p.add_argument('--certify', action='store_true', help='Require full durations, actual /ready version and complete 4-phase gate')
     p.add_argument('--output', help='Atomic JSON evidence report path')
     p.add_argument('--confirm-disposable', action='store_true', help='Required: write durable logs to a disposable instance/project')

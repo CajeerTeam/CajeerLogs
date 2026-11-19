@@ -354,6 +354,7 @@ REQUIRED.update({'core/Database/PostgresBoolean.php', 'tests/security_hardening.
 REQUIRED.update({'scripts/supply_chain.py', 'tests/supply_chain.py', 'docs/Reproducible-Builds-Supply-Chain-0.8.4.md'})
 REQUIRED.update({'tests/migration_certification.php','tests/migration_scale_database.php','docs/Migration-Schema-Certification-0.8.5.md','docs/Upgrade-Rollback-Certification-0.8.6.md','tests/disaster_recovery.py','docs/Backup-Disaster-Recovery-Certification-0.8.7.md', 'core/Operations/IncidentTriage.php', 'core/Operations/IncidentSnapshot.php', 'scripts/check_runbooks.py', 'tests/operations_readiness.php', 'tests/operations_runbooks.py', 'tests/operations_cli.py', 'docs/Operations-Readiness-0.8.8.md', 'docs/runbooks/README.md', 'docs/runbooks/runtime-outage.md', 'docs/runbooks/database-outage.md', 'docs/runbooks/queue-backlog.md', 'docs/runbooks/backup-disaster.md', 'docs/runbooks/security-incident.md', 'docs/runbooks/retention-storage.md', 'docs/runbooks/maintenance-upgrade.md'})
 
+REQUIRED.update({'scripts/security_acceptance.py', 'tests/security_acceptance.py', 'docs/Final-Release-Acceptance-0.8.9.md'})
+
 if __name__ == '__main__':
     main()
-
