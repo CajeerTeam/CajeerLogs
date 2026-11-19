@@ -20,7 +20,7 @@ import time
 
 import release
 
-VERSION = '0.8.9'
+VERSION = '0.9.0'
 # These are executable security tests, not checks for the existence of files.
 STAGES = (
     ('deployment-policy', ('php', 'tests/deployment_security.php'), 20),
@@ -29,6 +29,7 @@ STAGES = (
     ('ingest-authorization', ('php', 'tests/ingest_authorization.php'), 25),
     ('security-hardening', ('php', 'tests/security_hardening.php'), 30),
     ('security-operations', ('php', 'tests/security_operations.php'), 25),
+    ('release-version-guard', ('php', 'tests/release_runtime.php'), 33),
 )
 HASH = re.compile(r'^[a-f0-9]{64}$')
 

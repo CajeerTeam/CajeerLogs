@@ -113,7 +113,7 @@ try {
     verifyMigration($runner->status()['integrity']==='verified','restored pending SQL is checked against journal');
 
     $timings['total_ms']=round((microtime(true)-$started)*1000,2);
-    $report=['version'=>'0.8.9','archive_sha256'=>getenv('CAJEER_MIGRATION_CERT_ARCHIVE_SHA256')?:null,'status'=>'passed','postgresql_version'=>$pdo->query('SHOW server_version')->fetchColumn(),
+    $report=['version'=>'0.9.0','archive_sha256'=>getenv('CAJEER_MIGRATION_CERT_ARCHIVE_SHA256')?:null,'status'=>'passed','postgresql_version'=>$pdo->query('SHOW server_version')->fetchColumn(),
         'checks'=>$checks,'test_rows'=>$rows,'backfill_checksum'=>(string)$totals['checksum'],'timings'=>$timings];
     if (($output=getenv('CAJEER_MIGRATION_CERT_REPORT'))!==false && $output!=='') {
         if (!is_dir(dirname($output)) || file_put_contents($output,json_encode($report,JSON_PRETTY_PRINT|JSON_THROW_ON_ERROR)."\n",LOCK_EX)===false) throw new RuntimeException('Cannot persist migration certificate.');

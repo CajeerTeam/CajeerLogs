@@ -35,7 +35,7 @@ def main(previous):
         or rollback_target in ('postgres','template0','template1')):
         raise SystemExit('Use three distinct explicitly provisioned disposable databases and APP_ENV=test.')
     old_version=json.loads((previous/'release.json').read_text())['version']
-    if old_version not in ('0.1.0','0.2.0','0.2.9','0.3.0','0.3.1','0.3.2','0.3.3','0.3.4','0.3.5','0.3.6','0.3.7','0.3.8','0.3.9','0.4.0','0.4.1','0.4.2','0.4.3','0.4.4','0.4.5','0.4.6','0.4.7','0.4.8','0.4.9','0.4.10','0.5.0','0.5.1','0.5.2','0.5.3','0.5.4','0.5.5','0.5.6','0.5.7','0.5.8','0.5.9','0.5.10','0.6.0','0.6.1','0.6.2','0.6.3','0.6.4','0.6.5','0.6.6','0.6.7','0.6.8','0.6.9','0.7.0','0.7.1','0.7.2','0.7.3','0.7.4','0.7.5','0.7.6','0.7.7','0.7.8','0.7.9','0.8.0','0.8.1','0.8.2','0.8.3','0.8.4','0.8.5','0.8.6','0.8.7'): raise SystemExit('Expected a genuine supported previous source tree (through 0.8.7).')
+    if old_version not in ('0.1.0','0.2.0','0.2.9','0.3.0','0.3.1','0.3.2','0.3.3','0.3.4','0.3.5','0.3.6','0.3.7','0.3.8','0.3.9','0.4.0','0.4.1','0.4.2','0.4.3','0.4.4','0.4.5','0.4.6','0.4.7','0.4.8','0.4.9','0.4.10','0.5.0','0.5.1','0.5.2','0.5.3','0.5.4','0.5.5','0.5.6','0.5.7','0.5.8','0.5.9','0.5.10','0.6.0','0.6.1','0.6.2','0.6.3','0.6.4','0.6.5','0.6.6','0.6.7','0.6.8','0.6.9','0.7.0','0.7.1','0.7.2','0.7.3','0.7.4','0.7.5','0.7.6','0.7.7','0.7.8','0.7.9','0.8.0','0.8.1','0.8.2','0.8.3','0.8.4','0.8.5','0.8.6','0.8.7','0.8.8','0.8.9'): raise SystemExit('Expected a genuine supported previous source tree (through 0.8.7).')
     old_migrations={p.name:p.read_bytes() for p in (previous/'migrations/pgsql').glob('*.sql')}
     new_migrations={p.name:p.read_bytes() for p in (ROOT/'migrations/pgsql').glob('*.sql')}
     expected={'0009_project_management.sql','0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql','0013_ingest_signing.sql','0014_delivery_idempotency.sql'} if old_version=='0.1.0' else ({'0013_ingest_signing.sql','0014_delivery_idempotency.sql'} if old_version=='0.2.0' else set())
@@ -56,11 +56,11 @@ def main(previous):
     if old_version not in ('0.7.3','0.7.4'): expected.add('0029_analytics_rollups.sql')
     if old_version!='0.7.4': expected.add('0030_source_ingestion_monitoring.sql')
     expected.update({'0031_error_analytics.sql','0032_advanced_search.sql','0033_storage_tiers.sql'})
-    if old_version in ('0.7.5','0.7.6','0.7.7','0.7.8','0.7.9','0.8.0','0.8.1','0.8.2','0.8.3','0.8.4','0.8.5','0.8.6','0.8.7'):
+    if old_version in ('0.7.5','0.7.6','0.7.7','0.7.8','0.7.9','0.8.0','0.8.1','0.8.2','0.8.3','0.8.4','0.8.5','0.8.6','0.8.7','0.8.8','0.8.9'):
         expected={'0.7.5':{'0031_error_analytics.sql','0032_advanced_search.sql','0033_storage_tiers.sql'},
                   '0.7.6':{'0032_advanced_search.sql','0033_storage_tiers.sql'},
                   '0.7.7':{'0033_storage_tiers.sql'},
-                  '0.7.8':set(),'0.7.9':set(),'0.8.0':set(),'0.8.1':set(),'0.8.2':set(),'0.8.3':set(),'0.8.4':set(),'0.8.5':set(),'0.8.6':set(),'0.8.7':set()}[old_version]
+                  '0.7.8':set(),'0.7.9':set(),'0.8.0':set(),'0.8.1':set(),'0.8.2':set(),'0.8.3':set(),'0.8.4':set(),'0.8.5':set(),'0.8.6':set(),'0.8.7':set(),'0.8.8':set(),'0.8.9':set()}[old_version]
     assert all(new_migrations.get(k)==v for k,v in old_migrations.items()) and set(new_migrations)-set(old_migrations)==expected,'previous migration history changed'
     schema='cl_upgrade_'+secrets.token_hex(8)
     with tempfile.TemporaryDirectory() as tmp:
@@ -131,8 +131,8 @@ def main(previous):
                 raise RuntimeError('Upgrade tested a different release version')
             shutil.copytree(extracted,tree,dirs_exist_ok=True)
             assert (tree/'.env').read_bytes()==before
-            assert cli('version').strip()=='0.8.9'
-            if old_version in ('0.4.6','0.4.7','0.4.8','0.4.9','0.4.10','0.5.0','0.5.1','0.5.2','0.5.3','0.5.4','0.5.5','0.5.6','0.5.7','0.5.8','0.5.9','0.5.10','0.6.0','0.6.1','0.6.2','0.6.3','0.6.4','0.6.5','0.6.6','0.6.7','0.6.8','0.6.9','0.7.9','0.8.0','0.8.1','0.8.2','0.8.3','0.8.4','0.8.5','0.8.6'):
+            assert cli('version').strip()=='0.9.0'
+            if old_version in ('0.4.6','0.4.7','0.4.8','0.4.9','0.4.10','0.5.0','0.5.1','0.5.2','0.5.3','0.5.4','0.5.5','0.5.6','0.5.7','0.5.8','0.5.9','0.5.10','0.6.0','0.6.1','0.6.2','0.6.3','0.6.4','0.6.5','0.6.6','0.6.7','0.6.8','0.6.9','0.7.9','0.8.0','0.8.1','0.8.2','0.8.3','0.8.4','0.8.5','0.8.6','0.8.7','0.8.8','0.8.9'):
                 proof=json.loads(cli('upgrade:check',backup['id'])); assert proof['status']=='ok' and proof['backup_sha256']==backup['sha256'] and proof['pending']==sorted(expected)
                 assert (tree/'.env').read_bytes()==before
             if old_version=='0.5.2': env['QUEUE_MAX_ATTEMPTS']='3'
@@ -146,7 +146,7 @@ def main(previous):
             assert project_state['active_jobs']==1 and project_state['active_events']==1 and project_state['weight']==1
             assert json.loads(cli('audit:verify'))['valid']; cli('queue:work','10'); assert json.loads(cli('queue:verify'))['valid']; assert json.loads(cli('queue:capacity'))['active_jobs']==0; assert json.loads(cli('db:verify'))['status']=='ok'
             with server():
-                assert call('GET','/ready')[0]['version']=='0.8.9'
+                assert call('GET','/ready')[0]['version']=='0.9.0'
                 assert call('GET','/api/v1/auth/me',headers=auth)[0]['user']['email']=='upgrade@example.test'
                 assert call('GET',f'/api/v1/logs/{eid}?project_id={pid}',headers=bearer)[0]['data']['message']=='previous release proof'
                 assert call('GET',f'/api/v1/ingest/jobs/{jid}',headers=bearer)[0]['status']=='completed'

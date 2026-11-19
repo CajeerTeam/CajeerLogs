@@ -1,3 +1,13 @@
+## 0.9.0 — Production Quality & Security Stable
+
+- Unified **runnable** PHP/HTTP/Admin/OpenAPI and PHP, Python, TypeScript, Kotlin SDK version to 0.9.0; corrected production Compose's 0.7.5 image tags.
+- Fail closed on startup if `CAJEER_RELEASE_VERSION` does not match the shipped runtime, including CLI, workers and PHP-FPM; added regression tests for incorrect images and mixed version fleets.
+- Shipped a real ZIP identity verifier exercising PHP CLI, SDK versions, production security settings, browser import versions and tamper detection.
+- Added the real 0.8.9 → 0.9.0 database upgrade and rollback rehearsal to the required CI matrix.
+- Restricted certified release promotion to the `v0.9.0` tag, with OIDC-attested acceptance evidence after successful security, DB, SDK, browser, backup and load checks.
+- Pin Python wheel and setuptools build backends to exact versions; external Composer/npm/Gradle and OCI attestations remain unresolved.
+- Source-built candidate is **not yet certified** until dependency locks, OCI digests and complete protected CI pass.
+
 ## 0.8.9 — Final Release Acceptance
 
 - Independent executable security acceptance of the verified release ZIP, with isolated credentials, test assertions, bounded execution and SHA-256-bound evidence.

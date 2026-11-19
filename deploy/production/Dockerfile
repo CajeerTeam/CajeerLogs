@@ -14,6 +14,9 @@ COPY public ./public
 COPY admin/index.html ./admin/index.html
 COPY api ./api
 COPY release.json openapi.yaml .env.example ./
+ARG CAJEER_RELEASE_VERSION=0.9.0
+# A retagged old image must fail at build-time, before it can be deployed.
+RUN php -r '$d=json_decode(file_get_contents("release.json"),true,8,JSON_THROW_ON_ERROR); exit(($d["version"]??"")===getenv("CAJEER_RELEASE_VERSION") ? 0 : 1);'
 COPY deploy/production/pool.conf /usr/local/etc/php-fpm.d/zz-cajeer.conf
 COPY deploy/production/maintenance.sh /usr/local/bin/cajeer-maintenance
 RUN mkdir -p /config /app/storage/app /app/storage/archives /app/storage/backups /app/storage/cache /app/storage/database /app/storage/logs /app/storage/tmp \

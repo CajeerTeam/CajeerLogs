@@ -356,5 +356,8 @@ REQUIRED.update({'tests/migration_certification.php','tests/migration_scale_data
 
 REQUIRED.update({'scripts/security_acceptance.py', 'tests/security_acceptance.py', 'docs/Final-Release-Acceptance-0.8.9.md'})
 
+REQUIRED.update({"scripts/stable_release.py", "tests/stable_release.py", "docs/Production-Quality-Security-0.9.0.md"})
+
 if __name__ == '__main__':
     main()
+

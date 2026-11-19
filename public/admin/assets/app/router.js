@@ -1,21 +1,21 @@
-import { state, names, active, render, installRenderer } from './store.js?v=0.8.9';
-import { $, h, button, message, clearModal, heading } from '../components/ui.js?v=0.8.9';
-import { clearSession, bootstrap } from './session.js?v=0.8.9';
-import { loadProjects, refreshProject } from './projects.js?v=0.8.9';
-import { navigation } from './shell.js?v=0.8.9';
-import { currentRoute, permitted } from './routes.js?v=0.8.9';
-import { overview } from '../pages/overview.js?v=0.8.9';
-import { logs } from '../pages/logs.js?v=0.8.9';
-import { errors } from '../pages/errors.js?v=0.8.9';
-import { projects } from '../pages/projects.js?v=0.8.9';
-import { tokens } from '../pages/tokens.js?v=0.8.9';
-import { security } from '../pages/security.js?v=0.8.9';
-import { users } from '../pages/users.js?v=0.8.9';
-import { system } from '../pages/system.js?v=0.8.9';
-import { rbac } from '../pages/rbac.js?v=0.8.9';
-import { queue } from '../pages/queue.js?v=0.8.9';
-import { webhooks } from '../pages/webhooks.js?v=0.8.9';
-import { settings } from '../pages/settings.js?v=0.8.9';
+import { state, names, active, render, installRenderer } from './store.js?v=0.9.0';
+import { $, h, button, message, clearModal, heading } from '../components/ui.js?v=0.9.0';
+import { clearSession, bootstrap } from './session.js?v=0.9.0';
+import { loadProjects, refreshProject } from './projects.js?v=0.9.0';
+import { navigation } from './shell.js?v=0.9.0';
+import { currentRoute, permitted } from './routes.js?v=0.9.0';
+import { overview } from '../pages/overview.js?v=0.9.0';
+import { logs } from '../pages/logs.js?v=0.9.0';
+import { errors } from '../pages/errors.js?v=0.9.0';
+import { projects } from '../pages/projects.js?v=0.9.0';
+import { tokens } from '../pages/tokens.js?v=0.9.0';
+import { security } from '../pages/security.js?v=0.9.0';
+import { users } from '../pages/users.js?v=0.9.0';
+import { system } from '../pages/system.js?v=0.9.0';
+import { rbac } from '../pages/rbac.js?v=0.9.0';
+import { queue } from '../pages/queue.js?v=0.9.0';
+import { webhooks } from '../pages/webhooks.js?v=0.9.0';
+import { settings } from '../pages/settings.js?v=0.9.0';
 
 async function renderRoute({ focus = false, background = false } = {}) {
     if (!state.user)

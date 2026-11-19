@@ -16,6 +16,16 @@ final class Version
         if (!is_string($version) || !preg_match('/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/D', $version)) {
             throw new \RuntimeException('Invalid release version.');
         }
+        // Deployment orchestrators declare the version expected of each running
+        // process. Refuse mixed binary/DB-worker/API fleets even if an old image
+        // was accidentally retagged with the current Compose version.
+        $expected = getenv('CAJEER_RELEASE_VERSION');
+        if ($expected !== false && $expected !== '') {
+            if (!preg_match('/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/D', $expected)
+                || !hash_equals($version, $expected)) {
+                throw new \RuntimeException('Shipped application version does not match CAJEER_RELEASE_VERSION.');
+            }
+        }
         return $version;
     }
 }
