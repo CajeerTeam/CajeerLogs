@@ -878,7 +878,7 @@ final class IdentityController
         if ($project!==null && in_array('logs:write',$row['scopes'],true)) {
             $meta=$this->signing()->metadata($project,$id);
             $policy=$this->one('SELECT require_ingest_hmac FROM projects WHERE id=:id',['id'=>$project]);
-            $meta['effective_required']=$meta['required']||$policy['require_ingest_hmac']||$this->app->config()->get('ingest.require_hmac');
+            $meta['effective_required']=\Cajeer\Logs\Database\PostgresBoolean::required($meta['required'])||\Cajeer\Logs\Database\PostgresBoolean::required($policy['require_ingest_hmac'])||$this->app->config()->get('ingest.require_hmac');
             $meta['mode']=$meta['current_key_id']!==null?'separate':($meta['effective_required']?'bearer':'optional');
             $row['signing']=$meta;
         }

@@ -12,14 +12,14 @@ final class RestoreFence
     /** Read the database default, not a session override or role-specific setting. */
     public static function pending(PDO $pdo): bool
     {
-        return $pdo->query(<<<'SQL'
+        return PostgresBoolean::required($pdo->query(<<<'SQL'
             SELECT EXISTS (
                 SELECT 1 FROM pg_catalog.pg_db_role_setting s
                 JOIN pg_catalog.pg_database d ON d.oid=s.setdatabase
                 WHERE d.datname=pg_catalog.current_database() AND s.setrole=0
                   AND 'cajeerlogs.restore_state=pending'=ANY(s.setconfig)
             )
-            SQL)->fetchColumn() === true;
+            SQL)->fetchColumn());
     }
 
     public static function assertAvailable(PDO $pdo): void

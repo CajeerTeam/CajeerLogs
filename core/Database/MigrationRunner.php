@@ -31,7 +31,7 @@ final class MigrationRunner
     private function table(string $name='schema_migrations',?string $schema=null): string { return '"'.($schema??$this->schema).'"."'.$name.'"'; }
     private function key(): string { return 'cajeerlogs:migrations:'.$this->schema; }
     private function exists(string $name): bool {
-        $q=$this->pdo->prepare('SELECT to_regclass(:name) IS NOT NULL'); $q->execute(['name'=>$this->table($name)]); $exists=$q->fetchColumn()===true; $q->closeCursor(); return $exists;
+        $q=$this->pdo->prepare('SELECT to_regclass(:name) IS NOT NULL'); $q->execute(['name'=>$this->table($name)]); $exists=PostgresBoolean::required($q->fetchColumn()); $q->closeCursor(); return $exists;
     }
     private function history(): array {
         if (!$this->exists('schema_migrations')) return [];
@@ -87,7 +87,7 @@ final class MigrationRunner
     public function status(bool $withJournal=true): array {
         if ($this->pdo->inTransaction()) throw new DatabaseException('Migration status requires its own transaction.');
         return (new TransactionManager($this->pdo))->run(function () use ($withJournal) {
-            $lock=$this->pdo->prepare('SELECT pg_try_advisory_xact_lock_shared(hashtextextended(:key,0))'); $lock->execute(['key'=>$this->key()]); $held=$lock->fetchColumn()===true; $lock->closeCursor();
+            $lock=$this->pdo->prepare('SELECT pg_try_advisory_xact_lock_shared(hashtextextended(:key,0))'); $lock->execute(['key'=>$this->key()]); $held=PostgresBoolean::required($lock->fetchColumn()); $lock->closeCursor();
             if (!$held) throw new DatabaseException('Migration or backup currently holds the schema lock.');
             $files=$this->files(); $history=$this->history(); $pending=$this->compare($files,$history);
             $result=['applied'=>array_keys($history),'pending'=>$pending]+$this->integrity($history);
@@ -237,7 +237,7 @@ final class MigrationRunner
         $files=$this->files(); $locked=false; $current='migration lock/history'; $applied=[]; $oldTimeout=null; $oldPath=null; $oldStrings=null; $oldCommit=null;
         try {
             $lock=$this->pdo->prepare('SELECT pg_advisory_lock(hashtextextended(:key,0))'); $lock->execute(['key'=>$this->key()]); $lock->closeCursor(); $locked=true;
-            if ($this->pdo->query('SHOW transaction_read_only')->fetchColumn()!=='off' || $this->pdo->query('SELECT pg_is_in_recovery()')->fetchColumn()===true || $this->pdo->query('SHOW fsync')->fetchColumn()!=='on') throw new DatabaseException('Migrations require a writable primary with fsync enabled.');
+            if ($this->pdo->query('SHOW transaction_read_only')->fetchColumn()!=='off' || PostgresBoolean::required($this->pdo->query('SELECT pg_is_in_recovery()')->fetchColumn()) || $this->pdo->query('SHOW fsync')->fetchColumn()!=='on') throw new DatabaseException('Migrations require a writable primary with fsync enabled.');
             $oldCommit=$this->pdo->query('SHOW synchronous_commit')->fetchColumn();
             $oldTimeout=$this->pdo->query('SHOW statement_timeout')->fetchColumn(); $oldPath=$this->pdo->query('SHOW search_path')->fetchColumn(); $oldStrings=$this->pdo->query('SHOW standard_conforming_strings')->fetchColumn();
             $this->pdo->exec('SET statement_timeout = '.$this->statementTimeoutMs.'; SET synchronous_commit=on; SET standard_conforming_strings=on; SET search_path TO "'.$this->schema.'", pg_catalog, pg_temp');

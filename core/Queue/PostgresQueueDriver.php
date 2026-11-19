@@ -367,7 +367,7 @@ final class PostgresQueueDriver implements QueueDriverInterface
     public static function backoff(int $attempt): int { return min(3600, 5 * (2 ** min(10,max(0,$attempt-1)))); }
     /** Evaluate expiry after the row lock has been acquired, not before waiting. */
     private function leaseLive(array $claim): bool {
-        return $this->sql("SELECT lease_until>clock_timestamp() FROM jobs WHERE id=:id AND status='running' AND lease_id=:lease",['id'=>$claim['id'],'lease'=>$claim['lease_id']])->fetchColumn()===true;
+        return \Cajeer\Logs\Database\PostgresBoolean::required($this->sql("SELECT lease_until>clock_timestamp() FROM jobs WHERE id=:id AND status='running' AND lease_id=:lease",['id'=>$claim['id'],'lease'=>$claim['lease_id']])->fetchColumn());
     }
     private function fail(array $claim,string $error,bool $permanent=false): string {
         return (new TransactionManager($this->pdo))->run(function () use ($claim,$error,$permanent) {

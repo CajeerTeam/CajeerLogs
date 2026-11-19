@@ -60,7 +60,9 @@ final class Request
                 $headers[$header] = $value;
             }
         }
-        if ($ingest && isset($headers['CONTENT-LENGTH'],$headers['TRANSFER-ENCODING'])) throw new HttpException(400,'ambiguous_body','Conflicting body framing.');
+        // Ambiguous framing must be rejected for every route, not only ingestion.
+        // A proxy and the application must not disagree about request boundaries.
+        if (isset($headers['CONTENT-LENGTH'],$headers['TRANSFER-ENCODING'])) throw new HttpException(400,'ambiguous_body','Conflicting body framing.');
         if (isset($headers['CONTENT-LENGTH'])) {
             $length = $headers['CONTENT-LENGTH'];
             if (!ctype_digit($length)) {

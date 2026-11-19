@@ -43,6 +43,9 @@ check(broken(fn()=>(new IngestSigning($db,''))->seal($token,$kid,$secret)),'no e
 $policy=fn(bool $required,mixed $row)=>[['require_ingest_hmac'=>$required],$row,(int)$ts];
 $db->rows=$policy(false,false);check($keys->verify($r(),$p,$bearer,null,false)===null,'existing optional v1 behavior');
 $db->rows=$policy(true,false);check(rejects(fn()=>$keys->verify($r(),$p,$bearer,null,false)),'mandatory project signing');
+$db->rows=[[ 'require_ingest_hmac'=>'t' ],false,(int)$ts];check(rejects(fn()=>$keys->verify($r(),$p,$bearer,null,false)),'string true mandates project HMAC');
+$db->rows=[[ 'require_ingest_hmac'=>'f' ],false,(int)$ts];check($keys->verify($r(),$p,$bearer,null,false)===null,'string false retains optional policy');
+$db->rows=[[ 'require_ingest_hmac'=>'unexpected' ],false,(int)$ts];check(broken(fn()=>$keys->verify($r(),$p,$bearer,null,false)),'invalid project HMAC policy fails closed');
 $db->rows=$policy(false,false);check(rejects(fn()=>$keys->verify($r(),$p,$bearer,null,true)),'global policy cannot be weakened');
 $legacy=['current_key_id'=>null];$db->rows=$policy(false,$legacy);check(rejects(fn()=>$keys->verify($r(),$p,$bearer,null,false)),'mandatory credential signing');
 $v1=['X-Log-Timestamp'=>$ts,'X-Log-Nonce'=>$nonce,'X-Log-Signature'=>$signer->sign(SignedPayload::canonical($r(),$ts,$nonce,$key),$bearer)];
@@ -51,11 +54,15 @@ $row=['current_key_id'=>$kid,'current_ciphertext'=>$c,'previous_key_id'=>$old,'p
 $db->rows=$policy(false,$row);check($keys->verify($r($h),$p,$bearer,$key,false)===$nonce,'current key works');
 $db->rows=$policy(false,$row);check($keys->verify($r($headers($old,$oldSecret)),$p,$bearer,$key,false)===$nonce,'previous key during overlap');
 $db->rows=$policy(false,array_replace($row,['previous_active'=>false]));check(rejects(fn()=>$keys->verify($r($headers($old,$oldSecret)),$p,$bearer,$key,false)),'expired previous key rejected');
+$db->rows=$policy(false,array_replace($row,['previous_active'=>'f']));check(rejects(fn()=>$keys->verify($r($headers($old,$oldSecret)),$p,$bearer,$key,false)),'expired previous key string f rejected');
+$db->rows=$policy(false,array_replace($row,['previous_active'=>'t']));check($keys->verify($r($headers($old,$oldSecret)),$p,$bearer,$key,false)===$nonce,'active previous key string t accepted');
 $db->rows=$policy(false,$row);check(rejects(fn()=>$keys->verify($r($v1),$p,$bearer,$key,false)),'no fallback to bearer after separate mode');
 $db->rows=$policy(false,$row);check(rejects(fn()=>$keys->verify($r(),$p,$bearer,null,false)),'separate mode cannot be unsigned');
 $db->active=true;$db->rows=$policy(false,$row);$db->calls=[];$keys->verify($r($h),$p,$bearer,$key,false,true);check(str_contains($db->calls[0][0],'FOR UPDATE')&&str_contains($db->calls[2][0],'clock_timestamp'),'locked policy check and database clock');
 check(!str_contains((new \Cajeer\Logs\Log\Redactor())->text('key '.$secret),$secret),'separate signing secret redacted');
 $activeToken=['id'=>$token,'scopes'=>'["logs:write"]','revoked_at'=>null,'active'=>true];
+$db->rows=[array_replace($activeToken,['active'=>'f'])];check(rejects(fn()=>$keys->configure($project,$token,'separate',0,$old),409),'string f inactive token cannot rotate signing key');
+$db->rows=[array_replace($activeToken,['active'=>'t']),['current_key_id'=>$kid,'required'=>'f']];check(rejects(fn()=>$keys->configure($project,$token,'separate',0,$old),409),'string t active token retains revision fence');
 $db->rows=[$activeToken,['current_key_id'=>$kid,'required'=>true]];check(rejects(fn()=>$keys->configure($project,$token,'separate',0,$old),409),'stale expected key cannot rotate');
 $db->rows=[$activeToken,['current_key_id'=>$kid,'required'=>true]];check(rejects(fn()=>$keys->configure($project,$token,'bearer',0,$kid),409),'separate mode cannot downgrade');
 $db->rows=[$activeToken,['current_key_id'=>null,'required'=>false]];check(rejects(fn()=>$keys->configure($project,$token,'separate',1,null),422),'first key requires zero overlap');

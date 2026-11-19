@@ -1,3 +1,13 @@
+## 0.8.3 — Security Review & Hardening
+
+- Normalize PostgreSQL `t`/`f` and native boolean values in HMAC signing policy,
+  signing key expiry, TOTP login state and installer privilege checks. Reject unexpected values.
+- Enforce database restore quarantine for PostgreSQL text booleans; correct boolean handling in migration locks, integrity audit, queue leases, database readiness and installation state.
+- Reject ambiguous Content-Length/Transfer-Encoding framing on **all** HTTP routes.
+- Mask camelCase credential assignments in unstructured log messages.
+- Add executable security regression coverage and run it in the release/admin CI gate.
+- Preserve PostgreSQL/ClickHouse migrations and API v1; no schema changes.
+
 ## 0.8.2 — Full E2E & Failure Recovery (public-preview)
 
 - Added executable stop/start recovery against **real disposable PostgreSQL 17 and ClickHouse 25.8** service containers, requiring explicit CI service IDs, image verification and opt-in. A stopped service is restarted in a finally block.

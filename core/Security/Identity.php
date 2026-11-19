@@ -2,7 +2,7 @@
 declare(strict_types=1);
 namespace Cajeer\Logs\Security;
 
-use Cajeer\Logs\Database\TransactionManager;
+use Cajeer\Logs\Database\{TransactionManager,PostgresBoolean};
 
 use PDO;
 use Cajeer\Logs\Http\HttpException;
@@ -136,6 +136,7 @@ final class Identity
         $condition=$idle>0?" AND s.last_seen_at>clock_timestamp()-interval '$idle seconds'":'';
         $row = $this->sql('SELECT u.id,u.email,u.role,u.blocked_at,u.two_factor_enabled,u.created_at,u.updated_at,u.display_name,u.last_login_at,s.csrf_token,s.id AS session_id,s.expires_at,s.reauthenticated_at FROM auth_sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=:hash AND s.expires_at>clock_timestamp() AND u.blocked_at IS NULL'.$condition,['hash'=>$hash])->fetch();
         if (!$row) { self::unauthorized(); }
+        $row['two_factor_enabled']=PostgresBoolean::required($row['two_factor_enabled']);
         if (!$allowEnrollment && $this->enrollmentRequired($row)) { throw new HttpException(403,'totp_enrollment_required','Enroll in two-factor authentication first.'); }
         if (!in_array($r->method,['GET','HEAD','OPTIONS'],true)) {
             $this->origin($r);
@@ -189,5 +190,8 @@ final class Identity
     }
     public function lock(): void { $this->pdo->query("SELECT pg_advisory_xact_lock(hashtextextended('cajeerlogs:identity:' || current_schema(),0))")->closeCursor(); }
     public function sql(string $sql,array $params=[]): \PDOStatement { $s=$this->pdo->prepare($sql); $s->execute($params); return $s; }
-    public static function publicUser(array $u): array { return array_intersect_key($u,array_flip(['id','email','role','blocked_at','two_factor_enabled','created_at','updated_at','display_name','last_login_at'])); }
+    public static function publicUser(array $u): array {
+        if (array_key_exists('two_factor_enabled',$u)) $u['two_factor_enabled']=PostgresBoolean::required($u['two_factor_enabled']);
+        return array_intersect_key($u,array_flip(['id','email','role','blocked_at','two_factor_enabled','created_at','updated_at','display_name','last_login_at']));
+    }
 }

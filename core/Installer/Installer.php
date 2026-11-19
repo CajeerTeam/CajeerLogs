@@ -32,7 +32,7 @@ final class Installer
             // Separate session-level key covers configuration, migration and bootstrap across hosts.
             $key = 'cajeerlogs:install-session:' . $schema;
             $stmt = $pdo->prepare('SELECT pg_try_advisory_lock(hashtextextended(:key,0))');
-            $stmt->execute(['key'=>$key]); $held = $stmt->fetchColumn() === true; $stmt->closeCursor();
+            $stmt->execute(['key'=>$key]); $held = \Cajeer\Logs\Database\PostgresBoolean::required($stmt->fetchColumn()); $stmt->closeCursor();
             if (!$held) { throw new DatabaseException('Another database installation is running.'); }
             try {
                 $runner = $this->app->container()->get(MigrationRunner::class);
@@ -44,12 +44,12 @@ final class Installer
                     $preflight = $this->app->container()->get(DatabaseStatus::class)->check(false);
                     if ($preflight['status'] !== 'ok') { throw new DatabaseException('PostgreSQL installation preflight failed; run install:check.'); }
                 }
-                if ($pdo->query('SHOW transaction_read_only')->fetchColumn() !== 'off' || $pdo->query('SELECT pg_is_in_recovery()')->fetchColumn() === true || $pdo->query('SHOW fsync')->fetchColumn() !== 'on') {
+                if ($pdo->query('SHOW transaction_read_only')->fetchColumn() !== 'off' || \Cajeer\Logs\Database\PostgresBoolean::required($pdo->query('SELECT pg_is_in_recovery()')->fetchColumn()) || $pdo->query('SHOW fsync')->fetchColumn() !== 'on') {
                     throw new DatabaseException('Installation requires a writable PostgreSQL primary with fsync enabled.');
                 }
                 $users = $this->app->container()->get(UserRepository::class);
                 // Existing credentials must match before touching the persistent configuration.
-                if ($pdo->query("SELECT to_regclass('users') IS NOT NULL")->fetchColumn() === true) {
+                if (\Cajeer\Logs\Database\PostgresBoolean::required($pdo->query("SELECT to_regclass('users') IS NOT NULL")->fetchColumn())) {
                     $existingAdmin=$users->verifyInstallerAdministrator($email, $password);
                     if ($existingAdmin!==null) {
                         foreach (['SECURITY_HMAC_SECRET','SECURITY_TOKEN_PEPPER','SECURITY_PRIVACY_HASH_PEPPER'] as $secret) {
@@ -62,7 +62,7 @@ final class Installer
                     // Do not persist a key that cannot decrypt existing enrollments.
                     
                     $key = ($values['SECURITY_TOTP_KEY'] ?? '') ?: $values['SECURITY_HMAC_SECRET'];
-                    if ($pdo->query("SELECT to_regclass('user_totp') IS NOT NULL")->fetchColumn() === true) {
+                    if (\Cajeer\Logs\Database\PostgresBoolean::required($pdo->query("SELECT to_regclass('user_totp') IS NOT NULL")->fetchColumn())) {
                     $manager = new \Cajeer\Logs\Security\TwoFactorManager($pdo,$key,false,$values['SECURITY_TOTP_ACTIVE_KEY']??'',$values['SECURITY_TOTP_PREVIOUS_KEY']??'');
                     $rows = $pdo->query('SELECT user_id,secret_ciphertext FROM user_totp');
                     while ($row = $rows->fetch()) {
@@ -71,7 +71,7 @@ final class Installer
                     }
                     $rows->closeCursor();
                     }
-                    if ($pdo->query("SELECT to_regclass('ingest_signing') IS NOT NULL")->fetchColumn()===true) {
+                    if (\Cajeer\Logs\Database\PostgresBoolean::required($pdo->query("SELECT to_regclass('ingest_signing') IS NOT NULL")->fetchColumn())) {
                         $signing=new \Cajeer\Logs\Security\IngestSigning($pdo,$key);
                         $rows=$pdo->query("SELECT token_id,current_key_id,current_ciphertext,previous_key_id,previous_ciphertext FROM ingest_signing WHERE current_key_id IS NOT NULL");
                         while ($row=$rows->fetch()) {

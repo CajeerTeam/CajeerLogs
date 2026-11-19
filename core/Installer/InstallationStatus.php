@@ -27,7 +27,7 @@ final class InstallationStatus
             try {
                 $report['active_administrators'] = (int)$pdo->query("SELECT count(*) FROM users WHERE role='administrator' AND blocked_at IS NULL")->fetchColumn();
                 $report['administrator_count'] = (int)$pdo->query("SELECT count(*) FROM users WHERE role='administrator'")->fetchColumn();
-                $report['completion_recorded'] = $pdo->query("SELECT EXISTS(SELECT 1 FROM settings WHERE key='installation.completed')")->fetchColumn() === true;
+                $report['completion_recorded'] = \Cajeer\Logs\Database\PostgresBoolean::required($pdo->query("SELECT EXISTS(SELECT 1 FROM settings WHERE key='installation.completed')")->fetchColumn());
                 if ($report['active_administrators'] === 0) { $report['state']=$report['administrator_count']>0 || $report['completion_recorded']?'administrator_recovery_required':'administrator_required'; return $report; }
                 $config = $this->app->config();
                 $healthy = $this->app->container()->get(\Cajeer\Logs\Observability\Diagnostics::class)->ok()

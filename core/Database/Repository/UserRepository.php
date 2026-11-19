@@ -4,7 +4,7 @@ namespace Cajeer\Logs\Database\Repository;
 
 use Cajeer\Logs\Database\TransactionManager;
 
-use Cajeer\Logs\Database\DatabaseException;
+use Cajeer\Logs\Database\{DatabaseException,PostgresBoolean};
 use PDO;
 
 final class UserRepository
@@ -22,7 +22,10 @@ final class UserRepository
     {
         $query = $this->pdo->prepare('SELECT id, email, password_hash, role, blocked_at, two_factor_enabled, created_at, updated_at, display_name, last_login_at FROM users WHERE lower(email) = :email');
         $query->execute(['email' => self::email($email)]);
-        return $query->fetch() ?: null;
+        $row=$query->fetch();
+        if (!$row) return null;
+        $row['two_factor_enabled']=PostgresBoolean::required($row['two_factor_enabled']);
+        return $row;
     }
 
     public function create(string $email, string $password, string $role = 'viewer'): string
@@ -48,10 +51,10 @@ final class UserRepository
             }
             return $existing['id'];
         }
-        if ($this->pdo->query("SELECT EXISTS(SELECT 1 FROM users WHERE role='administrator')")->fetchColumn() === true) {
+        if (PostgresBoolean::required($this->pdo->query("SELECT EXISTS(SELECT 1 FROM users WHERE role='administrator')")->fetchColumn())) {
             throw new DatabaseException('An administrator already exists; installation will not create another.');
         }
-        if ($this->pdo->query("SELECT to_regclass('settings') IS NOT NULL")->fetchColumn() === true && $this->pdo->query("SELECT EXISTS(SELECT 1 FROM settings WHERE key='installation.completed')")->fetchColumn() === true) {
+        if (PostgresBoolean::required($this->pdo->query("SELECT to_regclass('settings') IS NOT NULL")->fetchColumn()) && PostgresBoolean::required($this->pdo->query("SELECT EXISTS(SELECT 1 FROM settings WHERE key='installation.completed')")->fetchColumn())) {
             throw new DatabaseException('Installation was previously completed; use administrative recovery.');
         }
         return null;

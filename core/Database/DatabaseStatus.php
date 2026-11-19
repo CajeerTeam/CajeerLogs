@@ -17,14 +17,14 @@ final class DatabaseStatus
             $schema = $factory->schema();
             RestoreFence::assertAvailable($pdo);
             $version = (string) $pdo->query('SHOW server_version')->fetchColumn();
-            if ($pdo->query('SHOW transaction_read_only')->fetchColumn() !== 'off' || $pdo->query('SELECT pg_is_in_recovery()')->fetchColumn() === true) {
+            if ($pdo->query('SHOW transaction_read_only')->fetchColumn() !== 'off' || PostgresBoolean::required($pdo->query('SELECT pg_is_in_recovery()')->fetchColumn())) {
                 return ['status' => 'down', 'server_version' => $version, 'error' => 'Database session is read-only.'];
             }
             if ($pdo->query('SHOW fsync')->fetchColumn() !== 'on') { return ['status'=>'down','server_version'=>$version,'error'=>'PostgreSQL fsync must be enabled for durable ingest.']; }
             $migrationPdo = !$requireMigrations && PHP_SAPI==='cli' && (getenv('DB_MIGRATION_USERNAME')!==false || getenv('DB_MIGRATION_PASSWORD')!==false || getenv('DB_MIGRATION_PASSWORD_FILE')!==false) ? $factory->make('migration') : $pdo;
             $priv = $migrationPdo->prepare("SELECT pg_catalog.has_schema_privilege(current_user, CAST(:schema AS text), 'CREATE')");
             $priv->execute(['schema' => $schema]);
-            $canMigrate = (bool) $priv->fetchColumn();
+            $canMigrate = PostgresBoolean::required($priv->fetchColumn());
             if (!$requireMigrations) { return ['status' => $canMigrate ? 'ok' : 'down', 'server_version' => $version, 'schema_create' => $canMigrate, 'separate_migration_role' => $migrationPdo !== $pdo]; }
             $status = ($probe===null?$this->app->container()->get(MigrationRunner::class):new MigrationRunner($pdo,$this->app->basePath('migrations/pgsql'),$schema))->status($probe===null);
             if ($status['pending'] !== [] || $status['integrity'] !== 'verified') { return ['status' => 'down', 'server_version' => $version, 'migrations' => $status]; }
@@ -55,20 +55,20 @@ final class DatabaseStatus
             // Async ingest uses jobs.id's sequence; table grants alone do not authorize nextval().
             $sequence = $pdo->prepare("SELECT pg_catalog.has_sequence_privilege(current_user, pg_catalog.pg_get_serial_sequence(pg_catalog.format('%I.jobs',CAST(:schema AS text)),'id'), 'USAGE')");
             $sequence->execute(['schema'=>$schema]);
-            if ($sequence->fetchColumn() !== true) { return ['status'=>'down','server_version'=>$version,'error'=>'Runtime role needs USAGE on the jobs ID sequence.']; }
+            if (!PostgresBoolean::required($sequence->fetchColumn())) { return ['status'=>'down','server_version'=>$version,'error'=>'Runtime role needs USAGE on the jobs ID sequence.']; }
             $sequence=$pdo->prepare("SELECT pg_catalog.has_sequence_privilege(current_user, pg_catalog.pg_get_serial_sequence(pg_catalog.format('%I.retention_runs',CAST(:schema AS text)),'id'), 'USAGE')");
             $sequence->execute(['schema'=>$schema]);
-            if ($sequence->fetchColumn() !== true) return ['status'=>'down','server_version'=>$version,'error'=>'Runtime role needs USAGE on retention history sequence.'];
+            if (!PostgresBoolean::required($sequence->fetchColumn())) return ['status'=>'down','server_version'=>$version,'error'=>'Runtime role needs USAGE on retention history sequence.'];
             $totpKey = $this->app->config()->get('security.totp_key');
             if ($this->app->config()->get('app.env') === 'production') {
-                if (!$installing && !$pdo->query("SELECT EXISTS(SELECT 1 FROM users WHERE role='administrator' AND blocked_at IS NULL)")->fetchColumn()) {
+                if (!$installing && !PostgresBoolean::required($pdo->query("SELECT EXISTS(SELECT 1 FROM users WHERE role='administrator' AND blocked_at IS NULL)")->fetchColumn())) {
                     return ['status'=>'down','server_version'=>$version,'error'=>'Installation has no active administrator.'];
                 }
                 if (!$installing && ($this->app->config()->get('security.require_admin_totp') || \Cajeer\Logs\Security\IdentityPolicy::fromConfig($this->app->config())->requiresEnrollmentPolicy()) && !\Cajeer\Logs\Security\TwoFactorManager::keyValid($totpKey)) {
                     return ['status'=>'down','server_version'=>$version,'error'=>'Required TOTP encryption key is unavailable.'];
                 }
             }
-            if ($pdo->query('SELECT EXISTS(SELECT 1 FROM users u LEFT JOIN user_totp t ON t.user_id=u.id AND t.pending_session IS NULL WHERE u.two_factor_enabled AND t.user_id IS NULL)')->fetchColumn()) {
+            if (PostgresBoolean::required($pdo->query('SELECT EXISTS(SELECT 1 FROM users u LEFT JOIN user_totp t ON t.user_id=u.id AND t.pending_session IS NULL WHERE u.two_factor_enabled AND t.user_id IS NULL)')->fetchColumn())) {
                 return ['status'=>'down','server_version'=>$version,'error'=>'An enrolled user has no active TOTP secret.'];
             }
             // Check at least one enrollment for each stored key version, including pending enrollments.

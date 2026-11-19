@@ -1,4 +1,6 @@
-**0.8.2 — Integration Test Stabilization.** Реальные интеграционные HTTP-сценарии из неизменяемого релизного ZIP запускаются повторно в изолированных окружениях; тесты обновлений и сквозного pipeline теперь используют тот же архив. [Тестирование и приёмка 0.8.2](docs/Integration-Test-Stabilization-0.8.2.md). Канал остаётся `public-preview` до прохождения полного PostgreSQL/ClickHouse/S3, SDK, браузерного и нагрузочного CI.
+**0.8.3 — Security Review & Hardening.** Исправлены проверки PostgreSQL boolean-полей в HMAC, TOTP и установщике, неоднозначная HTTP-framing обработка и маскирование camelCase-секретов. Добавлены исполняемые регрессионные проверки и обязательный CI security gate. [Security review 0.8.3](docs/Security-Review-Hardening-0.8.3.md). Канал `public-preview` до независимой production-сертификации.
+
+**0.8.2 — Full E2E & Failure Recovery.** Реальные интеграционные HTTP-сценарии из неизменяемого релизного ZIP запускаются повторно в изолированных окружениях; тесты обновлений и сквозного pipeline теперь используют тот же архив. [Тестирование и приёмка 0.8.3](docs/Full-E2E-Failure-Recovery-0.8.2.md). Канал остаётся `public-preview` до прохождения полного PostgreSQL/ClickHouse/S3, SDK, браузерного и нагрузочного CI.
 
 ## Analytics & Storage Certification (0.8.0)
 

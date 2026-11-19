@@ -97,7 +97,7 @@ final class ConnectionFactory implements ConnectionFactoryInterface
             if ($connection === 'migration-bootstrap') { return $pdo; }
             $check = $pdo->prepare('SELECT pg_catalog.has_schema_privilege(current_user, oid, \'USAGE\') FROM pg_catalog.pg_namespace WHERE nspname = :schema');
             $check->execute(['schema' => $schema]);
-            if ($check->fetchColumn() !== true) { throw new DatabaseException('DB_SCHEMA must exist and grant USAGE to the application role.'); }
+            if (!PostgresBoolean::required($check->fetchColumn())) { throw new DatabaseException('DB_SCHEMA must exist and grant USAGE to the application role.'); }
             return $pdo;
           } catch (PDOException $e) {
             ++$this->failedAttempts;

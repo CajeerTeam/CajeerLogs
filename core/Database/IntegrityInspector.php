@@ -46,19 +46,19 @@ final class IntegrityInspector
             $checks=[]; $ok=true;
             $queries=self::checks();
             // Older verified schemas can still run the pre-migration integrity audit.
-            if ($this->pdo->query("SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='api_tokens' AND column_name='delivery_family_id')")->fetchColumn()===true) $queries+=self::deliveryChecks();
+            if (PostgresBoolean::required($this->pdo->query("SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='api_tokens' AND column_name='delivery_family_id')")->fetchColumn())) $queries+=self::deliveryChecks();
             foreach ($queries as $name=>$sql) {
                 $rows=$this->pdo->query($sql.' LIMIT '.($limit+1))->fetchAll(PDO::FETCH_COLUMN);
                 $more=count($rows)>$limit; if ($more) array_pop($rows);
                 if ($rows!==[]) $ok=false;
                 $checks[$name]=['sample_ids'=>$rows,'truncated'=>$more,'issues_at_least'=>count($rows)+(int)$more];
             }
-            if ($this->pdo->query("SELECT to_regclass('queue_accounting') IS NOT NULL")->fetchColumn()===true) {
+            if (PostgresBoolean::required($this->pdo->query("SELECT to_regclass('queue_accounting') IS NOT NULL")->fetchColumn())) {
                 $account=(new \Cajeer\Logs\Queue\QueueAccounting($this->pdo))->verify();
                 $checks['queue_accounting']=['sample_ids'=>$account['valid']?[]:['ingest-v1'],'truncated'=>false,'issues_at_least'=>$account['valid']?0:1];
                 $ok=$ok&&$account['valid'];
             }
-            if ($this->pdo->query("SELECT to_regclass('queue_project_state') IS NOT NULL")->fetchColumn()===true) {
+            if (PostgresBoolean::required($this->pdo->query("SELECT to_regclass('queue_project_state') IS NOT NULL")->fetchColumn())) {
                 $fair=(new \Cajeer\Logs\Queue\QueueFairness($this->pdo))->verify();
                 $checks['queue_project_accounting']=['sample_ids'=>$fair['sample_projects'],'truncated'=>$fair['truncated'],'issues_at_least'=>count($fair['sample_projects'])+(int)$fair['truncated']];
                 $ok=$ok&&$fair['valid'];

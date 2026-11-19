@@ -349,5 +349,8 @@ def main():
     print(f"CajeerLogs {meta['version']}: {len(meta['files'])} files verified")
 
 
+REQUIRED.update({'core/Database/PostgresBoolean.php', 'tests/security_hardening.php', 'docs/Security-Review-Hardening-0.8.3.md'})
+
 if __name__ == '__main__':
     main()
+

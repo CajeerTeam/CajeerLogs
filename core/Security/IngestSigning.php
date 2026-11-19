@@ -2,7 +2,7 @@
 declare(strict_types=1);
 namespace Cajeer\Logs\Security;
 
-use Cajeer\Logs\Database\DatabaseException;
+use Cajeer\Logs\Database\{DatabaseException,PostgresBoolean};
 use Cajeer\Logs\Http\{HttpException,Request};
 use PDO;
 
@@ -42,23 +42,24 @@ final class IngestSigning
         $signer=new SignedPayload(); $id=$r->header('X-Log-Key-Id');
         if ($row && $row['current_key_id']!==null) {
             if ($id!==null && $id===$row['current_key_id']) $cipher=$row['current_ciphertext'];
-            elseif ($id!==null && $id===$row['previous_key_id'] && $row['previous_active']) $cipher=$row['previous_ciphertext'];
+            elseif ($id!==null && $id===$row['previous_key_id'] && PostgresBoolean::required($row['previous_active'])) $cipher=$row['previous_ciphertext'];
             else SignedPayload::invalid();
             return $signer->verify($r,$this->open($p->id,$id,$cipher),$key,true,$now,$id);
         }
-        return $signer->verify($r,$bearer,$key,$global||$project['require_ingest_hmac']===true||$row!==false,$now);
+        return $signer->verify($r,$bearer,$key,$global||PostgresBoolean::required($project['require_ingest_hmac'])||$row!==false,$now);
     }
     private function lockToken(string $project,string $token): void
     {
         if (!$this->pdo->inTransaction()) throw new \LogicException('Signing change requires transaction.');
         $row=$this->sql('WITH locked AS MATERIALIZED (SELECT id,scopes,revoked_at,expires_at,service_account_id,project_id FROM api_tokens WHERE id=:id AND project_id=:project FOR UPDATE) SELECT id,scopes,revoked_at,(expires_at IS NULL OR expires_at>clock_timestamp()) AND (service_account_id IS NULL OR EXISTS (SELECT 1 FROM service_accounts a WHERE a.id=locked.service_account_id AND a.project_id=locked.project_id AND a.disabled_at IS NULL)) AS active FROM locked',['id'=>$token,'project'=>$project])->fetch();
         if (!$row) throw new HttpException(404,'not_found','Token not found.');
-        if ($row['revoked_at']!==null || !$row['active'] || !in_array('logs:write',\Cajeer\Logs\Database\Repository\TokenRepository::scopes(json_decode($row['scopes'],false,32,JSON_THROW_ON_ERROR),$project),true)) throw new HttpException(409,'token_inactive','Token cannot sign ingest.');
+        if ($row['revoked_at']!==null || !PostgresBoolean::required($row['active']) || !in_array('logs:write',\Cajeer\Logs\Database\Repository\TokenRepository::scopes(json_decode($row['scopes'],false,32,JSON_THROW_ON_ERROR),$project),true)) throw new HttpException(409,'token_inactive','Token cannot sign ingest.');
     }
     public function metadata(string $project,string $token): array
     {
         $row=$this->sql('SELECT s.current_key_id,s.previous_key_id,s.previous_until,s.updated_at,(s.token_id IS NOT NULL) AS required FROM api_tokens t LEFT JOIN ingest_signing s ON s.token_id=t.id WHERE t.id=:id AND t.project_id=:project',['id'=>$token,'project'=>$project])->fetch();
         if (!$row) throw new HttpException(404,'not_found','Token not found.');
+        $row['required']=PostgresBoolean::required($row['required']);
         return $row;
     }
     /** First provision switches immediately to separate mode. Subsequent rotations retain at most one previous key. */
@@ -99,7 +100,7 @@ final class IngestSigning
     public function inherit(string $project,string $old,string $new): array
     {
         $meta=$this->metadata($project,$old);
-        if (!$meta['required']) return [];
+        if (!PostgresBoolean::required($meta['required'])) return [];
         return $this->configure($project,$new,$meta['current_key_id']===null?'bearer':'separate',0);
     }
 }

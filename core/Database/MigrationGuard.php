@@ -11,7 +11,7 @@ final class MigrationGuard
     public function __construct(private readonly PDO $pdo,private readonly string $key)
     {
         $q=$pdo->prepare('SELECT pg_try_advisory_lock_shared(hashtextextended(:key,0))');
-        $q->execute(['key'=>$key]); $this->held=$q->fetchColumn()===true; $q->closeCursor();
+        $q->execute(['key'=>$key]); $this->held=PostgresBoolean::required($q->fetchColumn()); $q->closeCursor();
         if (!$this->held) throw new DatabaseException('Schema migration in progress.');
     }
     public function release(): void {
