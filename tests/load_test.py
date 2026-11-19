@@ -129,6 +129,16 @@ class LoadTest(unittest.TestCase):
         finally:
             fixture_mod.Fixture.corrupt = False
 
+    def test_persisted_payload_mutation_fails_durability_gate(self):
+        client = load_test.Client(self.origin, fixture_mod.TOKEN, fixture_mod.PROJECT, 'app')
+        fixture_mod.Fixture.corrupt_payload = True
+        try:
+            result = load_test.run_phase(client, 'sustained', self.args('sustained'))
+            self.assertEqual(result['status'], 'failed')
+            self.assertFalse(result['gates']['durable_consistency'])
+        finally:
+            fixture_mod.Fixture.corrupt_payload = False
+
     def test_percentiles_are_bounded(self):
         hist = load_test.Histogram()
         self.assertEqual(hist.summarize(), {'count': 0})

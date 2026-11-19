@@ -1,6 +1,6 @@
 {
   "name": "CajeerLogs",
-  "version": "0.9.8",
+  "version": "0.9.9",
   "channel": "stable",
   "php": ">=8.4",
   "compatibilityTarget": "PHP 8.4/8.5; PostgreSQL 17+",

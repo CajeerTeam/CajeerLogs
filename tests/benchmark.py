@@ -15,7 +15,7 @@ bench=importlib.util.module_from_spec(spec);spec.loader.exec_module(bench)
 TOKEN='fixture-only-token'; PROJECT='11111111-1111-4111-8111-111111111111'; KEY='22222222-2222-4222-8222-222222222222'; SECRET='sk_'+'a'*64
 
 class Fixture(BaseHTTPRequestHandler):
-    lock=threading.Lock(); receipts={}; jobs={}; events=[]; nonces=set(); corrupt=False; corrupt_export=False
+    lock=threading.Lock(); receipts={}; jobs={}; events=[]; nonces=set(); corrupt=False; corrupt_payload=False; corrupt_export=False
     def log_message(self,*args): pass
     def reply(self,status,value,headers=None):
         body=json.dumps(value).encode();self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(body)))
@@ -34,7 +34,7 @@ class Fixture(BaseHTTPRequestHandler):
                 return self.reply(200,stored|{'replayed':True})
             data=json.loads(raw); events=data.get('events',[data]);ids=[]
             for event in events:
-                eid=str(uuid.uuid4());ids.append(eid);self.events.append({'id':eid,'request_id':event['request_id']})
+                eid=str(uuid.uuid4());ids.append(eid);self.events.append({'id':eid,'request_id':event['request_id'],'project_id':PROJECT,'source':event['source'],'level':event['level'],'message':event['message']})
             response={'received':len(events),'replayed':False}
             if self.path.endswith('/async'):
                 jid=str(len(self.jobs)+1);self.jobs[jid]={'status':'completed','result':{'event_ids':ids,'stored':len(ids)}};response['job_id']=jid;status=202
@@ -46,6 +46,7 @@ class Fixture(BaseHTTPRequestHandler):
             q=urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query);items=sorted([x for x in self.events if x['request_id']==q['request_id'][0]],key=lambda x:x['id'],reverse=True)
             limit=int(q.get('limit',['100'])[0]); start=int(q.get('cursor',['0'])[0]); total=len(items)
             if self.corrupt: items=[]; total=0
+            if self.corrupt_payload and items: items[0] = {**items[0], 'message':'corrupted after commit'}
             page=items[start:start+limit]; digest=hashlib.sha256(json.dumps(page,sort_keys=True).encode()).hexdigest()
             result={'items':page,'next_cursor':str(start+limit) if start+limit<total else None,'prev_cursor':str(max(0,start-limit)) if start else None,
                     'page_cursor':str(start),'page_digest':digest,'snapshot_at':'2026-01-01T00:00:00Z','consistency':q.get('consistency',['live'])[0]}

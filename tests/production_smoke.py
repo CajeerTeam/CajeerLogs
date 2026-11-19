@@ -69,10 +69,10 @@ def main():
             compose('up','-d','--wait','--wait-timeout','180')
             for _ in range(60):
                 try:
-                    data,_=http('GET','/ready'); assert data['version']=='0.9.8' and data['status']=='ok'; break
+                    data,_=http('GET','/ready'); assert data['version']=='0.9.9' and data['status']=='ok'; break
                 except (OSError, AssertionError, urllib.error.URLError): time.sleep(1)
             else: raise AssertionError('HTTPS readiness did not become healthy')
-            panel,h=http('GET','/admin/'); assert b'0.9.8' in panel and 'frame-ancestors' in h['Content-Security-Policy']
+            panel,h=http('GET','/admin/'); assert b'0.9.9' in panel and 'frame-ancestors' in h['Content-Security-Policy']
             assert b'app/router.js' in http('GET','/admin/assets/panel.js')[0]
             assert b'createApiClient' in http('GET','/admin/assets/api/client.js')[0]
             http('GET','/.env',expected=404)
@@ -326,7 +326,20 @@ def main():
             http('GET',f'/api/v1/logs/{eventid}?project_id={pid}',headers=bearer,expected=404)
             compose('up','-d','--wait','--wait-timeout','180','scheduler')
             proof=json.loads(cli('operations:check',m['id'])); assert proof['status']=='ok' and proof['checks']['audit_integrity'] and proof['checks']['queue_accounting'] and proof['checks']['backup_archive_verified']
-            print('PASS real export rate limit, bounded retention and operator acceptance check',flush=True)
+            # These are the shipped operator commands on the installed production
+            # stack. Failed checks must not be relabeled as an accepted release.
+            healthy_triage=json.loads(cli('operations:triage',m['id']))
+            assert healthy_triage['status']=='ok' and healthy_triage['version']=='0.9.9' and not healthy_triage['critical']
+            posture=json.loads(cli('security:audit'))
+            assert posture['status']=='ok', 'Production security posture is not ready'
+            incident=json.loads(cli('operations:incident',m['id']))
+            assert incident['status']=='ok' and incident['version']=='0.9.9'
+            # Verify the *real on-disk* private evidence, not merely the CLI's path.
+            checked=compose('exec','-T','app','php','-r',
+                '$f=$argv[1]; $d=dirname($f); if(!is_file($f) || is_link($f) || (fileperms($f)&0777)!==0600 || (fileperms($d)&0777)!==0700) exit(1); $e=json_decode(file_get_contents($f),true); if(($e["status"]??null)!=="ok") exit(2); echo "verified";',
+                incident['report'],capture=True)
+            assert checked.strip()=='verified'
+            print('PASS live security audit, triage and private incident evidence',flush=True)
             # Actual Prometheus and Blackbox scrape this exact TLS deployment, then observe stopped processes.
             with monitoring_smoke(url,metrics,tls/'fullchain.pem') as monitor:
                 compose('stop','queue')
@@ -334,7 +347,12 @@ def main():
                 monitor.expect('ALERTS{alertname="CajeerLogsWorkerStale",role="queue",alertstate="pending"}',1,timeout=30)
                 monitor.expect('cajeerlogs_ready',1)
                 monitor.expect('probe_success{job="cajeerlogs-health"}',1)
-                print('PASS queue stopped; actual Prometheus detects stale heartbeat without API outage',flush=True)
+                stopped=compose('exec','-T','app','php','bin/cajeer','operations:triage',capture=True,check=False)
+                triage=json.loads(stopped)
+                assert triage['status'] in ('degraded','critical')
+                assert any(issue['runbook']=='docs/runbooks/queue-backlog.md'
+                           for issue in triage['warnings'] + triage['critical']), 'No queue-outage runbook'
+                print('PASS live triage routes stopped worker to queue incident runbook',flush=True)
                 compose('stop','db')
                 monitor.expect('cajeerlogs_ready',0,timeout=90)
                 monitor.expect('probe_success{job="cajeerlogs-ready"}',0,timeout=90)
@@ -352,7 +370,30 @@ def main():
                 restored_event,_=http('GET',f"/api/v1/logs/{post['event_ids'][0]}?project_id={pid}",headers=bearer)
                 assert restored_event['data']['message']=='recovery after database restart'
                 assert json.loads(cli('audit:verify'))['valid']
-                print('PASS PostgreSQL and queue recovery, alert resolution, real ingestion and audit after outage',flush=True)
+                recovered=json.loads(cli('operations:triage',m['id']))
+                assert recovered['status']=='ok' and not recovered['critical']
+                assert json.loads(cli('security:audit'))['status']=='ok'
+                # Complete operational evidence only after both real failures,
+                # alert-resolution and post-recovery data integrity succeed.
+                if archive:
+                    completed=json.loads(Path(report_path).read_text())
+                    completed['operations_acceptance']={
+                        'version':'0.9.9',
+                        'archive_sha256':hashlib.sha256(Path(archive).read_bytes()).hexdigest(),
+                        'checks':{'production_security_audit':True,'healthy_triage':True,
+                                  'private_incident_evidence':True,'worker_outage_triaged':True,
+                                  'prometheus_worker_alert':True,'postgres_outage_alert':True,
+                                  'post_recovery_triage':True,'post_recovery_ingest':True}}
+                    # Atomic evidence update; a failed smoke never emits ops success.
+                    fd,temporary=tempfile.mkstemp(prefix='.ops-cert-', dir=Path(report_path).parent)
+                    try:
+                        with os.fdopen(fd,'w') as target:
+                            json.dump(completed,target,indent=2,sort_keys=True)
+                            target.write('\n');target.flush();os.fsync(target.fileno())
+                        os.replace(temporary,report_path)
+                    finally:
+                        Path(temporary).unlink(missing_ok=True)
+                print('PASS PostgreSQL/queue recovery, alerts, operations readiness and actual ingestion',flush=True)
 
 
         except BaseException:

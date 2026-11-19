@@ -27,7 +27,7 @@ class StableReleaseTest(unittest.TestCase):
 
     def test_real_release_cli_and_platform(self):
         result = stable_release.verify(self.archive)
-        self.assertEqual(result['version'], '0.9.8')
+        self.assertEqual(result['version'], '0.9.9')
         self.assertGreaterEqual(result['versioned_browser_references'], 20)
         self.assertEqual(result['checks'][-1], 'production-security')
 
@@ -35,7 +35,7 @@ class StableReleaseTest(unittest.TestCase):
         path = self.target / 'packages/ts-sdk/package.json'
         original = path.read_bytes()
         try:
-            path.write_bytes(original.replace(b'0.9.8', b'0.8.9'))
+            path.write_bytes(original.replace(b'0.9.9', b'0.8.9'))
             with self.assertRaisesRegex(stable_release.InvalidRelease, 'TypeScript SDK'):
                 stable_release.identity(self.target)
         finally:
@@ -45,7 +45,7 @@ class StableReleaseTest(unittest.TestCase):
         path = self.target / 'public/admin/assets/panel.js'
         original = path.read_bytes()
         try:
-            path.write_bytes(original.replace(b'?v=0.9.8', b'?v=0.8.9', 1))
+            path.write_bytes(original.replace(b'?v=0.9.9', b'?v=0.8.9', 1))
             with self.assertRaisesRegex(stable_release.InvalidRelease, 'Old browser cache'):
                 stable_release.identity(self.target)
         finally:
@@ -65,7 +65,7 @@ class StableReleaseTest(unittest.TestCase):
         path = self.target / 'compose.production.yaml'
         original = path.read_bytes()
         try:
-            path.write_bytes(original.replace(b'cajeerlogs:0.9.8', b'cajeerlogs:0.7.5'))
+            path.write_bytes(original.replace(b'cajeerlogs:0.9.9', b'cajeerlogs:0.7.5'))
             with self.assertRaisesRegex(stable_release.InvalidRelease, 'Production image'):
                 stable_release.identity(self.target)
         finally:
@@ -78,7 +78,7 @@ class StableReleaseTest(unittest.TestCase):
             for item in original.infolist():
                 data = original.read(item.filename)
                 if item.filename == 'release.json':
-                    data = data.replace(b'0.9.8', b'0.8.9')
+                    data = data.replace(b'0.9.9', b'0.8.9')
                 edited.writestr(item, data)
         with self.assertRaises(ValueError):
             stable_release.verify(bad)

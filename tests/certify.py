@@ -15,12 +15,12 @@ import release
 
 class GateTest(unittest.TestCase):
     def setUp(self):
-        self.info={'version':'0.9.8','archive_sha256':'a'*64}
+        self.info={'version':'0.9.9','archive_sha256':'a'*64}
         proofs={name.removeprefix('upgrade-'):{'format':1,'scope':'upgrade-rollback','status':'passed',
-                'from_version':name.removeprefix('upgrade-'),'to_version':'0.9.8','archive_sha256':'a'*64,
+                'from_version':name.removeprefix('upgrade-'),'to_version':'0.9.9','archive_sha256':'a'*64,
                 'backup_sha256':'b'*64,'pending_migrations':[], 'checks':list(certify.UPGRADE_CHECKS)}
                 for name in certify.STAGES if name.startswith('upgrade-')}
-        self.reports=[dict(self.info, upgrade_rollback=copy.deepcopy(proofs), format=1, scope='database-core', status='passed', php_series=php, postgres_major=pg, php=php+'.1',postgres=pg+'.1',stages=[{'name':name,'status':'passed','exit_code':0} for name in certify.STAGES], disaster_recovery={'format':1,'scope':'disaster-recovery','status':'passed','version':'0.9.8','archive_sha256':'a'*64,'backup_sha256':'b'*64,'source_version':'0.9.8','fault_domain_separation_proven':False,'snapshot_rows':33,'restored_rows':33,'snapshot_checksum':'e'*32,'restored_checksum':'e'*32,'rpo_upper_bound_seconds':1,'recovery_readiness_seconds':2.1,'postgres_major':pg,'checks':list(certify.DR_CHECKS)}, migration_scale={'version':'0.9.8','archive_sha256':'a'*64,'status':'passed','test_rows':100000,'backfill_checksum':'5000050000','checks':24,'postgresql_version':pg+'.1','independent_replay':{'status':'verified','schema':'cl_cert_test','migrations':33,'history_sha256':'c'*64,'catalog_sha256':'d'*64,'reference_sha256':'d'*64,'duration_ms':100,'scratch_schema_persisted':False}}) for php,pg in sorted(certify.MATRIX)]
+        self.reports=[dict(self.info, upgrade_rollback=copy.deepcopy(proofs), format=1, scope='database-core', status='passed', php_series=php, postgres_major=pg, php=php+'.1',postgres=pg+'.1',stages=[{'name':name,'status':'passed','exit_code':0} for name in certify.STAGES], disaster_recovery={'format':1,'scope':'disaster-recovery','status':'passed','version':'0.9.9','archive_sha256':'a'*64,'backup_sha256':'b'*64,'source_version':'0.9.9','fault_domain_separation_proven':False,'snapshot_rows':33,'restored_rows':33,'snapshot_checksum':'e'*32,'restored_checksum':'e'*32,'rpo_upper_bound_seconds':1,'recovery_readiness_seconds':2.1,'postgres_major':pg,'checks':list(certify.DR_CHECKS)}, migration_scale={'version':'0.9.9','archive_sha256':'a'*64,'status':'passed','test_rows':100000,'backfill_checksum':'5000050000','checks':24,'postgresql_version':pg+'.1','independent_replay':{'status':'verified','schema':'cl_cert_test','migrations':33,'history_sha256':'c'*64,'catalog_sha256':'d'*64,'reference_sha256':'d'*64,'duration_ms':100,'scratch_schema_persisted':False}}) for php,pg in sorted(certify.MATRIX)]
 
     def test_supply_chain_blocks_unlocked_or_mismatched_builds(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -28,9 +28,9 @@ class GateTest(unittest.TestCase):
             release.build(ROOT,path)
             _, _, evidence=__import__('supply_chain').sidecars(path)
             correct={'format':1,'scope':'reproducible-build','status':'passed',
-                     'version':'0.9.8','archive_sha256':evidence['archive_sha256'],
+                     'version':'0.9.9','archive_sha256':evidence['archive_sha256'],
                      'independent_builds':[{'index':i,'sha256':evidence['archive_sha256']} for i in (1,2)]}
-            info={'version':'0.9.8','archive_sha256':evidence['archive_sha256']}
+            info={'version':'0.9.9','archive_sha256':evidence['archive_sha256']}
             with self.assertRaisesRegex(ValueError,'Unresolved dependency'):
                 certify.validate_supply_chain_evidence(path,evidence,correct,info)
             unlocked=dict(evidence,dependency_lock_complete=True)
@@ -174,7 +174,7 @@ class GateTest(unittest.TestCase):
                 certify.validate_stability(r, self.info)
 
     def performance_evidence(self):
-        base={'completion_accounting':True,'achieved_rate':True,'durable_consistency':True,
+        base={'completion_accounting':True,'achieved_rate':True,'durable_consistency':True,'persisted_payload':True,
               'error_rate':True,'p95_latency':True,'offered_rate':True,'run_duration':True,
               'per_step_offered_rate':True,'minute_p95_latency':True,'concurrent_search':True}
         phases=[]
@@ -198,13 +198,19 @@ class GateTest(unittest.TestCase):
                            'retry_attempts':5,'idempotent_replays':1,
                            'fault_injection':{'pre503':1,'pre429':1,'lost_ack':1,'delay':1,'upstream_success':1}})
         return dict(self.info,format=1,scope='load-performance',status='passed',certified=True,
-                    certification_requested=True,readiness_confirmed=True,thresholds={'p95_ms':5000,'fault_p95_ms':8000,'max_error_rate':.01,'fault_error_rate':.01,'min_rate_ratio':.85},phases=phases)
+                    certification_requested=True,readiness_confirmed=True,
+                    operations_acceptance={'version':'0.9.9','archive_sha256':'a'*64,
+                        'checks':{key:True for key in ('production_security_audit','healthy_triage',
+                            'private_incident_evidence','worker_outage_triaged',
+                            'prometheus_worker_alert','postgres_outage_alert',
+                            'post_recovery_triage','post_recovery_ingest')}},
+                    thresholds={'p95_ms':5000,'fault_p95_ms':8000,'max_error_rate':.01,'fault_error_rate':.01,'min_rate_ratio':.85},phases=phases)
 
     def test_full_live_performance_evidence(self):
         certify.validate_performance(self.performance_evidence(),self.info)
 
     def test_short_or_unverified_performance_cannot_certify(self):
-        for mutation in ('short','sync','hash','fault','gate','uncertified','missing_metrics','missing_gate','unverified_requests','read_failure','duplicate_marker','weak_slo','nan_latency','tiny_load','wrong_steps','bad_error_rate'):
+        for mutation in ('short','sync','hash','fault','gate','uncertified','missing_metrics','missing_gate','unverified_requests','read_failure','duplicate_marker','weak_slo','missing_ops','ops_failed','missing_payload_gate','nan_latency','tiny_load','wrong_steps','bad_error_rate'):
             r=self.performance_evidence()
             if mutation=='short': r['phases'][2]['duration_target_seconds']=3
             if mutation=='sync': r['phases'][1]['async_jobs']=0
@@ -217,6 +223,9 @@ class GateTest(unittest.TestCase):
             if mutation=='unverified_requests': r['phases'][1]['completed_requests']=0
             if mutation=='read_failure': r['phases'][2]['concurrent_search_errors']={'failed':1}
             if mutation=='duplicate_marker': r['phases'][1]['marker']=r['phases'][0]['marker']
+            if mutation=='missing_ops': del r['operations_acceptance']
+            if mutation=='ops_failed': r['operations_acceptance']['checks']['post_recovery_ingest']=False
+            if mutation=='missing_payload_gate': del r['phases'][0]['gates']['persisted_payload']
             if mutation=='weak_slo': r['thresholds']['p95_ms']=999999
             if mutation=='nan_latency': r['phases'][0]['latency']['p95_ms']=float('nan')
             if mutation=='tiny_load': r['phases'][2]['step_schedule'][0]['scheduled']=1
@@ -285,7 +294,7 @@ class GateTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             tmp=Path(temp); archive=tmp/'release.zip'; release.build(ROOT,archive)
             out=tmp/'evidence.json'; env=dict(os.environ,CAJEER_TEST_DATABASE='0')
-            result=subprocess.run([sys.executable,str(ROOT/'scripts/certify.py'),'database',str(archive),'--from-010',str(tmp),'--from-020',str(tmp),'--from-029',str(tmp),'--from-030',str(tmp),'--from-032',str(tmp),'--from-033',str(tmp),'--from-034',str(tmp),'--from-035',str(tmp),'--from-036',str(tmp),'--from-037',str(tmp),'--from-038',str(tmp),'--from-039',str(tmp),'--from-040',str(tmp),'--from-041',str(tmp),'--from-042',str(tmp),'--from-043',str(tmp),'--from-044',str(tmp),'--from-045',str(tmp),'--from-046',str(tmp),'--from-047',str(tmp),'--from-048',str(tmp),'--from-049',str(tmp),'--from-0410',str(tmp),'--from-050',str(tmp),'--from-051',str(tmp),'--from-052',str(tmp),'--from-053',str(tmp),'--from-054',str(tmp),'--from-055',str(tmp),'--from-056',str(tmp),'--from-057',str(tmp),'--from-058',str(tmp),'--from-059',str(tmp),'--from-0510',str(tmp),'--from-060',str(tmp),'--from-061',str(tmp),'--from-062',str(tmp),'--from-063',str(tmp),'--from-064',str(tmp),'--from-065',str(tmp),'--from-066',str(tmp),'--from-067',str(tmp),'--from-068',str(tmp),'--from-069',str(tmp),'--from-079',str(tmp),'--from-080',str(tmp),'--from-081',str(tmp),'--from-082',str(tmp),'--from-083',str(tmp),'--from-084',str(tmp),'--from-085',str(tmp),'--from-086',str(tmp),'--from-087',str(tmp),'--from-088',str(tmp),'--from-089',str(tmp),'--from-090',str(tmp),'--from-091',str(tmp),'--from-092',str(tmp),'--from-093',str(tmp),'--from-094',str(tmp),'--from-095',str(tmp),'--from-096',str(tmp),'--from-097',str(tmp),'--output',str(out)],env=env,capture_output=True)
+            result=subprocess.run([sys.executable,str(ROOT/'scripts/certify.py'),'database',str(archive),'--from-010',str(tmp),'--from-020',str(tmp),'--from-029',str(tmp),'--from-030',str(tmp),'--from-032',str(tmp),'--from-033',str(tmp),'--from-034',str(tmp),'--from-035',str(tmp),'--from-036',str(tmp),'--from-037',str(tmp),'--from-038',str(tmp),'--from-039',str(tmp),'--from-040',str(tmp),'--from-041',str(tmp),'--from-042',str(tmp),'--from-043',str(tmp),'--from-044',str(tmp),'--from-045',str(tmp),'--from-046',str(tmp),'--from-047',str(tmp),'--from-048',str(tmp),'--from-049',str(tmp),'--from-0410',str(tmp),'--from-050',str(tmp),'--from-051',str(tmp),'--from-052',str(tmp),'--from-053',str(tmp),'--from-054',str(tmp),'--from-055',str(tmp),'--from-056',str(tmp),'--from-057',str(tmp),'--from-058',str(tmp),'--from-059',str(tmp),'--from-0510',str(tmp),'--from-060',str(tmp),'--from-061',str(tmp),'--from-062',str(tmp),'--from-063',str(tmp),'--from-064',str(tmp),'--from-065',str(tmp),'--from-066',str(tmp),'--from-067',str(tmp),'--from-068',str(tmp),'--from-069',str(tmp),'--from-079',str(tmp),'--from-080',str(tmp),'--from-081',str(tmp),'--from-082',str(tmp),'--from-083',str(tmp),'--from-084',str(tmp),'--from-085',str(tmp),'--from-086',str(tmp),'--from-087',str(tmp),'--from-088',str(tmp),'--from-089',str(tmp),'--from-090',str(tmp),'--from-091',str(tmp),'--from-092',str(tmp),'--from-093',str(tmp),'--from-094',str(tmp),'--from-095',str(tmp),'--from-096',str(tmp),'--from-097',str(tmp),'--from-098',str(tmp),'--output',str(out)],env=env,capture_output=True)
             self.assertNotEqual(result.returncode,0)
             self.assertEqual(json.loads(out.read_text())['status'],'failed')
             self.assertEqual(json.loads(out.read_text())['stages'],[])

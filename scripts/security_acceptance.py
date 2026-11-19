@@ -20,7 +20,7 @@ import time
 
 import release
 
-VERSION = '0.9.8'
+VERSION = '0.9.9'
 # These are executable security tests, not checks for the existence of files.
 STAGES = (
     ('deployment-policy', ('php', 'tests/deployment_security.php'), 20),

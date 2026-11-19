@@ -1,6 +1,6 @@
-import { state, active } from '../app/store.js?v=0.9.8';
-import { h, button, message, table } from './ui.js?v=0.9.8';
-import { get } from '../api/client.js?v=0.9.8';
+import { state, active } from '../app/store.js?v=0.9.9';
+import { h, button, message, table } from './ui.js?v=0.9.9';
+import { get } from '../api/client.js?v=0.9.9';
 
 function pagedList({ path, query = {}, headers, rows, signal, epoch, renderItems }) {
     const box = h('div', {}, h('p', { role: 'status' }, 'Загрузка…'));

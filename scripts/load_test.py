@@ -30,7 +30,7 @@ import urllib.parse
 import urllib.request
 import uuid
 
-VERSION = '0.9.8'
+VERSION = '0.9.9'
 MAX_RESPONSE = 4 * 1024 * 1024
 RETRYABLE = {429, 502, 503, 504}
 PHASES = ('sustained', 'stress', 'soak', 'fault')
@@ -314,11 +314,11 @@ def write_one(client, marker, index, batch, async_percent, origin, deadline):
     if async_mode:
         if not isinstance(data.get('job_id'), str):
             raise ProtocolError('Missing asynchronous job ID')
-        return (n, None, (data['job_id'], n), elapsed, attempts, replay, time.monotonic())
+        return (n, None, (data['job_id'], n, index), elapsed, attempts, replay, time.monotonic())
     ids = data.get('event_ids')
     if not isinstance(ids, list) or len(ids) != n or len(set(ids)) != n:
         raise ProtocolError('Invalid or duplicate receipt event IDs')
-    return (n, ids, None, elapsed, attempts, replay, time.monotonic())
+    return (n, list(zip(ids, range(index * batch, (index + 1) * batch))), None, elapsed, attempts, replay, time.monotonic())
 
 
 def drain_jobs(client, jobs, deadline):
@@ -327,7 +327,7 @@ def drain_jobs(client, jobs, deadline):
     while pending:
         if time.monotonic() > deadline:
             raise ProtocolError('Async job drain timed out')
-        for jid, n in list(pending.items()):
+        for jid, (n, index) in list(pending.items()):
             status, value, _, _ = client.retried('GET', '/api/v1/ingest/jobs/' + urllib.parse.quote(jid, safe=''), deadline=deadline)
             if status != 200 or not isinstance(value, dict):
                 raise ProtocolError('Job status unavailable')
@@ -336,7 +336,7 @@ def drain_jobs(client, jobs, deadline):
                 ids = result.get('event_ids')
                 if not isinstance(ids, list) or len(ids) != n or len(set(ids)) != n:
                     raise ProtocolError('Async job stored wrong number of events')
-                completed.extend(ids)
+                completed.extend(zip(ids, range(index * n, (index + 1) * n)))
                 pending.pop(jid)
             elif value.get('status') not in ('pending', 'running'):
                 raise ProtocolError('Async job failed')
@@ -365,6 +365,11 @@ def verify_logs(client, marker, expected, deadline):
             eid = item['id']
             if eid in seen:
                 raise ProtocolError('Duplicate event across search pages')
+            if eid not in expected:
+                raise ProtocolError('Unexpected persisted event ID')
+            if (item.get('project_id') != client.project or item.get('source') != client.source or
+                    item.get('level') != 'info' or item.get('message') != f'load-test {marker} #{expected[eid]}'):
+                raise ProtocolError('Persisted event payload differs from accepted receipt')
             seen.add(eid)
         cursor = page.get('next_cursor')
         if not cursor:
@@ -374,7 +379,7 @@ def verify_logs(client, marker, expected, deadline):
         cursors.add(cursor)
         if pages > 20000:
             raise ProtocolError('Search page safety cap reached')
-    if seen != expected:
+    if seen != expected.keys():
         raise ProtocolError(f'Durable verification mismatch (expected={len(expected)}, found={len(seen)})')
     return pages
 
@@ -399,7 +404,7 @@ def run_phase(client, phase, args):
     read_errors = Counter()
     minute_histograms = {}
     step_counts = []
-    expected = set()
+    expected = {}
     jobs = {}
     errors = Counter()
     retries = 0
@@ -494,14 +499,14 @@ def run_phase(client, phase, args):
             replayed += int(replay)
             delivered += n
             if ids:
-                for eid in ids:
+                for eid, sequence in ids:
                     if eid in expected:
                         raise ProtocolError('Receipt contains globally duplicated event ID')
-                    expected.add(eid)
+                    expected[eid] = sequence
             if job:
                 if job[0] in jobs:
                     raise ProtocolError('Duplicate job ID')
-                jobs[job[0]] = job[1]
+                jobs[job[0]] = (job[1], job[2])
         except (TransportError, ProtocolError, ValueError, KeyError, TypeError) as exc:
             errors[type(exc).__name__] += 1
 
@@ -514,10 +519,10 @@ def run_phase(client, phase, args):
     try:
         if jobs:
             ids = drain_jobs(client, jobs, verification_deadline)
-            for eid in ids:
+            for eid, sequence in ids:
                 if eid in expected:
                     raise ProtocolError('Duplicate async event ID')
-                expected.add(eid)
+                expected[eid] = sequence
         pages = verify_logs(client, marker, expected, verification_deadline)
         verification = 'passed'
     except (ProtocolError, TransportError) as exc:
@@ -544,6 +549,7 @@ def run_phase(client, phase, args):
         'achieved_rate': effective_rate >= target_rate * args.min_rate_ratio * (
             1 - (args.fault_error_rate if phase == 'fault' else args.max_error_rate)),
         'durable_consistency': verification == 'passed' and len(expected) == delivered,
+        'persisted_payload': verification == 'passed' and len(expected) == delivered,
         'error_rate': error_rate <= (args.fault_error_rate if phase == 'fault' else args.max_error_rate),
         'p95_latency': summary.get('p95_ms', float('inf')) <= p95_limit,
         'offered_rate': scheduled >= sum(rate * seconds for seconds, rate in plan) * args.min_rate_ratio,
@@ -597,7 +603,7 @@ def validate_args(args):
                 args.p95_ms > 5000 or args.fault_p95_ms > 8000 or
                 args.min_rate_ratio < .85 or args.max_error_rate > .01 or
                 args.fault_error_rate > .01):
-            raise ValueError('Certification cannot weaken the fixed 0.9.8 throughput, latency and error SLO')
+            raise ValueError('Certification cannot weaken the fixed 0.9.9 throughput, latency and error SLO')
 
 
 def get_release_metadata(args, client):

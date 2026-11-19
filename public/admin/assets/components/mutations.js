@@ -1,6 +1,6 @@
-import { state, active, render } from '../app/store.js?v=0.9.8';
-import { successfulMutationCount } from '../api/client.js?v=0.9.8';
-import { h, button, field, input, message, recoveryAction, notify, modalEpoch, clearModal, modal } from './ui.js?v=0.9.8';
+import { state, active, render } from '../app/store.js?v=0.9.9';
+import { successfulMutationCount } from '../api/client.js?v=0.9.9';
+import { h, button, field, input, message, recoveryAction, notify, modalEpoch, clearModal, modal } from './ui.js?v=0.9.9';
 
 const nameFields = () => [field('Название', input('name', { required: true, maxlength: 255 })), field('Slug', input('slug', { required: true, maxlength: 100, pattern: '[a-z0-9]+(-[a-z0-9]+)*', placeholder: 'my-project' }))];
 const nameBody = d => ({ name: String(d.get('name')).trim(), slug: String(d.get('slug')).trim() });

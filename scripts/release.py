@@ -371,7 +371,7 @@ REQUIRED.update({'tests/ingest_recovery.php','tests/ingest_recovery_database.php
                  'tests/cold_restore_race_worker.php',
                  'docs/Data-Lifecycle-Disaster-Recovery-0.9.7.md'})
 REQUIRED.update({'core/Security/SecurityPosture.php','tests/security_posture.php','tests/security_posture_database.php',
-                 'docs/Security-Operations-Hardening-0.9.8.md'})
+                 'docs/Security-Operations-Hardening-0.9.8.md','docs/Release-Candidate-Operations-0.9.9.md'})
 
 if __name__ == '__main__':
     main()

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createApiClient, ApiError } from '../public/admin/assets/api/client.js?v=0.9.8';
-import { state, advanceSession, resetWorkspace, selectProject, manage } from '../public/admin/assets/app/store.js?v=0.9.8';
+import { createApiClient, ApiError } from '../public/admin/assets/api/client.js?v=0.9.9';
+import { state, advanceSession, resetWorkspace, selectProject, manage } from '../public/admin/assets/app/store.js?v=0.9.9';
 const json = (data, status=200, headers={}) => new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json',...headers}});
 function fixture(fetcher) { let invalidated=0; const session={csrf:'csrf-value',authEpoch:0,sessionController:new AbortController()}; const client=createApiClient({origin:'https://logs.test',prefix:'/api/v1',fetcher,session,onUnauthorized:()=>invalidated++}); return {client,session,invalidated:()=>invalidated}; }
 test('same-origin URL, query, credentials, CSRF, JSON, If-Match',async()=>{ const {client}=fixture(async (url,opts)=>{assert.equal(url.href,'https://logs.test/api/v1/logs?q=a%26b&limit=0');assert.equal(opts.credentials,'same-origin');assert.equal(opts.headers['X-CSRF-Token'],'csrf-value');assert.equal(opts.headers['If-Match'],'"hash"');assert.equal(opts.body,'{"x":1}');assert.equal(opts.redirect,'error');return json({ok:true});});assert.deepEqual(await client.request('/logs',{method:'POST',query:{q:'a&b',limit:0,skip:''},body:{x:1},ifMatch:'"hash"'}),{ok:true});await assert.rejects(client.get('/../secret'),/Недопустимый/);await assert.rejects(client.get('//evil.test'),/Недопустимый/); });
@@ -11,7 +11,7 @@ test('stale session and route responses cannot update state or logout',async()=>
 test('invalid JSON and network failure are actionable; no automatic write retry',async()=>{let count=0;const {client}=fixture(async()=>{count++;if(count===1)return new Response('html');throw new TypeError('network');});await assert.rejects(client.get('/logs'),/некорректный JSON/);await assert.rejects(client.write('/users','POST',{}),/соединение/);assert.equal(count,2);});
 test('session advance aborts old requests and workspace reset clears private state',()=>{const old=state.sessionController;state.filters={q:'private'};state.project='project';advanceSession();resetWorkspace();assert.equal(old.signal.aborted,true);assert.equal(state.sessionController.signal.aborted,false);assert.equal(state.filters,null);assert.equal(state.project,null);});
 
-import { qrMatrix } from '../public/admin/assets/components/qr-encoder.js?v=0.9.8';
+import { qrMatrix } from '../public/admin/assets/components/qr-encoder.js?v=0.9.9';
 test('local TOTP QR encodes URI without browser network or external services', () => {
     const uri='otpauth://totp/CajeerLogs%3Atest%40example.com?secret=JBSWY3DPEHPK3PXP&issuer=CajeerLogs&algorithm=SHA1&digits=6&period=30';
     const matrix=qrMatrix(uri);
@@ -21,7 +21,7 @@ test('local TOTP QR encodes URI without browser network or external services', (
     assert.throws(()=>qrMatrix('https://example.com'),/Invalid TOTP URI/);
 });
 
-import { rangeFor, previousRange, denseBuckets, sourceHealth, explorerFilters, delta, parseUtc } from '../public/admin/assets/app/analytics.js?v=0.9.8';
+import { rangeFor, previousRange, denseBuckets, sourceHealth, explorerFilters, delta, parseUtc } from '../public/admin/assets/app/analytics.js?v=0.9.9';
 test('UTC analytics periods and bounded granularity',()=>{
  const now=Date.parse('2026-01-02T00:03:20.123Z');
  const r=rangeFor({period:'15m',interval:'auto'},now);assert.equal(r.interval,'minute');assert.equal(r.from,'2026-01-01T23:48:20.123Z');assert.equal(r.to,'2026-01-02T00:03:20.123Z');
@@ -42,7 +42,7 @@ test('source health differentiates status and admission recency; delta handles z
  state.dashboard={project:'private'};resetWorkspace();assert.equal(state.dashboard,null);
 });
 
-import { defaultLayout, normalizeLayout, moveColumn, visibleColumns, timestampLabel, highlightParts, pageChanged } from '../public/admin/assets/app/explorer.js?v=0.9.8';
+import { defaultLayout, normalizeLayout, moveColumn, visibleColumns, timestampLabel, highlightParts, pageChanged } from '../public/admin/assets/app/explorer.js?v=0.9.9';
 test('Explorer layout normalizes invalid preferences, enforces visibility and bounded widths',()=>{
     const l=normalizeLayout({order:['host','host','unknown'],visible:['host','bad'],widths:{host:900,message:10,id:'12'},density:'bad',zone:'bad'});
     assert.equal(l.order[0],'host'); assert.equal(l.order.length,12); assert.deepEqual(l.visible,['host']);assert.deepEqual(l.widths,{host:800,message:90});assert.equal(l.density,'normal');assert.equal(l.zone,'utc');
@@ -52,7 +52,7 @@ test('Explorer literal highlighting never interprets HTML or regex and preserves
     const s='<img src=x> [a] [A]'; const p=highlightParts(s,'[a]');assert.equal(p.map(x=>x.text).join(''),s);assert.deepEqual(p.filter(x=>x.match).map(x=>x.text),['[a]','[A]']);assert.equal(timestampLabel('2026-11-15T01:02:03.123456Z'),'2026-11-15 01:02:03.123456 UTC');assert.equal(pageChanged('a',{page_digest:'b'}),true);assert.equal(pageChanged(null,{page_digest:'b'}),false);
 });
 
-import { validateFilters, queryFilters, preset, removeFilter } from '../public/admin/assets/app/filters.js?v=0.9.8';
+import { validateFilters, queryFilters, preset, removeFilter } from '../public/admin/assets/app/filters.js?v=0.9.9';
 test('advanced filter validation, canonical lists and lossless JSON scalar',()=>{
  const raw='12345678901234567890.123456789';
  const f=validateFilters({levels:'["warning","error","error"]',tags_all:'["prod","db"]',context_path:'["list","0","list"]',context_equals:raw,from:'2026-01-01T00:00:00.123456Z',to:'2026-01-02T00:00:00Z'});
@@ -61,7 +61,7 @@ test('advanced filter validation, canonical lists and lossless JSON scalar',()=>
  assert.equal(removeFilter(f,'from').context_path,undefined);assert.equal(removeFilter(f,'from').context_equals,undefined);assert.equal(preset('hour',new Date('2026-01-01T01:00:00Z')).from,'2026-01-01T00:00:00.000Z');
 });
 
-import { jsonDocument, pointer, searchJson, prettyJson } from '../public/admin/assets/app/event-json.js?v=0.9.8';
+import { jsonDocument, pointer, searchJson, prettyJson } from '../public/admin/assets/app/event-json.js?v=0.9.9';
 test('event JSON source spans preserve numbers, escaped keys, arrays and JSON Pointer',()=>{
  const raw='{"data":{"context":{"a/b~c":[12345678901234567890,1.234567890123456789,null,true,"<script>\\"x\\"</script>"],"__proto__":{"safe":false}}}}';
  const d=jsonDocument(raw),event=d.member(d.root,'data'),context=d.member(event,'context'),list=d.member(context,'a/b~c');
@@ -77,7 +77,7 @@ test('event JSON search matches decoded keys and scalar values and stops at budg
  const it=searchJson(d,d.root,'missing',{limit:2});assert.deepEqual(it.next(),{value:true,done:true});
 });
 
-import { signedHeaders, testPayload, receipt, effectivePolicy, pythonExample } from '../public/admin/assets/app/source-connection.js?v=0.9.8';
+import { signedHeaders, testPayload, receipt, effectivePolicy, pythonExample } from '../public/admin/assets/app/source-connection.js?v=0.9.9';
 import { createHash, createHmac, webcrypto } from 'node:crypto';
 test('source connection HMAC v1/v2 signs exact body, endpoint and idempotency key',async()=>{
  const token='cl_'+'a'.repeat(64),kid='11111111-1111-4111-8111-111111111111',secret='sk_'+'b'.repeat(64);
@@ -123,7 +123,7 @@ test('diagnostic responses retain HTTP status and honor session cancellation dur
 });
 
 test('custom permissions are intersections, including explicitly empty grant lists',async()=>{
-    const {grants,state,hasPermission,canIssueScope}=await import('../public/admin/assets/app/store.js?v=0.9.8');
+    const {grants,state,hasPermission,canIssueScope}=await import('../public/admin/assets/app/store.js?v=0.9.9');
     const u={role:'operator',permissions:['projects:read','logs:read','tokens:read','tokens:create']};
     const p={id:'custom',effective_role:'operator',effective_permissions:['projects:read','logs:read','tokens:read']};
     assert.deepEqual(grants(u,p),['projects:read','logs:read','tokens:read']);
@@ -158,7 +158,7 @@ test('known rejected mutations remain retryable and do not revoke sessions',asyn
 
 
 test('post-commit read failures are distinguishable from a failed pre-commit write',async()=>{
- const {successfulMutationCount}=await import('../public/admin/assets/api/client.js?v=0.9.8');
+ const {successfulMutationCount}=await import('../public/admin/assets/api/client.js?v=0.9.9');
  const before=successfulMutationCount();
  const {client}=fixture(async url=>url.pathname.endsWith('/projects')?json({id:'abc'},201):json({error:'service_unavailable'},503));
  assert.deepEqual(await client.write('/projects','POST',{name:'one'}),{id:'abc'});

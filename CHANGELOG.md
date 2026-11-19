@@ -1,3 +1,11 @@
+## 0.9.9 — Release Candidate & Operations Readiness
+
+- Live performance certification verifies stored project/source/severity/payload against original receipt, including asynchronous queue completions; tampering fails certification.
+- Docker production smoke checks operator triage, diagnostics, security posture and incident evidence after recovery, alongside PostgreSQL, worker and monitoring tests.
+- Release gate requires 0.9.8→0.9.9 upgrade/rollback evidence and full PHP/PostgreSQL CI matrix.
+- Operations handoff and load certification instructions updated for the release candidate.
+- No claim of completed production certification without passing external integration and supply-chain checks.
+
 ## 0.9.6 — Reliable Log Ingestion (release candidate)
 
 ## 0.9.8 — Security & Operations Hardening
