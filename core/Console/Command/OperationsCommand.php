@@ -22,6 +22,7 @@ final class OperationsCommand
             'backup:offsite-list'=>$n===0?$ops->offsiteList():throw new DatabaseException('Usage: backup:offsite-list'),
             'backup:offsite-verify'=>$n===1?$ops->offsiteVerify($args[0]):throw new DatabaseException('Usage: backup:offsite-verify ID'),
             'backup:fetch'=>$n===1?$ops->record('fetch',fn()=>$ops->fetch($args[0])):throw new DatabaseException('Usage: backup:fetch ID'),
+            'backup:dr-certify'=>$n===4 && ctype_digit($args[2]) && ctype_digit($args[3]) ? $ops->certify($args[0],$args[1],(int)$args[2],(int)$args[3]) : throw new DatabaseException('Usage: backup:dr-certify ID EMPTY_DB MAX_RPO_SECONDS MAX_RTO_SECONDS'),
             'backup:rehearse'=>$n===2?$ops->rehearse($args[0],$args[1]):throw new DatabaseException('Usage: backup:rehearse ID EMPTY_DB'),
             'backup:prune'=>$n===0||$args===['--confirm']?($n===1?$ops->record('prune',fn()=>$ops->prune(true)):$ops->prune(false)):throw new DatabaseException('Usage: backup:prune [--confirm]'),
             'backup:create'=>$n===0?$ops->record('manual_backup',fn()=>$backup->create()):throw new DatabaseException('Usage: backup:create'),

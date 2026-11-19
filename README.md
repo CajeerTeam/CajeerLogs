@@ -395,3 +395,7 @@ composer analyse
 **0.5.4:** [Dead-Letter Management](docs/Dead-Letter-Management.md) — project-scoped queue inspection, atomic retry/discard and audited operations.
 
 **0.5.3:** [Retry & Failure Recovery](docs/Retry-Failure-Recovery.md) — configurable durable attempt budgets, jitter, lease recovery and outage handling.
+
+## 0.8.7 disaster-recovery certification
+
+Use `php bin/cajeer backup:dr-certify BACKUP_ID EMPTY_TARGET_DB MAX_RPO_SECONDS MAX_RTO_SECONDS` to validate recovery directly from the authenticated offsite package without reading local backup data. It performs real isolated PostgreSQL restoration, data integrity checks and RPO/RTO-readiness gating (no automatic cutover). See `docs/Backup-Disaster-Recovery-Certification-0.8.7.md` for prerequisites, failure tests and limits.

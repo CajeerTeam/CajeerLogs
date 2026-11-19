@@ -15,12 +15,12 @@ import release
 
 class GateTest(unittest.TestCase):
     def setUp(self):
-        self.info={'version':'0.8.6','archive_sha256':'a'*64}
+        self.info={'version':'0.8.7','archive_sha256':'a'*64}
         proofs={name.removeprefix('upgrade-'):{'format':1,'scope':'upgrade-rollback','status':'passed',
-                'from_version':name.removeprefix('upgrade-'),'to_version':'0.8.6','archive_sha256':'a'*64,
+                'from_version':name.removeprefix('upgrade-'),'to_version':'0.8.7','archive_sha256':'a'*64,
                 'backup_sha256':'b'*64,'pending_migrations':[], 'checks':list(certify.UPGRADE_CHECKS)}
                 for name in certify.STAGES if name.startswith('upgrade-')}
-        self.reports=[dict(self.info, upgrade_rollback=copy.deepcopy(proofs), format=1, scope='database-core', status='passed', php_series=php, postgres_major=pg, php=php+'.1',postgres=pg+'.1',stages=[{'name':name,'status':'passed','exit_code':0} for name in certify.STAGES], migration_scale={'version':'0.8.6','archive_sha256':'a'*64,'status':'passed','test_rows':100000,'backfill_checksum':'5000050000','checks':23,'postgresql_version':pg+'.1'}) for php,pg in sorted(certify.MATRIX)]
+        self.reports=[dict(self.info, upgrade_rollback=copy.deepcopy(proofs), format=1, scope='database-core', status='passed', php_series=php, postgres_major=pg, php=php+'.1',postgres=pg+'.1',stages=[{'name':name,'status':'passed','exit_code':0} for name in certify.STAGES], disaster_recovery={'format':1,'scope':'disaster-recovery','status':'passed','version':'0.8.7','archive_sha256':'a'*64,'backup_sha256':'b'*64,'source_version':'0.8.7','fault_domain_separation_proven':False,'rpo_upper_bound_seconds':1,'recovery_readiness_seconds':2.1,'postgres_major':pg,'checks':list(certify.DR_CHECKS)}, migration_scale={'version':'0.8.7','archive_sha256':'a'*64,'status':'passed','test_rows':100000,'backfill_checksum':'5000050000','checks':23,'postgresql_version':pg+'.1'}) for php,pg in sorted(certify.MATRIX)]
 
     def test_supply_chain_blocks_unlocked_or_mismatched_builds(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -28,9 +28,9 @@ class GateTest(unittest.TestCase):
             release.build(ROOT,path)
             _, _, evidence=__import__('supply_chain').sidecars(path)
             correct={'format':1,'scope':'reproducible-build','status':'passed',
-                     'version':'0.8.6','archive_sha256':evidence['archive_sha256'],
+                     'version':'0.8.7','archive_sha256':evidence['archive_sha256'],
                      'independent_builds':[{'index':i,'sha256':evidence['archive_sha256']} for i in (1,2)]}
-            info={'version':'0.8.6','archive_sha256':evidence['archive_sha256']}
+            info={'version':'0.8.7','archive_sha256':evidence['archive_sha256']}
             with self.assertRaisesRegex(ValueError,'Unresolved dependency'):
                 certify.validate_supply_chain_evidence(path,evidence,correct,info)
             unlocked=dict(evidence,dependency_lock_complete=True)
@@ -67,6 +67,18 @@ class GateTest(unittest.TestCase):
         wrong[0]['upgrade_rollback']['0.8.5']['checks'].remove('previous_binary_restarted')
         with self.assertRaisesRegex(ValueError,'Invalid actual upgrade/rollback'):
             certify.validate_matrix(wrong,self.info)
+
+    def test_missing_dr_recovery_evidence(self):
+        for kind in ('missing','wrong_archive','missing_fault','unbounded_rto','falsified_fault_domain'):
+            bad=copy.deepcopy(self.reports)
+            proof=bad[0]['disaster_recovery']
+            if kind=='missing': del bad[0]['disaster_recovery']
+            elif kind=='wrong_archive': proof['archive_sha256']='e'*64
+            elif kind=='missing_fault': proof['checks'].remove('corruption_rejected')
+            elif kind=='unbounded_rto': proof['recovery_readiness_seconds']=301
+            else: proof['fault_domain_separation_proven']=True
+            with self.subTest(kind=kind),self.assertRaises(ValueError):
+                certify.validate_matrix(bad,self.info)
 
     def test_missing_matrix(self):
         with self.assertRaises(ValueError): certify.validate_matrix(self.reports[:-1],self.info)
@@ -248,7 +260,7 @@ class GateTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             tmp=Path(temp); archive=tmp/'release.zip'; release.build(ROOT,archive)
             out=tmp/'evidence.json'; env=dict(os.environ,CAJEER_TEST_DATABASE='0')
-            result=subprocess.run([sys.executable,str(ROOT/'scripts/certify.py'),'database',str(archive),'--from-010',str(tmp),'--from-020',str(tmp),'--from-029',str(tmp),'--from-030',str(tmp),'--from-032',str(tmp),'--from-033',str(tmp),'--from-034',str(tmp),'--from-035',str(tmp),'--from-036',str(tmp),'--from-037',str(tmp),'--from-038',str(tmp),'--from-039',str(tmp),'--from-040',str(tmp),'--from-041',str(tmp),'--from-042',str(tmp),'--from-043',str(tmp),'--from-044',str(tmp),'--from-045',str(tmp),'--from-046',str(tmp),'--from-047',str(tmp),'--from-048',str(tmp),'--from-049',str(tmp),'--from-0410',str(tmp),'--from-050',str(tmp),'--from-051',str(tmp),'--from-052',str(tmp),'--from-053',str(tmp),'--from-054',str(tmp),'--from-055',str(tmp),'--from-056',str(tmp),'--from-057',str(tmp),'--from-058',str(tmp),'--from-059',str(tmp),'--from-0510',str(tmp),'--from-060',str(tmp),'--from-061',str(tmp),'--from-062',str(tmp),'--from-063',str(tmp),'--from-064',str(tmp),'--from-065',str(tmp),'--from-066',str(tmp),'--from-067',str(tmp),'--from-068',str(tmp),'--from-069',str(tmp),'--from-079',str(tmp),'--from-080',str(tmp),'--from-081',str(tmp),'--from-082',str(tmp),'--from-083',str(tmp),'--from-084',str(tmp),'--from-085',str(tmp),'--output',str(out)],env=env,capture_output=True)
+            result=subprocess.run([sys.executable,str(ROOT/'scripts/certify.py'),'database',str(archive),'--from-010',str(tmp),'--from-020',str(tmp),'--from-029',str(tmp),'--from-030',str(tmp),'--from-032',str(tmp),'--from-033',str(tmp),'--from-034',str(tmp),'--from-035',str(tmp),'--from-036',str(tmp),'--from-037',str(tmp),'--from-038',str(tmp),'--from-039',str(tmp),'--from-040',str(tmp),'--from-041',str(tmp),'--from-042',str(tmp),'--from-043',str(tmp),'--from-044',str(tmp),'--from-045',str(tmp),'--from-046',str(tmp),'--from-047',str(tmp),'--from-048',str(tmp),'--from-049',str(tmp),'--from-0410',str(tmp),'--from-050',str(tmp),'--from-051',str(tmp),'--from-052',str(tmp),'--from-053',str(tmp),'--from-054',str(tmp),'--from-055',str(tmp),'--from-056',str(tmp),'--from-057',str(tmp),'--from-058',str(tmp),'--from-059',str(tmp),'--from-0510',str(tmp),'--from-060',str(tmp),'--from-061',str(tmp),'--from-062',str(tmp),'--from-063',str(tmp),'--from-064',str(tmp),'--from-065',str(tmp),'--from-066',str(tmp),'--from-067',str(tmp),'--from-068',str(tmp),'--from-069',str(tmp),'--from-079',str(tmp),'--from-080',str(tmp),'--from-081',str(tmp),'--from-082',str(tmp),'--from-083',str(tmp),'--from-084',str(tmp),'--from-085',str(tmp),'--from-086',str(tmp),'--output',str(out)],env=env,capture_output=True)
             self.assertNotEqual(result.returncode,0)
             self.assertEqual(json.loads(out.read_text())['status'],'failed')
             self.assertEqual(json.loads(out.read_text())['stages'],[])

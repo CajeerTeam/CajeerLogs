@@ -37,6 +37,7 @@ try {
     $app=new Application(dirname(__DIR__)); $app->boot(); $c=$app->config();
     foreach (['backup_dir'=>$local,'backup_offsite_dir'=>$remote,'backup_encryption_key'=>bin2hex($key),'pg_restore'=>$tool,'backup_min_free_bytes'=>0,'backup_keep_local'=>1,'backup_offsite_distinct_device'=>false] as $k=>$v) $c->set('operations.'.$k,$v);
     $manager=new BackupManager($app); $ops=new BackupOperations($app);
+    check(rejects(fn()=>$ops->certify($id,'cajeer_dr_target',0,60))&&rejects(fn()=>$ops->certify($id,'cajeer_dr_target',60,0)),'DR certification refuses missing RPO/RTO objectives');
     $make=function(array $meta) use($local,$payload):void { $p=$local.'/'.$meta['id']; mkdir($p,0700); file_put_contents($p.'/database.dump',$payload); file_put_contents($p.'/manifest.json',json_encode($meta)); };
     $make($m); $second=$m; $second['id']='backup-20260102T000000Z-0123456789abcdef'; $make($second);
     check($ops->locked(fn()=>$ops->replicate($id))['offsite_verified'] && $ops->offsiteVerify($id)['sha256']===$m['sha256'],'offsite publication and full readback');

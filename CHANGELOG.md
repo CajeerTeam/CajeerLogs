@@ -1,3 +1,7 @@
+## 0.8.7 — Backup & Disaster Recovery Certification
+
+Real authenticated offsite-only restore into an exclusive empty PostgreSQL target, conservative RPO bound from pre-dump snapshot timestamp, measured recovery-readiness time with mandatory operator budgets, fail-closed recovery, isolated scratch cleanup and CI fault injection. See docs/Backup-Disaster-Recovery-Certification-0.8.7.md.
+
 ## 0.8.6 — Upgrade & Rollback Certification
 
 - Certify old-version installation, live upgrade, PostgreSQL backup restoration and rollback of the original binary plus pre-upgrade database in a separate disposable database.

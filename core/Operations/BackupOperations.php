@@ -127,6 +127,64 @@ final class BackupOperations
             $s=$this->state(); $s['last_restore_epoch']=time(); $s['last_restore_id']=$id; $s['last_restore_seconds']=$r['duration_seconds']; $this->save($s); return $r;
         });
     }
+
+    /** Exercise a total loss of the local plaintext archive without modifying that archive.
+     * The only database input is a freshly decrypted, authenticated offsite package.
+     * Caller must supply a genuinely empty, separately provisioned database. */
+    public function certify(string $id,string $target,int $maxRpo,int $maxRto): array {
+        if ($maxRpo<1 || $maxRpo>2592000 || $maxRto<1 || $maxRto>86400)
+            throw new DatabaseException('DR objectives must be 1..2592000 RPO and 1..86400 RTO seconds.');
+        return $this->record('offsite_disaster_recovery',function() use ($id,$target,$maxRpo,$maxRto) {
+            $started=hrtime(true); $disasterEpoch=time();
+            $source=$this->package($id);
+            $root=$this->manager->root();
+            $free=disk_free_space($root);
+            if ($free===false || $free<$this->config('backup_min_free_bytes')) throw new DatabaseException('Insufficient recovery staging space.');
+            $staging=$root.'/.dr-'.bin2hex(random_bytes(16));
+            if (!mkdir($staging,0700)) throw new DatabaseException('Cannot allocate isolated recovery staging directory.');
+            try {
+                $manifest=$this->vault()->decrypt($source,$staging.'/database.dump',$id);
+                // A manifest from an older release is recoverable, but cannot prove RPO.
+                $snapshot=$manifest['snapshot_started_at']??null;
+                $created=$manifest['created_at']??null;
+                if (!is_string($snapshot)||!is_string($created)||
+                    !preg_match('/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\+00:00$/D',$snapshot)||
+                    !preg_match('/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\+00:00$/D',$created))
+                    throw new DatabaseException('Backup lacks reliable snapshot timestamp; cannot certify RPO.');
+                $snapshotDate=\DateTimeImmutable::createFromFormat('!Y-m-d\TH:i:sP',$snapshot);
+                $createdDate=\DateTimeImmutable::createFromFormat('!Y-m-d\TH:i:sP',$created);
+                if ($snapshotDate===false||$createdDate===false||
+                    $snapshotDate->format(DATE_ATOM)!==$snapshot||$createdDate->format(DATE_ATOM)!==$created)
+                    throw new DatabaseException('Backup contains an invalid snapshot date.');
+                $snapshotEpoch=$snapshotDate->getTimestamp(); $createdEpoch=$createdDate->getTimestamp();
+                if ($snapshotEpoch>$createdEpoch||$createdEpoch>$disasterEpoch+1 || $snapshotEpoch<0)
+                    throw new DatabaseException('Backup snapshot chronology invalid; check clocks.');
+                $rpo=max(0,$disasterEpoch-$snapshotEpoch);
+                if ($rpo>$maxRpo) throw new DatabaseException('RPO objective exceeded before recovery; target not touched.');
+                $this->atomicJson($staging.'/manifest.json',$manifest);
+                $checked=$this->manager->verifyDirectory($staging,$id);
+                if ($checked!==$manifest) throw new DatabaseException('Authenticated backup manifest mismatch.');
+                $result=$this->manager->restoreDirectory($staging,$id,$target);
+                $elapsed=round((hrtime(true)-$started)/1e9,3);
+                if ($elapsed>$maxRto) throw new DatabaseException('RTO objective exceeded; restored target must not be promoted.');
+                $state=$this->state();
+                $state['last_restore_epoch']=time(); $state['last_restore_id']=$id;
+                $state['last_restore_seconds']=$elapsed; $this->save($state);
+                return $result+['certification'=>'passed','recovery_path'=>'authenticated_offsite_only',
+                    'offsite_sha256'=>$manifest['sha256'],'snapshot_started_at'=>$snapshot,
+                    'rpo_upper_bound_seconds'=>$rpo,'recovery_readiness_seconds'=>$elapsed,
+                    'max_rpo_seconds'=>$maxRpo,'max_rto_seconds'=>$maxRto,
+                    'cutover_performed'=>false];
+            } finally {
+                // The encrypted source remains untouched. Never leave a plaintext scratch dump.
+                foreach (['database.dump','manifest.json'] as $name) {
+                    if (is_file($staging.'/'.$name) && !is_link($staging.'/'.$name)) unlink($staging.'/'.$name);
+                }
+                if (is_dir($staging)) rmdir($staging);
+            }
+        });
+    }
+
     public function prune(bool $confirm): array {
         $keep=$this->config('backup_keep_local'); if ($keep<1) throw new DatabaseException('Set BACKUP_KEEP_LOCAL before pruning.');
         $ids=$this->manager->list(); $protected=array_slice($ids,0,$keep);
