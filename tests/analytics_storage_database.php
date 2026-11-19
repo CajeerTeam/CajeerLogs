@@ -14,8 +14,8 @@ if (getenv('CAJEER_TEST_DATABASE') !== '1' || getenv('CAJEER_TEST_CLICKHOUSE') !
     exit(78);
 }
 $root=dirname(__DIR__);
-$app=new Application($root);$app->boot();
-$admin=$app->container()->get(PDO::class);
+$base=require $root.'/core/bootstrap.php';$base->boot();
+$admin=$base->container()->get(PDO::class);
 $schema='cl_cert_'.bin2hex(random_bytes(6));
 $admin->exec('CREATE SCHEMA "'.$schema.'"');
 $checks=0;
@@ -24,6 +24,7 @@ $check=static function(bool $ok,string $description)use(&$checks):void {
     $checks++;echo "PASS $description\n";
 };
 try {
+    $app=new Application($root);$app->boot();
     $app->config()->set('database.schema',$schema);
     $pdo=$app->container()->get(PDO::class);
     $app->container()->get(MigrationRunner::class)->migrate();
