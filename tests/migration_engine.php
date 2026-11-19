@@ -23,6 +23,18 @@ foreach(['UPDATE demo SET value=1 RETURNING id','WITH x AS (SELECT id FROM demo 
 $expected=['column:t.a'=>'old','index:gone'=>'abc','relation:t'=>'table']; $actual=['column:t.a'=>'new','relation:t'=>'table','index:new'=>'def'];
 check(SchemaInspector::differences($expected,$actual)===[['object'=>'column:t.a','change'=>'changed'],['object'=>'index:gone','change'=>'missing'],['object'=>'index:new','change'=>'unexpected']],'precise structural drift changes');
 check(SchemaInspector::differences($expected,array_reverse($expected,true))===[],'catalog ordering does not produce drift');
+// Replay compares identical triggers across schema names, but must retain drift checks.
+$replayMethod=(new ReflectionClass(MigrationRunner::class))->getMethod('normalizeReplayTriggers');
+$replayRunner=(new ReflectionClass(MigrationRunner::class))->newInstanceWithoutConstructor();
+$one=['trigger:audit_log.guard'=>json_encode(['definition'=>'CREATE TRIGGER guard ON first.audit_log EXECUTE FUNCTION first.guard()','enabled'=>'A'],JSON_THROW_ON_ERROR),'column:audit_log.id'=>'uuid'];
+$two=['trigger:audit_log.guard'=>json_encode(['definition'=>'CREATE TRIGGER guard ON second.audit_log EXECUTE FUNCTION second.guard()','enabled'=>'A'],JSON_THROW_ON_ERROR),'column:audit_log.id'=>'uuid'];
+$normalizedOne=$replayMethod->invoke($replayRunner,$one,'first');
+$normalizedTwo=$replayMethod->invoke($replayRunner,$two,'second');
+check(SchemaInspector::differences($normalizedOne,$normalizedTwo)===[],'schema replay normalizes owning trigger namespace only');
+$twoChanged=$two;$twoChanged['trigger:audit_log.guard']=json_encode(['definition'=>'CREATE TRIGGER guard ON second.audit_log EXECUTE FUNCTION third.guard()','enabled'=>'A'],JSON_THROW_ON_ERROR);
+check(SchemaInspector::differences($normalizedOne,$replayMethod->invoke($replayRunner,$twoChanged,'second'))!==[],'schema replay rejects foreign function retargeting');
+$twoChanged=$two;$twoChanged['column:audit_log.id']='text';
+check(SchemaInspector::differences($normalizedOne,$replayMethod->invoke($replayRunner,$twoChanged,'second'))!==[],'schema replay still detects column drift');
 $old=getenv('DB_MIGRATION_STATEMENT_TIMEOUT_MS'); $oldB=getenv('DB_MIGRATION_MAX_BACKFILL_BATCHES');
 try{putenv('DB_MIGRATION_STATEMENT_TIMEOUT_MS=1500');putenv('DB_MIGRATION_MAX_BACKFILL_BATCHES=9');check(MigrateCommand::limits()===[1500,9],'explicit migration limits');putenv('DB_MIGRATION_MAX_BACKFILL_BATCHES=0');check(rejects(fn()=>MigrateCommand::limits()),'invalid backfill limit rejected');}finally{foreach(['DB_MIGRATION_STATEMENT_TIMEOUT_MS'=>$old,'DB_MIGRATION_MAX_BACKFILL_BATCHES'=>$oldB] as $k=>$v)putenv($v===false?$k:$k.'='.$v);}
 check(rejects(fn()=>new MigrationRunner(new class extends PDO{public function __construct(){}},'/tmp','pg_catalog')),'system schema rejected before SQL');
