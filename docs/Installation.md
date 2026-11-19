@@ -1,4 +1,4 @@
-# CajeerLogs 0.9.4 — установка и обновление
+# CajeerLogs 0.9.5 — установка и обновление
 
 Актуальная пошаговая инструкция: [Production Installer 0.9.4](Production-Installer-0.9.4.md). Для разделения PostgreSQL ролей см. [Installer & Administrator](Installer-Administrator.md) и [Database Installer](Database-Installer.md).
 

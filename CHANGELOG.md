@@ -1,3 +1,12 @@
+## 0.9.5 — Admin Panel Stable (release candidate)
+
+- Fail-closed browser mutation recovery on ambiguous transport/5xx/malformed-success outcomes; explicit verification before retry, including confirmation dialogs.
+- Actionable optimistic revision conflict recovery; GET/search errors remain retryable.
+- Multi-tab profile header and recent-authentication settings revalidation.
+- Private no-store HTML, no-referrer and nosniff headers.
+- Expanded actual-browser UI scenarios and API-client regression; mandatory 0.9.4 → 0.9.5 upgrade coverage in release CI.
+- Production certificate is **not** implied by local test results; strict dependency verification and real PostgreSQL/browser matrix must pass.
+
 ## 0.9.3 — Supported Database Schema (2026-11-19)
 
 - Added real `migrate:certify`: independently replays all 33 SQL migrations in a private PostgreSQL scratch schema within a transaction that is unconditionally rolled back. Compares the reconstructed catalog with live tables, columns, constraints, indexes, triggers, policies and functions.

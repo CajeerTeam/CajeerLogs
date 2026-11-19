@@ -79,7 +79,7 @@ class Fixture:
         self.reauth=False; self.fresh_until=None; self.rbac_roles=[]; self.custom_permissions=None; self.system_report_fails=False; self.user = None; self.project_roles={}; self.denied_projects=set(); self.totp_enabled=False; self.require_totp=False; self.role = 'administrator'; self.projects=[{'id':P1,'name':'Production','slug':'production','revision':'1','status':'active','description':'','metadata':{},'max_body_bytes':1048576,'max_batch_events':100,'created_at':'2026-01-01T00:00:00Z'}]
         self.sources=[{'id':S1,'project_id':P1,'name':'Application','slug':'app','created_at':'2026-01-01T00:00:00Z','status':'active','revision':'1','source_type':'application','metadata':{}}]
         self.users=[{'id':U1,'email':'admin@example.test','role':'administrator','blocked_at':None}]
-        self.sessions=[{'id':U1,'current':True,'user_agent':'Current browser','remote_address':'127.0.0.1','created_at':'2026-01-01T00:00:00Z','last_seen_at':'2026-01-01T00:00:00Z','expires_at':'2026-01-02T00:00:00Z'},{'id':U2,'current':False,'user_agent':'Other device','remote_address':'192.0.2.3','created_at':'2026-01-01T00:00:00Z','last_seen_at':'2026-01-01T00:00:00Z','expires_at':'2026-01-02T00:00:00Z'}]; self.members=[]; self.tokens=[]; self.accounts=[]; self.calls=[]; self.fail_next=False; self.change_export=False; self.head_changed=False; self.multi_logs=False; self.redaction={}; self.views=[]; self.connection_credentials={}; self.connection_event=None; self.connection_attempts=[]
+        self.sessions=[{'id':U1,'current':True,'user_agent':'Current browser','remote_address':'127.0.0.1','created_at':'2026-01-01T00:00:00Z','last_seen_at':'2026-01-01T00:00:00Z','expires_at':'2026-01-02T00:00:00Z'},{'id':U2,'current':False,'user_agent':'Other device','remote_address':'192.0.2.3','created_at':'2026-01-01T00:00:00Z','last_seen_at':'2026-01-01T00:00:00Z','expires_at':'2026-01-02T00:00:00Z'}]; self.members=[]; self.tokens=[]; self.accounts=[]; self.calls=[]; self.fail_next=False; self.fail_create_after_commit=False; self.change_export=False; self.head_changed=False; self.multi_logs=False; self.redaction={}; self.views=[]; self.connection_credentials={}; self.connection_event=None; self.connection_attempts=[]
         self.dead_jobs=[{'id':j,'project_id':P1,'status':'dead','attempts':2,'max_attempts':8,'last_error':reason,'payload_events':1,'payload_bytes':123,'created_at':'2026-01-01T00:00:00Z','available_at':'2026-01-01T00:00:00Z','completed_at':'2026-01-01T00:00:01Z'} for j,reason in [('9223372036854775806','database_error'),('42','lease_expired')]]
         self.event={'id':E1,'project_id':P1,'source_id':S1,'source':'app','service':'api','host':'host-1','level':'error','message':'<img src=x onerror="window.pwned=1"> database error','context':{'secret':'[redacted]','html':'<script>window.pwned=1</script>','nested':{'items':[{'code':'needle','big':12345678901234567890}]}},'trace_id':'trace-1','request_id':'req-1','tags':['prod'],'timestamp':'2026-11-14T00:00:00Z','received_at':'2026-11-14T00:00:01Z'}
     def route(self,r):
@@ -107,7 +107,7 @@ class Fixture:
             if body['revision']!=row['revision']:return err(409,'role_changed')
             if method=='DELETE':self.rbac_roles.remove(row);return send(status=204)
             row.update(name=body['name'],permissions=body['permissions'],revision=row['revision']+1);return send(row)
-        if path=='/health': return send({'status':'ok','version':'0.9.4'})
+        if path=='/health': return send({'status':'ok','version':'0.9.5'})
         if path=='/auth/token':
             credential=self.connection_credentials.get(req.headers.get('authorization','').removeprefix('Bearer '))
             return send({'token':credential['row']}) if credential else err(401,'unauthorized')
@@ -176,7 +176,13 @@ class Fixture:
             rows=[j for j in jobs if j['status']=='dead' and (not q.get('reason') or j['last_error']==q['reason']) and (not q.get('cursor') or int(j['id'])<int(q['cursor']))]
             limit=int(q.get('limit',50));return listing(rows[:limit],rows[limit-1]['id'] if len(rows)>limit else None)
         if path=='/projects':
-            if method=='POST': self.projects.append({'id':P2,'revision':'1','status':'active','description':'','metadata':{},'max_body_bytes':1048576,'max_batch_events':100,**body});return send({'id':P2},201)
+            if method=='POST':
+                new_id = '99999999-9999-4999-8999-999999999999' if self.fail_create_after_commit else P2
+                self.projects.append({'id':new_id,'revision':'1','status':'active','description':'','metadata':{},'max_body_bytes':1048576,'max_batch_events':100,**body})
+                if self.fail_create_after_commit:
+                    self.fail_create_after_commit=False
+                    return err(503,'service_unavailable')
+                return send({'id':new_id},201)
             return listing([dict(p,effective_role=self.project_roles.get(p['id'],self.role)) for p in self.projects if p['id'] not in self.denied_projects and (q.get('status','all')=='all' or p['status']==q['status']) and q.get('q','').lower() in (p['name']+' '+p['slug']+' '+p['id']).lower()])
         if path in ['/projects/'+P1,'/projects/'+P2]:
             project=next(p for p in self.projects if p['id']==path.split('/')[-1])
@@ -372,8 +378,10 @@ def run():
         browser=browser_for(p); ctx=browser.new_context(accept_downloads=True); page=ctx.new_page(); page.set_default_timeout(8000)
         errors=[]; page.on('pageerror',lambda e: errors.append(str(e)))
         # Actual PHP router, not intercepted, even in offline browser mode.
-        status,headers,body=http(url+'/admin');assert status==200 and b'0.9.4' in body
+        status,headers,body=http(url+'/admin');assert status==200 and b'0.9.5' in body
         assert "script-src 'self'" in {k.lower():v for k,v in headers.items()}['content-security-policy']
+        assert 'no-store' in {k.lower():v for k,v in headers.items()}['cache-control']
+        assert {k.lower():v for k,v in headers.items()}['x-content-type-options']=='nosniff'
         assert http(url+'/api/v1/auth/me')[0]==401
         assert http(url+'/admin/assets/panel.js')[0]==200
         assert http(url+'/admin/',method='POST')[0]==405
@@ -393,6 +401,10 @@ def run():
         expect(page.get_by_role('heading',name='Вход в CajeerLogs')).to_be_visible()
         login(page,password='bad');expect(page.get_by_role('alert')).to_contain_text('Неверные');login(page)
         expect(page.get_by_role('heading',name='Обзор',exact=True)).to_be_visible();expect(page.get_by_text('Всего событий')).to_be_visible()
+        f.user['display_name']='Updated in other tab'
+        page.evaluate("window.dispatchEvent(new Event('focus'))")
+        expect(page.locator('#account .who')).to_contain_text('Updated in other tab')
+        print('PASS cross-tab profile revalidation updates account header')
         nav(page,'rbac');expect(page.get_by_role('heading',name='Роли и разрешения',exact=True)).to_be_visible()
         page.get_by_role('button',name='Новая роль',exact=True).click();dlg=page.get_by_role('dialog');dlg.get_by_label('Название роли').fill('RBAC Support');dlg.get_by_role('button',name='Создать роль',exact=True).click();expect(page.get_by_role('row').filter(has_text='RBAC Support')).to_be_visible()
         page.get_by_role('button',name='Изменить роль',exact=True).click();dlg.get_by_label('Название роли').fill('RBAC Support v2');dlg.get_by_label('logs:export',exact=False).check();dlg.get_by_role('button',name='Сохранить роль',exact=True).click();expect(page.get_by_role('row').filter(has_text='RBAC Support v2')).to_be_visible()
@@ -525,6 +537,22 @@ def run():
             assert dl.value.suggested_filename=='cajeerlogs.csv' and 'database error' in Path(dl.value.path()).read_text()
         f.change_export=True;page.get_by_role('button',name='CSV',exact=True).click();expect(page.locator('#notice')).to_contain_text('Страница изменилась');f.change_export=False
         print('PASS filters, safe detail rendering, pagination and CSV download')
+        # A committed POST whose 503 response was lost must not be replayed from the form.
+        nav(page,'projects')
+        uncertain=page.locator('form').filter(has=page.get_by_role('button',name='Создать проект',exact=True))
+        uncertain.get_by_label('Название').fill('Committed without response')
+        uncertain.get_by_label('Slug').fill('committed-without-response')
+        f.fail_create_after_commit=True
+        before=len([c for c in f.calls if c[0]=='POST' and c[1]=='/projects'])
+        uncertain.get_by_role('button',name='Создать проект').click()
+        expect(uncertain.get_by_role('button',name='Создать проект')).to_be_disabled()
+        expect(uncertain.get_by_role('button',name='Обновить страницу для проверки')).to_be_visible()
+        assert len([c for c in f.calls if c[0]=='POST' and c[1]=='/projects'])==before+1
+        assert any(p['slug']=='committed-without-response' for p in f.projects)
+        f.projects=[p for p in f.projects if p['slug']!='committed-without-response']
+        nav(page,'overview')
+        nav(page,'projects')
+        print('PASS no duplicate mutation after an ambiguous committed response')
         nav(page,'projects');expect(page.get_by_role('heading',name='Создать проект')).to_be_visible();form=page.locator('form').filter(has=page.get_by_role('button',name='Создать проект',exact=True));form.get_by_label('Название').fill('New project');form.get_by_label('Slug').fill('new-project');form.get_by_role('button',name='Создать проект').click();expect(page.get_by_role('heading',name='New project')).to_be_visible()
         page.get_by_label('Название проекта',exact=True).fill('Renamed project');page.get_by_label('Описание проекта').fill('Project details');page.get_by_label('Метаданные JSON').fill('{"environment":"test"}');page.get_by_label('Событий в минуту (пусто = без квоты)').fill('50');page.get_by_role('button',name='Сохранить проект').click();expect(page.get_by_role('heading',name='Renamed project')).to_be_visible()
         page.get_by_role('button',name='Архивировать проект').click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_role('button',name='Восстановить проект')).to_be_visible()

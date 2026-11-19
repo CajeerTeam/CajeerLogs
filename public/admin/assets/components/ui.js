@@ -1,4 +1,5 @@
-import { roles, levels } from '../app/store.js?v=0.9.4';
+import { roles, levels } from '../app/store.js?v=0.9.5';
+import { successfulMutationCount } from '../api/client.js?v=0.9.5';
 
 const $ = id => document.getElementById(id);
 function h(tag, attrs = {}, ...children) { const n = document.createElement(tag); for (const [k, v] of Object.entries(attrs)) {
@@ -45,20 +46,30 @@ $('modal').addEventListener('close', () => { if (!$('modal').open) {
     $('modal-title').textContent = '';
 } });
 function modal(title, content) { clearModal(); $('modal-title').textContent = title; $('modal-body').append(content); $('modal').showModal(); }
+function recoveryAction(error) {
+    return h('div', {class:'operation-uncertain',role:'status'},
+        h('p', {}, error.status===409
+            ? 'Данные были изменены в другом сеансе. Обновите страницу и сравните актуальные значения перед сохранением.'
+            : 'Неизвестно, завершилась ли операция на сервере. Не отправляйте её повторно без проверки результата.'),
+        button('Обновить страницу для проверки', () => location.reload()));
+}
 function form(submitLabel, fields, handler, { cls = 'form-grid', after = [] } = {}) {
     const err = h('div', { 'aria-live': 'polite' });
+    let uncertain = false;
     const submit = h('button', { type: 'submit', class: 'primary' }, submitLabel);
     const f = h('form', {}, h('div', { class: cls }, fields), h('div', { class: 'actions' }, submit, after), err);
     f.addEventListener('submit', async (e) => { e.preventDefault(); if (submit.disabled)
-        return; err.replaceChildren(); submit.disabled = true; f.setAttribute('aria-busy', 'true'); try {
+        return; const beforeMutation=successfulMutationCount(); err.replaceChildren(); submit.disabled = true; f.setAttribute('aria-busy', 'true'); try {
         await handler(new FormData(f), f);
     }
     catch (ex) {
-        if (ex.name !== 'AbortError')
-            err.replaceChildren(message(ex));
+        if (ex.name !== 'AbortError') {
+            uncertain = ex.writeOutcomeUnknown === true || successfulMutationCount()!==beforeMutation;
+            err.replaceChildren(message(ex), (uncertain || ex.status === 409) ? recoveryAction(ex) : null);
+        }
     }
     finally {
-        submit.disabled = false;
+        submit.disabled = uncertain;
         f.removeAttribute('aria-busy');
     } });
     return f;
@@ -74,4 +85,4 @@ catch {
     notify('Копирование недоступно. Выделите и скопируйте текст вручную.');
 } }
 
-export { $, h, button, card, field, input, select, roleSelect, checkbox, empty, badge, text, date, enc, message, notify, modalEpoch, clearModal, modal, form, heading, needProject, table, copy };
+export { recoveryAction, $, h, button, card, field, input, select, roleSelect, checkbox, empty, badge, text, date, enc, message, notify, modalEpoch, clearModal, modal, form, heading, needProject, table, copy };

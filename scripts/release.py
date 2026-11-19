@@ -208,7 +208,7 @@ REQUIRED.update({
     'tests/admin_database.php',
     'public/admin/assets/pages/security.js',
     'public/admin/assets/components/workspace-switcher.js',
-    'docs/Admin-Panel-Release.md',
+    'docs/Admin-Panel-Release.md','docs/Admin-Panel-0.9.5.md',
 })
 
 

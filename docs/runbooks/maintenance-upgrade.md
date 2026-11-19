@@ -2,7 +2,7 @@
 
 ## Trigger
 
-Upgrade between supported releases (including 0.9.3 to 0.9.4), a failed upgrade smoke test, migration drift, expired release credentials or a rollback decision.
+Upgrade between supported releases (including 0.9.3 to 0.9.5), a failed upgrade smoke test, migration drift, expired release credentials or a rollback decision.
 
 ## Diagnosis
 

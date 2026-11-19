@@ -1,4 +1,4 @@
-import { state } from '../app/store.js?v=0.9.4';
+import { state } from '../app/store.js?v=0.9.5';
 const errors = { reauthentication_required: 'Подтвердите личность в разделе Настройки → Подтверждение личности, затем повторите операцию.', totp_enrollment_required: 'Необходимо подключить второй фактор в настройках.', second_factor_required: 'Требуется второй фактор.', invalid_otp: 'Неверный или уже использованный код. Проверьте время устройства.', unauthorized: 'Неверные учётные данные или сессия истекла.', forbidden: 'Недостаточно прав для операции.', csrf_failed: 'Сессия изменилась. Обновите страницу и повторите операцию.', service_unavailable: 'Сервис или база данных временно недоступны.', rate_limited: 'Слишком много запросов. Повторите позже.', last_administrator: 'Нельзя отключить последнего администратора.', conflict: 'Конфликт с существующими данными.', invalid_password: 'Текущий пароль неверен.', not_found: 'Объект не найден.', page_changed: 'Страница изменилась. Обновите поиск перед экспортом.' };
 const statuses = { 401: errors.unauthorized, 403: errors.forbidden, 409: errors.conflict, 422: 'Проверьте введённые данные.', 429: errors.rate_limited, 503: errors.service_unavailable };
 export class ApiError extends Error {
@@ -10,7 +10,19 @@ export class ApiError extends Error {
         this.name = 'ApiError'; this.status = status; this.data = data; this.requestId = id; this.retryAfter = headers.get('Retry-After');
     }
 }
+let completedMutations = 0;
+export const successfulMutationCount = () => completedMutations;
 const aborted = () => new DOMException('Session changed', 'AbortError');
+// A write can commit before its response is lost. Distinguish these from
+// rejected requests; retrying a POST blindly can create duplicate resources.
+export function uncertainMutation(error, method) {
+    return !['GET', 'HEAD', 'OPTIONS'].includes(method) &&
+        (error instanceof TypeError || error?.status >= 500 || error?.writeOutcomeUnknown === true);
+}
+function unknownWrite(error, method, ambiguous = false) {
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(method) && (ambiguous || uncertainMutation(error, method))) error.writeOutcomeUnknown = true;
+    return error;
+}
 export function createApiClient({ origin, prefix, fetcher = fetch, session, onUnauthorized = () => {} }) {
     if (!prefix.startsWith('/') || prefix.startsWith('//') || /[?#\\]/.test(prefix)) throw new Error('Недопустимый адрес API.');
     const base = new URL(prefix.replace(/\/$/, '') + '/', origin);
@@ -22,9 +34,10 @@ export function createApiClient({ origin, prefix, fetcher = fetch, session, onUn
         if (url.origin !== origin || (!root && !url.pathname.startsWith(base.pathname))) throw new Error('Недопустимый адрес API.');
         for (const [k, v] of Object.entries(query || {})) if (v !== '' && v !== null && v !== undefined) url.searchParams.set(k, String(v));
         method = method.toUpperCase();
+        const mutation = !['GET','HEAD','OPTIONS'].includes(method);
         const authEpoch = session.authEpoch, timeout = AbortSignal.timeout(60000);
         const requestSignal = AbortSignal.any([timeout, signal, session.sessionController?.signal].filter(Boolean));
-        const check = () => { if (authEpoch !== session.authEpoch || signal?.aborted || session.sessionController?.signal.aborted) throw aborted(); if (timeout.aborted) throw new Error('Время ожидания API истекло. Проверьте результат операции перед повтором.'); };
+        const check = () => { if (authEpoch !== session.authEpoch || signal?.aborted || session.sessionController?.signal.aborted) throw aborted(); if (timeout.aborted) throw unknownWrite(new Error('Время ожидания API истекло. Проверьте результат операции перед повтором.'), method, true); };
         const headers = { ...extraHeaders, Accept: raw ? '*/*' : 'application/json' };
         if (ifMatch) headers['If-Match'] = ifMatch;
         if (body !== undefined) { headers['Content-Type'] = 'application/json'; if (typeof body !== 'string' || !bearer) body = JSON.stringify(body); }
@@ -39,17 +52,17 @@ export function createApiClient({ origin, prefix, fetcher = fetch, session, onUn
                 check();
                 const error = new ApiError(response.status, data, response.headers);
                 if (response.status === 401 && !login && !bearer) onUnauthorized();
-                throw error;
+                throw unknownWrite(error, method);
             }
-            if (raw) return response;
-            if (wireText) { const value = await response.text(); check(); return value; }
-            if (response.status === 204) return null;
-            let data; try { data = await response.json(); } catch { check(); throw new Error('Сервер вернул некорректный JSON.'); }
-            check(); return withStatus ? {status:response.status,data} : data;
+            if (raw) { if(mutation) completedMutations++; return response; }
+            if (wireText) { const value = await response.text(); check(); if(mutation) completedMutations++; return value; }
+            if (response.status === 204) { if(mutation) completedMutations++; return null; }
+            let data; try { data = await response.json(); } catch { check(); throw unknownWrite(new Error('Сервер вернул некорректный JSON. Проверьте результат операции.'), method, true); }
+            check(); if(mutation) completedMutations++; return withStatus ? {status:response.status,data} : data;
         } catch (error) {
             if (error instanceof ApiError) throw error;
             check();
-            if (error instanceof TypeError) throw new Error('Не удалось связаться с API. Проверьте соединение.');
+            if (error instanceof TypeError) throw unknownWrite(new Error('Не удалось связаться с API. Проверьте соединение и результат операции.'), method, true);
             throw error;
         }
     }

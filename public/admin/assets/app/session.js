@@ -1,8 +1,8 @@
-import { state, resetWorkspace, render, advanceSession } from './store.js?v=0.9.4';
-import { $, h, field, input, clearModal, form } from '../components/ui.js?v=0.9.4';
-import { refreshProject } from './projects.js?v=0.9.4';
-import { navigation } from './shell.js?v=0.9.4';
-import { request, get } from '../api/client.js?v=0.9.4';
+import { state, resetWorkspace, render, advanceSession } from './store.js?v=0.9.5';
+import { $, h, field, input, clearModal, form } from '../components/ui.js?v=0.9.5';
+import { refreshProject } from './projects.js?v=0.9.5';
+import { navigation } from './shell.js?v=0.9.5';
+import { request, get } from '../api/client.js?v=0.9.5';
 
 const version = document.querySelector('meta[name=cajeer-version]').content;
 let sessionChecking = false;
@@ -75,10 +75,13 @@ async function revalidateSession(force = false) {
         clearSession('Учётная запись изменилась. Войдите снова.');
         return;
     }
+    const profileChanged=state.user.display_name!==res.user.display_name || state.user.email!==res.user.email;
+    const freshnessChanged=state.security?.reauthenticated_until!==res.security?.reauthenticated_until;
     const permissionsChanged=JSON.stringify(state.user.permissions??null)!==JSON.stringify(res.user.permissions??null);
     const policyChanged=JSON.stringify([state.security?.totp_required,state.security?.idle_seconds,state.security?.reauth_seconds])!==JSON.stringify([res.security?.totp_required,res.security?.idle_seconds,res.security?.reauth_seconds]);
     state.user = res.user; state.security = res.security??null; state.csrf = res.csrf_token;
-    if (policyChanged && !permissionsChanged && state.route==='settings') { state.enrollmentRequired=Boolean(res.enrollment_required); void render(); return; }
+    if (profileChanged) navigation();
+    if ((policyChanged || freshnessChanged) && !permissionsChanged && state.route==='settings') { state.enrollmentRequired=Boolean(res.enrollment_required); void render(); return; }
     if (permissionsChanged) { state.enrollmentRequired=Boolean(res.enrollment_required); resetWorkspace(); void render(); return; }
     if (state.enrollmentRequired !== Boolean(res.enrollment_required)) { state.enrollmentRequired=Boolean(res.enrollment_required); void render(); return; }
     const signal=state.controller?.signal, epoch=state.epoch;

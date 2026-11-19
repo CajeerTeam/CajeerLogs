@@ -21,6 +21,9 @@ final class AdminPanel
             ]);
             return new Response($html, 200, [
                 'Content-Type'=>'text/html; charset=utf-8',
+                'Cache-Control'=>'no-store, private',
+                'Referrer-Policy'=>'no-referrer',
+                'X-Content-Type-Options'=>'nosniff',
                 'Content-Security-Policy'=>"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'",
             ]);
         });
