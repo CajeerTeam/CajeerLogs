@@ -1,4 +1,4 @@
-**0.9.6 — Production Installer (release candidate).** Полная CLI-установка с безопасным bootstrap администратора, проверками окружения и атомарной конфигурацией; `upgrade BACKUP_ID --confirm-stopped` проверяет backup, защищает обновление блокировками, выполняет PostgreSQL-миграции и записывает однократный результат в аудит. Прерванные миграции можно безопасно продолжить с тем же backup ID. PostgreSQL 17/18 и строгий supply-chain gate требуют CI. [Инструкция](docs/Production-Installer-0.9.6.md).
+**0.9.7 — Production Installer (release candidate).** Полная CLI-установка с безопасным bootstrap администратора, проверками окружения и атомарной конфигурацией; `upgrade BACKUP_ID --confirm-stopped` проверяет backup, защищает обновление блокировками, выполняет PostgreSQL-миграции и записывает однократный результат в аудит. Прерванные миграции можно безопасно продолжить с тем же backup ID. PostgreSQL 17/18 и строгий supply-chain gate требуют CI. [Инструкция](docs/Production-Installer-0.9.7.md).
 
 **0.9.1 — Release Baseline & Supply Chain (кандидат).** Закреплены OCI-образы PHP, Nginx, PostgreSQL и ClickHouse; добавлены исполняемые проверки Composer/npm/Gradle lock-файлов, разрешения транзитивных зависимостей и сверки OCI-манифестов с реестрами. До генерации и установки настоящих lock-файлов строгий supply-chain gate **блокирует** production-публикацию. [Инструкция по фиксации зависимостей](docs/Release-Baseline-Supply-Chain-0.9.1.md).
 
@@ -406,4 +406,4 @@ composer analyse
 
 Use `php bin/cajeer backup:dr-certify BACKUP_ID EMPTY_TARGET_DB MAX_RPO_SECONDS MAX_RTO_SECONDS` to validate recovery directly from the authenticated offsite package without reading local backup data. It performs real isolated PostgreSQL restoration, data integrity checks and RPO/RTO-readiness gating (no automatic cutover). See `docs/Backup-Disaster-Recovery-Certification-0.8.7.md` for prerequisites, failure tests and limits.
 
-Latest Admin Panel operational notes: [Admin Panel Stable 0.9.6](docs/Admin-Panel-0.9.6.md).
+Latest Admin Panel operational notes: [Admin Panel Stable 0.9.7](docs/Admin-Panel-0.9.7.md).

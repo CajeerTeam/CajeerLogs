@@ -66,11 +66,20 @@ try {
         $uploaded=$cold->offload($p,$month,500);
         $check($uploaded['offloaded']===2 && $cold->status($p)['warm_rows']===0,'verified S3 offload removes warm rows atomically');
         $objects=$cold->coldObjects($p);$check(count($objects)===1 && $objects[0]['event_count']===2,'cold manifest written to PostgreSQL');
+        $proof=$cold->verifyCold($p,$objects[0]['id']);
+        $check($proof['verified'] && $proof['event_count']===2 && $proof['sha256']===$objects[0]['sha256'],
+            'remote cold segment fully downloaded, hashed, decoded and bound to its catalog entry');
+        $scrub=$cold->scrubCold($p,10);
+        $check($scrub['verified'] && $scrub['complete'] && $scrub['verified_objects']===1 && $scrub['verified_events']===2,
+            'bounded cold archive scrub independently verifies all objects and event counts');
         if ($faultFile!==false && $faultFile!=='') {
             foreach (['get_503','get_corrupt'] as $fault) {
                 if (file_put_contents($faultFile,$fault)===false) throw new RuntimeException('Cannot arm S3 fault');
                 $check($reject(fn()=> $cold->restoreCold($p,$objects[0]['id'])),
                     'S3 '.$fault.' aborts cold restore');
+                if (file_put_contents($faultFile,$fault)===false) throw new RuntimeException('Cannot arm S3 fault');
+                $check($reject(fn()=> $cold->verifyCold($p,$objects[0]['id'])),
+                    'S3 '.$fault.' aborts immutable cold verification');
                 $check($cold->status($p)['warm_rows']===0 && $cold->status($p)['cold_objects']===1,
                     'failed cold restore preserves manifest without incomplete warm rows');
             }
@@ -83,8 +92,35 @@ try {
                 'remote DELETE failure aborts cold purge');
             $check($cold->status($p)['cold_objects']===1,'failed DELETE retains cold metadata');
         }
-        $check($cold->purgeCold($p,$objects[0]['id'])['deleted']===1,'explicit S3 purge deletes remote object and manifest');
+        if ($faultFile!==false && $faultFile!=='') {
+            // The GET has captured immutable bytes, but the PostgreSQL catalog
+            // can disappear before they reach the restore process. A stale GET
+            // must never recreate warm snapshots after the purge.
+            $check($archive->purgeWarm($p,$month,500)['purged']===2,'prepare empty warm archive for concurrent purge test');
+            $waiting=$faultFile.'.waiting';$release=$faultFile.'.release';
+            @unlink($waiting);@unlink($release);
+            if (file_put_contents($faultFile,'get_pause')===false) throw new RuntimeException('Cannot arm S3 delayed GET');
+            $process=proc_open(['php',$root.'/tests/cold_restore_race_worker.php',$schema,(string)$port,$p,$objects[0]['id']],
+                [0=>['file','/dev/null','r'],1=>['file','/dev/null','w'],2=>['file','/dev/null','w']],$pipes,$root,null,['bypass_shell'=>true]);
+            if (!is_resource($process)) throw new RuntimeException('Cannot start isolated cold restore.');
+            try {
+                $deadline=microtime(true)+6;
+                while (!is_file($waiting) && microtime(true)<$deadline) usleep(20000);
+                if (!is_file($waiting)) throw new RuntimeException('Cold GET did not reach race barrier.');
+                $check($cold->purgeCold($p,$objects[0]['id'])['deleted']===1,'concurrent S3 purge committed while GET was in flight');
+            } finally {
+                file_put_contents($release,'continue');
+                $status=proc_close($process);
+                @unlink($release);@unlink($waiting);
+            }
+            $check($status===0 && $archive->status($p)['warm_rows']===0,
+                'stale downloaded S3 bytes cannot restore a segment purged during GET');
+        } else {
+            $check($cold->purgeCold($p,$objects[0]['id'])['deleted']===1,'explicit S3 purge deletes remote object and manifest');
+        }
         $check($cold->coldObjects($p)===[],'purged cold manifest removed');
+        $check($reject(fn()=> $cold->verifyCold($p,$objects[0]['id'])),
+            'deleted segment cannot be certified by a stale ID');
     }
     $archive->purgeWarm($p,$month,500);
     $check((new \Cajeer\Logs\Lifecycle\Retention($pdo))->set($p,30),'retention policy allowed after archive purge');

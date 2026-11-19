@@ -176,31 +176,16 @@ final class ArchiveLifecycle
         $s->execute(['id'=>$objectId,'project'=>$project]);$meta=$s->fetch(PDO::FETCH_ASSOC);
         if (!$meta) throw new \RuntimeException('Unknown cold segment.');
         $payload=$this->remote()->getVerified($meta['object_key'],$meta['sha256']);
-        if (strlen($payload)!==(int)$meta['bytes']) throw new \RuntimeException('Cold segment size mismatch.');
-        $plain=gzdecode($payload,16777217);
-        if ($plain===false || strlen($plain)>16777216) throw new \RuntimeException('Invalid/oversized cold segment.');
-        $lines=explode("\n",rtrim($plain,"\n"));
-        if (count($lines)!==(int)$meta['event_count']) throw new \RuntimeException('Cold segment count mismatch.');
+        $rows=ColdSegment::decode($payload,$meta,$project);
         $month=substr((string)$meta['month_start'],0,7);[$start,$end,$yyyymm]=self::month($month);
-        $rows=[];
-        foreach ($lines as $line) {
-            $row=json_decode($line,true,32,JSON_THROW_ON_ERROR);
-            if (!is_array($row) || !isset($row['id'],$row['project_id'],$row['source_id'],$row['received_at'],$row['snapshot'])
-                || self::uuid($row['project_id'])!==$project || self::uuid($row['id'])!==strtolower($row['id'])
-                || self::uuid($row['source_id'])!==strtolower($row['source_id'])) throw new \RuntimeException('Corrupt cold archive record.');
-            $at=new \DateTimeImmutable($row['received_at']);
-            if ($at->getTimestamp()<(new \DateTimeImmutable($start))->getTimestamp() || $at->getTimestamp()>=(new \DateTimeImmutable($end))->getTimestamp()) {
-                throw new \RuntimeException('Cold archive record is outside its partition.');
-            }
-            if (!is_string($row['snapshot']) || strlen($row['snapshot'])>8388608) throw new \RuntimeException('Invalid cold record payload.');
-            $snapshot=json_decode($row['snapshot'],true,32,JSON_THROW_ON_ERROR);
-            if (!is_array($snapshot) || ($snapshot['id']??null)!==$row['id'] || ($snapshot['project_id']??null)!==$project
-                || ($snapshot['source_id']??null)!==$row['source_id'] ||
-                !isset($snapshot['received_at']) || (new \DateTimeImmutable($snapshot['received_at']))->format('U.u')!==$at->format('U.u')) throw new \RuntimeException('Cold snapshot integrity mismatch.');
-            $rows[]=$row;
-        }
-        return $this->inTransaction(function () use ($project,$rows,$start,$end,$yyyymm) {
-            $this->eligible($project);$this->ensurePartition($yyyymm,$start,$end);
+        return $this->inTransaction(function () use ($project,$rows,$start,$end,$yyyymm,$objectId,$meta) {
+            $this->eligible($project);
+            // The remote GET happens before the transaction, so a concurrent
+            // purge could have removed the catalog record in the meantime.
+            // The project lock serializes against purgeCold and policy edits;
+            // the row lock additionally protects the exact immutable metadata.
+            $this->assertCurrentColdManifest($project,$objectId,$meta);
+            $this->ensurePartition($yyyymm,$start,$end);
             $put=$this->pdo->prepare('INSERT INTO archived_log_events(id,project_id,source_id,received_at,snapshot)
                 VALUES(CAST(:id AS uuid),CAST(:project AS uuid),CAST(:source AS uuid),CAST(:at AS timestamptz),CAST(:snapshot AS jsonb))
                 ON CONFLICT(received_at,id) DO NOTHING');
@@ -216,6 +201,64 @@ final class ArchiveLifecycle
             }
             return ['restored'=>$restored,'rows'=>count($rows)];
         });
+    }
+    /** Revalidate after remote I/O, with the owning project already locked. */
+    private function assertCurrentColdManifest(string $project,string $objectId,array $expected): void
+    {
+        $s=$this->pdo->prepare('SELECT * FROM archived_log_objects WHERE id=CAST(:id AS uuid) AND project_id=CAST(:project AS uuid) FOR UPDATE');
+        $s->execute(['id'=>$objectId,'project'=>$project]);
+        $current=$s->fetch(PDO::FETCH_ASSOC);
+        if (!$current || !ColdSegment::sameManifest($expected,$current)) {
+            throw new \RuntimeException('Cold segment catalog changed during download; restoration refused.');
+        }
+    }
+    /** Read and validate the actual remote bytes, not just PostgreSQL metadata. */
+    public function verifyCold(string $project,string $objectId): array
+    {
+        $project=self::uuid($project);$objectId=self::uuid($objectId);
+        $s=$this->pdo->prepare('SELECT * FROM archived_log_objects WHERE id=CAST(:id AS uuid) AND project_id=CAST(:project AS uuid)');
+        $s->execute(['id'=>$objectId,'project'=>$project]);
+        $meta=$s->fetch(PDO::FETCH_ASSOC);
+        if (!$meta) throw new \RuntimeException('Unknown cold segment.');
+        $payload=$this->remote()->getVerified($meta['object_key'],$meta['sha256']);
+        $rows=ColdSegment::decode($payload,$meta,$project);
+        // Do not claim an unreferenced object is healthy if an operator purged
+        // its catalog entry while a slow S3 download was in flight.
+        $this->inTransaction(function () use ($project,$objectId,$meta): void {
+            $s=$this->pdo->prepare('SELECT id FROM projects WHERE id=CAST(:id AS uuid) FOR SHARE');
+            $s->execute(['id'=>$project]);
+            if ($s->fetchColumn()===false) throw new \RuntimeException('Unknown archive project.');
+            $this->assertCurrentColdManifest($project,$objectId,$meta);
+        });
+        return ['verified'=>true,'project_id'=>$project,'object_id'=>$objectId,
+            'sha256'=>$meta['sha256'],'bytes'=>(int)$meta['bytes'],
+            'event_count'=>count($rows)];
+    }
+    /** Bounded full-byte scrub for offsite monitoring and recovery preflight. */
+    public function scrubCold(string $project,int $limit=25): array
+    {
+        $project=self::uuid($project);
+        if ($limit<1 || $limit>100) throw new \InvalidArgumentException('Cold scrub limit must be 1..100.');
+        $count=$this->pdo->prepare('SELECT count(*) FROM archived_log_objects WHERE project_id=CAST(:project AS uuid)');
+        $count->execute(['project'=>$project]);$total=(int)$count->fetchColumn();
+        $s=$this->pdo->prepare('SELECT id FROM archived_log_objects WHERE project_id=CAST(:project AS uuid) ORDER BY created_at DESC,id DESC LIMIT :limit');
+        $s->bindValue(':project',$project);$s->bindValue(':limit',$limit,PDO::PARAM_INT);$s->execute();
+        $ids=$s->fetchAll(PDO::FETCH_COLUMN);$verified=0;$events=0;$bytes=0;
+        foreach ($ids as $id) {
+            $result=$this->verifyCold($project,(string)$id);
+            $verified++;$events+=$result['event_count'];$bytes+=$result['bytes'];
+        }
+        $count->execute(['project'=>$project]);$after=(int)$count->fetchColumn();
+        $complete=$verified===$total && $total===$after;
+        if ($complete) {
+            // Detect simultaneous purge + creation even when the total count
+            // remains unchanged. Keep this extra query bounded (<=100 rows).
+            $s->execute();
+            $complete=$s->fetchAll(PDO::FETCH_COLUMN)===$ids;
+        }
+        return ['verified'=>true,'project_id'=>$project,'verified_objects'=>$verified,
+            'verified_events'=>$events,'verified_bytes'=>$bytes,'total_objects'=>$after,
+            'complete'=>$complete,'limit'=>$limit];
     }
     public function coldObjects(string $project): array
     {

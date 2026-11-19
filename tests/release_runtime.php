@@ -9,10 +9,10 @@ use Cajeer\Logs\Operations\BackupManager;
 use Cajeer\Logs\Http\Request;
 $root=dirname(__DIR__); require $root.'/core/bootstrap.php';
 $expectedRuntime=getenv('CAJEER_RELEASE_VERSION');
-putenv('CAJEER_RELEASE_VERSION=0.9.6');
+putenv('CAJEER_RELEASE_VERSION=0.9.7');
 $n=0; function check(bool $ok,string $label): void { global $n; if (!$ok) throw new RuntimeException('FAIL '.$label); ++$n; echo "PASS $label\n"; }
 function rejects(callable $f,string $message): bool { try { $f(); } catch (Throwable $e) { return str_contains($e->getMessage(),$message); } return false; }
-check(\Cajeer\Logs\Kernel\Version::read($root)==='0.9.6','expected running release accepted');
+check(\Cajeer\Logs\Kernel\Version::read($root)==='0.9.7','expected running release accepted');
 putenv('CAJEER_RELEASE_VERSION=0.8.9');
 check(rejects(fn()=>\Cajeer\Logs\Kernel\Version::read($root),'CAJEER_RELEASE_VERSION'),'mixed running binary refused');
 if ($expectedRuntime===false) putenv('CAJEER_RELEASE_VERSION'); else putenv('CAJEER_RELEASE_VERSION='.$expectedRuntime);
@@ -63,7 +63,7 @@ try {
     foreach (['CAJEER_ENV_FILE'=>$old,'APP_ENV'=>$env,'APP_URL'=>$url] as $name=>$value) putenv($value===false?$name:$name.'='.$value);
     if (file_exists($tmp.'/config/.env')||is_link($tmp.'/config/.env')) unlink($tmp.'/config/.env'); rmdir($tmp.'/config'); rmdir($tmp);
 }
-check(BackupManager::compatibleRelease('0.9.0','0.9.6') && BackupManager::compatibleRelease('0.9.1','0.9.6') && BackupManager::compatibleRelease('0.9.2','0.9.6') && BackupManager::expectedPending('0.9.2')===[], 'pre-0.9.6 backup compatibility covers all schema-identical releases');
-check(BackupManager::compatibleRelease('0.8.7','0.9.6') && BackupManager::compatibleRelease('0.8.8','0.9.6') && BackupManager::compatibleRelease('0.8.9','0.9.6') && !BackupManager::compatibleRelease('0.8.9','0.8.8'), '0.9.6 backup compatibility and downgrade refusal');
+check(BackupManager::compatibleRelease('0.9.0','0.9.7') && BackupManager::compatibleRelease('0.9.1','0.9.7') && BackupManager::compatibleRelease('0.9.2','0.9.7') && BackupManager::expectedPending('0.9.2')===[], 'pre-0.9.7 backup compatibility covers all schema-identical releases');
+check(BackupManager::compatibleRelease('0.8.7','0.9.7') && BackupManager::compatibleRelease('0.8.8','0.9.7') && BackupManager::compatibleRelease('0.8.9','0.9.7') && !BackupManager::compatibleRelease('0.8.9','0.8.8'), '0.9.7 backup compatibility and downgrade refusal');
 check(BackupManager::compatibleRelease('0.7.2','0.7.3')&&BackupManager::compatibleRelease('0.7.3','0.7.3')&&BackupManager::compatibleRelease('0.7.3','0.7.4')&&BackupManager::compatibleRelease('0.7.4','0.7.6')&&BackupManager::compatibleRelease('0.7.6','0.7.6')&&BackupManager::compatibleRelease('0.7.6','0.7.7')&&BackupManager::compatibleRelease('0.7.7','0.7.8')&&BackupManager::compatibleRelease('0.7.8','0.8.3')&&BackupManager::compatibleRelease('0.7.9','0.8.3')&&BackupManager::compatibleRelease('0.8.0','0.8.3')&&BackupManager::compatibleRelease('0.8.1','0.8.3')&&BackupManager::compatibleRelease('0.8.2','0.8.3')&&BackupManager::compatibleRelease('0.8.3','0.8.4')&&BackupManager::compatibleRelease('0.8.4','0.8.5')&&BackupManager::compatibleRelease('0.8.5','0.8.7')&&BackupManager::compatibleRelease('0.8.7','0.8.8')&&!BackupManager::compatibleRelease('0.7.3','0.7.2'),'0.7.3–0.8.8 upgrade supported and downgrade rejected');
 echo "Release runtime: $n checks passed\n";

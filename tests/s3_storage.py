@@ -8,6 +8,7 @@ import re
 import subprocess
 import threading
 import tempfile
+import time
 from pathlib import Path
 
 DATA = {}
@@ -60,6 +61,15 @@ class Handler(BaseHTTPRequestHandler):
                 status, result = 503, b'service unavailable (injected)'
             elif mode == 'get_corrupt' and self.path in DATA:
                 status, result = 200, bytes(len(DATA[self.path]))
+            elif mode == 'get_pause' and self.path in DATA:
+                # Real bytes were read while the catalog still existed, but the
+                # concurrent operator can now purge before this GET completes.
+                copied = DATA[self.path]
+                Path(fault_file + '.waiting').write_text('1')
+                deadline = time.monotonic() + 12
+                while not Path(fault_file + '.release').exists() and time.monotonic() < deadline:
+                    time.sleep(0.02)
+                status, result = 200, copied
             elif mode == 'put_lost_ack':
                 # Simulate S3 committing the bytes before the network loses the response.
                 DATA[self.path] = body

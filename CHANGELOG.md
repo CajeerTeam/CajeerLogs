@@ -1,5 +1,13 @@
 ## 0.9.6 — Reliable Log Ingestion (release candidate)
 
+## 0.9.7 — Data Lifecycle & Disaster Recovery
+
+- Added production S3 cold-segment verification and bounded byte-for-byte scrub (`storage:archive verify-cold` / `scrub-cold`), including JSONL snapshot validation and catalog consistency.
+- Prevented cold restore from rehydrating segments purged or replaced while S3 read was in flight; transactionally revalidate the metadata and project retention policy before any insert.
+- Extended real S3 transport-fault integration tests and DR snapshot integrity checks; retained explicit RPO upper-bound and database-recovery-readiness measurement (not production cutover RTO).
+- Added 0.9.6 -> 0.9.7 upgrade/rollback certification to PostgreSQL CI. No changes to the historic SQL migrations or API v1 contract.
+
+
 - Added operator-driven `queue:recover [LIMIT] --confirm`: bounded transactional recovery of expired PostgreSQL worker leases with original-lease backoff and stale-lease fencing. Exhausted attempts enter the existing DLQ; normal active leases are not touched.
 - Introduced real PostgreSQL crash test: kill a separate worker after claim, recover, process once, confirm original idempotency receipt and no duplicate event or accounting drift. Test audited DLQ retry in the same scenario.
 - Made PostgreSQL 17/18 crash-recovery integration mandatory in database certification and added upgrade/rollback check from 0.9.5.
