@@ -1,3 +1,11 @@
+## 0.9.6 — Reliable Log Ingestion (release candidate)
+
+- Added operator-driven `queue:recover [LIMIT] --confirm`: bounded transactional recovery of expired PostgreSQL worker leases with original-lease backoff and stale-lease fencing. Exhausted attempts enter the existing DLQ; normal active leases are not touched.
+- Introduced real PostgreSQL crash test: kill a separate worker after claim, recover, process once, confirm original idempotency receipt and no duplicate event or accounting drift. Test audited DLQ retry in the same scenario.
+- Made PostgreSQL 17/18 crash-recovery integration mandatory in database certification and added upgrade/rollback check from 0.9.5.
+- Updated runtime, SDK, UI and release identity to 0.9.6 without schema migration or breaking `/api/v1` change.
+- Certification remains pending until the entire live CI and previously unresolved strict dependency lock gate pass.
+
 ## 0.9.5 — Admin Panel Stable (release candidate)
 
 - Fail-closed browser mutation recovery on ambiguous transport/5xx/malformed-success outcomes; explicit verification before retry, including confirmation dialogs.

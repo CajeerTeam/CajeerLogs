@@ -80,6 +80,25 @@ final class QueueFairness
         return $q->fetch(PDO::FETCH_ASSOC)?:null;
     }
 
+    /** Select one project with a genuinely expired running lease, locking its
+     * accounting row before the job row (the same order as ordinary claims). */
+    public function selectExpiredProject(): ?string
+    {
+        if (!$this->pdo->inTransaction()) throw new \LogicException('Expired lease scan requires a transaction.');
+        $stmt=$this->pdo->query(<<<'SQL'
+            SELECT s.project_id FROM queue_project_state s
+            WHERE s.running_jobs>0 AND EXISTS (
+                SELECT 1 FROM jobs j WHERE j.queue='ingest-v1'
+                    AND j.project_id=s.project_id AND j.status='running'
+                    AND j.lease_until<=statement_timestamp()
+            )
+            ORDER BY s.virtual_finish,s.project_id
+            LIMIT 1 FOR UPDATE OF s SKIP LOCKED
+            SQL);
+        $project=$stmt->fetchColumn();
+        return is_string($project)?$project:null;
+    }
+
     /** Lock project policy before acquiring more jobs in a worker microbatch. */
     public function lockProject(string $project): array
     {

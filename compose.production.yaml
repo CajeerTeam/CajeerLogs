@@ -1,7 +1,7 @@
 # Run with --env-file .env.production. See docs/First-Public-Release.md.
 name: cajeerlogs
 x-runtime: &runtime
-  image: cajeerlogs:0.9.5
+  image: cajeerlogs:0.9.6
   build:
     context: .
     dockerfile: deploy/production/Dockerfile
@@ -9,7 +9,7 @@ x-runtime: &runtime
   environment: &runtime-env
     CAJEER_ENV_FILE: /config/.env
     APP_ENV: production
-    CAJEER_RELEASE_VERSION: '0.9.5'
+    CAJEER_RELEASE_VERSION: '0.9.6'
     APP_DEBUG: 'false'
     APP_URL: ${APP_URL:?Set HTTPS APP_URL}
     DB_CONNECTION: pgsql
@@ -207,7 +207,7 @@ services:
       app:
         condition: service_healthy
   gateway:
-    image: cajeerlogs-gateway:0.9.5
+    image: cajeerlogs-gateway:0.9.6
     build:
       context: .
       dockerfile: deploy/production/Dockerfile

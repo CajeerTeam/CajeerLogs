@@ -76,6 +76,7 @@ final class QueueWorkCommand
         $result=match($command) {
             'queue:work'=>$args===[]?$this->worker()->run(): (count($args)===1 && ctype_digit($id) && (int)$id>=1 && (int)$id<=10000?$this->worker()->run((int)$id):null),
             'queue:status'=>$args===[]?$queue->counts():null,
+            'queue:recover'=>count($args)>=1 && count($args)<=2 && end($args)==='--confirm' && (count($args)===1 || (ctype_digit($id) && (int)$id>=1 && (int)$id<=1000)) ? $queue->recoverExpired(count($args)===2?(int)$id:100):null,
             'queue:capacity'=>$args===[]?(new QueueAccounting($this->app->container()->get(\PDO::class)))->status()+BackpressurePolicy::fromConfig($this->app->config())->limits():null,
             'queue:verify'=>$args===[]?(new QueueAccounting($this->app->container()->get(\PDO::class)))->verify():null,
             'queue:reconcile'=>$args===['--confirm']?(new QueueAccounting($this->app->container()->get(\PDO::class)))->reconcile():null,

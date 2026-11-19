@@ -106,6 +106,51 @@ final class PostgresQueueDriver implements QueueDriverInterface
         $this->backpressure()->accepted($this->pdo);
         return (string)$id;
     }
+    /** Recover crashed workers without blindly reprocessing their uncertain
+     * transactions. Lease + history + accounting transitions commit atomically.
+     * Active workers are fenced by FOR UPDATE SKIP LOCKED. Safe to run while
+     * dispatch is paused; it NEVER executes a log insert or claims a new job. */
+    public function recoverExpired(int $limit=100): array
+    {
+        if ($limit<1 || $limit>1000) throw new \InvalidArgumentException('Lease recovery limit must be 1..1000.');
+        $summary=['requeued'=>0,'dead'=>0,'scanned'=>0];
+        for ($i=0;$i<$limit;++$i) {
+            $outcome=(new TransactionManager($this->pdo))->run(function (): ?string {
+                $this->workerTimeout(false);
+                // Project accounting locks always precede jobs locks, including
+                // in normal dispatch and trigger maintenance.
+                $project=(new QueueFairness($this->pdo))->selectExpiredProject();
+                if ($project===null) return null;
+                $row=$this->sql(<<<'SQL'
+                    SELECT id,attempts,max_attempts,lease_until FROM jobs
+                    WHERE queue='ingest-v1' AND project_id=CAST(:project AS uuid)
+                        AND status='running' AND lease_until<=statement_timestamp()
+                    ORDER BY lease_until,id LIMIT 1 FOR UPDATE SKIP LOCKED
+                    SQL,['project'=>$project])->fetch(PDO::FETCH_ASSOC);
+                if (!$row) return null;
+                $dead=(int)$row['attempts'] >= (int)$row['max_attempts'];
+                $delay=$dead?0:$this->retryPolicy->delay((int)$row['attempts']);
+                $result=$this->sql(<<<'SQL'
+                    UPDATE job_attempts SET outcome='expired',finished_at=clock_timestamp(),error='lease_expired'
+                    WHERE job_id=:id AND attempt=:attempt AND outcome='running'
+                    SQL,['id'=>$row['id'],'attempt'=>$row['attempts']]);
+                if ($result->rowCount()!==1) throw new \RuntimeException('Missing running attempt during lease recovery.');
+                $changed=$this->sql(<<<'SQL'
+                    UPDATE jobs SET status=:status,available_at=GREATEST(clock_timestamp(),CAST(:until AS timestamptz)+CAST(:delay AS integer)*interval '1 second'),
+                        completed_at=CASE WHEN CAST(:dead AS boolean) THEN clock_timestamp() ELSE NULL END,
+                        lease_id=NULL,lease_until=NULL,reserved_at=NULL,
+                        last_error=:reason WHERE id=:id AND status='running'
+                    SQL,['status'=>$dead?'dead':'pending','until'=>$row['lease_until'],'delay'=>$delay,
+                        'dead'=>$dead?'true':'false','reason'=>$dead?'attempts_exhausted':'lease_expired','id'=>$row['id']]);
+                if ($changed->rowCount()!==1) throw new \RuntimeException('Lease recovery lost job ownership.');
+                return $dead?'dead':'requeued';
+            },maxAttempts:3);
+            if ($outcome===null) break;
+            $summary[$outcome]++;$summary['scanned']++;
+        }
+        return $summary;
+    }
+
     public function hasKey(string $token,string $key): bool {
         return (bool)$this->sql("SELECT 1 FROM jobs WHERE queue='ingest-v1' AND token_id=:token AND key_hash=:key",['token'=>$token,'key'=>$key])->fetchColumn();
     }

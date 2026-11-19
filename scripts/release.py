@@ -365,6 +365,8 @@ REQUIRED.update({'scripts/security_acceptance.py', 'tests/security_acceptance.py
 
 REQUIRED.update({"scripts/stable_release.py", "tests/stable_release.py", "docs/Production-Quality-Security-0.9.0.md"})
 
+REQUIRED.update({'tests/ingest_recovery.php','tests/ingest_recovery_database.php',
+                 'docs/Reliable-Log-Ingestion-0.9.6.md'})
+
 if __name__ == '__main__':
     main()
-
