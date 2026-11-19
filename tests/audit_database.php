@@ -13,7 +13,7 @@ function data(Response $r):array {return json_decode($r->body,true,64,JSON_THROW
 function login(string $email,string $password):array {$r=call('POST','/auth/login',[],['email'=>$email,'password'=>$password]);return ['Cookie'=>explode(';',$r->header('Set-Cookie'),2)[0],'X-CSRF-Token'=>data($r)['csrf_token']];}
 try {
  $app=new Application($root);$app->boot();$cfg=$app->config();$cfg->set('database.schema',$schema);$cfg->set('app.env','test');$cfg->set('security.require_admin_totp',false);$cfg->set('security.required_totp_roles','');$cfg->set('security.required_totp_permissions','');$cfg->set('security.reauth_seconds',0);$cfg->set('api.rate_limit',600);$pdo=$app->container()->get(PDO::class);
- foreach(glob($root.'/migrations/pgsql/*.sql') as $f) if(!str_contains($f,'0019_')&&!str_contains($f,'0020_')&&!str_contains($f,'0021_'))copy($f,$tmp.'/'.basename($f));
+ foreach(glob($root.'/migrations/pgsql/*.sql') as $f) if((int)substr(basename($f),0,4)<19)copy($f,$tmp.'/'.basename($f));
  (new MigrationRunner($pdo,$tmp,$schema))->migrate();$legacy=$pdo->query("INSERT INTO audit_log(action,target,context) VALUES('project.created','11111111-1111-4111-8111-111111111111','{}') RETURNING id")->fetchColumn();
  $pdo->exec("INSERT INTO audit_log(action,context) VALUES('auth.login_failed','{}')");
  $app->container()->get(MigrationRunner::class)->migrate();$audit=new AuditLogger($pdo);$head=$audit->verify();check($head['valid']&&$head['entries']===2,'historical rows migrated into verified chain');
