@@ -23,7 +23,7 @@ DIRS = {'admin', 'api', 'app', 'bin', 'clients', 'components', 'config', 'core',
 BLOCKED = {'vendor', 'node_modules', '__pycache__', 'build', 'dist', '.gradle', '.git', '.idea', '.vscode', 'release-out'}
 SUFFIXES = {'.php', '.py', '.js', '.mjs', '.ts', '.json', '.yaml', '.yml', '.sql', '.md', '.txt',
             '.html', '.css', '.vue', '.svg', '.png', '.jpg', '.jpeg', '.ico', '.webp', '.sh',
-            '.conf', '.service', '.timer', '.cron', '.toml', '.kts', '.kt', '.java', '.properties', '.xml', '.neon', '.example', '.cjr', '.webmanifest'}
+            '.conf', '.service', '.timer', '.cron', '.toml', '.kts', '.kt', '.java', '.properties', '.xml', '.neon', '.example', '.cjr', '.webmanifest', '.lockfile'}
 REQUIRED = {'release.json', 'core/bootstrap.php', 'bin/cajeer', 'public/index.php', 'public/router.php',
             'admin/index.html', 'public/admin/assets/panel.js', 'public/admin/assets/panel.css',
             'api/openapi.yaml', 'openapi.yaml', 'compose.production.yaml', 'deploy/production/Dockerfile',
@@ -350,6 +350,8 @@ def main():
 
 
 REQUIRED.update({'core/Database/PostgresBoolean.php', 'tests/security_hardening.php', 'docs/Security-Review-Hardening-0.8.3.md'})
+
+REQUIRED.update({'scripts/supply_chain.py', 'tests/supply_chain.py', 'docs/Reproducible-Builds-Supply-Chain-0.8.4.md'})
 
 if __name__ == '__main__':
     main()

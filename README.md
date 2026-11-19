@@ -1,3 +1,5 @@
+**0.8.4 — Reproducible Builds & Supply Chain.** Две изолированные сборки релизного ZIP, файловый CycloneDX SBOM, инвентаризация объявленных зависимостей, in-toto metadata и проверка GitHub OIDC-attestation. Незакреплённые зависимости блокируют финальную сертификацию. [Инструкция](docs/Reproducible-Builds-Supply-Chain-0.8.4.md). Канал `public-preview`.
+
 **0.8.3 — Security Review & Hardening.** Исправлены проверки PostgreSQL boolean-полей в HMAC, TOTP и установщике, неоднозначная HTTP-framing обработка и маскирование camelCase-секретов. Добавлены исполняемые регрессионные проверки и обязательный CI security gate. [Security review 0.8.3](docs/Security-Review-Hardening-0.8.3.md). Канал `public-preview` до независимой production-сертификации.
 
 **0.8.2 — Full E2E & Failure Recovery.** Реальные интеграционные HTTP-сценарии из неизменяемого релизного ZIP запускаются повторно в изолированных окружениях; тесты обновлений и сквозного pipeline теперь используют тот же архив. [Тестирование и приёмка 0.8.3](docs/Full-E2E-Failure-Recovery-0.8.2.md). Канал остаётся `public-preview` до прохождения полного PostgreSQL/ClickHouse/S3, SDK, браузерного и нагрузочного CI.

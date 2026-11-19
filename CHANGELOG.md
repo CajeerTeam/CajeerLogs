@@ -1,3 +1,11 @@
+## 0.8.4 — Reproducible Builds & Supply Chain
+
+- Изолированные двукратные сборки релизного ZIP с побайтовой сверкой.
+- CycloneDX 1.6 SBOM по фактическим файлам и отдельный dependency audit без вымышленных версий.
+- Проверяемые метаданные происхождения; OIDC-подпись артефакта в GitHub CI.
+- Fail-closed policy для незакреплённых зависимостей и неизменности проверяемого ZIP.
+- Без изменений PostgreSQL и ClickHouse миграций.
+
 ## 0.8.3 — Security Review & Hardening
 
 - Normalize PostgreSQL `t`/`f` and native boolean values in HMAC signing policy,
