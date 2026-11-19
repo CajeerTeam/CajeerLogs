@@ -19,7 +19,7 @@ try {
     $repo=new LogRepository($pdo);$errors=new ErrorAnalytics($pdo);
     $start=new DateTimeImmutable('@'.(time()-7200));
     $fmt=static fn(DateTimeImmutable $d):string=>$d->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d\TH:i:s\Z');
-    $eventTime=static fn(string $modifier):string=>$fmt($start->modify($modifier));
+    $eventTime=static fn(string $modifier):string=>$fmt($modifier==='' ? $start : $start->modify($modifier));
     $send=static function(string $project,string $source,string $token,string $service,string $level,string $message,string $time)use($pdo,$repo):string {
         $data=['timestamp'=>$time,'source'=>$source===''? '': ($service==='worker'?'worker':'api'),'service'=>$service,'level'=>$level,'message'=>$message];
         $events=(new IngestValidator())->parse(new Request('POST','/api/v1/ingest',['Content-Type'=>'application/json'],[],json_encode($data,JSON_THROW_ON_ERROR)));
