@@ -1,5 +1,5 @@
 # Runtime does not require Composer or Node: PHP core and built SPA are shipped.
-FROM php:8.4-fpm-trixie AS app
+FROM php:8.4-fpm-trixie@sha256:1071b5609d16d60674f78eea8cf9bd7e9e79169ecb566d015c931c5ee789bb13 AS app
 RUN apt-get update && apt-get install -y --no-install-recommends libpq-dev libcurl4-openssl-dev postgresql-client-17 ca-certificates \
     && for ext in pdo_pgsql curl pcntl posix; do \
         if ! php -r "exit(extension_loaded('$ext') ? 0 : 1);"; then docker-php-ext-install -j"$(nproc)" "$ext" || exit 1; fi; \
@@ -26,7 +26,7 @@ RUN mkdir -p /config /app/storage/app /app/storage/archives /app/storage/backups
 USER www-data
 CMD ["php-fpm", "-F"]
 
-FROM nginx:stable-alpine AS gateway
+FROM nginx:stable-alpine@sha256:3bc3836dc0be3b811f238210360bf8e7ca8a2d0effdae46160bf1f3578710051 AS gateway
 COPY deploy/production/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --chmod=0755 deploy/production/gateway-origin.sh /docker-entrypoint.d/40-cajeer-origin.sh
 COPY public/admin/assets /app/public/admin/assets

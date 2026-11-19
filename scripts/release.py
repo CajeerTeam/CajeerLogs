@@ -210,6 +210,9 @@ REQUIRED.update({
 })
 
 
+REQUIRED.update({'scripts/dependency_locks.py', 'tests/dependency_locks.py',
+                 'docs/Release-Baseline-Supply-Chain-0.9.1.md'})
+
 def digest(data):
     return hashlib.sha256(data).hexdigest()
 

@@ -47,11 +47,15 @@ class SupplyChainTest(unittest.TestCase):
         self.assertEqual(bom, sc.sidecars(self.archive)[0])
 
     def test_unlocked_dependencies_are_explicit_not_fabricated(self):
-        deps = sc.package_evidence(self.files)
+        files = dict(self.files)
+        for name in ('composer.lock', 'packages/ts-sdk/package-lock.json', sc.dependency_locks.GRADLE_LOCK, sc.dependency_locks.GRADLE_VERIFY):
+            files.pop(name, None)
+        deps = sc.package_evidence(files)
         self.assertFalse(deps['locked'])
         self.assertTrue(any('composer.lock' in issue for issue in deps['unresolved']))
         self.assertTrue(any('package-lock.json' in issue for issue in deps['unresolved']))
-        self.assertTrue(any('OCI' in issue for issue in deps['unresolved']))
+        self.assertTrue(any('gradle.lockfile' in issue for issue in deps['unresolved']))
+        self.assertTrue(any(d['ecosystem']=='oci' and '@sha256:' in d['constraint'] for d in deps['declarations']))
         self.assertTrue(any(d['name']=='typescript' and d['constraint']=='5.8.3' for d in deps['declarations']))
 
     def test_tamper_and_missing_sidecar_rejected(self):
@@ -65,7 +69,7 @@ class SupplyChainTest(unittest.TestCase):
         with self.assertRaises(ValueError): sc.compare(path, bom)
         path.unlink()
         with self.assertRaises(OSError): sc.compare(path, bom)
-        self.assertFalse(report['dependency_lock_complete'])
+        self.assertEqual(report['dependency_lock_complete'], sc.package_evidence(self.files)['locked'])
 
     def test_dependency_manifest_fails_on_missing_constraints(self):
         files=dict(self.files)

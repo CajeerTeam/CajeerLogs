@@ -20,6 +20,7 @@ import tomllib
 import zipfile
 
 import release
+import dependency_locks
 
 
 def sha(data: bytes) -> str:
@@ -31,69 +32,13 @@ def encoded(obj: object) -> bytes:
 
 
 def package_evidence(files: dict[str, bytes]) -> dict:
-    """Distinguish source declarations from *resolved* third-party binaries.
+    """Validate archived dependency graphs via the production lock verifier.
 
-    Do not invent package versions or dependency integrity digests when lockfiles
-    have not been committed. A strict dependency audit must then fail closed.
+    A syntactically valid lock is not yet certified: the CI `dependency-integrity`
+    job installs exact locked content, runs security audits, and fetches OCI
+    manifests whose raw SHA-256 must match the references in the archive.
     """
-    declarations = []
-    unresolved = []
-
-    def add(ecosystem, name, constraint, scope):
-        declarations.append(dict(ecosystem=ecosystem, name=name,
-                                 constraint=str(constraint), scope=scope))
-
-    composer = json.loads(files['composer.json'])
-    for scope in ('require', 'require-dev'):
-        for name, constraint in sorted(composer.get(scope, {}).items()):
-            if name != 'php' and not name.startswith('ext-'):
-                add('composer', name, constraint, scope)
-    if 'composer.lock' not in files:
-        unresolved.append('composer.lock missing: PHP dependency graph is not reproducibly resolved')
-    else:
-        locked = json.loads(files['composer.lock'])
-        for field in ('packages', 'packages-dev'):
-            for pkg in locked.get(field, []):
-                if not isinstance(pkg.get('name'), str) or not pkg.get('version') or not pkg.get('dist', {}).get('reference'):
-                    unresolved.append('Composer package lacks fixed version / dist reference')
-                    break
-        if not locked.get('content-hash'):
-            unresolved.append('composer.lock missing content-hash')
-
-    npm = json.loads(files['packages/ts-sdk/package.json'])
-    for scope in ('dependencies', 'devDependencies'):
-        for name, constraint in sorted(npm.get(scope, {}).items()):
-            add('npm', name, constraint, scope)
-    if 'packages/ts-sdk/package-lock.json' not in files:
-        unresolved.append('packages/ts-sdk/package-lock.json missing: npm ci cannot lock SDK dependencies')
-    else:
-        lock = json.loads(files['packages/ts-sdk/package-lock.json'])
-        packages = lock.get('packages', {})
-        for entry, pkg in packages.items():
-            if entry.startswith('node_modules/') and (not pkg.get('version') or not pkg.get('integrity')):
-                unresolved.append(f'npm lock missing version/integrity: {entry}')
-
-    python = tomllib.loads(files['clients/python/pyproject.toml'].decode())
-    for requirement in python['build-system'].get('requires', []):
-        add('pypi-build', requirement.split('=')[0].split('>')[0], requirement, 'build')
-        if not re.search(r'(?<![<>!~=])==(?!=)\d', requirement):
-            unresolved.append(f'Python build backend is not exact-pinned: {requirement}')
-    gradle = files['clients/java-kotlin/build.gradle.kts'].decode()
-    for plugin, version in re.findall(r'(?:kotlin\("([\w-]+)"\))\s+version\s+"([^"]+)"', gradle):
-        add('gradle-plugin', f'org.jetbrains.kotlin.{plugin}', version, 'build')
-    if 'clients/java-kotlin/gradle.lockfile' not in files:
-        unresolved.append('Kotlin/Gradle dependency verification or lockfile absent')
-
-    dockerfile = files['deploy/production/Dockerfile'].decode()
-    for ref in re.findall(r'^FROM\s+(\S+)', dockerfile, re.M):
-        add('oci', ref, ref, 'runtime')
-        if '@sha256:' not in ref:
-            unresolved.append(f'Unpinned OCI base image digest: {ref}')
-
-    # Source ZIP does not contain Composer vendor/, node_modules or JVM artifacts.
-    return {'schema': 1, 'declarations': sorted(declarations, key=lambda x: (x['ecosystem'], x['name'])),
-            'unresolved': sorted(set(unresolved)), 'locked': not unresolved,
-            'scope': 'declared dependencies only; no claim of installed/resolved versions'}
+    return dependency_locks.inspection(files)
 
 
 def release_files(archive: Path) -> tuple[dict, dict[str, bytes]]:
@@ -116,6 +61,15 @@ def sbom(archive: Path, meta: dict, files: dict[str, bytes], deps: dict) -> dict
                           {'name': 'cajeer:ecosystem', 'value': declaration['ecosystem']},
                           {'name': 'cajeer:constraint', 'value': declaration['constraint']},
                           {'name': 'cajeer:resolution', 'value': 'declared-not-installed'}]})
+    for dep in deps['resolved']:
+        identity = dep.get('integrity') or dep.get('reference') or dep.get('digest')
+        items.append({'type': 'library', 'name': dep['name'],
+                      'version': dep.get('version') or None,
+                      'bom-ref': f"locked:{dep['ecosystem']}:{dep['name']}",
+                      'properties': [
+                          {'name': 'cajeer:ecosystem', 'value': dep['ecosystem']},
+                          {'name': 'cajeer:lock-reference', 'value': identity},
+                          {'name': 'cajeer:resolution', 'value': 'locked-not-installed'}]})
     return {'bomFormat': 'CycloneDX', 'specVersion': '1.6', 'version': 1,
             'serialNumber': 'urn:uuid:' + __import__('uuid').uuid5(__import__('uuid').NAMESPACE_URL, digest).hex[:8] + '-'
                 + __import__('uuid').uuid5(__import__('uuid').NAMESPACE_URL, digest).hex[8:12] + '-'
@@ -137,7 +91,7 @@ def statement(archive: Path, meta: dict, dependencies: dict) -> dict:
                 'buildType': 'https://cajeerlogs.example/build/release-zip/v1',
                 'externalParameters': {'version': meta['version']},
                 'internalParameters': {'zip_timestamp': '1980-01-01T00:00:00', 'compression': 'deflate-9'},
-                'resolvedDependencies': []},
+                'resolvedDependencies': [dict(uri=f'pkg:{d["ecosystem"]}/{d["name"]}', digest={'sha256': d['digest']}) for d in dependencies['resolved'] if d['ecosystem'] == 'oci']},
                 'runDetails': {'builder': {'id': 'local-untrusted-build; see OIDC-signed CI attestation'},
                                'metadata': {'invocationId': 'not-attested'}}},
             'cajeer:dependencyComplete': dependencies['locked']}
@@ -152,7 +106,7 @@ def sidecars(archive: Path):
               'archive_sha256': sha(archive.read_bytes()), 'dependency_lock_complete': deps['locked'],
               'dependency_issues': deps['unresolved'], 'sbom_sha256': sha(encoded(bom)),
               'provenance_sha256': sha(encoded(provenance)),
-              'note': 'Local provenance is unsigned. Verify GitHub OIDC attestation independently.'}
+              'note': 'Lock graphs are checked structurally. CI must also install packages, audit them, verify OCI registries and authenticate GitHub OIDC attestations.'}
     return bom, provenance, report
 
 

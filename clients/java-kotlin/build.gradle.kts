@@ -6,9 +6,12 @@ plugins {
 }
 
 group = "ru.cajeer.logs"
-version = "0.9.0"
+version = "0.9.1"
 
 repositories { mavenCentral() }
+// Pin each resolved configuration; Gradle verification metadata additionally pins
+// artifact contents, including Kotlin Gradle plugin dependencies.
+dependencyLocking { lockAllConfigurations() }
 kotlin {
     jvmToolchain(17)
     sourceSets.named("test") { kotlin.srcDir("../../tests/sdk") }

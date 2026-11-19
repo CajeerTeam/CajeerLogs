@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools==80.9.0", "wheel==0.45.1"]
+requires = ["setuptools==80.9.1", "wheel==0.45.1"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "cajeer-logs-client"
-version = "0.9.0"
+version = "0.9.1"
 description = "CajeerLogs v1 Python SDK with durable synchronous/async delivery and log collectors"
 requires-python = ">=3.10"
 license = "Apache-2.0"

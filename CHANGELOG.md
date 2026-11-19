@@ -1,3 +1,11 @@
+## 0.9.1 — Release Baseline & Supply Chain (2026-11-19)
+
+- Pinned PHP-FPM and Nginx OCI base index digests; pinned PostgreSQL and ClickHouse production Compose images to published digests.
+- Added fail-closed dependency graph verification, real registry-backed lock refresh workflow and offline installation validation in CI.
+- Hardened supply-chain evidence: validate manifest/lock matching, transitive integrity, Gradle metadata, production OCI digest references and reproducible ZIP.
+- Updated application, SDK, Admin Panel, container image tags and release CI to version 0.9.1.
+- **Certification pending:** Composer/npm/Gradle lockfiles must be generated and verified with package registries before strict dependencies gate passes; the build must not be published as certified until then.
+
 ## 0.9.0 — Production Quality & Security Stable
 
 - Unified **runnable** PHP/HTTP/Admin/OpenAPI and PHP, Python, TypeScript, Kotlin SDK version to 0.9.0; corrected production Compose's 0.7.5 image tags.
