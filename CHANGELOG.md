@@ -1,3 +1,11 @@
+## 0.8.8 — Documentation & Operations Readiness
+
+- Added real read-only incident triage from operational checks, conservative fail-closed classification and scenario-linked runbooks.
+- Added private, exclusive incident evidence capture with no raw credentials, 0700/0600 permissions and symlink refusal.
+- Added seven incident/maintenance procedures plus an on-call index and shift checklist, validated against the actual CLI dispatcher in CI and exercised via real PHP command invocations.
+- Updated release/SDK versions and extended the PostgreSQL upgrade/rollback evidence gate with 0.8.7 → 0.8.8.
+- No migrations, API contract changes or unattended recovery/cutover; target-environment DR remains required.
+
 ## 0.8.7 — Backup & Disaster Recovery Certification
 
 Real authenticated offsite-only restore into an exclusive empty PostgreSQL target, conservative RPO bound from pre-dump snapshot timestamp, measured recovery-readiness time with mandatory operator budgets, fail-closed recovery, isolated scratch cleanup and CI fault injection. See docs/Backup-Disaster-Recovery-Certification-0.8.7.md.

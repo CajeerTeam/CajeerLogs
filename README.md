@@ -1,3 +1,5 @@
+**0.8.8 — Documentation & Operations Readiness.** Read-only `operations:triage` classifies real checks into incident runbooks; `operations:incident` records a sanitized private evidence snapshot. Seven operational scenarios, shift/maintenance guidance, and CLI-documentation consistency checks run in CI. [Operator guide](docs/Operations-Readiness-0.8.8.md). No automatic repair or cutover; `public-preview`.
+
 **0.8.4 — Reproducible Builds & Supply Chain.** Две изолированные сборки релизного ZIP, файловый CycloneDX SBOM, инвентаризация объявленных зависимостей, in-toto metadata и проверка GitHub OIDC-attestation. Незакреплённые зависимости блокируют финальную сертификацию. [Инструкция](docs/Reproducible-Builds-Supply-Chain-0.8.4.md). Канал `public-preview`.
 
 **0.8.3 — Security Review & Hardening.** Исправлены проверки PostgreSQL boolean-полей в HMAC, TOTP и установщике, неоднозначная HTTP-framing обработка и маскирование camelCase-секретов. Добавлены исполняемые регрессионные проверки и обязательный CI security gate. [Security review 0.8.3](docs/Security-Review-Hardening-0.8.3.md). Канал `public-preview` до независимой production-сертификации.
