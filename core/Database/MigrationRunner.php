@@ -144,6 +144,11 @@ final class MigrationRunner
                 foreach ($file['statements'] as $statement) $this->pdo->exec($statement['sql']);
             }
             $expected=$this->inspector->snapshot($reference);
+            // A replay lives in a different namespace. Compare trigger DDL
+            // using the owner schema as a symbolic name, without weakening
+            // the persisted schema integrity fingerprint.
+            $actual=$this->normalizeReplayTriggers($actual,$this->schema);
+            $expected=$this->normalizeReplayTriggers($expected,$reference);
             $differences=SchemaInspector::differences($expected,$actual);
             if ($differences!==[]) {
                 throw new DatabaseException('Independent schema replay detected drift: '.implode(', ',array_map(
@@ -167,6 +172,29 @@ final class MigrationRunner
             if ($error instanceof DatabaseException) throw $error;
             throw new DatabaseException('Independent PostgreSQL schema certification failed; no schema changes committed.',0,$error);
         }
+    }
+
+    /**
+     * Canonicalize *only* the owning namespace in deparsed trigger definitions.
+     * Names of foreign schemas and all function bodies, columns and policies
+     * remain significant for drift detection. Does not alter stored baselines.
+     */
+    private function normalizeReplayTriggers(array $snapshot,string $schema): array
+    {
+        foreach ($snapshot as $key=>$value) {
+            if (!str_starts_with($key,'trigger:')) continue;
+            $trigger=json_decode($value,true,512,JSON_THROW_ON_ERROR);
+            if (!is_array($trigger) || !isset($trigger['definition']) || !is_string($trigger['definition'])) {
+                throw new DatabaseException('Invalid trigger catalog entry during schema certification: '.$key);
+            }
+            $trigger['definition']=str_replace(
+                ['"'.$schema.'".',$schema.'.'],
+                ['__cajeer_replay_schema__.','__cajeer_replay_schema__.'],
+                $trigger['definition']
+            );
+            $snapshot[$key]=json_encode($trigger,JSON_THROW_ON_ERROR);
+        }
+        return $snapshot;
     }
 
     public function assertCurrent(): void {
