@@ -80,6 +80,8 @@ try {
     assertConfig(strlen($values['SECURITY_HMAC_SECRET']) >= 64 && $values['SECURITY_HMAC_SECRET'] !== $values['SECURITY_TOKEN_PEPPER'],'independent generated secrets');
     file_put_contents($tmp . '/.env', "\nCUSTOM_SETTING=preserved\n", FILE_APPEND);
     $test2 = new Application($tmp); $test2->boot();
+    // Keep the persisted database target on retry despite inherited CI DB_SCHEMA.
+    $test2->config()->set('database.schema', $values['DB_SCHEMA']);
     (new EnvironmentWriter($test2))->write();
     $retry = Environment::load($tmp . '/.env');
     assertConfig($retry['SECURITY_HMAC_SECRET'] === $values['SECURITY_HMAC_SECRET'] && $retry['CUSTOM_SETTING'] === 'preserved','retry preserves existing secrets and custom settings');
