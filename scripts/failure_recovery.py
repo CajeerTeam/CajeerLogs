@@ -122,7 +122,12 @@ def phase(root, name, state, env):
                             cwd=root, env=env, text=True, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, timeout=90)
     if result.returncode or 'PASS ' not in result.stdout:
-        raise RuntimeError('Real database phase failed: ' + name)
+        diagnostic = (result.stderr + '\n' + result.stdout)[-1800:]
+        for key in ('DB_PASSWORD', 'CLICKHOUSE_PASSWORD', 'PGPASSWORD', 'APP_KEY'):
+            secret = env.get(key, '')
+            if len(secret) >= 3:
+                diagnostic = diagnostic.replace(secret, '[REDACTED]')
+        raise RuntimeError('Real database phase failed: ' + name + ' (exit=' + str(result.returncode) + '): ' + diagnostic)
     checks = 0
     for line in result.stdout.splitlines():
         if line.startswith('PASS '):
