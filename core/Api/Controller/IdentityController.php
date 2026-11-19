@@ -1116,7 +1116,15 @@ final class IdentityController
         $row=$this->roleRow($this->one('SELECT '.self::ROLE_FIELDS.' FROM rbac_roles WHERE id=:id FOR UPDATE',['id'=>$id]));
         if ($row['revision']!==$this->roleRevision($d)) throw new HttpException(409,'role_changed','Role changed. Reload before retrying.');
         // RESTRICT foreign keys prohibit silent privilege expansion from deleting an assigned role.
-        $this->sql('DELETE FROM rbac_roles WHERE id=:id',['id'=>$id]); $this->audit($r,$p,'role.deleted',$id); return new Response('',204);
+        try {
+            $this->sql('DELETE FROM rbac_roles WHERE id=:id',['id'=>$id]);
+        } catch (\PDOException $error) {
+            // RESTRICT is a business conflict, not an internal server error.
+            // Keep the database FK authoritative, including concurrent assigns.
+            if ($error->getCode()==='23503') throw new HttpException(409,'role_in_use','Role has active assignments and cannot be deleted.');
+            throw $error;
+        }
+        $this->audit($r,$p,'role.deleted',$id); return new Response('',204);
     }
     private function assignment(Request $r,string $scope): ?string
     {
