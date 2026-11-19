@@ -110,7 +110,13 @@ def run(archive: Path, output: Path) -> bool:
                         records = [json.loads(line[len('RECOVERY_JSON:'):])
                                    for line in lines if line.startswith('RECOVERY_JSON:')]
                         if len(records) != 1 or stage['checks'] < 12:
-                            raise RuntimeError('Missing real service stop/start and recovery checks')
+                            diagnostic = (process.stderr + '\n' + process.stdout)[-2000:]
+                            for key in ('DB_PASSWORD', 'CLICKHOUSE_PASSWORD', 'PGPASSWORD', 'APP_KEY'):
+                                secret = env.get(key, '')
+                                if len(secret) >= 3:
+                                    diagnostic = diagnostic.replace(secret, '[REDACTED]')
+                            stage['diagnostic'] = diagnostic
+                            raise RuntimeError('Missing real service stop/start and recovery checks: ' + diagnostic)
                         stage['recovery'] = records[0]
                     if name == 'storage-fault-recovery':
                         metrics = [json.loads(line[len('PERFORMANCE_JSON:'):])
