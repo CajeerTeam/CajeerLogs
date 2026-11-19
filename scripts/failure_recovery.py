@@ -169,7 +169,13 @@ def main():
         run(args.root.resolve(), dict(os.environ))
         return 0
     except (Exception, KeyboardInterrupt) as e:
-        print('Service recovery failed: ' + type(e).__name__, file=sys.stderr)
+        # Preserve the failure reason without exposing configured credentials.
+        diagnostic = str(e)
+        for key in ('DB_PASSWORD', 'CLICKHOUSE_PASSWORD', 'PGPASSWORD', 'APP_KEY'):
+            secret = os.environ.get(key, '')
+            if len(secret) >= 3:
+                diagnostic = diagnostic.replace(secret, '[REDACTED]')
+        print('Service recovery failed: ' + type(e).__name__ + ': ' + diagnostic[-1000:], file=sys.stderr)
         return 1
 
 
