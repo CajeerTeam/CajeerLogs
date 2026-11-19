@@ -71,6 +71,26 @@ groups:
         for: 5m
         labels: {severity: warning}
         annotations: {summary: 'Elevated login rejections'}
+      - alert: CajeerLogsSecurityConfigurationUnsafe
+        expr: cajeerlogs_security_configuration_healthy == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations: {summary: 'Production security policy failed; inspect security:audit'}
+      - alert: CajeerLogsSecurityAuditUnavailable
+        expr: cajeerlogs_security_identity_audit_available == 0
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: 'Identity security audit cannot query PostgreSQL'}
+      - alert: CajeerLogsInsecureIdentityState
+        expr: cajeerlogs_security_totp_state_mismatch > 0 or cajeerlogs_security_orphan_totp > 0 or cajeerlogs_security_global_role_scope_mismatch > 0 or cajeerlogs_security_project_role_scope_mismatch > 0 or cajeerlogs_security_invalid_role_definitions > 0
+        for: 2m
+        labels: {severity: critical}
+        annotations: {summary: 'Stored 2FA or RBAC state violates security policy'}
+      - alert: CajeerLogsAdministratorWithout2FA
+        expr: cajeerlogs_security_admins_without_totp > 0
+        for: 5m
+        labels: {severity: critical}
+        annotations: {summary: 'Active administrator lacks TOTP enrollment'}
       - alert: CajeerLogsAuditWriteFailure
         expr: increase(cajeerlogs_audit_write_failures_total[5m]) > 0
         labels: {severity: critical}

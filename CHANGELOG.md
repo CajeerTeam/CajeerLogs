@@ -1,5 +1,12 @@
 ## 0.9.6 — Reliable Log Ingestion (release candidate)
 
+## 0.9.8 — Security & Operations Hardening
+- Added a read-only, fail-closed `security:audit [--tls]` operator command that checks effective production TLS, authenticated metrics, enforced administrator TOTP, session timeouts, remote database TLS and live PostgreSQL identity/RBAC integrity.
+- Readiness now refuses insecure production security policy; operations checks include security controls and persisted role/TOTP integrity checks.
+- Prometheus emits aggregate security-health and database-audit gauges; Alertmanager alerts on unsafe configuration, inaccessible audit, invalid RBAC/TOTP state, or unenrolled administrators. No user identities or secrets appear in the telemetry.
+- Security acceptance runs the executable security-posture tests from the release distribution; database upgrade/rollback adds the 0.9.7 -> 0.9.8 transition. No historical SQL migrations or API v1 operations changed.
+- Full PostgreSQL/TLS/Prometheus integration and strict dependency verification must pass CI before production certification.
+
 ## 0.9.7 — Data Lifecycle & Disaster Recovery
 
 - Added production S3 cold-segment verification and bounded byte-for-byte scrub (`storage:archive verify-cold` / `scrub-cold`), including JSONL snapshot validation and catalog consistency.

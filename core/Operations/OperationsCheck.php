@@ -17,6 +17,7 @@ final class OperationsCheck
     public function run(?string $backupId=null): array
     {
         $cfg=$this->app->config(); $now=time(); $production=$cfg->get('app.env')==='production';
+        $security=\Cajeer\Logs\Security\SecurityPosture::configuration($cfg);
         $checks=['runtime'=>$this->app->container()->get(Diagnostics::class)->ok(),
             'database_readiness'=>(new Readiness($this->app))->check()['status']==='ok',
             'production_https'=>!$production || parse_url($cfg->get('app.url'),PHP_URL_SCHEME)==='https',
@@ -24,7 +25,8 @@ final class OperationsCheck
             'production_admin_totp'=>!$production || $cfg->get('security.require_admin_totp'),
             'production_idle_timeout'=>!$production || $cfg->get('security.session_idle_seconds')>0,
             'production_recent_authentication'=>!$production || $cfg->get('security.reauth_seconds')>0,
-            'audit_integrity'=>false,'queue_accounting'=>false];
+            'audit_integrity'=>false,'queue_accounting'=>false,'security_identity_audit_available'=>false];
+        foreach ($security as $name=>$passed) $checks['security_'.$name]=$passed;
         $skipped=[]; $audit=null; $backup=null; $verifiedBackup=null;
         $workers=(new WorkerHeartbeat($this->app->basePath('storage/cache')))->snapshot($now);
         foreach ($workers as $role=>$worker) {
@@ -44,6 +46,12 @@ final class OperationsCheck
                 $audit=['valid'=>$a['valid'],'entries'=>$a['entries'],'head_position'=>$a['head_position'],'head_hash'=>$a['head_hash']];
                 $checks['audit_integrity']=$a['valid'];
                 $checks['queue_accounting']=(new \Cajeer\Logs\Queue\QueueAccounting($pdo))->verify()['valid'];
+                $securityCounts=\Cajeer\Logs\Security\SecurityPosture::database($pdo);
+                foreach ($securityCounts as $name=>$count) {
+                    if ($name==='admins_without_totp' && !$cfg->get('security.require_admin_totp')) continue;
+                    $checks['security_'.$name]=$count===0;
+                }
+                $checks['security_identity_audit_available']=true;
                 if ($checkRetention) {
                     $r=$pdo->query('SELECT status,extract(epoch from finished_at) AS finished FROM retention_runs ORDER BY id DESC LIMIT 1')->fetch();
                     $checks['retention_progress']=$r && $r['status']==='success' && (float)$r['finished'] <= $now+5 && $now-(float)$r['finished']<=300;

@@ -38,6 +38,7 @@ try {
     $app->config()->set('operations.metrics_token',$key);
     check($app->handle(new Request('GET','/metrics'))->status===401,'protected metrics reject no token');
     $r=$app->handle(new Request('GET','/metrics',['Authorization'=>'Bearer '.$key])); check($r->status===200&&str_contains($r->body,'cajeerlogs_operations_available 0')&&!str_contains($r->body,$key),'metrics authenticate, DB outage explicit');
+    check(str_contains($r->body,'cajeerlogs_security_configuration_healthy ') && str_contains($r->body,'cajeerlogs_security_identity_audit_available 0') && !str_contains($r->body,'cajeerlogs_security_admins_without_totp'),'missing DB security metrics fail closed without fabricated counts');
     $r=$app->handle(new Request('GET','/health',[],[],'','127.0.0.1',true)); check($r->header('Strict-Transport-Security')==='max-age=31536000'&&$r->header('Permissions-Policy')!==null,'TLS security headers');
     check($app->handle(new Request('GET','/health'))->header('Strict-Transport-Security')===null,'HSTS not on plain HTTP');
     foreach (['setup','enable','disable'] as $action) { check($app->handle(new Request('POST','/api/v1/auth/2fa/'.$action))->status===401,'TOTP endpoint protected '.$action); }

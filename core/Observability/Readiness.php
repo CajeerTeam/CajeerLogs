@@ -23,6 +23,7 @@ final class Readiness
         try {
             if (!$this->app->container()->get(Diagnostics::class)->ok()) return ['status'=>'down'];
             if ($cfg->get('app.env')==='production' && parse_url($cfg->get('app.url'),PHP_URL_SCHEME)!=='https') return ['status'=>'down'];
+            if (in_array(false,\Cajeer\Logs\Security\SecurityPosture::configuration($cfg),true)) return ['status'=>'down'];
             if ($cfg->get('app.env')==='production' && $cfg->get('observability.prometheus_enabled') && $cfg->get('operations.metrics_token')==='') return ['status'=>'down'];
             if (($cfg->get('security.require_admin_totp')||IdentityPolicy::fromConfig($cfg)->requiresEnrollmentPolicy())&&!TwoFactorManager::keyValid($cfg->get('security.totp_key'))) return ['status'=>'down'];
             $pdo??=$this->factory()->make('pgsql');

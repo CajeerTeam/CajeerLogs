@@ -83,3 +83,25 @@ tests:
         exp_alerts:
           - exp_labels: {job: cajeerlogs, instance: 'logs.example:443', severity: warning}
             exp_annotations: {summary: 'Queue capacity admission paused; workers must drain accepted jobs'}
+  - interval: 30s
+    input_series:
+      - series: 'cajeerlogs_security_configuration_healthy{job="cajeerlogs",instance="logs.example:443"}'
+        values: '0+0x12'
+      - series: 'cajeerlogs_security_identity_audit_available{job="cajeerlogs",instance="logs.example:443"}'
+        values: '1+0x12'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: CajeerLogsSecurityConfigurationUnsafe
+        exp_alerts:
+          - exp_labels: {job: cajeerlogs, instance: 'logs.example:443', severity: critical}
+            exp_annotations: {summary: 'Production security policy failed; inspect security:audit'}
+  - interval: 30s
+    input_series:
+      - series: 'cajeerlogs_security_invalid_role_definitions{job="cajeerlogs",instance="logs.example:443"}'
+        values: '2+0x12'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: CajeerLogsInsecureIdentityState
+        exp_alerts:
+          - exp_labels: {job: cajeerlogs, instance: 'logs.example:443', severity: critical}
+            exp_annotations: {summary: 'Stored 2FA or RBAC state violates security policy'}

@@ -34,6 +34,19 @@ final class PrometheusExporter
         } catch (\Throwable) {
             $output.="# HELP cajeerlogs_queue_available Queue database query successful.\n# TYPE cajeerlogs_queue_available gauge\ncajeerlogs_queue_available 0\n";
         }
+        $security=\Cajeer\Logs\Security\SecurityPosture::configuration($this->app->config());
+        $configurationOk=!in_array(false,$security,true)?1:0;
+        $output.="# TYPE cajeerlogs_security_configuration_healthy gauge\ncajeerlogs_security_configuration_healthy $configurationOk\n";
+        try {
+            if ($pdo===null) throw new \RuntimeException('Database unavailable.');
+            $identityCounts=\Cajeer\Logs\Security\SecurityPosture::database($pdo);
+            $output.="# TYPE cajeerlogs_security_identity_audit_available gauge\ncajeerlogs_security_identity_audit_available 1\n";
+            foreach ($identityCounts as $name=>$value) {
+                $output.="# TYPE cajeerlogs_security_$name gauge\ncajeerlogs_security_$name $value\n";
+            }
+        } catch (\Throwable) {
+            $output.="# TYPE cajeerlogs_security_identity_audit_available gauge\ncajeerlogs_security_identity_audit_available 0\n";
+        }
         $output.=(new IngestMetrics($this->app->basePath('storage/cache')))->render();
         $output.=(new IngestMetrics($this->app->basePath('storage/cache'),'search'))->render();
         $output.=(new IngestMetrics($this->app->basePath('storage/cache'),'identity'))->render();
