@@ -2,7 +2,7 @@
 
 ## Trigger
 
-Upgrade between supported releases (including 0.9.2 to 0.9.3), a failed upgrade smoke test, migration drift, expired release credentials or a rollback decision.
+Upgrade between supported releases (including 0.9.3 to 0.9.4), a failed upgrade smoke test, migration drift, expired release credentials or a rollback decision.
 
 ## Diagnosis
 
@@ -23,6 +23,7 @@ Obtain a maintenance window and authorization; drain writers using the approved 
 ```sh
 php bin/cajeer backup:verify BACKUP_ID
 php bin/cajeer upgrade:check BACKUP_ID
+php bin/cajeer upgrade BACKUP_ID --confirm-stopped
 php bin/cajeer migrate:verify
 php bin/cajeer migrate:certify
 ```

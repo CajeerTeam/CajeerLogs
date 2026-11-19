@@ -16,7 +16,7 @@ import tomllib
 
 import release
 
-VERSION = '0.9.3'
+VERSION = '0.9.4'
 
 
 class InvalidRelease(ValueError):
@@ -72,7 +72,7 @@ def identity(root: Path) -> dict:
                 'Production image tag mismatch: ' + image)
     require('cajeerlogs:0.7.5' not in compose and 'cajeerlogs-gateway:0.7.5' not in compose,
             'Legacy production image tag')
-    for setting in ("APP_ENV: production", "CAJEER_RELEASE_VERSION: '0.9.3'", "APP_DEBUG: 'false'", "read_only: true", "no-new-privileges:true",
+    for setting in ("APP_ENV: production", "CAJEER_RELEASE_VERSION: '0.9.4'", "APP_DEBUG: 'false'", "read_only: true", "no-new-privileges:true",
                     "SECURITY_2FA_REQUIRED_FOR_ADMINS: 'true'", "PROMETHEUS_TOKEN: ${PROMETHEUS_TOKEN:?Set PROMETHEUS_TOKEN}"):
         require(setting in compose, 'Missing production security control: ' + setting)
     docker = load('deploy/production/Dockerfile')

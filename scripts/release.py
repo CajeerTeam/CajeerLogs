@@ -111,6 +111,7 @@ REQUIRED.update({'core/Log/ErrorAnalytics.php','migrations/pgsql/0031_error_anal
                  'tests/error_analytics_database.php','docs/Error-Analytics-Reporting-0.7.6.md'})
 
 REQUIRED.add('docs/Supported-Database-Schema-0.9.3.md')
+REQUIRED.update({'core/Installer/UpgradeInstaller.php','tests/production_installer.php','docs/Production-Installer-0.9.4.md'})
 REQUIRED.add('docs/Analytics-Storage-Stable-0.8.0.md')
 REQUIRED.add('tests/archive_restore_paging.php')
 REQUIRED.update({'scripts/failure_recovery.py','tests/failure_recovery.py',

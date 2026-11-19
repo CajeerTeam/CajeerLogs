@@ -20,12 +20,13 @@ import time
 
 import release
 
-VERSION = '0.9.3'
+VERSION = '0.9.4'
 # These are executable security tests, not checks for the existence of files.
 STAGES = (
     ('deployment-policy', ('php', 'tests/deployment_security.php'), 20),
     ('deployment-tls', (sys.executable, 'tests/deployment_tls.py'), 2),
     ('secure-installer', ('php', 'tests/secure_installer.php'), 10),
+    ('production-installer', ('php', 'tests/production_installer.php'), 17),
     ('ingest-authorization', ('php', 'tests/ingest_authorization.php'), 25),
     ('security-hardening', ('php', 'tests/security_hardening.php'), 30),
     ('security-operations', ('php', 'tests/security_operations.php'), 25),

@@ -1,9 +1,9 @@
-import { state, projectPath, admin, hasPermission, canIssueScope, active, render } from '../app/store.js?v=0.9.3';
-import { h, button, card, field, input, select, checkbox, empty, badge, date, enc, message, clearModal, modalEpoch, modal, form, heading, needProject, copy, table, notify } from '../components/ui.js?v=0.9.3';
-import { projectSelector } from '../app/projects.js?v=0.9.3';
-import { pagedList } from '../components/pagination.js?v=0.9.3';
-import { mutationSuccess, confirmAction } from '../components/mutations.js?v=0.9.3';
-import { get, write, request } from '../api/client.js?v=0.9.3';
+import { state, projectPath, admin, hasPermission, canIssueScope, active, render } from '../app/store.js?v=0.9.4';
+import { h, button, card, field, input, select, checkbox, empty, badge, date, enc, message, clearModal, modalEpoch, modal, form, heading, needProject, copy, table, notify } from '../components/ui.js?v=0.9.4';
+import { projectSelector } from '../app/projects.js?v=0.9.4';
+import { pagedList } from '../components/pagination.js?v=0.9.4';
+import { mutationSuccess, confirmAction } from '../components/mutations.js?v=0.9.4';
+import { get, write, request } from '../api/client.js?v=0.9.4';
 
 let tokenIssuing = false;
 function tokenMetadataFields(r = {}) {

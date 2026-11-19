@@ -100,7 +100,7 @@ final class Installer
         }
     }
 
-    private static function lockFile(string $path)
+    public static function lockFile(string $path)
     {
         SecureFile::assertDirectory(dirname($path));
         SecureFile::assertPrivate($path,true);
