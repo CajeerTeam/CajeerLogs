@@ -101,6 +101,74 @@ final class MigrationRunner
             return $result;
         }, isolation: 'REPEATABLE READ', readOnly: true);
     }
+    /**
+     * Independently certify the applied schema by replaying the *shipped SQL* in a
+     * rollback-only PostgreSQL schema. A compromised/stale schema_migration_state
+     * cannot authorize a release merely by agreeing with the live catalog.
+     *
+     * Requires a migration role with CREATE privilege on the test database. No
+     * application data is read or copied into the reference schema. The entire
+     * replay, including its scratch namespace, is always rolled back.
+     */
+    public function certify(): array
+    {
+        if ($this->pdo->inTransaction()) throw new DatabaseException('Schema certification requires its own transaction.');
+        $files=$this->files();
+        $started=hrtime(true);
+        if (!$this->pdo->beginTransaction()) throw new DatabaseException('Could not start schema certification transaction.');
+        try {
+            $this->pdo->exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ WRITE');
+            $this->pdo->exec('SET LOCAL statement_timeout = '.$this->statementTimeoutMs);
+            // Fail rather than wait behind active migrations, restores or backups.
+            $lock=$this->pdo->prepare('SELECT pg_try_advisory_xact_lock_shared(hashtextextended(:key,0))');
+            $lock->execute(['key'=>$this->key()]);
+            $held=PostgresBoolean::required($lock->fetchColumn());
+            $lock->closeCursor();
+            if (!$held) throw new DatabaseException('Schema certification blocked by migration or backup.');
+            RestoreFence::assertAvailable($this->pdo);
+            $history=$this->history();
+            $pending=$this->compare($files,$history);
+            if ($pending!==[] || $history===[]) throw new DatabaseException('Schema certification requires every release migration to be applied.');
+            $integrity=$this->integrity($history);
+            if ($integrity['integrity']!=='verified') throw new DatabaseException('Schema certification found missing baseline or drift.');
+            $this->validateJournal($files,$history);
+            $actual=$this->inspector->snapshot($this->schema);
+            $reference='cl_cert_'.bin2hex(random_bytes(8));
+            $this->pdo->exec('CREATE SCHEMA "'.$reference.'"');
+            $this->pdo->exec('SET LOCAL search_path TO "'.$reference.'", pg_catalog, pg_temp');
+            $this->createTables($reference);
+            foreach ($files as $name=>$file) {
+                // Nontransactional DDL cannot be safely replayed inside the
+                // rollback-only transaction. Do not silently skip a migration.
+                if ($file['mode']!=='transactional') throw new DatabaseException('Schema certification cannot replay nontransactional migration: '.$name);
+                foreach ($file['statements'] as $statement) $this->pdo->exec($statement['sql']);
+            }
+            $expected=$this->inspector->snapshot($reference);
+            $differences=SchemaInspector::differences($expected,$actual);
+            if ($differences!==[]) {
+                throw new DatabaseException('Independent schema replay detected drift: '.implode(', ',array_map(
+                    static fn($item)=>$item['change'].' '.$item['object'],array_slice($differences,0,12))));
+            }
+            $result=[
+                'status'=>'verified',
+                'schema'=>$this->schema,
+                'migrations'=>count($files),
+                'history_sha256'=>self::historyHash($history),
+                'catalog_sha256'=>hash('sha256',json_encode($actual,JSON_THROW_ON_ERROR)),
+                'reference_sha256'=>hash('sha256',json_encode($expected,JSON_THROW_ON_ERROR)),
+                'duration_ms'=>(int)round((hrtime(true)-$started)/1e6),
+                'scratch_schema_persisted'=>false,
+            ];
+            // A successful certification also has zero durable database effects.
+            if (!$this->pdo->rollBack()) throw new DatabaseException('Schema certification rollback failed.');
+            return $result;
+        } catch (\Throwable $error) {
+            try { if ($this->pdo->inTransaction()) $this->pdo->rollBack(); } catch (\Throwable) {}
+            if ($error instanceof DatabaseException) throw $error;
+            throw new DatabaseException('Independent PostgreSQL schema certification failed; no schema changes committed.',0,$error);
+        }
+    }
+
     public function assertCurrent(): void {
         $s=$this->status(false);
         if ($s['pending']!==[] || $s['integrity']!=='verified') throw new DatabaseException('Database schema is not current or verified; run migrate:plan and migrate:verify.');

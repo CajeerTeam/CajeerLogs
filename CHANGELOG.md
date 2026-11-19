@@ -1,3 +1,10 @@
+## 0.9.3 — Supported Database Schema (2026-11-19)
+
+- Added real `migrate:certify`: independently replays all 33 SQL migrations in a private PostgreSQL scratch schema within a transaction that is unconditionally rolled back. Compares the reconstructed catalog with live tables, columns, constraints, indexes, triggers, policies and functions.
+- Detects forged/stale schema snapshots, migration history checksum drift, incomplete migration journal and missing SQL files. Refuses nontransactional replay and conflicting schema locks.
+- Preserved all existing migration SQL bytes; corrected backup compatibility for 0.9.0–0.9.2 and mandated actual 0.9.2 → 0.9.3 upgrade/rollback certification in CI.
+- PHP/PostgreSQL unit tests pass locally; full production certification requires the PostgreSQL 17/18 integration matrix and existing strict supply-chain gate.
+
 ## 0.9.2 — Stable API v1 (2026-11-19)
 
 - Pinned the unchanged 0.9.1 OpenAPI v1 surface as a SHA-256 protected compatibility baseline. Every shipped operation, parameter, request body, response and error is compared with the previous contract.

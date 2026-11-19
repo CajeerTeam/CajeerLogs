@@ -110,6 +110,7 @@ REQUIRED.update({'core/Log/ErrorAnalytics.php','migrations/pgsql/0031_error_anal
                  'public/admin/assets/pages/errors.js','tests/error_analytics.php',
                  'tests/error_analytics_database.php','docs/Error-Analytics-Reporting-0.7.6.md'})
 
+REQUIRED.add('docs/Supported-Database-Schema-0.9.3.md')
 REQUIRED.add('docs/Analytics-Storage-Stable-0.8.0.md')
 REQUIRED.add('tests/archive_restore_paging.php')
 REQUIRED.update({'scripts/failure_recovery.py','tests/failure_recovery.py',

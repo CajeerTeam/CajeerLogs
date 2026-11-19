@@ -2,7 +2,7 @@
 
 ## Trigger
 
-Deployment of 0.8.8 from 0.8.7, a failed upgrade smoke test, migration drift, expired release credentials or a rollback decision.
+Upgrade between supported releases (including 0.9.2 to 0.9.3), a failed upgrade smoke test, migration drift, expired release credentials or a rollback decision.
 
 ## Diagnosis
 
@@ -24,6 +24,7 @@ Obtain a maintenance window and authorization; drain writers using the approved 
 php bin/cajeer backup:verify BACKUP_ID
 php bin/cajeer upgrade:check BACKUP_ID
 php bin/cajeer migrate:verify
+php bin/cajeer migrate:certify
 ```
 
 **Abort** if archive verification, integrity, authentication, schema history, queue accounting or business write/read checks fail. To recover, isolate the bad deployment, provision a fresh empty DB and restore the **paired pre-upgrade** code and dump; test before traffic switch. Do not reuse a failed fenced database.
@@ -39,6 +40,8 @@ php bin/cajeer audit:verify
 php bin/cajeer queue:verify
 php bin/cajeer health:ready
 ```
+
+The independent `migrate:certify` command requires the dedicated PostgreSQL migration role with database `CREATE` privilege; it recreates all shipped transactional migrations in a scratch schema and rolls the entire transaction back. Run it before cutover and after migrations. Stop if it detects drift; do not repair the fingerprint manually.
 
 ## Escalation
 

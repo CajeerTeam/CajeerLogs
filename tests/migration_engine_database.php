@@ -19,6 +19,30 @@ try{
     $plan=$runner->plan();check(count($plan['plan'])===$migrationCount&&$plan['integrity']==='uninitialized'&&PostgresBoolean::required($pdo->query("SELECT to_regclass('schema_migrations') IS NULL")->fetchColumn()),'fresh plan is read-only');
     check(count($runner->migrate())===$migrationCount&&$runner->migrate()===[],'fresh per-file migrations and idempotent replay');
     $s=$runner->status();check($s['integrity']==='verified'&&count($s['attempts'])===$migrationCount&&count($s['runs'])===$migrationCount,'real catalog baseline and attempt journal');
+    $certificate=$runner->certify();
+    check($certificate['status']==='verified'&&$certificate['migrations']===$migrationCount
+        &&hash_equals($certificate['catalog_sha256'],$certificate['reference_sha256'])
+        &&!$pdo->inTransaction(),'real rollback-only replay of every applied PostgreSQL migration');
+    $certSchemes=(int)$base->query("SELECT count(*) FROM pg_namespace WHERE nspname LIKE 'cl_cert_%'")->fetchColumn();
+    check($certSchemes===0,'successful independent replay leaves no scratch schema');
+    // An attacker/operator can make the DB-stored fingerprint agree with a broken
+    // catalog. The independent trusted migration replay MUST still reject it.
+    $pdo->exec('ALTER TABLE users ADD COLUMN forged_catalog_column text');
+    $pdo->beginTransaction();
+    $corruptSnapshot=(new \Cajeer\Logs\Database\SchemaInspector($pdo))->snapshot($schema);
+    $pdo->commit();
+    $save=$pdo->prepare('UPDATE schema_migration_state SET snapshot=CAST(:snapshot AS jsonb) WHERE singleton=true');
+    $save->execute(['snapshot'=>json_encode($corruptSnapshot,JSON_THROW_ON_ERROR)]);
+    check($runner->status()['integrity']==='verified'&&fails(fn()=>$runner->certify()),
+        'independent replay rejects forged catalog + matching DB snapshot');
+    $pdo->exec('ALTER TABLE users DROP COLUMN forged_catalog_column');
+    $pdo->beginTransaction();
+    $cleanSnapshot=(new \Cajeer\Logs\Database\SchemaInspector($pdo))->snapshot($schema);
+    $pdo->commit();
+    $save->execute(['snapshot'=>json_encode($cleanSnapshot,JSON_THROW_ON_ERROR)]);
+    check($runner->certify()['status']==='verified','repair restores independently certified schema');
+    check((int)$base->query("SELECT count(*) FROM pg_namespace WHERE nspname LIKE 'cl_cert_%'")->fetchColumn()===0,
+        'failed replay leaves no scratch schema');
     $pdo->exec('ALTER TABLE users ALTER COLUMN email DROP NOT NULL');
     $s=$runner->status();check($s['integrity']==='drift'&&in_array(['object'=>'column:users.email','change'=>'changed'],$s['drift'],true)&&fails(fn()=>$runner->migrate()),'changed nullability detected and migration refused');
     $api=new Application($root);$api->boot();$api->config()->set('database.schema',$schema);$api->config()->set('app.env','test');

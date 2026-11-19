@@ -19,7 +19,11 @@ final class MigrateCommand
     {
         $factory=$this->app->container()->get(ConnectionFactory::class);
         [$timeout,$batches]=self::limits();
-        $runner=$command==='migrate'?new MigrationRunner($factory->make('migration'),$this->app->basePath('migrations/pgsql'),$factory->schema(),$timeout,$batches):new MigrationRunner($this->app->container()->get(\PDO::class),$this->app->basePath('migrations/pgsql'),$factory->schema(),$timeout,$batches);
+        $runner=in_array($command,['migrate','migrate:certify'],true)?new MigrationRunner($factory->make('migration'),$this->app->basePath('migrations/pgsql'),$factory->schema(),$timeout,$batches):new MigrationRunner($this->app->container()->get(\PDO::class),$this->app->basePath('migrations/pgsql'),$factory->schema(),$timeout,$batches);
+        if ($command==='migrate:certify') {
+            echo json_encode($runner->certify(),JSON_THROW_ON_ERROR|JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES).PHP_EOL;
+            return 0;
+        }
         if ($command==='migrate:plan' || $command==='migrate:verify') {
             $status=$command==='migrate:plan'?$runner->plan():$runner->status();
             echo json_encode($status,JSON_THROW_ON_ERROR|JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES).PHP_EOL;
