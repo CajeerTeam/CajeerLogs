@@ -127,7 +127,15 @@ def run(archive: Path, output: Path) -> bool:
             report['status'] = 'passed'
     except (Exception, KeyboardInterrupt) as exc:
         report['error_type'] = type(exc).__name__
-        print('Analytics/storage certification failed: ' + type(exc).__name__, file=sys.stderr)
+        # Show a useful failure stage without exposing configured credentials.
+        diagnostic = str(exc)
+        for key in ('DB_PASSWORD', 'DB_MIGRATION_PASSWORD', 'CLICKHOUSE_PASSWORD',
+                    'PGPASSWORD', 'AWS_SECRET_ACCESS_KEY', 'APP_KEY'):
+            secret = os.environ.get(key, '')
+            if len(secret) >= 3:
+                diagnostic = diagnostic.replace(secret, '[REDACTED]')
+        report['error_message'] = diagnostic[-1200:]
+        print('Analytics/storage certification failed: ' + report['error_message'], file=sys.stderr)
     finally:
         atomic_json(output, report)
     return report['status'] == 'passed'
