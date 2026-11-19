@@ -56,7 +56,12 @@ try {
             $item->isDir() ? mkdir($dest) : copy($item->getPathname(), $dest);
         }
     }
-    mkdir($tmp . '/storage');
+    mkdir($tmp . '/storage',0700);
+    // Mirror the private runtime tree shipped with the release. Ingest
+    // backpressure requires a writable cache even before first install.
+    foreach (['app','archives','backups','cache','database','logs','tmp'] as $subdir) {
+        mkdir($tmp.'/storage/'.$subdir,0700);
+    }
     foreach (['release.json','.env.example'] as $file) { copy($root . '/' . $file, $tmp . '/' . $file); }
     $config = $app->config();
     $config->set('database.schema', $schema);
