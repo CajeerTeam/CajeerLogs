@@ -69,10 +69,10 @@ def main():
             compose('up','-d','--wait','--wait-timeout','180')
             for _ in range(60):
                 try:
-                    data,_=http('GET','/ready'); assert data['version']=='0.9.9' and data['status']=='ok'; break
+                    data,_=http('GET','/ready'); assert data['version']=='1.0.0' and data['status']=='ok'; break
                 except (OSError, AssertionError, urllib.error.URLError): time.sleep(1)
             else: raise AssertionError('HTTPS readiness did not become healthy')
-            panel,h=http('GET','/admin/'); assert b'0.9.9' in panel and 'frame-ancestors' in h['Content-Security-Policy']
+            panel,h=http('GET','/admin/'); assert b'1.0.0' in panel and 'frame-ancestors' in h['Content-Security-Policy']
             assert b'app/router.js' in http('GET','/admin/assets/panel.js')[0]
             assert b'createApiClient' in http('GET','/admin/assets/api/client.js')[0]
             http('GET','/.env',expected=404)
@@ -329,11 +329,11 @@ def main():
             # These are the shipped operator commands on the installed production
             # stack. Failed checks must not be relabeled as an accepted release.
             healthy_triage=json.loads(cli('operations:triage',m['id']))
-            assert healthy_triage['status']=='ok' and healthy_triage['version']=='0.9.9' and not healthy_triage['critical']
+            assert healthy_triage['status']=='ok' and healthy_triage['version']=='1.0.0' and not healthy_triage['critical']
             posture=json.loads(cli('security:audit'))
             assert posture['status']=='ok', 'Production security posture is not ready'
             incident=json.loads(cli('operations:incident',m['id']))
-            assert incident['status']=='ok' and incident['version']=='0.9.9'
+            assert incident['status']=='ok' and incident['version']=='1.0.0'
             # Verify the *real on-disk* private evidence, not merely the CLI's path.
             checked=compose('exec','-T','app','php','-r',
                 '$f=$argv[1]; $d=dirname($f); if(!is_file($f) || is_link($f) || (fileperms($f)&0777)!==0600 || (fileperms($d)&0777)!==0700) exit(1); $e=json_decode(file_get_contents($f),true); if(($e["status"]??null)!=="ok") exit(2); echo "verified";',
@@ -378,7 +378,7 @@ def main():
                 if archive:
                     completed=json.loads(Path(report_path).read_text())
                     completed['operations_acceptance']={
-                        'version':'0.9.9',
+                        'version':'1.0.0',
                         'archive_sha256':hashlib.sha256(Path(archive).read_bytes()).hexdigest(),
                         'checks':{'production_security_audit':True,'healthy_triage':True,
                                   'private_incident_evidence':True,'worker_outage_triaged':True,

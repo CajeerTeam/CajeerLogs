@@ -1,3 +1,11 @@
+## 1.0.0 — Production Stable GA candidate
+
+- Complete release publication workflow: verifies a single ZIP and final certification report against signed GitHub OIDC attestations before publishing GA assets.
+- Strict fail-closed release promotion; no overwrite of existing GitHub release, no unsigned or mismatched evidence, and no GA publication when CI/supply-chain/infrastructure checks are incomplete.
+- Formal API v1, supported runtime/database matrix, security maintenance and incident response policies; includes operator instructions for verifying released artifacts.
+- Added upgrade and rollback certification from 0.9.9 to 1.0.0. No new PostgreSQL migrations or intentional API v1 breaking changes.
+- GA status must not be claimed until the complete release CI and signed publication succeed.
+
 ## 0.9.9 — Release Candidate & Operations Readiness
 
 - Live performance certification verifies stored project/source/severity/payload against original receipt, including asynchronous queue completions; tampering fails certification.

@@ -1,6 +1,10 @@
-# CajeerLogs production checklist (0.9.9 release candidate)
+# CajeerLogs 1.0.0 — Production operations checklist
 
-This is a pre-release checklist; *checking an item in prose is not certification*. Follow the [operational release procedure](Release-Candidate-Operations-0.9.9.md) and [incident runbooks](runbooks/README.md).
+Verify the SHA-256 and authenticated Sigstore/GitHub OIDC attestations for both the release ZIP and certification report before starting any production installation. Follow [GA publication and installation](Production-Stable-GA-1.0.0.md) and [support policy](Release-policy.md).
+
+# CajeerLogs production checklist (1.0.0 release candidate)
+
+This is an operator checklist; *checking an item in prose is not certification*. Only the signed CI-certified GitHub Release can be deployed as GA. Follow the [operational release procedure](Release-Candidate-Operations-0.9.9.md) and [incident runbooks](runbooks/README.md).
 
 ## Preparation
 

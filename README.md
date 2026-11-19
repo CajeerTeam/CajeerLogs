@@ -1,4 +1,12 @@
-**0.9.9 — Release Candidate & Operations Readiness.** Дополнительная проверка содержимого доставленных событий в нагрузочных тестах, восстановление сервиса в Docker smoke, сводная эксплуатационная приёмка, синхронизированные runbooks и строгая матрица CI. Релиз остаётся кандидатом до успешного полного CI и строгой проверки зависимостей. [Runbook приёмки](docs/Release-Candidate-Operations-0.9.9.md).
+## CajeerLogs 1.0.0 — Production Stable GA candidate
+
+The GA release is **not published or certified merely by this source archive**. The `v1.0.0` workflow verifies PHP 8.4/8.5 × PostgreSQL 17/18, real SDK/browser/ClickHouse integrations, DR, load SLOs, dependency integrity and Sigstore/OIDC attestations. The `publish-ga` job creates the immutable GitHub Release only after all checks pass.
+
+- [Install, upgrade, verify signed release artifacts](docs/Production-Stable-GA-1.0.0.md)
+- [Compatibility and support policy](docs/Release-policy.md)
+- [Operational checklist](docs/Production-checklist.md)
+
+**1.0.0 — Release Candidate & Operations Readiness.** Дополнительная проверка содержимого доставленных событий в нагрузочных тестах, восстановление сервиса в Docker smoke, сводная эксплуатационная приёмка, синхронизированные runbooks и строгая матрица CI. Релиз остаётся кандидатом до успешного полного CI и строгой проверки зависимостей. [Runbook приёмки](docs/Release-Candidate-Operations-0.9.9.md).
 
 **0.9.8 — Security & Operations Hardening (release candidate).** Команда `security:audit [--tls]` проверяет production TLS, 2FA, настройки сессий, защищённость Prometheus, состояние RBAC и TOTP в PostgreSQL. Метрики состояния безопасности и Alertmanager-правила запускают эксплуатационные оповещения. Полный инфраструктурный CI и strict supply-chain gate требуют отдельного подтверждения. [Инструкция](docs/Security-Operations-Hardening-0.9.8.md).
 

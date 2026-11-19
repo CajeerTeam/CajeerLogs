@@ -1,4 +1,4 @@
-# CajeerLogs 0.9.9 — on-call runbooks
+# CajeerLogs 1.0.0 — on-call runbooks
 
 ## Trigger
 
@@ -40,4 +40,4 @@ php bin/cajeer operations:check
 
 Escalate to database/infra/security owners if the root cause is unknown, required credentials are unavailable, the restore fence is present, RPO/RTO budgets are exceeded, or the same failure recurs. The runbooks do not authorize an automatic production cutover.
 
-For preflight, staged upgrade, rollback and release evidence, use [0.9.9 Release Candidate Operations](../Release-Candidate-Operations-0.9.9.md).
+For preflight, staged upgrade, rollback and release evidence, use [1.0.0 Release Candidate Operations](../Release-Candidate-Operations-0.9.9.md).

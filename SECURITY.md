@@ -1,54 +1,19 @@
-# Security Policy
+# Security Policy — CajeerLogs
 
-## Поддерживаемые версии
+## Supported releases
 
-| Версия | Статус |
+| Release | Maintenance |
 |---|---|
-| 0.6.2 | Python SDK Stable; release gate required |
-| 0.6.1 | PHP / Monolog SDK Stable; release gate required |
-| 0.6.0 | High-Throughput Ingestion & Queue Processing; release gate required |
-| 0.5.10 | Load Testing & Performance Certification; Public Preview до полного CI |
-| 0.5.9 | Queue Operations & Observability; Public Preview до полного CI |
-| 0.5.8 | Delivery Guarantees & SDK Recovery; Public Preview до полного CI |
-| 0.5.7 | Multi-Project Queue Fairness; предыдущая версия |
-| 0.5.6 | Backpressure & Admission Control; предыдущая версия |
-| 0.5.5 | High-Throughput Batch Ingestion; предыдущая версия |
-| 0.5.4 | Dead-Letter Management; предыдущая версия |
-| 0.4.5 | Rate Limiting & Abuse Protection; обновите до 0.5.6 |
-| 0.4.4 | Audit Log & Accountability; обновите до 0.5.6 |
-| 0.4.3 | Identity & 2FA Security; обновите до 0.5.6 |
-| 0.4.2 | RBAC & Authorization; обновите до 0.5.6 |
-| 0.4.1 | Admin Panel Release; обновите до 0.5.6 |
-| 0.4.0 | Admin Panel Release; обновите до 0.5.6 |
-| 0.3.9 | Token Management & Security; обновите до 0.5.6 |
-| 0.3.8 | Project & Source Management; обновите до 0.5.6 |
-| 0.3.7 | User & Access Management; обновите до 0.5.6 |
-| 0.3.6 | Event Details & JSON Viewer; обновите до 0.5.6 |
-| 0.3.3 | Dashboard & Analytics; обновите до 0.5.6 |
-| 0.3.1 | Admin UI Foundation; предыдущая версия |
-| 0.3.0 | Log Ingestion & Search Release; предыдущая версия |
-| 0.2.9 | Pagination & Log Explorer |
-| 0.2.5 | HMAC & Replay Protection |
+| Latest certified 1.0.x GA patch | Security fixes and compatibility fixes under [Release policy](docs/Release-policy.md) |
+| Previous 1.0.x patches | Superseded; update to latest patch |
+| 0.x preview/release candidates | Not eligible for ongoing maintenance guarantees |
 
-## Сообщение об уязвимости
+A source ZIP named 1.0.0 is **not** proof of GA certification. Verify the GitHub release and signed provenance of the ZIP and final certification before deployment.
 
-Не публикуйте детали уязвимости в публичных issue. Передайте описание, шаги воспроизведения, impact, affected versions и рекомендации по исправлению через приватный security-канал проекта.
+## Reporting vulnerabilities
 
-## Базовая модель безопасности
+Use the repository's **private GitHub Security Advisory reporting** mechanism; do not publish exploit details in public issues. Provide affected version(s), reproduction steps, severity/impact and safe diagnostics **without secrets or personal data**. Maintainers coordinate remediation and advisory publication. No fixed response time is guaranteed.
 
-- RBAC и permission scopes.
-- API token scopes.
-- Audit log.
-- TOTP 2FA, одноразовые recovery-коды, обязательная настройка для администраторов при включённой политике.
-- Зашифрованные TOTP-секреты, одноразовые временные интервалы; backup/restore с отзывом восстановленных credentials.
-- Rate limiting.
-- CSRF protection.
-- Security headers.
-- Signed payloads для webhooks и Event API; [HMAC v1/v2 для ingest](docs/HMAC-signature.md), обязательные политики, зашифрованные signing keys и транзакционная защита nonce.
-- Redaction секретов в логах.
+## Security baseline
 
-Эксплуатация, восстановление доступа, ограничения резервирования и мониторинг: [Security & Operations](docs/Security-Operations.md).
-
-### 0.5.7 project queue isolation
-
-Project quotas, weights and per-project running-job limits are enforced in PostgreSQL transactions. Configure them through trusted CLI and verify queue project accounting after restore. Project IDs are excluded from Prometheus labels.
+Production requires HTTPS, restrictive PostgreSQL roles, RBAC and TOTP for administrators, authenticated private metrics, protected backup and secret storage, audit records, safe queue workers and verified package dependencies. Run `php bin/cajeer security:audit --tls` before going live and after configuration changes. See [Production Security](docs/Production-Security.md) and [Release Policy](docs/Release-policy.md).
