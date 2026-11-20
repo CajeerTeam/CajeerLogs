@@ -47,9 +47,14 @@ try {
     // The whole group rolls back on a corrupt durable job. Safe fallback isolates it
     // without poisoning the two healthy jobs or losing their original IDs.
     $d=$send('micro-d',$mk('d',1),$writer['token']);$bad=$send('micro-corrupt',$mk('bad',1),$writer['token']);$f=$send('micro-f',$mk('f',1),$writer['token']);
-    $pdo->exec("UPDATE jobs SET payload='{\"events\":\"corrupt\"}'::jsonb WHERE id=$bad");
+    // Keep the original validation_version: the compatible-claim planner must
+    // lease the corrupt job with its healthy neighbors before isolation is tested.
+    $pdo->exec("UPDATE jobs SET payload=jsonb_set(payload,'{events}','\"corrupt\"'::jsonb) WHERE id=$bad");
     $before=(int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn();
-    verify($queue->processBatch($queue->claimBatch(3))===['completed','dead','completed'],'invalid job isolated; healthy jobs complete');
+    $corruptClaims=$queue->claimBatch(3);
+    verify(array_map(static fn(array $claim):string=>(string)$claim['id'],$corruptClaims)===[$d,$bad,$f],
+        'corrupt fixture joins the compatible claim group');
+    verify($queue->processBatch($corruptClaims)===['completed','dead','completed'],'invalid job isolated; healthy jobs complete');
     verify((int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===$before+2 &&$account->verify()['valid'],'fallback leaves exact event set and accounting');
     verify($pdo->query("SELECT status FROM jobs WHERE id=$bad")->fetchColumn()==='dead' &&$pdo->query("SELECT status FROM jobs WHERE id=$d")->fetchColumn()==='completed','corrupt job retained in dead-letter');
     // A failure in webhook publication must roll back the group; fallback writes
