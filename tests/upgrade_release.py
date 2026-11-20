@@ -86,8 +86,18 @@ def main(previous):
             query_env=dict(pg,PGOPTIONS=((pg.get('PGOPTIONS') or '')+' -c search_path='+schema+',public').strip())
             return subprocess.check_output(['psql','-X','-A','-t','-v','ON_ERROR_STOP=1','-d',database,'-c',query],env=query_env,text=True).strip()
         def cli(*args, directory=None, environ=None):
-            return subprocess.check_output(['php','bin/cajeer',*args],cwd=directory or tree,
-                                           env=environ or env,text=True,stderr=subprocess.STDOUT,timeout=120)
+            try:
+                return subprocess.check_output(['php','bin/cajeer',*args],cwd=directory or tree,
+                                               env=environ or env,text=True,stderr=subprocess.STDOUT,timeout=120)
+            except subprocess.CalledProcessError as error:
+                # The CLI itself masks unknown exceptions and emits a guarded
+                # Runtime failure line. Report only that line, never raw output
+                # (which may contain credentials or individual log events).
+                failure=next((line for line in error.output.splitlines()
+                              if line.startswith('Runtime failure: ')),None)
+                if failure is not None:
+                    print(f'Historical {old_version} CLI {args[0]}: {failure[:240]}',file=sys.stderr,flush=True)
+                raise
         @contextlib.contextmanager
         def server(directory=None,environ=None):
             with tempfile.TemporaryFile() as log:
@@ -326,6 +336,22 @@ def main(previous):
                 assert len(call('GET',f'/api/v1/logs?project_id={pid}',headers=bearer)[0]['items'])==2
             assert sql(f'SELECT count(*) FROM "{schema}".log_events')=='2', 'Rollback modified upgraded live database'
             print(f'PASS actual {old_version} rollback: old PHP runtime + pre-upgrade PostgreSQL dump + API + queued job',flush=True)
+            # This dedicated target is intentionally reused across historical
+            # release checks. PostgreSQL may briefly retain recently closed
+            # libpq backends. Never weaken BackupManager's strict exclusive
+            # restore contract: wait *before* invoking it, then prove that the
+            # target is empty and no previous restore fence remains.
+            for _attempt in range(80):
+                active=int(sql('SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid()',target))
+                if active==0:
+                    break
+                time.sleep(.25)
+            else:
+                raise AssertionError(f'Candidate restore target still has {active} active PostgreSQL connections')
+            assert sql("SELECT current_user=pg_get_userbyid(datdba) FROM pg_database WHERE datname=current_database()",target)=='t'
+            assert sql("SELECT count(*) FROM pg_class WHERE relnamespace='public'::regnamespace",target)=='0', 'Candidate restore target public schema is not empty'
+            assert sql("SELECT count(*) FROM pg_namespace WHERE nspname NOT LIKE 'pg\\_%' ESCAPE '\\' AND nspname NOT IN ('public','information_schema')",target)=='0', 'Candidate restore target has a leftover application schema'
+            assert sql("SELECT COALESCE(shobj_description(oid,'pg_database'),'') FROM pg_database WHERE datname=current_database()",target)!='cajeerlogs.restore_state=pending', 'Previous candidate restore is quarantined'
             result=json.loads(cli('backup:rehearse' if old_version in ('0.4.7','0.4.10','0.5.0','0.5.1','0.5.2','0.5.3','0.5.4','0.5.5') else 'backup:restore',backup['id'],target)); assert result['status']=='restored' and result['integrity_verified']
             assert sql(f'SELECT count(*) FROM "{schema}".log_events',target)=='1'
             assert sql(f'SELECT count(*) FROM "{schema}".api_tokens WHERE revoked_at IS NULL',target)=='0'

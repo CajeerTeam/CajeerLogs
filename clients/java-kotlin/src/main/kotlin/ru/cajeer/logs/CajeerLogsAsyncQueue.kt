@@ -110,9 +110,23 @@ class CajeerLogsAsyncQueue @JvmOverloads constructor(
     /** Wait for an acknowledged drain. Failed requests surface as BatchDeliveryException. */
     @JvmOverloads fun flushBlocking(timeoutMillis: Long = 30000) {
         require(timeoutMillis in 1..3600000)
+        // A future can complete before the worker has retired its batch and
+        // published the corresponding queue accounting. A flush is a barrier
+        // for both receipt delivery and the observable accounting snapshot.
+        val acceptedAtCall = synchronized(monitor) { accepted }
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis)
         try { flushAsync().get(timeoutMillis, TimeUnit.MILLISECONDS) }
         catch (e: ExecutionException) { throw (e.cause ?: e) }
         catch (e: TimeoutException) { throw IOException("CajeerLogs flush timed out; delivery may still be in flight", e) }
+        synchronized(monitor) {
+            while (confirmed + failed < acceptedAtCall) {
+                val remaining = deadline - System.nanoTime()
+                if (remaining <= 0) {
+                    throw IOException("CajeerLogs flush timed out waiting for queue accounting")
+                }
+                TimeUnit.NANOSECONDS.timedWait(monitor, remaining)
+            }
+        }
     }
 
     fun snapshot(): QueueSnapshot = synchronized(monitor) {

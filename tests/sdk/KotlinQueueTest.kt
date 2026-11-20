@@ -70,7 +70,9 @@ fun main(args: Array<String>) {
     producers.forEach(Thread::join)
     concurrent.flushBlocking()
     check(all.size==180 && all.all { await(it).received in 1..50 },"six concurrent producers, exactly 180 confirmed events")
-    check(concurrent.snapshot().confirmedEvents==180L,"concurrent event accounting")
+    val afterConcurrentFlush=concurrent.snapshot()
+    check(afterConcurrentFlush.confirmedEvents==180L && afterConcurrentFlush.pendingEvents==0 &&
+          afterConcurrentFlush.inFlightEvents==0,"concurrent event accounting")
 
     val logger=Logger.getLogger("sdk-test")
     logger.useParentHandlers=false
