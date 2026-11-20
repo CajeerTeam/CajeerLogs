@@ -21,6 +21,13 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+
+class _DoNotFollowRedirect(urllib.request.HTTPRedirectHandler):
+    """Inspect the historical enqueue response rather than its Location target."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'scripts'))
 import release
@@ -91,9 +98,13 @@ def main(previous):
                     else: raise RuntimeError('PHP server not available')
                     yield
                 finally: proc.terminate(); proc.wait(timeout=10)
-        def call(method,path,data=None,headers=None,status=200):
+        def call(method,path,data=None,headers=None,status=200,follow_redirects=True):
             req=urllib.request.Request(url+path,data=None if data is None else json.dumps(data).encode(),method=method,headers={'Content-Type':'application/json'}|(headers or {}))
-            try: resp=urllib.request.urlopen(req,timeout=20)
+            try:
+                if follow_redirects:
+                    resp=urllib.request.urlopen(req,timeout=20)
+                else:
+                    resp=urllib.request.build_opener(_DoNotFollowRedirect()).open(req,timeout=20)
             except urllib.error.HTTPError as e: resp=e
             with resp:
                 body=resp.read()
@@ -121,13 +132,16 @@ def main(previous):
                 sync_key='before-upgrade-sync-'+secrets.token_hex(8)
                 async_key='before-upgrade-'+secrets.token_hex(8)
                 eid=call('POST','/api/v1/ingest',event,bearer|{'Idempotency-Key':sync_key},201)[0]['event_ids'][0]
-                # Old supported releases differ in their first enqueue HTTP code
-                # (200 or 202). Require a newly persisted job instead of weakening
-                # the durable admission check to response-code-only validation.
+                # Historical PHP sent Location after setting HTTP 202, which
+                # implicitly changed the wire status to 302. Following that
+                # redirect returns 200 from the job-status GET, not the POST.
                 before_jobs=int(sql(f'SELECT count(*) FROM "{schema}".jobs'))
-                initial,_=call('POST','/api/v1/ingest/async',event|{'message':'queued before upgrade'},bearer|{'Idempotency-Key':async_key},(200,202))
+                initial,initial_headers=call('POST','/api/v1/ingest/async',event|{'message':'queued before upgrade'},bearer|{'Idempotency-Key':async_key},(202,302),follow_redirects=False)
                 jid=initial['job_id']
-                assert int(sql(f'SELECT count(*) FROM "{schema}".jobs'))==before_jobs+1, 'First enqueue must create a durable job, not replay'
+                assert initial.get('accepted') is True and initial.get('replayed') is False, 'First enqueue must be a new admission'
+                location=initial_headers.get('Location')
+                assert isinstance(location,str) and urllib.parse.urlsplit(urllib.parse.urljoin(url,location)).path==f'/api/v1/ingest/jobs/{jid}', 'Enqueue Location must identify the created job'
+                assert int(sql(f'SELECT count(*) FROM "{schema}".jobs'))==before_jobs+1, 'First enqueue must create exactly one durable job'
                 assert sql(f'SELECT status FROM "{schema}".jobs WHERE id={int(jid)}') in ('pending','queued'), 'New job must remain pending for the upgrade'
             accepted_budget=sql(f'SELECT max_attempts FROM "{schema}".jobs WHERE id={int(jid)}')
             backup=json.loads(cli('backup:create')); assert backup['version']==old_version
@@ -214,53 +228,85 @@ def main(previous):
             assert sql(f'SELECT max_attempts FROM "{schema}".jobs WHERE id={int(jid)}',rollback_target)==accepted_budget
             rollback_env=dict(env,DB_DATABASE=rollback_target)
             assert cli('version',directory=rollback_tree,environ=rollback_env).strip()==old_version
-            # PostgreSQL can deparse an unchanged role CHECK differently after
-            # pg_dump/pg_restore: the original ARRAY[varchar]::text[] becomes
-            # ARRAY[(varchar)::text, ...]. Old 0.2-era integrity snapshots compare
-            # the deparsed string byte for byte. Repair only this one verified
-            # round-trip artifact on the *disposable rollback database*, never
-            # the upgraded database, and require the old verifier to pass again.
+            # A historical release may have saved the PostgreSQL deparser's
+            # earlier spelling of an immutable CHECK or partial-index predicate.
+            # pg_restore reconstructs the same catalog object, but PostgreSQL
+            # sometimes rewrites ARRAY[varchar]::text[] into ARRAY[varchar::text]
+            # and reassociates AND. Never weaken the old verifier or alter the
+            # upgraded database: normalize ONLY verified, known catalog strings
+            # in the disposable rollback snapshot, then rerun migrate:verify.
             if old_version!='0.1.0':
-                constraint_key='constraint:users.users_role_valid'
-                stored=sql(f"SELECT snapshot->>'{constraint_key}' FROM \"{schema}\".schema_migration_state WHERE singleton",rollback_target)
-                expected_constraint=json.loads(stored)
-                catalog_sql=("SELECT jsonb_build_object('type',c.contype,'definition',"
-                    "pg_catalog.pg_get_constraintdef(c.oid,false),'validated',c.convalidated,"
-                    "'enforced',COALESCE(to_jsonb(c)->>'conenforced','true'),"
-                    "'deferrable',c.condeferrable,'deferred',c.condeferred)::text "
-                    "FROM pg_catalog.pg_constraint c WHERE c.conname='users_role_valid' "
-                    f"AND c.conrelid='\"{schema}\".users'::regclass")
-                actual_constraint=json.loads(sql(catalog_sql,rollback_target))
-                if expected_constraint!=actual_constraint:
-                    def normalized_array(expression):
-                        # Literal-only canonicalization: never rewrite SQL
-                        # identifiers, operators, untrusted text or other casts.
-                        pattern=r"\(ARRAY\[((?:'[a-z0-9_.-]+'::character varying)(?:, '[a-z0-9_.-]+'::character varying)*)\]\)::text\[\]"
-                        return re.sub(pattern,lambda match:'ARRAY['+', '.join(
-                            '('+part+')::text' for part in match.group(1).split(', '))+']',expression)
-                    comparable_expected=dict(expected_constraint)
-                    comparable_actual=dict(actual_constraint)
-                    comparable_expected['definition']=normalized_array(comparable_expected['definition'])
-                    comparable_actual['definition']=normalized_array(comparable_actual['definition'])
-                    if (comparable_expected!=comparable_actual or
-                        'administrator' not in comparable_expected['definition'] or
-                        'operator' not in comparable_expected['definition'] or
-                        'viewer' not in comparable_expected['definition']):
-                        raise AssertionError('Historic restore changed role constraint semantics')
-                    verify=subprocess.run(['php','bin/cajeer','migrate:verify'],cwd=rollback_tree,
-                                          env=rollback_env,text=True,capture_output=True,timeout=120)
-                    state=json.loads(verify.stdout)
-                    if (verify.returncode==0 or state.get('integrity')!='drift' or
-                        state.get('pending') or
-                        state.get('drift')!=[{'object':constraint_key,'change':'changed'}]):
-                        raise AssertionError('Historic restore has unexpected catalog drift')
-                    # Reapply exactly the role constraint in the historical
-                    # 0003_identity_access.sql migration, not a weaker CHECK.
-                    sql(f'BEGIN; ALTER TABLE \"{schema}\".users DROP CONSTRAINT users_role_valid; '
-                        f'ALTER TABLE \"{schema}\".users ADD CONSTRAINT users_role_valid '
-                        "CHECK (role IN ('administrator','operator','viewer')); COMMIT;",rollback_target)
-                    if json.loads(sql(catalog_sql,rollback_target))!=expected_constraint:
-                        raise AssertionError('Historical role constraint did not round-trip to verified snapshot')
+                check=subprocess.run(['php','bin/cajeer','migrate:verify'],cwd=rollback_tree,
+                                     env=rollback_env,text=True,capture_output=True,timeout=120)
+                try: state=json.loads(check.stdout)
+                except (TypeError,ValueError): raise RuntimeError('Historical migrate:verify output is not JSON')
+                if check.returncode!=0:
+                    drift=state.get('drift',[])
+                    approved={
+                        'constraint:users.users_role_valid':('definition',('administrator','operator','viewer')),
+                        'constraint:audit_log.audit_chain_values':('definition',('success','failure','denied')),
+                        'constraint:integration_webhooks.integration_webhooks_events_valid':('definition',('events',)),
+                        'index:log_events_error_analytics_idx':('predicate',('error','alert')),
+                    }
+                    if (not drift or state.get('integrity')!='drift' or state.get('pending')
+                        or any(not isinstance(d,dict) or d.get('change')!='changed' or d.get('object') not in approved for d in drift)):
+                        raise AssertionError(('Unexpected historical restore drift',old_version,drift[:8]))
+                    snapshots=json.loads(sql(f'SELECT snapshot::text FROM "{schema}".schema_migration_state WHERE singleton',rollback_target))
+                    array_pattern=r"\(ARRAY\[((?:'[a-z0-9_.-]+'::character varying)(?:, '[a-z0-9_.-]+'::character varying)*)\]\)::text\[\]"
+                    def normalize_catalog_expr(expr,key):
+                        value=re.sub(array_pattern,lambda m:'ARRAY['+', '.join(
+                            '('+part+')::text' for part in m.group(1).split(', '))+']',expr)
+                        if key=='constraint:integration_webhooks.integration_webhooks_events_valid':
+                            value=value.replace(
+                                'CHECK ((((cardinality(events) >= 1) AND (cardinality(events) <= 6)) AND (events <@ ',
+                                'CHECK (((cardinality(events) >= 1) AND (cardinality(events) <= 6) AND (events <@ ')
+                        return value
+                    for issue in drift:
+                        key=issue['object']; field,expected_words=approved[key]
+                        table_name,obj_name=key.split(':',1)[1].split('.',1) if key.startswith('constraint:') else ('',key.split(':',1)[1])
+                        if field=='definition':
+                            actual_sql=("SELECT jsonb_build_object('type',c.contype,'definition',pg_catalog.pg_get_constraintdef(c.oid,false),"
+                                "'validated',c.convalidated,'enforced',COALESCE(to_jsonb(c)->>'conenforced','true'),"
+                                "'deferrable',c.condeferrable,'deferred',c.condeferred)::text "
+                                "FROM pg_catalog.pg_constraint c JOIN pg_catalog.pg_class t ON t.oid=c.conrelid "
+                                f"JOIN pg_catalog.pg_namespace n ON n.oid=t.relnamespace WHERE n.nspname='{schema}' "
+                                f"AND t.relname='{table_name}' AND c.conname='{obj_name}'")
+                        else:
+                            actual_sql=("SELECT jsonb_build_object('table',t.relname,'method',am.amname,"
+                                "'unique',i.indisunique,'primary',i.indisprimary,'valid',i.indisvalid,"
+                                "'ready',i.indisready,'live',i.indislive,'nulls_not_distinct',i.indnullsnotdistinct,"
+                                "'keys',i.indnkeyatts,"
+                                "'columns',(SELECT jsonb_agg(pg_get_indexdef(i.indexrelid,k,false) ORDER BY k) FROM generate_series(1,i.indnatts) k),"
+                                "'options',i.indoption::text,"
+                                "'opclasses',(SELECT jsonb_agg(o.opcname ORDER BY x.ord) FROM unnest(i.indclass) WITH ORDINALITY x(oid,ord) JOIN pg_catalog.pg_opclass o ON o.oid=x.oid),"
+                                "'collations',(SELECT jsonb_agg(CASE WHEN x.oid=0 THEN NULL ELSE x.oid::regcollation::text END ORDER BY x.ord) FROM unnest(i.indcollation) WITH ORDINALITY x(oid,ord)),"
+                                "'predicate',pg_get_expr(i.indpred,i.indrelid,false))::text "
+                                "FROM pg_catalog.pg_index i JOIN pg_catalog.pg_class c ON c.oid=i.indexrelid "
+                                "JOIN pg_catalog.pg_class t ON t.oid=i.indrelid JOIN pg_catalog.pg_am am ON am.oid=c.relam "
+                                "JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace "
+                                f"WHERE n.nspname='{schema}' AND c.relname='{obj_name}'")
+                        expected=json.loads(snapshots[key]); actual_catalog=sql(actual_sql,rollback_target); actual=json.loads(actual_catalog)
+                        # Compare all schema properties, not just the deparsed
+                        # predicate. Some older snapshots track fewer properties.
+                        if (not isinstance(expected,dict) or not isinstance(actual,dict)
+                            or any(k not in actual for k in expected)):
+                            raise AssertionError(('Historical catalog identity mismatch',key))
+                        actual={k:actual[k] for k in expected}
+                        a=expected.get(field); b=actual.get(field)
+                        if (not isinstance(a,str) or not isinstance(b,str) or a==b
+                            or any(word not in a or word not in b for word in expected_words)
+                            or normalize_catalog_expr(a,key)!=normalize_catalog_expr(b,key)
+                            or {k:v for k,v in expected.items() if k!=field}!={k:v for k,v in actual.items() if k!=field}):
+                            raise AssertionError(('Historical catalog semantics differ',old_version,key,
+                                                   normalize_catalog_expr(a or '',key)[:120],
+                                                   normalize_catalog_expr(b or '',key)[:120]))
+                        # The database DDL is untouched; this only reserializes a
+                        # strictly equivalent deparser expression for the old
+                        # release's own saved migration snapshot.
+                        actual_value=actual_catalog
+                        quoted=actual_value.replace("'","''")
+                        sql(f"UPDATE \"{schema}\".schema_migration_state SET snapshot=jsonb_set(snapshot,"
+                            f"ARRAY['{key}'],to_jsonb('{quoted}'::text)) WHERE singleton",rollback_target)
                     cli('migrate:verify',directory=rollback_tree,environ=rollback_env)
             with server(rollback_tree,rollback_env):
                 assert call('GET','/ready')[0]['version']==old_version
