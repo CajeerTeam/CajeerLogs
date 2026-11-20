@@ -47,9 +47,10 @@ try {
     // The whole group rolls back on a corrupt durable job. Safe fallback isolates it
     // without poisoning the two healthy jobs or losing their original IDs.
     $d=$send('micro-d',$mk('d',1),$writer['token']);$bad=$send('micro-corrupt',$mk('bad',1),$writer['token']);$f=$send('micro-f',$mk('f',1),$writer['token']);
-    // Keep the original validation_version: the compatible-claim planner must
-    // lease the corrupt job with its healthy neighbors before isolation is tested.
-    $pdo->exec("UPDATE jobs SET payload=jsonb_set(payload,'{events}','\"corrupt\"'::jsonb) WHERE id=$bad");
+    // Preserve event count and validation_version so the compatible-claim planner
+    // leases this job alongside healthy neighbors. A non-string message is still
+    // an invalid durable event and must be dead-lettered in isolated fallback.
+    $pdo->exec("UPDATE jobs SET payload=jsonb_set(payload,'{events,0,message}','42'::jsonb) WHERE id=$bad");
     $before=(int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn();
     $corruptClaims=$queue->claimBatch(3);
     verify(array_map(static fn(array $claim):string=>(string)$claim['id'],$corruptClaims)===[$d,$bad,$f],
