@@ -9,8 +9,8 @@ namespace Cajeer\Logs\Http;
  */
 final class FileDownloadResponse extends Response
 {
-    /** @var resource|null */
-    private $stream = null;
+    /** Clones share ownership of the verified descriptor, not just its resource ID. */
+    private ?object $streamLease = null;
     private readonly int $bytes;
 
     public function __construct(string $file, string $name, string $format, int $bytes, ?string $checksum = null)
@@ -40,7 +40,6 @@ final class FileDownloadResponse extends Response
                     throw new HttpException(410, 'export_integrity_failed', 'Export file changed or fails integrity verification.');
                 }
             }
-            $this->stream = $stream;
             $this->bytes = $bytes;
             parent::__construct('', 200, [
                 'Content-Type' => $format === 'csv' ? 'text/csv; charset=utf-8' : 'application/json; charset=utf-8',
@@ -49,6 +48,15 @@ final class FileDownloadResponse extends Response
                 'Cache-Control' => 'private, no-store',
                 'X-Content-Type-Options' => 'nosniff',
             ]);
+            // ErrorHandler decorates the response via withHeader(), which clones
+            // it. A shared owner prevents the original object's destruction
+            // from closing a descriptor that the decorated clone must stream.
+            $this->streamLease = new class($stream) {
+                public function __construct(public mixed $stream) {}
+                public function __destruct() {
+                    if (is_resource($this->stream)) fclose($this->stream);
+                }
+            };
         } catch (\Throwable $error) {
             fclose($stream);
             throw $error;
@@ -57,7 +65,7 @@ final class FileDownloadResponse extends Response
 
     public function send(bool $head = false): void
     {
-        $stream = $this->stream;
+        $stream = $this->streamLease?->stream;
         if (!is_resource($stream)) throw new HttpException(410, 'export_missing', 'Export file is unavailable.');
         $now = fstat($stream);
         if (!is_array($now) || $now['size'] !== $this->bytes || !rewind($stream)) {
@@ -77,8 +85,4 @@ final class FileDownloadResponse extends Response
         }
     }
 
-    public function __destruct()
-    {
-        if (is_resource($this->stream)) fclose($this->stream);
-    }
 }
