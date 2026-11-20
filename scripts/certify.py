@@ -168,7 +168,25 @@ def database(args, report):
         for version,path in previous.items():
             run_stage(report,'upgrade-'+version,[sys.executable,'tests/upgrade_release.py',str(path)],root,env)
             evidence=json.loads((proof_dir/(version+'.json')).read_text())
-            validate_upgrade_rollback(evidence,report,version)
+            try:
+                validate_upgrade_rollback(evidence,report,version)
+            except ValueError:
+                # Only structural field names; no credentials, SQL, or hashes.
+                checks={
+                    'format':evidence.get('format')==1,
+                    'scope':evidence.get('scope')=='upgrade-rollback',
+                    'status':evidence.get('status')=='passed',
+                    'from_version':evidence.get('from_version')==version,
+                    'to_version':evidence.get('to_version')==report['version'],
+                    'archive_sha256':evidence.get('archive_sha256')==report['archive_sha256'],
+                    'backup_sha256_format':isinstance(evidence.get('backup_sha256'),str) and len(evidence['backup_sha256'])==64 and all(c in '0123456789abcdef' for c in evidence['backup_sha256']),
+                    'checks':evidence.get('checks')==list(UPGRADE_CHECKS),
+                    'pending_migrations_type':isinstance(evidence.get('pending_migrations'),list),
+                    'pending_migrations_sorted_unique':isinstance(evidence.get('pending_migrations'),list) and evidence['pending_migrations']==sorted(set(evidence['pending_migrations'])),
+                    'pending_migrations_names':isinstance(evidence.get('pending_migrations'),list) and all(isinstance(n,str) and re.fullmatch(r'\\d{4}_[a-z0-9_]+\\.sql',n) for n in evidence['pending_migrations']),
+                }
+                print('CI upgrade proof mismatch '+version+': '+', '.join(k for k,v in checks.items() if not v),file=sys.stderr)
+                raise
             report['upgrade_rollback'][version]=evidence
 
 
