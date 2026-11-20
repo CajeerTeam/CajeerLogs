@@ -192,7 +192,11 @@ final class ExportQueue
             $updated=$this->statement("UPDATE log_export_jobs SET status='ready',row_count=:rows,byte_count=:bytes,checksum=:checksum,finished_at=clock_timestamp() WHERE id=CAST(:id AS uuid) AND status='processing' AND expires_at>now()",['id'=>$id,'rows'=>$rows,'bytes'=>$bytes,'checksum'=>$sha])->rowCount();
             if ($updated!==1) { @unlink($final); throw new \RuntimeException('Export expired during processing.'); }
             try {
-                (new AuditLogger($this->pdo))->record('logs.export_completed',['export_id'=>$id,'format'=>$format,'rows'=>$rows,'bytes'=>$bytes,'sha256'=>$sha],$job['requested_by'],$job['project_id'],$id,'user');
+                (new AuditLogger($this->pdo))->record(
+                    'logs.export_completed',
+                    ['project_id'=>$job['project_id'],'export_id'=>$id,'format'=>$format,'rows'=>$rows,'bytes'=>$bytes,'sha256'=>$sha],
+                    $job['requested_by'],$id,'success','user'
+                );
             } catch (\Throwable) { error_log('CajeerLogs completed export audit unavailable'); }
         } finally {
             if (is_resource($stream)) fclose($stream);

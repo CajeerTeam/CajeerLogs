@@ -76,6 +76,12 @@ try {
     check($failed['status']==='failed'&&$failed['error_code']==='attempts_exhausted','interrupted third attempt converges to failed state');
     $actions=$pdo->query("SELECT action FROM audit_log WHERE action LIKE 'logs.export_%'")->fetchAll(PDO::FETCH_COLUMN);
     check(in_array('logs.export_requested',$actions,true)&&in_array('logs.export_completed',$actions,true)&&in_array('logs.export_downloaded',$actions,true),'export lifecycle is auditable');
+    $auditRecord=$pdo->prepare("SELECT actor_type,result,target,project_id FROM audit_log WHERE action='logs.export_completed' AND target=:target");
+    $auditRecord->execute(['target'=>$id]);
+    $record=$auditRecord->fetch(PDO::FETCH_ASSOC);
+    check($record && $record['actor_type']==='user'&&$record['result']==='success'
+        &&$record['target']===$id&&$record['project_id']===$project,
+        'completed export audit preserves actor, outcome and project scope');
     echo "Bulk export PostgreSQL integration: $n tests passed\n";
 } finally {
     foreach($artifacts as $file){$path=$root.'/storage/exports/private/'.$file;if(is_file($path))@unlink($path);}
