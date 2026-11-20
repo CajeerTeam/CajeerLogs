@@ -24,6 +24,31 @@ function throws(callable $action, string $class, ?int $status = null): bool {
     return false;
 }
 $app->boot();
+// Validate PHP's native Location status side-effect, not only the Response object.
+// Buffer check output until all header assertions finish.
+ob_start();
+foreach ([201,202,204,308] as $status) {
+    ob_start(); (new Response('', $status, ['Location'=>'/api/v1/ingest/jobs/1']))->send();
+    $body=ob_get_clean(); $wireStatus=http_response_code();
+    header_remove('Location'); http_response_code(200);
+    check($wireStatus===$status && $body==='', 'Location preserves explicit HTTP '.$status);
+}
+// FileDownloadResponse must retain its already-verified file descriptor when
+// response middleware clones the object to append request/security headers.
+$downloadFixture=tempnam(sys_get_temp_dir(),'cl-download-');
+try {
+    $content='{"verified":true}';
+    file_put_contents($downloadFixture,$content);
+    $raw=new \Cajeer\Logs\Http\FileDownloadResponse(
+        $downloadFixture,'test.json','json',strlen($content),hash('sha256',$content));
+    $decorated=$raw->withHeader('X-Request-ID','clone-test');
+    unset($raw);
+    ob_start();$decorated->send();$downloaded=ob_get_clean();
+    check($decorated->header('X-Request-ID')==='clone-test'&&$downloaded===$content,
+        'verified export descriptor survives response header clone');
+    unset($decorated);
+} finally { unlink($downloadFixture); }
+ob_end_flush();
 check($app->version() === '1.0.0', 'release version');
 check($app->config()->get('app.version') === $app->version(), 'config version');
 $oldEnv = $app->config()->get('app.env'); $oldUrl = $app->config()->get('app.url');

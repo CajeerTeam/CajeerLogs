@@ -23,7 +23,7 @@ try {
     $sources=new SourceRepository($pdo);$source=$sources->create($p,'App','app');$otherSource=$sources->create($other,'Other','app');
     $tokens=new TokenRepository($pdo);$token=$tokens->create('Writer',['logs:write'],$p,$source);$foreign=$tokens->create('Foreign',['logs:write'],$other,$otherSource);
     $pdo->exec("INSERT INTO jobs(queue,name) VALUES ('default','legacy')");
-    $runner=$app->container()->get(MigrationRunner::class);verify($runner->migrate()===['0007_queue_lifecycle.sql','0008_security_operations.sql','0009_project_management.sql','0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql','0013_ingest_signing.sql','0014_delivery_idempotency.sql','0015_authentication_sessions.sql','0016_saved_log_views.sql','0017_rbac_roles_permissions.sql','0018_identity_security.sql','0019_audit_accountability.sql','0020_rate_limit_buckets.sql','0021_retention_execution_history.sql','0022_queue_accounting.sql','0023_queue_backpressure.sql'] && $runner->migrate()===[],'0.0.7 upgrade, repeat and preserved migration history');
+    $runner=$app->container()->get(MigrationRunner::class);verify($runner->migrate()===array_values(array_map('basename',array_filter(glob($root.'/migrations/pgsql/*.sql'),static fn(string $f):bool=>(int)substr(basename($f),0,4)>=7))) && $runner->migrate()===[],'0.0.7 upgrade, repeat and preserved migration history');
     verify((int)$pdo->query("SELECT count(*) FROM jobs WHERE name='legacy'")->fetchColumn()===1 && $app->handle(new Request('GET','/ready'))->status===200,'legacy rows preserved and readiness');
     $queue=$app->container()->get(PostgresQueueDriver::class);$account=new QueueAccounting($pdo);
     verify($account->snapshot()===['active_jobs'=>0,'active_events'=>0,'active_bytes'=>0]&&$account->verify()['valid'],'legacy queue excluded from capacity');
@@ -84,7 +84,18 @@ try {
     $preview=$ret->preview(1,$p);verify($preview['candidates']===1&&$preview['more']&&$ret->preview(10,$other)['candidates']===0&&(int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===4,'scoped read-only preview, capped and isolated');
     verify($ret->run(1)===1&&(int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===3,'bounded retention batch');
     $paused=new Scheduler($pdo,0,1000,5000,0,30,false);verify(!in_array('retention',$paused->due(),true)&&in_array('auth_cleanup',$paused->due(),true),'paused retention leaves other maintenance due');
-    $scheduler=new Scheduler($pdo);$results=$scheduler->run();verify($results['retention']['removed']===2&&count($results)===4&&$scheduler->run()===[],'scheduler persists due tasks and runs bounded maintenance');
+    $scheduler=new Scheduler($pdo);
+    $results=$scheduler->run();
+    // All five production tasks are scheduled, including bounded source metrics
+    // retention introduced after this integration fixture was originally written.
+    verify(array_keys($results)===array_keys(Scheduler::TASKS)
+        && ($results['retention']['removed']??null)===2
+        && isset($results['auth_cleanup']['sessions'])
+        && isset($results['queue_cleanup']['removed'])
+        && isset($results['webhook_cleanup']['removed'])
+        && isset($results['source_metrics_cleanup']['removed'])
+        && $scheduler->run()===[] && $scheduler->due()===[],
+        'scheduler persists all due tasks and runs bounded maintenance');
     $latest=$ret->history(1)[0];verify((int)$latest['total_removed']===3&&(int)$latest['removed']===2&&(int)$latest['backlog_lower_bound']===0,'transactional history and cumulative counter');
     verify($ret->cycle(1,2,0,3000)['removed']===0,'cycle stops on short batch');
     verify((int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===1&&$pdo->query('SELECT project_id FROM log_events')->fetchColumn()===$other,'other project unaffected');

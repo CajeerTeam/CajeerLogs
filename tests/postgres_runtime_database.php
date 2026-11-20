@@ -45,7 +45,18 @@ try {
     $pdo=$factory->make('pgsql');check($pdo->query('SELECT status FROM jobs WHERE id='.$id)->fetchColumn()==='running','durable lease retained after disconnection');$pdo->exec("UPDATE jobs SET lease_until=now()-interval '1 hour' WHERE id=".$id);
     $name='cl_worker_'.bin2hex(random_bytes(6));$env=array_merge(getenv(),['APP_ENV'=>'test','APP_URL'=>'http://localhost:8080','DB_SCHEMA'=>$schema,'DB_APPLICATION_NAME'=>$name,'DB_CONNECT_ATTEMPTS'=>'2','DB_CONNECT_TIMEOUT'=>'2']);
     $worker=proc_open([PHP_BINARY,$root.'/bin/cajeer','queue:work'],[0=>['file','/dev/null','r'],1=>['file',$log,'a'],2=>['file',$log,'a']],$pipes,$root,$env);if(!is_resource($worker))throw new RuntimeException('Cannot start real queue worker');
-    $findPid=function()use(&$base,$name,$worker):int{if(!proc_get_status($worker)['running'])throw new RuntimeException('Queue worker exited');$q=$base->prepare('SELECT pid FROM pg_stat_activity WHERE application_name=:name ORDER BY backend_start DESC LIMIT 1');$q->execute(['name'=>$name]);return (int)$q->fetchColumn();};
+    $findPid=function()use(&$base,$name,$worker,$log,$token):int{
+        $status=proc_get_status($worker);
+        if (!$status['running']) {
+            $diagnostic=is_file($log)?(string)file_get_contents($log):'';
+            foreach ([$token['token'],(string)(getenv('DB_PASSWORD')?:''),(string)(getenv('DB_MIGRATION_PASSWORD')?:'')] as $credential) {
+                if (strlen($credential)>=3) $diagnostic=str_replace($credential,'[REDACTED]',$diagnostic);
+            }
+            throw new RuntimeException('Queue worker exited (status='.$status['exitcode'].'): '.substr($diagnostic,-1800));
+        }
+        $q=$base->prepare('SELECT pid FROM pg_stat_activity WHERE application_name=:name ORDER BY backend_start DESC LIMIT 1');
+        $q->execute(['name'=>$name]);return (int)$q->fetchColumn();
+    };
     $workerPid=waitFor($findPid,'worker session');
     waitFor(fn()=>$pdo->query('SELECT status FROM jobs WHERE id='.$id)->fetchColumn()==='completed','expired lease completion');check((int)$pdo->query('SELECT count(*) FROM log_events')->fetchColumn()===1,'lease recovery writes exactly one event');
     terminate($base,$workerPid);$newPid=waitFor(fn()=>($p=$findPid())&&$p!==$workerPid?$p:false,'worker reconnect');check($newPid!==$workerPid,'continuous worker reconnects without process restart');

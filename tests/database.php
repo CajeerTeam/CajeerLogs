@@ -56,7 +56,11 @@ try {
             $item->isDir() ? mkdir($dest) : copy($item->getPathname(), $dest);
         }
     }
-    mkdir($tmp . '/storage');
+    // Mirror every private runtime directory required by the installation preflight.
+    mkdir($tmp . '/storage',0700);
+    foreach (['app','archives','backups','cache','database','logs','tmp'] as $subdir) {
+        mkdir($tmp.'/storage/'.$subdir,0700);
+    }
     foreach (['release.json','.env.example'] as $file) { copy($root . '/' . $file, $tmp . '/' . $file); }
     $config = $app->config();
     $config->set('database.schema', $schema);
@@ -148,7 +152,15 @@ try {
     file_put_contents($dir . $failureMigration, 'CREATE TABLE rollback_probe(id integer); SELECT * FROM nonexistent_table;');
     $testRunner = new MigrationRunner($pdo,$dir,$schema);
     verify(fails(fn() => $testRunner->migrate(), DatabaseException::class), 'broken migration fails');
-    verify($pdo->query("SELECT to_regclass('rollback_probe') IS NULL")->fetchColumn() === true && count($runner->status()['applied']) ===$migrationCount, 'failed migration rolled back including history');
+    verify($pdo->query("SELECT to_regclass('rollback_probe') IS NULL")->fetchColumn() === true
+        && (int)$pdo->query('SELECT count(*) FROM schema_migrations')->fetchColumn() === $migrationCount,
+        'failed migration rolled back including applied history');
+    verify(fails(fn()=>$runner->status(), DatabaseException::class),
+        'missing failed migration is rejected by durable journal guard');
+    // Remove only this fixture's artificial, durable failure before drift checks.
+    $clear=$pdo->prepare("DELETE FROM schema_migration_runs WHERE version=:name AND status='failed'");
+    $clear->execute(['name'=>ltrim($failureMigration,'/')]);
+    verify($clear->rowCount()===1,'failed fixture journal cleaned after guard verification');
     unlink($dir . $failureMigration);
     file_put_contents($dir . '/0001_initial_schema.sql', "\n-- tampered\n", FILE_APPEND);
     verify(fails(fn() => $testRunner->status(), DatabaseException::class), 'checksum drift rejected');

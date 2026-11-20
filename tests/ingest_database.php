@@ -39,7 +39,7 @@ try {
     $writer=$tokens->create('project writer',['logs:write'],$project); $scoped=$tokens->create('source writer',['logs:write'],$project,$source); $reader=$tokens->create('reader',['logs:read'],$project,$source);
     $legacy=$pdo->query("INSERT INTO log_events(occurred_at,source,level,message) VALUES(now(),'legacy','info','historic event') RETURNING id")->fetchColumn();
     $runner=$app->container()->get(MigrationRunner::class);
-    verify($runner->migrate()===['0004_log_ingestion.sql','0005_log_search.sql','0006_sdk_integrations.sql','0007_queue_lifecycle.sql','0008_security_operations.sql','0009_project_management.sql','0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql','0013_ingest_signing.sql','0014_delivery_idempotency.sql','0015_authentication_sessions.sql','0016_saved_log_views.sql','0017_rbac_roles_permissions.sql','0018_identity_security.sql','0019_audit_accountability.sql','0020_rate_limit_buckets.sql','0021_retention_execution_history.sql','0022_queue_accounting.sql','0023_queue_backpressure.sql']&&$runner->migrate()===[],'0.0.3 -> current upgrade and repeat');
+    verify($runner->migrate()===array_values(array_map('basename',array_filter(glob($root.'/migrations/pgsql/*.sql'),static fn(string $f):bool=>(int)substr(basename($f),0,4)>=4)))&&$runner->migrate()===[],'0.0.3 -> current upgrade and repeat');
     verify($pdo->query("SELECT id FROM log_events WHERE source='legacy'")->fetchColumn()===$legacy,'historic unscoped row preserved');
     verify($app->handle(new Request('GET','/ready'))->status===200,'readiness after migration');
     $event=['timestamp'=>'2026-01-02T03:04:05.123456+03:00','source'=>'app','level'=>'ERROR','message'=>'login password=hidden-value','service'=>'backend','host'=>'host1','trace_id'=>'trace-1','request_id'=>'req-1','context'=>(object)['password'=>'hidden-context','nested'=>(object)['apiKey'=>'another-secret'],'empty'=>(object)[],'list'=>[]],'tags'=>['one','two','one']];
@@ -279,7 +279,15 @@ WORKER;
             $sdk=proc_open($command,[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$sdkPipes,$root,$sdkEnv);
             if (!is_resource($sdk)) { throw new RuntimeException('Cannot start SDK test.'); }
             fclose($sdkPipes[0]);$sdkOut=stream_get_contents($sdkPipes[1]);$sdkErr=stream_get_contents($sdkPipes[2]);fclose($sdkPipes[1]);fclose($sdkPipes[2]);
-            verify(proc_close($sdk)===0,'real SDK HTTP integration: '.$command[1]);echo $sdkOut;
+            $sdkExit=proc_close($sdk);
+            if ($sdkExit!==0) {
+                $diagnostic=substr($sdkErr."\n".$sdkOut,-2400);
+                foreach ([$secret,($sdkEnv['DB_PASSWORD']??'')] as $credential) {
+                    if (is_string($credential)&&strlen($credential)>=3) $diagnostic=str_replace($credential,'[REDACTED]',$diagnostic);
+                }
+                fwrite(STDERR,'SDK integration '.$command[1].' exited '.$sdkExit.': '.$diagnostic.PHP_EOL);
+            }
+            verify($sdkExit===0,'real SDK HTTP integration: '.$command[1]);echo $sdkOut;
         }
         // Confirm the SDK's actual async PostgreSQL job, not merely HTTP 202.
         // No worker is running in this isolated test server; process admitted jobs

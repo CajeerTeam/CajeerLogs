@@ -39,10 +39,11 @@ class Response
 
     public function send(bool $head = false): void
     {
-        http_response_code($this->status);
         foreach ($this->headers as $name => $value) {
             header($name . ': ' . $value, true);
         }
+        // Location headers can implicitly change the status to 302.
+        http_response_code($this->status);
         if (!$head && !in_array($this->status, [204, 304], true)) {
             echo $this->body;
         }
