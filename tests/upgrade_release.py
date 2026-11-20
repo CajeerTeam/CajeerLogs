@@ -224,7 +224,16 @@ def main(previous):
             # overwrite the upgraded database in place.
             assert json.loads(cli('backup:verify',backup['id']))['sha256']==backup['sha256']
             assert sql("SELECT current_user=pg_get_userbyid(datdba) FROM pg_database WHERE datname=current_database()",rollback_target)=='t'
-            assert sql("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid()",rollback_target)=='0'
+            # pg_restore and previous-release shutdown can leave a just-closing
+            # backend briefly visible in pg_stat_activity. Still require genuine
+            # exclusivity: poll for bounded session drain, never terminate another
+            # session or bypass the restore target's ownership/emptiness checks.
+            for _attempt in range(40):
+                if sql("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid()",rollback_target)=='0':
+                    break
+                time.sleep(.25)
+            else:
+                raise AssertionError('Rollback target has active PostgreSQL sessions')
             assert sql("SELECT count(*) FROM pg_class WHERE relnamespace='public'::regnamespace",rollback_target)=='0'
             assert sql("SELECT count(*) FROM pg_namespace WHERE nspname NOT LIKE 'pg\\_%' ESCAPE '\\' AND nspname NOT IN ('public','information_schema')",rollback_target)=='0'
             restore=subprocess.run([
