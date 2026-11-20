@@ -21,6 +21,13 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+
+class _DoNotFollowRedirect(urllib.request.HTTPRedirectHandler):
+    """Inspect the historical enqueue response, rather than its Location target."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'scripts'))
 import release
@@ -91,9 +98,13 @@ def main(previous):
                     else: raise RuntimeError('PHP server not available')
                     yield
                 finally: proc.terminate(); proc.wait(timeout=10)
-        def call(method,path,data=None,headers=None,status=200):
+        def call(method,path,data=None,headers=None,status=200,follow_redirects=True):
             req=urllib.request.Request(url+path,data=None if data is None else json.dumps(data).encode(),method=method,headers={'Content-Type':'application/json'}|(headers or {}))
-            try: resp=urllib.request.urlopen(req,timeout=20)
+            try:
+                if follow_redirects:
+                    resp=urllib.request.urlopen(req,timeout=20)
+                else:
+                    resp=urllib.request.build_opener(_DoNotFollowRedirect()).open(req,timeout=20)
             except urllib.error.HTTPError as e: resp=e
             with resp:
                 body=resp.read()
@@ -121,13 +132,17 @@ def main(previous):
                 sync_key='before-upgrade-sync-'+secrets.token_hex(8)
                 async_key='before-upgrade-'+secrets.token_hex(8)
                 eid=call('POST','/api/v1/ingest',event,bearer|{'Idempotency-Key':sync_key},201)[0]['event_ids'][0]
-                # Old supported releases differ in their first enqueue HTTP code
-                # (200 or 202). Require a newly persisted job instead of weakening
-                # the durable admission check to response-code-only validation.
+                # Historical PHP sent Location after setting HTTP 202, which
+                # implicitly changed the wire status to 302. A normal HTTP client
+                # follows that redirect and reports 200 from GET /ingest/jobs.
+                # Inspect the actual POST response instead of its redirected GET.
                 before_jobs=int(sql(f'SELECT count(*) FROM "{schema}".jobs'))
-                initial,_=call('POST','/api/v1/ingest/async',event|{'message':'queued before upgrade'},bearer|{'Idempotency-Key':async_key},(200,202))
+                initial,initial_headers=call('POST','/api/v1/ingest/async',event|{'message':'queued before upgrade'},bearer|{'Idempotency-Key':async_key},(202,302),follow_redirects=False)
                 jid=initial['job_id']
-                assert int(sql(f'SELECT count(*) FROM "{schema}".jobs'))==before_jobs+1, 'First enqueue must create a durable job, not replay'
+                assert initial.get('accepted') is True and initial.get('replayed') is False, 'First enqueue must be a new admission'
+                location=initial_headers.get('Location')
+                assert isinstance(location,str) and urllib.parse.urlsplit(urllib.parse.urljoin(url,location)).path==f'/api/v1/ingest/jobs/{jid}', 'Enqueue Location must identify the created job'
+                assert int(sql(f'SELECT count(*) FROM "{schema}".jobs'))==before_jobs+1, 'First enqueue must create exactly one durable job'
                 assert sql(f'SELECT status FROM "{schema}".jobs WHERE id={int(jid)}') in ('pending','queued'), 'New job must remain pending for the upgrade'
             accepted_budget=sql(f'SELECT max_attempts FROM "{schema}".jobs WHERE id={int(jid)}')
             backup=json.loads(cli('backup:create')); assert backup['version']==old_version
@@ -263,7 +278,22 @@ def main(previous):
                         raise AssertionError('Historical role constraint did not round-trip to verified snapshot')
                     cli('migrate:verify',directory=rollback_tree,environ=rollback_env)
             with server(rollback_tree,rollback_env):
-                assert call('GET','/ready')[0]['version']==old_version
+                # Preserve the old runtime readiness gate. If it rejects a
+                # restored database, report only safe catalog object names and
+                # public readiness categories; never log connection details.
+                readiness,_=call('GET','/ready',status=(200,503))
+                if readiness.get('status')!='ok':
+                    diag=subprocess.run(['php','bin/cajeer','db:doctor'],cwd=rollback_tree,
+                                        env=rollback_env,text=True,capture_output=True,timeout=120)
+                    try: state=json.loads(diag.stdout)
+                    except (ValueError,TypeError): state={}
+                    migrations=state.get('migrations') or {}
+                    safe={'status':state.get('status'),'error':str(state.get('error',''))[:160],
+                          'integrity':migrations.get('integrity'),
+                          'pending':len(migrations.get('pending',[])),
+                          'drift':[row.get('object') for row in migrations.get('drift',[])[:12] if isinstance(row,dict)]}
+                    raise AssertionError(('Historic rollback readiness',old_version,safe))
+                assert readiness['version']==old_version
                 assert call('GET','/api/v1/auth/me',headers=auth)[0]['user']['email']=='upgrade@example.test'
                 assert call('GET',f'/api/v1/logs/{eid}?project_id={pid}',headers=bearer)[0]['data']['message']=='previous release proof'
                 assert call('POST','/api/v1/ingest',event,bearer|{'Idempotency-Key':sync_key},200)[0]['event_ids']==[eid]
