@@ -80,7 +80,12 @@ def main(previous):
         env.pop('CAJEER_ENV_FILE',None)
         pg=dict(os.environ,PGHOST=env['DB_HOST'],PGPORT=env.get('DB_PORT','5432'),PGDATABASE=env['DB_DATABASE'],PGUSER=env['DB_USERNAME'],PGPASSWORD=env['DB_PASSWORD'],PGSSLMODE=env.get('DB_SSLMODE','prefer'))
         def sql(query, database=env['DB_DATABASE']):
-            return subprocess.check_output(['psql','-X','-A','-t','-v','ON_ERROR_STOP=1','-d',database,'-c',query],env=pg,text=True).strip()
+            # psql does not inherit DB_SCHEMA from the PHP application. Schema
+            # triggers (archive retention, etc.) resolve their tables through
+            # search_path, even when the UPDATE names its table explicitly.
+            # Scope the setting to this disposable psql connection only.
+            query_env=dict(pg,PGOPTIONS=((pg.get('PGOPTIONS') or '')+' -c search_path='+schema+',public').strip())
+            return subprocess.check_output(['psql','-X','-A','-t','-v','ON_ERROR_STOP=1','-d',database,'-c',query],env=query_env,text=True).strip()
         def cli(*args, directory=None, environ=None):
             return subprocess.check_output(['php','bin/cajeer',*args],cwd=directory or tree,
                                            env=environ or env,text=True,stderr=subprocess.STDOUT,timeout=120)
