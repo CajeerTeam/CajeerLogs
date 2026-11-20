@@ -39,10 +39,12 @@ class Response
 
     public function send(bool $head = false): void
     {
-        http_response_code($this->status);
         foreach ($this->headers as $name => $value) {
             header($name . ': ' . $value, true);
         }
+        // PHP header("Location: ...") implicitly sets 302 even for 201/202.
+        // Apply the explicit API status last, after all header side effects.
+        http_response_code($this->status);
         if (!$head && !in_array($this->status, [204, 304], true)) {
             echo $this->body;
         }
