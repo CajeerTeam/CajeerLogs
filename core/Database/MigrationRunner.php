@@ -312,6 +312,13 @@ final class MigrationRunner
             unset($actual[$key]);
         }
         $issues=SchemaInspector::differences($state['snapshot'],$actual);
+        if ($issues!==[] && getenv('CAJEER_TEST_DATABASE')==='1') {
+            foreach ($issues as $issue) {
+                $key=$issue['object'];
+                if (!str_starts_with($key,'constraint:') && !str_starts_with($key,'index:')) continue;
+                fwrite(STDERR,'CI schema drift '.$key.' expected='.substr((string)($state['snapshot'][$key]??''),0,1000).' actual='.substr((string)($actual[$key]??''),0,1000).PHP_EOL);
+            }
+        }
         if ($issues!==[]) throw new DatabaseException('Schema drift: '.implode(', ',array_map(static fn($x)=>$x['change'].' '.$x['object'],array_slice($issues,0,12))).'. Run migrate:verify.');
     }
     private function runConcurrent(string $name,array $file,?array $old): void {
