@@ -96,8 +96,15 @@ def main(previous):
             try: resp=urllib.request.urlopen(req,timeout=20)
             except urllib.error.HTTPError as e: resp=e
             with resp:
-                assert resp.code==status,(method,path,resp.code,status)
-                return json.loads(resp.read()),resp.headers
+                body=resp.read()
+                payload=json.loads(body)
+                accepted_codes=status if isinstance(status,tuple) else (status,)
+                if resp.code not in accepted_codes:
+                    # Surface only non-secret response metadata if a historical
+                    # endpoint changes its first-delivery semantics.
+                    safe={key:payload[key] for key in ('accepted','replayed','status','error','received') if isinstance(payload,dict) and key in payload}
+                    raise AssertionError((method,path,resp.code,status,safe))
+                return payload,resp.headers
         sql(f'CREATE SCHEMA "{schema}"')
         try:
             assert cli('version').strip()==old_version
@@ -109,8 +116,19 @@ def main(previous):
                 sid=call('POST',f'/api/v1/projects/{pid}/sources',{'name':'App','slug':'app'},auth,201)[0]['id']
                 token=call('POST',f'/api/v1/projects/{pid}/tokens',{'name':'Upgrade token','scopes':['logs:write','logs:read'],'source_id':sid},auth,201)[0]['token']; bearer={'Authorization':'Bearer '+token}
                 event={'timestamp':datetime.datetime.now(datetime.timezone.utc).isoformat(),'source':'app','level':'info','message':'previous release proof'}
-                eid=call('POST','/api/v1/ingest',event,bearer|{'Idempotency-Key':'before-upgrade-sync'},201)[0]['event_ids'][0]
-                jid=call('POST','/api/v1/ingest/async',event|{'message':'queued before upgrade'},bearer|{'Idempotency-Key':'before-upgrade'},202)[0]['job_id']
+                # A fresh retry token is mandatory for an initial HTTP 202, and
+                # the exact same token must replay across upgrade and rollback.
+                sync_key='before-upgrade-sync-'+secrets.token_hex(8)
+                async_key='before-upgrade-'+secrets.token_hex(8)
+                eid=call('POST','/api/v1/ingest',event,bearer|{'Idempotency-Key':sync_key},201)[0]['event_ids'][0]
+                # Old supported releases differ in their first enqueue HTTP code
+                # (200 or 202). Require a newly persisted job instead of weakening
+                # the durable admission check to response-code-only validation.
+                before_jobs=int(sql(f'SELECT count(*) FROM "{schema}".jobs'))
+                initial,_=call('POST','/api/v1/ingest/async',event|{'message':'queued before upgrade'},bearer|{'Idempotency-Key':async_key},(200,202))
+                jid=initial['job_id']
+                assert int(sql(f'SELECT count(*) FROM "{schema}".jobs'))==before_jobs+1, 'First enqueue must create a durable job, not replay'
+                assert sql(f'SELECT status FROM "{schema}".jobs WHERE id={int(jid)}') in ('pending','queued'), 'New job must remain pending for the upgrade'
             accepted_budget=sql(f'SELECT max_attempts FROM "{schema}".jobs WHERE id={int(jid)}')
             backup=json.loads(cli('backup:create')); assert backup['version']==old_version
             assert hashlib.sha256((p/'backups'/backup['id']/'database.dump').read_bytes()).hexdigest()==backup['sha256']
@@ -161,8 +179,8 @@ def main(previous):
                 assert call('GET','/api/v1/auth/me',headers=auth)[0]['user']['email']=='upgrade@example.test'
                 assert call('GET',f'/api/v1/logs/{eid}?project_id={pid}',headers=bearer)[0]['data']['message']=='previous release proof'
                 assert call('GET',f'/api/v1/ingest/jobs/{jid}',headers=bearer)[0]['status']=='completed'
-                assert call('POST','/api/v1/ingest',event,bearer|{'Idempotency-Key':'before-upgrade-sync'},200)[0]['event_ids']==[eid]
-                assert call('POST','/api/v1/ingest/async',event|{'message':'queued before upgrade'},bearer|{'Idempotency-Key':'before-upgrade'},200)[0]['job_id']==jid
+                assert call('POST','/api/v1/ingest',event,bearer|{'Idempotency-Key':sync_key},200)[0]['event_ids']==[eid]
+                assert call('POST','/api/v1/ingest/async',event|{'message':'queued before upgrade'},bearer|{'Idempotency-Key':async_key},200)[0]['job_id']==jid
                 assert len(call('GET',f'/api/v1/logs?project_id={pid}',headers=bearer)[0]['items'])==2
                 filters=urllib.parse.urlencode({'project_id':pid,'sources':'["app"]','levels':'["info","error"]','q':'previous release','q_mode':'phrase'})
                 assert [row['id'] for row in call('GET','/api/v1/logs?'+filters,headers=bearer)[0]['items']]==[eid]
@@ -200,7 +218,7 @@ def main(previous):
                 assert call('GET','/ready')[0]['version']==old_version
                 assert call('GET','/api/v1/auth/me',headers=auth)[0]['user']['email']=='upgrade@example.test'
                 assert call('GET',f'/api/v1/logs/{eid}?project_id={pid}',headers=bearer)[0]['data']['message']=='previous release proof'
-                assert call('POST','/api/v1/ingest',event,bearer|{'Idempotency-Key':'before-upgrade-sync'},200)[0]['event_ids']==[eid]
+                assert call('POST','/api/v1/ingest',event,bearer|{'Idempotency-Key':sync_key},200)[0]['event_ids']==[eid]
                 assert call('GET',f'/api/v1/ingest/jobs/{jid}',headers=bearer)[0]['status'] in ('pending','queued')
             cli('queue:work','10',directory=rollback_tree,environ=rollback_env)
             with server(rollback_tree,rollback_env):
