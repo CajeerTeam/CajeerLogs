@@ -31,7 +31,10 @@ try {
     check($runner->migrate()===array_values(array_map('basename',array_filter(glob($root.'/migrations/pgsql/*.sql'),static fn(string $f):bool=>(int)substr(basename($f),0,4)>=12)))&&$runner->status()['integrity']==='verified','upgrade after explicit repair');
     check(rejected(fn()=>$pdo->exec('UPDATE log_events SET ingest_token_id='.$pdo->quote($t2['id']).' WHERE id='.$pdo->quote($id)),'23503'),'FK rejects cross-project log token');
     check(rejected(fn()=>$pdo->exec("UPDATE log_events SET source='wrong' WHERE id=".$pdo->quote($id)),'23503'),'FK rejects source slug mismatch');
-    check(rejected(fn()=>$pdo->exec('UPDATE jobs SET token_id='.$pdo->quote($t2['id']).' WHERE id='.$job),'23503'),'FK rejects cross-project queue token');
+    check(rejected(fn()=>$pdo->exec('UPDATE jobs SET token_id='.$pdo->quote($t2['id']).' WHERE id='.$job),'23514'),
+        'immutable durable queue ownership rejects cross-project token reassignment');
+    check((int)$pdo->query("SELECT count(*) FROM pg_constraint WHERE conrelid='jobs'::regclass AND conname='jobs_token_project_fk' AND contype='f'")->fetchColumn()===1,
+        'foreign key additionally protects durable queue token scope');
     check(rejected(fn()=>$pdo->exec("UPDATE jobs SET status='running' WHERE id=".$job),'23514'),'invalid lease rejected');
     check($q->process($q->claim())==='completed','existing pending job completes after upgrade');
     $tx->run(fn()=>$log->saveReceipt($t['id'],hash('sha256','receipt'),$hash,$ids));
