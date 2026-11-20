@@ -214,6 +214,54 @@ def main(previous):
             assert sql(f'SELECT max_attempts FROM "{schema}".jobs WHERE id={int(jid)}',rollback_target)==accepted_budget
             rollback_env=dict(env,DB_DATABASE=rollback_target)
             assert cli('version',directory=rollback_tree,environ=rollback_env).strip()==old_version
+            # PostgreSQL can deparse an unchanged role CHECK differently after
+            # pg_dump/pg_restore: the original ARRAY[varchar]::text[] becomes
+            # ARRAY[(varchar)::text, ...]. Old 0.2-era integrity snapshots compare
+            # the deparsed string byte for byte. Repair only this one verified
+            # round-trip artifact on the *disposable rollback database*, never
+            # the upgraded database, and require the old verifier to pass again.
+            if old_version!='0.1.0':
+                constraint_key='constraint:users.users_role_valid'
+                stored=sql(f"SELECT snapshot->>'{constraint_key}' FROM \"{schema}\".schema_migration_state WHERE singleton",rollback_target)
+                expected_constraint=json.loads(stored)
+                catalog_sql=("SELECT jsonb_build_object('type',c.contype,'definition',"
+                    "pg_catalog.pg_get_constraintdef(c.oid,false),'validated',c.convalidated,"
+                    "'enforced',COALESCE(to_jsonb(c)->>'conenforced','true'),"
+                    "'deferrable',c.condeferrable,'deferred',c.condeferred)::text "
+                    "FROM pg_catalog.pg_constraint c WHERE c.conname='users_role_valid' "
+                    f"AND c.conrelid='\"{schema}\".users'::regclass")
+                actual_constraint=json.loads(sql(catalog_sql,rollback_target))
+                if expected_constraint!=actual_constraint:
+                    def normalized_array(expression):
+                        # Literal-only canonicalization: never rewrite SQL
+                        # identifiers, operators, untrusted text or other casts.
+                        pattern=r"\(ARRAY\[((?:'[a-z0-9_.-]+'::character varying)(?:, '[a-z0-9_.-]+'::character varying)*)\]\)::text\[\]"
+                        return re.sub(pattern,lambda match:'ARRAY['+', '.join(
+                            '('+part+')::text' for part in match.group(1).split(', '))+']',expression)
+                    comparable_expected=dict(expected_constraint)
+                    comparable_actual=dict(actual_constraint)
+                    comparable_expected['definition']=normalized_array(comparable_expected['definition'])
+                    comparable_actual['definition']=normalized_array(comparable_actual['definition'])
+                    if (comparable_expected!=comparable_actual or
+                        'administrator' not in comparable_expected['definition'] or
+                        'operator' not in comparable_expected['definition'] or
+                        'viewer' not in comparable_expected['definition']):
+                        raise AssertionError('Historic restore changed role constraint semantics')
+                    verify=subprocess.run(['php','bin/cajeer','migrate:verify'],cwd=rollback_tree,
+                                          env=rollback_env,text=True,capture_output=True,timeout=120)
+                    state=json.loads(verify.stdout)
+                    if (verify.returncode==0 or state.get('integrity')!='drift' or
+                        state.get('pending') or
+                        state.get('drift')!=[{'object':constraint_key,'change':'changed'}]):
+                        raise AssertionError('Historic restore has unexpected catalog drift')
+                    # Reapply exactly the role constraint in the historical
+                    # 0003_identity_access.sql migration, not a weaker CHECK.
+                    sql(f'BEGIN; ALTER TABLE \"{schema}\".users DROP CONSTRAINT users_role_valid; '
+                        f'ALTER TABLE \"{schema}\".users ADD CONSTRAINT users_role_valid '
+                        "CHECK (role IN ('administrator','operator','viewer')); COMMIT;",rollback_target)
+                    if json.loads(sql(catalog_sql,rollback_target))!=expected_constraint:
+                        raise AssertionError('Historical role constraint did not round-trip to verified snapshot')
+                    cli('migrate:verify',directory=rollback_tree,environ=rollback_env)
             with server(rollback_tree,rollback_env):
                 assert call('GET','/ready')[0]['version']==old_version
                 assert call('GET','/api/v1/auth/me',headers=auth)[0]['user']['email']=='upgrade@example.test'
