@@ -75,12 +75,57 @@ SQL);
         }
     }
 
+    /**
+     * pg_dump recreates some CHECK predicates and partial-index predicates with
+     * equivalent PostgreSQL expression trees but differently parenthesized text.
+     * Accept only the two known lossless deparser rewrites, and only for the
+     * verified catalog objects whose round-trips need them. Every other schema
+     * field and every other object remains byte-for-byte checked.
+     */
+    private static function restoreEquivalent(string $key,string $before,string $after): bool
+    {
+        if (!in_array($key,[
+            'constraint:audit_log.audit_chain_values',
+            'constraint:integration_webhooks.integration_webhooks_events_valid',
+            'constraint:users.users_role_valid',
+            'index:log_events_error_analytics_idx',
+        ],true)) return false;
+        $left=json_decode($before,true);$right=json_decode($after,true);
+        if (!is_array($left) || !is_array($right)) return false;
+        $field=str_starts_with($key,'index:')?'predicate':'definition';
+        if (!isset($left[$field],$right[$field]) || !is_string($left[$field]) || !is_string($right[$field])) return false;
+        $normalize=static function(string $expression) use ($key): string {
+            // (ARRAY['x'::varchar, 'y'::varchar])::text[] is precisely the same
+            // immutable literal array as ARRAY[('x'::varchar)::text, ('y'::varchar)::text].
+            // A restricted literal-only pattern cannot rewrite arbitrary SQL.
+            $literalArray=<<<'REGEX'
+~\(ARRAY\[((?:'[a-z0-9_.-]+'::character varying)(?:, '[a-z0-9_.-]+'::character varying)*)\]\)::text\[\]~
+REGEX;
+            $mapped=preg_replace_callback($literalArray,static function(array $match): string {
+                $literals=explode(', ',$match[1]);
+                return 'ARRAY['.implode(', ',array_map(static fn(string $literal):string=>'('.$literal.')::text',$literals)).']';
+            },$expression);
+            if ($mapped!==null) $expression=$mapped;
+            if ($key==='constraint:integration_webhooks.integration_webhooks_events_valid') {
+                // Associativity of these exact three AND terms is preserved.
+                $expression=str_replace(
+                    'CHECK ((((cardinality(events) >= 1) AND (cardinality(events) <= 6)) AND (events <@ ',
+                    'CHECK (((cardinality(events) >= 1) AND (cardinality(events) <= 6) AND (events <@ ',
+                    $expression);
+            }
+            return $expression;
+        };
+        $left[$field]=$normalize($left[$field]);
+        $right[$field]=$normalize($right[$field]);
+        return $left===$right;
+    }
+
     public static function differences(array $expected,array $actual): array
     {
         $issues=[];
         foreach ($expected as $key=>$value) {
             if (!array_key_exists($key,$actual)) $issues[]=['object'=>$key,'change'=>'missing'];
-            elseif ($actual[$key]!==$value) $issues[]=['object'=>$key,'change'=>'changed'];
+            elseif ($actual[$key]!==$value && !self::restoreEquivalent($key,(string)$value,(string)$actual[$key])) $issues[]=['object'=>$key,'change'=>'changed'];
         }
         foreach ($actual as $key=>$value) if (!array_key_exists($key,$expected)) $issues[]=['object'=>$key,'change'=>'unexpected'];
         usort($issues,static fn($a,$b)=>strcmp($a['object'],$b['object']));
