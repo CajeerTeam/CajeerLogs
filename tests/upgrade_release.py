@@ -68,6 +68,11 @@ def main(previous):
                   '0.7.6':{'0032_advanced_search.sql','0033_storage_tiers.sql'},
                   '0.7.7':{'0033_storage_tiers.sql'},
                   '0.7.8':set(),'0.7.9':set(),'0.8.0':set(),'0.8.1':set(),'0.8.2':set(),'0.8.3':set(),'0.8.4':set(),'0.8.5':set(),'0.8.6':set(),'0.8.7':set(),'0.8.8':set(),'0.8.9':set(),'0.9.0':set(),'0.9.1':set(),'0.9.2':set()}[old_version]
+    # All 33 database migrations predate 0.9.3; the later 0.9.x releases
+    # changed runtime/operations only. Keep byte-for-byte history comparison
+    # below, rather than requiring already-applied migrations a second time.
+    if old_version in ('0.9.3','0.9.4','0.9.5','0.9.6'):
+        expected=set()
     assert all(new_migrations.get(k)==v for k,v in old_migrations.items()) and set(new_migrations)-set(old_migrations)==expected,'previous migration history changed'
     schema='cl_upgrade_'+secrets.token_hex(8)
     with tempfile.TemporaryDirectory() as tmp:
