@@ -40,7 +40,7 @@ try{
  $updated=api('PATCH',$path,$admin,['revision'=>'5','events_per_minute'=>1])[0];api('POST','/ingest',$bearer,['events'=>[$e,$e]],429);
  // An independent session cannot archive while admission holds the project row share lock.
  $second=(new ConnectionFactory($app->config()))->make('pgsql');$second->exec('SET lock_timeout=100');$pdo->beginTransaction();
- try{$repo->admit($p,100,1);try{(new TransactionManager($second))->run(fn()=>(new ProjectRepository($second))->archive($p,'6',true));throw new RuntimeException('archive should wait');}catch(PDOException $e){check((string)$e->getCode()==='55P03','concurrent archive waits for admission');}}finally{$pdo->rollBack();}
+ try{$repo->admit($p,100,1);try{(new TransactionManager($second))->run(fn()=>(new ProjectRepository($second))->archive($p,'6',true));throw new RuntimeException('archive should wait');}catch(PDOException $lockError){check((string)$lockError->getCode()==='55P03','concurrent archive waits for admission');}}finally{$pdo->rollBack();}
  check($repo->find($p)['status']==='active'&&$repo->find($p)['revision']==='6','lock timeout does not mutate project');
  // Keep both quota checks in the same fixed window, avoiding a flaky boundary test.
  if ((float)$pdo->query('SELECT extract(second from clock_timestamp())')->fetchColumn()>58) sleep(2);
