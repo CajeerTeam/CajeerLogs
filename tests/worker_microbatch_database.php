@@ -30,6 +30,9 @@ try {
     };
     $a=$send('micro-a',$mk('a',2),$writer['token']);$b=$send('micro-b',$mk('b',3,'secondary'),$writer['token']);$c=$send('micro-c',$mk('c',1),$writer['token']);
     $x=$send('micro-other',$mk('foreign',1),$foreign['token']);
+    // Queue fairness uses (virtual_finish, random project UUID) to break ties.
+    // Make the intended bulk-first fixture deterministic without altering dispatch.
+    $pdo->prepare('UPDATE queue_project_state SET virtual_finish=virtual_finish+4096 WHERE project_id=CAST(:id AS uuid)')->execute(['id'=>$other]);
     $claims=$queue->claimBatch(4);
     verify(count($claims)===3&&array_map(fn($row)=>(string)$row['id'],$claims)===[$a,$b,$c],'bounded claim batch does not capture another project');
     $otherConn=$app->container()->get(ConnectionFactory::class)->make('pgsql');
