@@ -285,18 +285,18 @@ def main(previous):
                                 "JOIN pg_catalog.pg_class t ON t.oid=i.indrelid JOIN pg_catalog.pg_am am ON am.oid=c.relam "
                                 "JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace "
                                 f"WHERE n.nspname='{schema}' AND c.relname='{obj_name}'")
-                        expected=json.loads(snapshots[key]); actual_catalog=sql(actual_sql,rollback_target); actual=json.loads(actual_catalog)
+                        expected_catalog=json.loads(snapshots[key]); actual_catalog=sql(actual_sql,rollback_target); actual=json.loads(actual_catalog)
                         # Compare all schema properties, not just the deparsed
                         # predicate. Some older snapshots track fewer properties.
-                        if (not isinstance(expected,dict) or not isinstance(actual,dict)
-                            or any(k not in actual for k in expected)):
+                        if (not isinstance(expected_catalog,dict) or not isinstance(actual,dict)
+                            or any(k not in actual for k in expected_catalog)):
                             raise AssertionError(('Historical catalog identity mismatch',key))
-                        actual={k:actual[k] for k in expected}
-                        a=expected.get(field); b=actual.get(field)
+                        actual={k:actual[k] for k in expected_catalog}
+                        a=expected_catalog.get(field); b=actual.get(field)
                         if (not isinstance(a,str) or not isinstance(b,str) or a==b
                             or any(word not in a or word not in b for word in expected_words)
                             or normalize_catalog_expr(a,key)!=normalize_catalog_expr(b,key)
-                            or {k:v for k,v in expected.items() if k!=field}!={k:v for k,v in actual.items() if k!=field}):
+                            or {k:v for k,v in expected_catalog.items() if k!=field}!={k:v for k,v in actual.items() if k!=field}):
                             raise AssertionError(('Historical catalog semantics differ',old_version,key,
                                                    normalize_catalog_expr(a or '',key)[:120],
                                                    normalize_catalog_expr(b or '',key)[:120]))
@@ -343,6 +343,8 @@ def main(previous):
                         'candidate_queue','candidate_restore','previous_binary_restarted',
                         'original_database_restored','rollback_auth_and_ingest',
                         'rollback_queue_processed','upgraded_database_untouched']
+                if not isinstance(expected,set) or expected!=set(new_migrations)-set(old_migrations):
+                    raise AssertionError('Upgrade proof migration names changed during certification')
                 proof={'format':1,'scope':'upgrade-rollback','from_version':old_version,
                        'to_version':result_version,'archive_sha256':hashlib.sha256(package.read_bytes()).hexdigest(),
                        'backup_sha256':backup['sha256'],'pending_migrations':sorted(expected),
