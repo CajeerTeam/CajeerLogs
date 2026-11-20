@@ -183,7 +183,7 @@ def database(args, report):
                     'checks':evidence.get('checks')==list(UPGRADE_CHECKS),
                     'pending_migrations_type':isinstance(evidence.get('pending_migrations'),list),
                     'pending_migrations_sorted_unique':isinstance(evidence.get('pending_migrations'),list) and evidence['pending_migrations']==sorted(set(evidence['pending_migrations'])),
-                    'pending_migrations_names':isinstance(evidence.get('pending_migrations'),list) and all(isinstance(n,str) and re.fullmatch(r'\\d{4}_[a-z0-9_]+\\.sql',n) for n in evidence['pending_migrations']),
+                    'pending_migrations_names':isinstance(evidence.get('pending_migrations'),list) and all(isinstance(n,str) and re.fullmatch(r'\d{4}_[a-z0-9_]+\.sql',n) for n in evidence['pending_migrations']),
                 }
                 print('CI upgrade proof mismatch '+version+': '+', '.join(k for k,v in checks.items() if not v),file=sys.stderr)
                 raise
