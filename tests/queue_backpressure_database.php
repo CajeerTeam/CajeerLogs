@@ -25,11 +25,23 @@ try {
     $tooMany=$writer('events-over',2,$policy);check($tooMany instanceof HttpException&&$tooMany->status===503&&$tooMany->error==='queue_full'&&$account->status()['rejected_events']===1&&$account->verify()['valid'],'event limit denies without altering queue');
     check($writer('events-first',2,$policy)['job_id']===$first['job_id'],'idempotent replay succeeds at cap');
     $single=$writer('events-next',1,$policy);check(is_array($single)&&$account->status()['admission_paused']===1,'exact event cap accepted and high watermark latched');
-    $paused=$writer('events-paused',1,$policy);check($paused instanceof HttpException&&$account->status()['rejected_paused']===1,'paused rejection durable telemetry');
+    $paused=$writer('events-paused',1,$policy);check($paused instanceof HttpException&&$account->status()['rejected_events']===2&&$account->status()['rejected_paused']===0,'hard event cap remains the rejection reason even while latched');
     $worker=new PostgresQueueDriver($pdo,10);check($worker->process($worker->claim())==='completed'&&$account->snapshot()['active_events']===1,'completion frees event count');
     $resumed=$writer('events-resumed',1,$policy);check(is_array($resumed)&&$account->status()['admission_paused']===0,'below low watermark resumes');
     while(($claim=$worker->claim())!==null){if(isset($claim['id']))check($worker->process($claim)==='completed','drain accepted job');else break;}
     check($account->snapshot()['active_jobs']===0&&$account->verify()['valid'],'zero capacity after drains');
+    // Exercise the paused counter separately while spare hard capacity remains:
+    // a 2-event admission reaches the high watermark of a 4-event budget.
+    $latchPolicy=new BackpressurePolicy(10,4,0,50,25);
+    $latchFirst=$writer('latch-first',2,$latchPolicy);
+    check(is_array($latchFirst)&&$account->status()['admission_paused']===1,'admission pauses at event high watermark');
+    $latchDenied=$writer('latch-denied',1,$latchPolicy);
+    check($latchDenied instanceof HttpException&&$latchDenied->error==='queue_full'&&$account->status()['rejected_paused']===1,
+        'paused rejection recorded while below hard capacity');
+    check($worker->process($worker->claim())==='completed','paused fixture releases capacity');
+    $latchResumed=$writer('latch-resumed',1,$latchPolicy);
+    check(is_array($latchResumed)&&$account->status()['admission_paused']===0,'paused admission resumes below low watermark');
+    check($worker->process($worker->claim())==='completed'&&$account->verify()['valid'],'resumed fixture drains without accounting drift');
     $batch=\Cajeer\Logs\Log\IngestBatch::encodeJob([$events[0]],$map);
     $stmt=$pdo->prepare('SELECT octet_length(CAST(:body AS jsonb)::text)');$stmt->execute(['body'=>$batch]);$exactBytes=(int)$stmt->fetchColumn();
     $bytePolicy=new BackpressurePolicy(10,0,$exactBytes+2,100,50);
@@ -45,7 +57,7 @@ try {
     foreach($procs as [$proc,$pipes]){$output=stream_get_contents($pipes[1]);$error=stream_get_contents($pipes[2]);fclose($pipes[1]);fclose($pipes[2]);$exit=proc_close($proc);if($exit!==0)throw new RuntimeException('Producer failed: '.$error);$results[]=$output;}
     @unlink($barrier);
     sort($results);check($results===['accepted','blocked']&&$account->snapshot()['active_events']===1&&$account->verify()['valid'],'two independent producers never overshoot event capacity');
-    $latest=$account->status();check($latest['rejected_events']===2&&$latest['admission_paused']===1,'rejection counters persist across transactions');
+    $latest=$account->status();check($latest['rejected_events']===3&&$latest['rejected_paused']===1&&$latest['admission_paused']===1,'rejection counters persist across transactions');
     $worker->process($worker->claim());check($account->snapshot()['active_jobs']===0&&$account->verify()['valid'],'final reconciliation exact');
     echo "Queue backpressure database: $n checks passed\n";
 } finally {$base->exec('DROP SCHEMA "'.$schema.'" CASCADE');}
