@@ -52,7 +52,11 @@ try {
     $pdo->exec('UPDATE projects SET retention_days=1 WHERE id='.$pdo->quote($p));$pdo->exec('UPDATE sources SET retention_days=1 WHERE id='.$pdo->quote($s));
     $pdo->exec("UPDATE log_events SET received_at=now()-interval '2 days' WHERE project_id=".$pdo->quote($p));
     $cfg=clone $app->config();$second=(new ConnectionFactory($cfg))->make('pgsql');$second->beginTransaction();$second->query('SELECT id FROM log_events WHERE id='.$pdo->quote($id).' FOR UPDATE')->closeCursor();
-    $fresh=(new LogRepository($second))->storeBatch([$e],$p,['app'=>$s],$t['id'])[0];
+    // Keep the concurrent writer's analytics minute distinct from the old rows.
+    // Otherwise the shared rollup row is locked until commit and this test
+    // measures an aggregate lock timeout rather than event-row SKIP LOCKED.
+    $freshEvent=new IngestEvent('app','info','fresh retained event',(object)[],gmdate('Y-m-d\TH:i:s\Z',time()-300),null,null,'test-trace',null,[]);
+    $fresh=(new LogRepository($second))->storeBatch([$freshEvent],$p,['app'=>$s],$t['id'])[0];
     $removed=(new Retention($pdo))->run(3);check($removed===2,'retention skips locked candidate, deduplicates overlap');$second->commit();
     check((new Retention($pdo))->run(3)===1,'retention resumes after lock release');
     check((int)$pdo->query('SELECT count(*) FROM log_events WHERE id IN ('.$pdo->quote($fresh).','.$pdo->quote($foreignId).')')->fetchColumn()===2,'concurrent fresh write and other project preserved');
