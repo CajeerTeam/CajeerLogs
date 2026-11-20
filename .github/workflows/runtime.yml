@@ -129,7 +129,9 @@ jobs:
 
   runtime:
     needs: build-candidate
-    runs-on: ubuntu-latest
+    # Playwright 1.52.0 provides browser/dependency bundles for Ubuntu 24.04,
+    # but cannot install Chromium on the ubuntu26.04 runner selected by latest.
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
