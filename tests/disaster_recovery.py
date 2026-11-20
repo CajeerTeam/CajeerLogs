@@ -31,7 +31,8 @@ def run(command, env, *, check=True, timeout=120):
     p=subprocess.run(command,cwd=ROOT,env=env,text=True,capture_output=True,timeout=timeout)
     if check and p.returncode:
         # Never print stderr: it may contain connection strings or env values.
-        raise RuntimeError(f'Failed command {command[0]} exit={p.returncode}')
+        label = command[2] if len(command)>2 and command[:2]==['php','bin/cajeer'] else Path(command[0]).name
+        raise RuntimeError(f'Failed command {label} exit={p.returncode}')
     return p
 
 
@@ -190,6 +191,8 @@ def main():
                           fault_domain_separation_proven=False,
                           postgres_major=sql(env,'SHOW server_version_num',target)[:2])
         finally:
+            if report['status']=='failed':
+                print('DR last completed check: '+(report['checks'][-1] if report['checks'] else 'none'),file=sys.stderr)
             # Preserve failure in the report; CI owns database lifecycle.
             output.parent.mkdir(parents=True,exist_ok=True)
             output.write_text(json.dumps(report,indent=2,sort_keys=True)+'\n')
@@ -200,5 +203,6 @@ def main():
 if __name__=='__main__':
     try: main()
     except Exception as e:
-        print('DR certification failed: '+type(e).__name__,file=sys.stderr)
+        reason=str(e) if isinstance(e,RuntimeError) and str(e).startswith('Failed command ') else ''
+        print('DR certification failed: '+type(e).__name__+(': '+reason if reason else ''),file=sys.stderr)
         sys.exit(1)
