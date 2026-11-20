@@ -965,7 +965,7 @@ jobs:
         run: |
           npm --prefix packages/ts-sdk install --no-audit --no-fund
           npm --prefix packages/ts-sdk run check
-          npm --prefix packages/ts-sdk pack --dry-run
+          npm pack ./packages/ts-sdk --dry-run
       - name: Kotlin/JVM SDK compile, Maven publication and signed queue integration
         if: matrix.php == '8.4' && matrix.postgres == '17'
         run: |
