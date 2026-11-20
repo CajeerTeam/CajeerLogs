@@ -279,7 +279,15 @@ WORKER;
             $sdk=proc_open($command,[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$sdkPipes,$root,$sdkEnv);
             if (!is_resource($sdk)) { throw new RuntimeException('Cannot start SDK test.'); }
             fclose($sdkPipes[0]);$sdkOut=stream_get_contents($sdkPipes[1]);$sdkErr=stream_get_contents($sdkPipes[2]);fclose($sdkPipes[1]);fclose($sdkPipes[2]);
-            verify(proc_close($sdk)===0,'real SDK HTTP integration: '.$command[1]);echo $sdkOut;
+            $sdkExit=proc_close($sdk);
+            if ($sdkExit!==0) {
+                $diagnostic=substr($sdkErr."\n".$sdkOut,-2400);
+                foreach ([$secret,($sdkEnv['DB_PASSWORD']??'')] as $credential) {
+                    if (is_string($credential)&&strlen($credential)>=3) $diagnostic=str_replace($credential,'[REDACTED]',$diagnostic);
+                }
+                fwrite(STDERR,'SDK integration '.$command[1].' exited '.$sdkExit.': '.$diagnostic.PHP_EOL);
+            }
+            verify($sdkExit===0,'real SDK HTTP integration: '.$command[1]);echo $sdkOut;
         }
         // Confirm the SDK's actual async PostgreSQL job, not merely HTTP 202.
         // No worker is running in this isolated test server; process admitted jobs
