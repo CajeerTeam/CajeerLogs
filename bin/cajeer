@@ -180,11 +180,6 @@ try {
     };
     exit($handler->handle());
 } catch (Throwable $error) {
-    // The disposable PostgreSQL restart test needs a reason for a worker logic
-    // error. Never emit this diagnostic outside the explicit CI fault-injection run.
-    if (getenv('CAJEER_TEST_POSTGRES_CONTAINER')!==false && $error instanceof LogicException) {
-        fwrite(STDERR,'CI queue worker logic fault: '.substr($error->getMessage(),0,180).' at '.basename($error->getFile()).':'.$error->getLine().PHP_EOL);
-    }
     // Configuration validation messages contain field names, not values. Other errors may contain secrets.
     fwrite(STDERR, 'Runtime failure: ' . ($error instanceof DatabaseException || $error instanceof RuntimeException && preg_match('/^(Invalid |APP_|Metrics path|Duplicate \.env|Cannot read environment|PHP 8\.4)/', $error->getMessage()) ? $error->getMessage() : $error::class) . PHP_EOL);
     exit(1);
