@@ -57,7 +57,15 @@ try {
     verify((int)$pdo->query("SELECT count(*) FROM jobs WHERE queue='ingest-v1'")->fetchColumn()===0,'denied enqueue leaves no job');
     $before=$count();$pdo->exec("ALTER TABLE log_events ADD CONSTRAINT repo_test_failure CHECK(message<>'db failure')");
     $bad=new IngestEvent('app','info','db failure',(object)[],'2026-01-01T00:00:00Z');
-    verify(failure(fn()=>$tx->run(fn()=>$repo->storeBatch([$event,$bad],$p,$map,$writer['id']))) instanceof PDOException && $count()===$before,'SQL constraint rollback of complete batch');
+    $rollbackFailure=failure(fn()=>$tx->run(fn()=>$repo->storeBatch([$event,$bad],$p,$map,$writer['id'])));
+    $after=$count();
+    if (!($rollbackFailure instanceof PDOException && $after===$before)) {
+        $sqlState=$rollbackFailure instanceof PDOException
+            ?(string)($rollbackFailure->errorInfo[0]??$rollbackFailure->getCode()):'n/a';
+        fwrite(STDERR,'Atomic batch rollback diagnostic: exception='.get_class($rollbackFailure)
+            .' sqlstate='.$sqlState.' rows_before='.$before.' rows_after='.$after.PHP_EOL);
+    }
+    verify($rollbackFailure instanceof PDOException && $after===$before,'SQL constraint rollback of complete batch');
     $pdo->exec('ALTER TABLE log_events DROP CONSTRAINT repo_test_failure');
     verify((int)$repo->legacyCounts()['unscoped']===2 && $repo->find($q,$legacy)===null,'legacy rows excluded from ordinary reads');
     $legacyPage=$repo->legacyList(1);$legacyNext=$repo->legacyList(1,$legacyPage['next_after']);
