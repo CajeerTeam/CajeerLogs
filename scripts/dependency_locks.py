@@ -15,6 +15,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import tomllib
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -190,6 +191,38 @@ def tool(name: str) -> str:
     return result
 
 
+def gradle_with_registry_backoff(argv: list[str], cwd: Path) -> None:
+    """Retry ONLY transient artifact-registry HTTP throttling, never verification errors.
+
+    Plugin Portal can proxy Maven Central responses, including HTTP 429. Gradle's
+    strict dependency verification and committed lockfiles remain in force for
+    every attempt; network or checksum failures cannot make the install pass.
+    """
+    delays = (15, 30, 60, 90)
+    for attempt in range(len(delays) + 1):
+        result = subprocess.run(argv, cwd=cwd, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, timeout=900)
+        output = result.stdout or b''
+        if output:
+            sys.stdout.buffer.write(output)
+            sys.stdout.buffer.flush()
+        if result.returncode == 0:
+            return
+        # Only retry HTTP 429 reported by Gradle for a downloaded artifact.
+        # In particular, SHA-256 mismatches, absent locks, tests or build
+        # failures fail immediately rather than being hidden by retries.
+        throttled = re.search(
+            rb"(?i)Could not (?:GET|HEAD) [^\r\n]+"
+            rb"(?:Received status code 429|response code: 429)", output)
+        if not throttled or attempt == len(delays):
+            raise subprocess.CalledProcessError(result.returncode, argv)
+        delay = delays[attempt]
+        print(f'Maven artifact registry returned HTTP 429; retrying strict Gradle build '
+              f'after {delay}s (attempt {attempt + 2}/{len(delays) + 1})',
+              file=sys.stderr, flush=True)
+        time.sleep(delay)
+
+
 def validate_install(root: Path, docker: bool = True) -> None:
     """Verify downloads by package managers, then validate registry manifest digests."""
     composer, npm, gradle = (tool(x) for x in ('composer', 'npm', 'gradle'))
@@ -203,7 +236,7 @@ def validate_install(root: Path, docker: bool = True) -> None:
     kotlin = root/'clients/java-kotlin'
     # First resolve against repositories, then prove cached verification is sufficient
     # for an independent offline rebuild. Both enforce SHA-256 metadata.
-    command([gradle, '--no-daemon', '--dependency-verification=strict', 'build'], kotlin)
+    gradle_with_registry_backoff([gradle, '--no-daemon', '--dependency-verification=strict', 'build'], kotlin)
     command([gradle, '--no-daemon', '--offline', '--dependency-verification=strict', 'build'], kotlin)
     if docker:
         tool('docker')
