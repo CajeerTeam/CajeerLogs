@@ -57,7 +57,7 @@ try {
     verify((int)$pdo->query("SELECT count(*) FROM jobs WHERE queue='ingest-v1'")->fetchColumn()===0,'denied enqueue leaves no job');
     $before=$count();$pdo->exec("ALTER TABLE log_events ADD CONSTRAINT repo_test_failure CHECK(message<>'db failure')");
     $bad=new IngestEvent('app','info','db failure',(object)[],'2026-01-01T00:00:00Z');
-    $rollbackFailure=failure(fn()=>$tx->run(fn()=>$repo->storeBatch([$event,$bad],$p,$map,$writer['id'])));
+    $rollbackFailure=failure(fn()=>$tx->run(fn()=>$repo->storeBatch([$event,$bad],$p,['app'=>$a],$writer['id'])));
     $after=$count();
     if (!($rollbackFailure instanceof PDOException && $after===$before)) {
         $sqlState=$rollbackFailure instanceof PDOException
