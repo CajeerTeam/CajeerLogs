@@ -211,7 +211,17 @@ final class MigrationRunner
             RestoreFence::assertAvailable($this->pdo);
             if ($integrityPreflight) {
                 $status=$this->status(false);
-                if ($status['integrity']!=='verified' || !in_array($status['pending'],[[],['0022_queue_accounting.sql'],['0021_retention_execution_history.sql','0022_queue_accounting.sql'],['0020_rate_limit_buckets.sql','0021_retention_execution_history.sql','0022_queue_accounting.sql'],['0019_audit_accountability.sql','0020_rate_limit_buckets.sql','0021_retention_execution_history.sql','0022_queue_accounting.sql'],['0018_identity_security.sql','0019_audit_accountability.sql','0020_rate_limit_buckets.sql','0021_retention_execution_history.sql','0022_queue_accounting.sql'],['0017_rbac_roles_permissions.sql','0018_identity_security.sql','0019_audit_accountability.sql','0020_rate_limit_buckets.sql','0021_retention_execution_history.sql','0022_queue_accounting.sql'],['0016_saved_log_views.sql','0017_rbac_roles_permissions.sql','0018_identity_security.sql','0019_audit_accountability.sql','0020_rate_limit_buckets.sql','0021_retention_execution_history.sql','0022_queue_accounting.sql'],['0015_authentication_sessions.sql','0016_saved_log_views.sql','0017_rbac_roles_permissions.sql','0018_identity_security.sql','0019_audit_accountability.sql','0020_rate_limit_buckets.sql','0021_retention_execution_history.sql','0022_queue_accounting.sql'],['0014_delivery_idempotency.sql','0015_authentication_sessions.sql','0016_saved_log_views.sql','0017_rbac_roles_permissions.sql','0018_identity_security.sql','0019_audit_accountability.sql','0020_rate_limit_buckets.sql','0021_retention_execution_history.sql','0022_queue_accounting.sql'],['0013_ingest_signing.sql','0014_delivery_idempotency.sql','0015_authentication_sessions.sql','0016_saved_log_views.sql','0017_rbac_roles_permissions.sql','0018_identity_security.sql','0019_audit_accountability.sql','0020_rate_limit_buckets.sql','0021_retention_execution_history.sql','0022_queue_accounting.sql'],['0012_database_integrity.sql','0013_ingest_signing.sql','0014_delivery_idempotency.sql','0015_authentication_sessions.sql','0016_saved_log_views.sql','0017_rbac_roles_permissions.sql','0018_identity_security.sql','0019_audit_accountability.sql','0020_rate_limit_buckets.sql','0021_retention_execution_history.sql','0022_queue_accounting.sql']],true)) throw new DatabaseException('Integrity preflight requires the verified 0.1.8 or current schema.');
+                // status(false) already checks that every applied migration is an
+                // unmodified contiguous prefix of the migration files, and that
+                // the saved catalog snapshot matches PostgreSQL. Requiring the
+                // pending *suffix* to begin after 0011 admits verified 0.1.8+
+                // schemas without freezing this guard to a specific release's
+                // migration list (newer releases include 0023...0033 and beyond).
+                $firstPending=$status['pending'][0]??null;
+                $hasVerifiedBaseline=$firstPending===null || (int)substr($firstPending,0,4)>=12;
+                if ($status['integrity']!=='verified' || !$hasVerifiedBaseline) {
+                    throw new DatabaseException('Integrity preflight requires the verified 0.1.8 or current schema.');
+                }
             } else $this->assertCurrent();
             return $guard;
         } catch (\Throwable $e) { $guard->release(); throw $e; }
