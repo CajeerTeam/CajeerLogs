@@ -23,6 +23,27 @@ foreach(['UPDATE demo SET value=1 RETURNING id','WITH x AS (SELECT id FROM demo 
 $expected=['column:t.a'=>'old','index:gone'=>'abc','relation:t'=>'table']; $actual=['column:t.a'=>'new','relation:t'=>'table','index:new'=>'def'];
 check(SchemaInspector::differences($expected,$actual)===[['object'=>'column:t.a','change'=>'changed'],['object'=>'index:gone','change'=>'missing'],['object'=>'index:new','change'=>'unexpected']],'precise structural drift changes');
 check(SchemaInspector::differences($expected,array_reverse($expected,true))===[],'catalog ordering does not produce drift');
+$restoreBefore=[
+    'constraint:audit_log.audit_chain_values'=>json_encode(['type'=>'c','definition'=>"CHECK (((chain_position > 0) AND ((result)::text = ANY ((ARRAY['success'::character varying, 'failure'::character varying])::text[]))))"],JSON_THROW_ON_ERROR),
+    'constraint:users.users_role_valid'=>json_encode(['type'=>'c','definition'=>"CHECK (((role)::text = ANY ((ARRAY['administrator'::character varying, 'operator'::character varying])::text[])))"],JSON_THROW_ON_ERROR),
+    'constraint:integration_webhooks.integration_webhooks_events_valid'=>json_encode(['type'=>'c','definition'=>"CHECK ((((cardinality(events) >= 1) AND (cardinality(events) <= 6)) AND (events <@ ARRAY['logs.ingested'::text, 'source.created'::text])))"],JSON_THROW_ON_ERROR),
+    'index:log_events_error_analytics_idx'=>json_encode(['table'=>'log_events','predicate'=>"((source_id IS NOT NULL) AND ((level)::text = ANY ((ARRAY['error'::character varying, 'alert'::character varying])::text[])))"],JSON_THROW_ON_ERROR),
+];
+$restoreAfter=[
+    'constraint:audit_log.audit_chain_values'=>json_encode(['type'=>'c','definition'=>"CHECK (((chain_position > 0) AND ((result)::text = ANY (ARRAY[('success'::character varying)::text, ('failure'::character varying)::text]))))"],JSON_THROW_ON_ERROR),
+    'constraint:users.users_role_valid'=>json_encode(['type'=>'c','definition'=>"CHECK (((role)::text = ANY (ARRAY[('administrator'::character varying)::text, ('operator'::character varying)::text])))"],JSON_THROW_ON_ERROR),
+    'constraint:integration_webhooks.integration_webhooks_events_valid'=>json_encode(['type'=>'c','definition'=>"CHECK (((cardinality(events) >= 1) AND (cardinality(events) <= 6) AND (events <@ ARRAY['logs.ingested'::text, 'source.created'::text])))"],JSON_THROW_ON_ERROR),
+    'index:log_events_error_analytics_idx'=>json_encode(['table'=>'log_events','predicate'=>"((source_id IS NOT NULL) AND ((level)::text = ANY (ARRAY[('error'::character varying)::text, ('alert'::character varying)::text])))"],JSON_THROW_ON_ERROR),
+];
+check(SchemaInspector::differences($restoreBefore,$restoreAfter)===[], 'pg_restore alternate literal array casts and associative AND clauses have identical structure');
+$invalidRestore=$restoreAfter;
+$invalidRestore['constraint:users.users_role_valid']=str_replace('operator','viewer',$invalidRestore['constraint:users.users_role_valid']);
+check(SchemaInspector::differences($restoreBefore,$invalidRestore)!==[], 'restore equivalence rejects changed allowed role literals');
+$invalidRestore=$restoreAfter;
+$invalidRestore['index:log_events_error_analytics_idx']=str_replace('"table":"log_events"','"table":"forged"',$invalidRestore['index:log_events_error_analytics_idx']);
+check(SchemaInspector::differences($restoreBefore,$invalidRestore)!==[], 'restore equivalence still checks index catalog properties');
+$unlisted=['constraint:unlisted.role'=>$restoreBefore['constraint:users.users_role_valid']];
+check(SchemaInspector::differences($unlisted,['constraint:unlisted.role'=>$restoreAfter['constraint:users.users_role_valid']])!==[], 'unlisted expression changes remain strictly checked');
 // A scratch-schema replay must compare equivalent trigger definitions without
 // accepting changed function targets, unrelated namespaces, or column drift.
 $replayMethod=(new ReflectionClass(MigrationRunner::class))->getMethod('normalizeReplayTriggers');

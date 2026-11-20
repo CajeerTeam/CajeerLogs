@@ -31,7 +31,10 @@ try {
     check($runner->migrate()===array_values(array_map('basename',array_filter(glob($root.'/migrations/pgsql/*.sql'),static fn(string $f):bool=>(int)substr(basename($f),0,4)>=12)))&&$runner->status()['integrity']==='verified','upgrade after explicit repair');
     check(rejected(fn()=>$pdo->exec('UPDATE log_events SET ingest_token_id='.$pdo->quote($t2['id']).' WHERE id='.$pdo->quote($id)),'23503'),'FK rejects cross-project log token');
     check(rejected(fn()=>$pdo->exec("UPDATE log_events SET source='wrong' WHERE id=".$pdo->quote($id)),'23503'),'FK rejects source slug mismatch');
-    check(rejected(fn()=>$pdo->exec('UPDATE jobs SET token_id='.$pdo->quote($t2['id']).' WHERE id='.$job),'23503'),'FK rejects cross-project queue token');
+    check(rejected(fn()=>$pdo->exec('UPDATE jobs SET token_id='.$pdo->quote($t2['id']).' WHERE id='.$job),'23514'),
+        'immutable durable queue ownership rejects cross-project token reassignment');
+    check((int)$pdo->query("SELECT count(*) FROM pg_constraint WHERE conrelid='jobs'::regclass AND conname='jobs_token_project_fk' AND contype='f'")->fetchColumn()===1,
+        'foreign key additionally protects durable queue token scope');
     check(rejected(fn()=>$pdo->exec("UPDATE jobs SET status='running' WHERE id=".$job),'23514'),'invalid lease rejected');
     check($q->process($q->claim())==='completed','existing pending job completes after upgrade');
     $tx->run(fn()=>$log->saveReceipt($t['id'],hash('sha256','receipt'),$hash,$ids));
@@ -49,7 +52,11 @@ try {
     $pdo->exec('UPDATE projects SET retention_days=1 WHERE id='.$pdo->quote($p));$pdo->exec('UPDATE sources SET retention_days=1 WHERE id='.$pdo->quote($s));
     $pdo->exec("UPDATE log_events SET received_at=now()-interval '2 days' WHERE project_id=".$pdo->quote($p));
     $cfg=clone $app->config();$second=(new ConnectionFactory($cfg))->make('pgsql');$second->beginTransaction();$second->query('SELECT id FROM log_events WHERE id='.$pdo->quote($id).' FOR UPDATE')->closeCursor();
-    $fresh=(new LogRepository($second))->storeBatch([$e],$p,['app'=>$s],$t['id'])[0];
+    // Keep the concurrent writer's analytics minute distinct from the old rows.
+    // Otherwise the shared rollup row is locked until commit and this test
+    // measures an aggregate lock timeout rather than event-row SKIP LOCKED.
+    $freshEvent=new IngestEvent('app','info','fresh retained event',(object)[],gmdate('Y-m-d\TH:i:s\Z',time()-300),null,null,'test-trace',null,[]);
+    $fresh=(new LogRepository($second))->storeBatch([$freshEvent],$p,['app'=>$s],$t['id'])[0];
     $removed=(new Retention($pdo))->run(3);check($removed===2,'retention skips locked candidate, deduplicates overlap');$second->commit();
     check((new Retention($pdo))->run(3)===1,'retention resumes after lock release');
     check((int)$pdo->query('SELECT count(*) FROM log_events WHERE id IN ('.$pdo->quote($fresh).','.$pdo->quote($foreignId).')')->fetchColumn()===2,'concurrent fresh write and other project preserved');
