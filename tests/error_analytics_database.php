@@ -19,7 +19,7 @@ try {
     $repo=new LogRepository($pdo);$errors=new ErrorAnalytics($pdo);
     $start=new DateTimeImmutable('@'.(time()-7200));
     $fmt=static fn(DateTimeImmutable $d):string=>$d->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d\TH:i:s\Z');
-    $eventTime=static fn(string $modifier):string=>$fmt($start->modify($modifier));
+    $eventTime=static fn(string $modifier):string=>$fmt($modifier==='' ? $start : $start->modify($modifier));
     $send=static function(string $project,string $source,string $token,string $service,string $level,string $message,string $time)use($pdo,$repo):string {
         $data=['timestamp'=>$time,'source'=>$source===''? '': ($service==='worker'?'worker':'api'),'service'=>$service,'level'=>$level,'message'=>$message];
         $events=(new IngestValidator())->parse(new Request('POST','/api/v1/ingest',['Content-Type'=>'application/json'],[],json_encode($data,JSON_THROW_ON_ERROR)));
@@ -38,7 +38,7 @@ try {
     checkError(count($shared)===1 && $shared[0]['previous_count']===1 && $shared[0]['classification']==='regressed','numeric and IP identifiers collapse into stable fingerprint');
     checkError($report['groups'][1]['classification']==='new'||$report['groups'][0]['classification']==='new','new groups detected');
     $sig=$shared[0]['fingerprint'];
-    $q2=LogQuery::parse($filters+['error_fingerprint'=>$sig],'list');
+    $q2=LogQuery::parse(array_diff_key($filters,['interval'=>true])+['error_fingerprint'=>$sig],'list');
     checkError(count($repo->page($q2)['items'])===2,'fingerprint drilldown includes only matching events');
     checkError(count($repo->page($q2->scoped($b))['items'])===0,'source-bound drilldown enforces isolation');
     $rOther=$errors->report(LogQuery::parse(['project_id'=>$other,'from'=>$filters['from'],'to'=>$filters['to']],'errors'));

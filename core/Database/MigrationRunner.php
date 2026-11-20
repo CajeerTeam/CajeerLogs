@@ -144,6 +144,14 @@ final class MigrationRunner
                 foreach ($file['statements'] as $statement) $this->pdo->exec($statement['sql']);
             }
             $expected=$this->inspector->snapshot($reference);
+            // PostgreSQL deparses trigger definitions with namespace-qualified
+            // relations/functions when their owner is not visible in the active
+            // search_path. The temporary replay schema necessarily has a
+            // different name. Normalize ONLY each catalog's own namespace in
+            // trigger definitions; do not change stored integrity snapshots,
+            // user-defined SQL bodies, or references to other schemas.
+            $actual=$this->normalizeReplayTriggers($actual,$this->schema);
+            $expected=$this->normalizeReplayTriggers($expected,$reference);
             $differences=SchemaInspector::differences($expected,$actual);
             if ($differences!==[]) {
                 throw new DatabaseException('Independent schema replay detected drift: '.implode(', ',array_map(
@@ -167,6 +175,30 @@ final class MigrationRunner
             if ($error instanceof DatabaseException) throw $error;
             throw new DatabaseException('Independent PostgreSQL schema certification failed; no schema changes committed.',0,$error);
         }
+    }
+
+    /**
+     * Canonicalize only namespace-qualified references inside PostgreSQL's
+     * pg_get_triggerdef() output, not function source or column defaults.
+     * Every other catalog attribute remains byte-for-byte significant.
+     * The live schema's stored drift fingerprint is never rewritten.
+     */
+    private function normalizeReplayTriggers(array $snapshot,string $schema): array
+    {
+        foreach ($snapshot as $key=>$value) {
+            if (!str_starts_with($key,'trigger:')) continue;
+            $trigger=json_decode($value,true,512,JSON_THROW_ON_ERROR);
+            if (!is_array($trigger) || !isset($trigger['definition']) || !is_string($trigger['definition'])) {
+                throw new DatabaseException('Invalid trigger catalog entry during schema certification: '.$key);
+            }
+            $trigger['definition']=str_replace(
+                ['"'.$schema.'".',$schema.'.'],
+                ['__cajeer_replay_schema__.','__cajeer_replay_schema__.'],
+                $trigger['definition']
+            );
+            $snapshot[$key]=json_encode($trigger,JSON_THROW_ON_ERROR);
+        }
+        return $snapshot;
     }
 
     public function assertCurrent(): void {

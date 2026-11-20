@@ -14,8 +14,8 @@ if (getenv('APP_ENV') !== 'test' || getenv('CAJEER_TEST_DATABASE') !== '1'
 }
 $phase=$argv[1]??''; $file=$argv[2]??'';
 if (!in_array($phase,['seed','outage','recover','verify','cleanup'],true) || $file==='') exit(64);
-$app=new Application(dirname(__DIR__));$app->boot();
-$admin=$app->container()->get(PDO::class);
+$adminApp=require dirname(__DIR__).'/core/bootstrap.php';$adminApp->boot();
+$admin=$adminApp->container()->get(PDO::class);
 $state=[];
 if ($phase!=='seed') {
     if (!is_file($file)) throw new RuntimeException('Recovery state file is missing');
@@ -34,6 +34,7 @@ if ($phase==='seed') {
     file_put_contents($file,json_encode(['schema'=>$schema],JSON_THROW_ON_ERROR));
     chmod($file,0600);
 }
+$app=new Application(dirname(__DIR__));$app->boot();
 $app->config()->set('database.schema',$schema);
 $pdo=$app->container()->get(PDO::class);
 if ((string)$pdo->query('SELECT current_schema()')->fetchColumn()!==$schema)

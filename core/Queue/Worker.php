@@ -29,7 +29,7 @@ final class Worker
                 if ($limit===0 && is_string($parent) && ctype_digit($parent) && function_exists('posix_getppid') && posix_getppid()!==(int)$parent) break;
                 // A time limit must also recycle a completely idle worker.
                 if ($limit===0 && $policy->exhausted($processed,(int)((hrtime(true)-$start)/1e9),memory_get_usage(true))) break;
-                $guard=null;$delay=0;unset($pdo,$claim,$claims,$queue);
+                $guard=null;$delay=0;unset($pdo,$claims,$queue);
                 try {
                     if ($this->connection instanceof ConnectionManager) {
                         $pdo=$this->connection->connection();
@@ -66,7 +66,7 @@ final class Worker
                     $decision=RetryPolicy::classify($error);
                     if (!$this->connection instanceof ConnectionManager || (!DatabaseFailure::unavailable($error) && $decision['action']!=='pause' && (!isset($pdo) || TransactionManager::usable($pdo)))) throw $error;
                     // Durable job state is authoritative. Never replay uncertain claim/process/COMMIT.
-                    unset($queue,$claim,$claims,$guard,$pdo);$this->connection->invalidate();
+                    unset($queue,$claims,$guard,$pdo);$this->connection->invalidate();
                     if ($limit!==0 || ++$failures>=$this->retryPolicy->get('outage_max_failures')) throw $error;
                     fwrite(STDERR,'Queue database unavailable: '.$decision['reason'].'; reconnecting at next operation boundary.'.PHP_EOL);
                     $delay=$this->retryPolicy->outageDelay($failures);

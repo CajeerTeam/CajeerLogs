@@ -110,7 +110,13 @@ def run(archive: Path, output: Path) -> bool:
                         records = [json.loads(line[len('RECOVERY_JSON:'):])
                                    for line in lines if line.startswith('RECOVERY_JSON:')]
                         if len(records) != 1 or stage['checks'] < 12:
-                            raise RuntimeError('Missing real service stop/start and recovery checks')
+                            diagnostic = (process.stderr + '\n' + process.stdout)[-2000:]
+                            for key in ('DB_PASSWORD', 'CLICKHOUSE_PASSWORD', 'PGPASSWORD', 'APP_KEY'):
+                                secret = env.get(key, '')
+                                if len(secret) >= 3:
+                                    diagnostic = diagnostic.replace(secret, '[REDACTED]')
+                            stage['diagnostic'] = diagnostic
+                            raise RuntimeError('Missing real service stop/start and recovery checks: ' + diagnostic)
                         stage['recovery'] = records[0]
                     if name == 'storage-fault-recovery':
                         metrics = [json.loads(line[len('PERFORMANCE_JSON:'):])
@@ -127,7 +133,14 @@ def run(archive: Path, output: Path) -> bool:
             report['status'] = 'passed'
     except (Exception, KeyboardInterrupt) as exc:
         report['error_type'] = type(exc).__name__
-        print('Analytics/storage certification failed: ' + type(exc).__name__, file=sys.stderr)
+        diagnostic = str(exc)
+        for key in ('DB_PASSWORD', 'DB_MIGRATION_PASSWORD', 'CLICKHOUSE_PASSWORD',
+                    'PGPASSWORD', 'AWS_SECRET_ACCESS_KEY', 'APP_KEY'):
+            secret = os.environ.get(key, '')
+            if len(secret) >= 3:
+                diagnostic = diagnostic.replace(secret, '[REDACTED]')
+        report['error_message'] = diagnostic[-1200:]
+        print('Analytics/storage certification failed: ' + report['error_message'], file=sys.stderr)
     finally:
         atomic_json(output, report)
     return report['status'] == 'passed'

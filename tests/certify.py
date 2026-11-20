@@ -31,11 +31,31 @@ class GateTest(unittest.TestCase):
                      'version':'1.0.0','archive_sha256':evidence['archive_sha256'],
                      'independent_builds':[{'index':i,'sha256':evidence['archive_sha256']} for i in (1,2)]}
             info={'version':'1.0.0','archive_sha256':evidence['archive_sha256']}
+            # The committed locks are now genuine. Create a separate unlocked
+            # distribution so the fail-closed check remains meaningful both
+            # before and after real dependency locks are checked in.
+            source=Path(tmp)/'unlocked-source'
+            missing={'composer.lock','packages/ts-sdk/package-lock.json',
+                     'clients/java-kotlin/gradle.lockfile',
+                     'clients/java-kotlin/gradle/verification-metadata.xml'}
+            for name, data in release.source_files(ROOT).items():
+                if name in missing:
+                    continue
+                target=source/name
+                target.parent.mkdir(parents=True,exist_ok=True)
+                target.write_bytes(data)
+            unlocked_path=Path(tmp)/'unlocked.zip'
+            release.build(source,unlocked_path)
+            _, _, unlocked_report=__import__('supply_chain').sidecars(unlocked_path)
+            unlocked_sha=unlocked_report['archive_sha256']
+            unlocked_reproduction=dict(correct,archive_sha256=unlocked_sha,
+                 independent_builds=[{'index':i,'sha256':unlocked_sha} for i in (1,2)])
             with self.assertRaisesRegex(ValueError,'Unresolved dependency'):
-                certify.validate_supply_chain_evidence(path,evidence,correct,info)
-            unlocked=dict(evidence,dependency_lock_complete=True)
+                certify.validate_supply_chain_evidence(unlocked_path,unlocked_report,unlocked_reproduction,
+                    {'version':'1.0.0','archive_sha256':unlocked_sha})
+            mismatched=dict(evidence,dependency_lock_complete=not evidence['dependency_lock_complete'])
             with self.assertRaisesRegex(ValueError,'differs'):
-                certify.validate_supply_chain_evidence(path,unlocked,correct,info)
+                certify.validate_supply_chain_evidence(path,mismatched,correct,info)
 
     def test_full_matrix(self): certify.validate_matrix(self.reports,self.info)
     def test_missing_large_migration_evidence(self):

@@ -11,8 +11,8 @@ use Cajeer\Logs\Storage\{ArchiveLifecycle,S3CompatibleDisk};
 if (getenv('CAJEER_TEST_DATABASE')!=='1'||getenv('CAJEER_TEST_CLICKHOUSE')!=='1'||!getenv('S3_TEST_PORT')) {
     fwrite(STDERR,"Real disposable PostgreSQL, ClickHouse and test S3 are required.\n");exit(78);
 }
-$root=dirname(__DIR__);$app=new Application($root);$app->boot();
-$admin=$app->container()->get(PDO::class);$schema='cl_load_'.bin2hex(random_bytes(6));
+$root=dirname(__DIR__);$base=require $root.'/core/bootstrap.php';$base->boot();
+$admin=$base->container()->get(PDO::class);$schema='cl_load_'.bin2hex(random_bytes(6));
 $admin->exec('CREATE SCHEMA "'.$schema.'"');
 $n=0;$check=static function(bool $ok,string $name)use(&$n):void {if(!$ok)throw new RuntimeException('FAIL '.$name);$n++;echo "PASS $name\n";};
 $elapsed=static fn(int $start):float=>max(0.000001,(hrtime(true)-$start)/1e9);
@@ -23,6 +23,7 @@ $number=static function(string $name,float $default):float {
     return (float)$raw;
 };
 try {
+    $app=new Application($root);$app->boot();
     $app->config()->set('database.schema',$schema);$pdo=$app->container()->get(PDO::class);
     $app->container()->get(MigrationRunner::class)->migrate();
     $ch=$app->container()->get(ClickHouseHttpClient::class);
