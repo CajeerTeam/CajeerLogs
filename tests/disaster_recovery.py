@@ -82,25 +82,33 @@ def main():
         source=env['DB_DATABASE']; target=os.environ[names[1]]; rejected=os.environ[names[2]]
         try:
             # The CI job owns three freshly provisioned databases. Refuse any leftovers.
+            # Verify truly empty public schemas without creating a non-migrated
+            # table. The production migration fingerprint rejects untracked DDL.
+            empty_sql=("SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_class c "
+                       "JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace "
+                       "WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','f'))")
             for db in (source,target,rejected):
-                if sql(env,"SELECT EXISTS(SELECT 1 FROM pg_class WHERE relname='dr_proof')",db)!='f':
+                if sql(env,empty_sql,db)!='f':
                     raise RuntimeError('DR fixture database already used')
             run(['php','bin/cajeer','migrate'],env)
-            sql(env,'CREATE TABLE dr_proof (marker text PRIMARY KEY, written_at timestamptz NOT NULL DEFAULT clock_timestamp())')
-            sql(env,"INSERT INTO dr_proof(marker) VALUES ('before_snapshot')")
+            # Exercise snapshot consistency with real durable rows in the
+            # migrated settings table; no fixture DDL or snapshot bypass.
+            sql(env,"INSERT INTO settings(key,value) VALUES ('dr-proof:before_snapshot',to_jsonb('before_snapshot'::text))")
             # Real logical data-consistency fixture, not merely a single marker.
             # The payloads are deterministic and bounded, so the restored table's
             # row count and content checksum can be checked independently.
             for i in range(32):
-                sql(env, "INSERT INTO dr_proof(marker) VALUES ('proof-%03d-%s')" %
-                    (i, hashlib.sha256(('snapshot:'+str(i)).encode()).hexdigest()[:24]))
-            snapshot_rows=int(sql(env,'SELECT count(*) FROM dr_proof'))
-            snapshot_checksum=sql(env,"SELECT md5(string_agg(marker, ',' ORDER BY marker)) FROM dr_proof")
+                marker='proof-%03d-%s' % (i,hashlib.sha256(('snapshot:'+str(i)).encode()).hexdigest()[:24])
+                sql(env,"INSERT INTO settings(key,value) VALUES ('dr-proof:%s',to_jsonb('%s'::text))" % (marker,marker))
+            snapshot_rows=int(sql(env,"SELECT count(*) FROM settings WHERE key LIKE 'dr-proof:%'"))
+            proof_checksum=("SELECT md5(string_agg(key || ':' || value::text, ',' ORDER BY key)) "
+                            "FROM settings WHERE key LIKE 'dr-proof:%'")
+            snapshot_checksum=sql(env,proof_checksum)
             report['checks'].append('pre_snapshot_write')
             backup=cli(env,'backup:create')
             if backup['version']!='1.0.0' or not backup.get('snapshot_started_at') or backup['bytes']<1:
                 raise AssertionError('Unusable recovery point')
-            sql(env,"INSERT INTO dr_proof(marker) VALUES ('after_snapshot')")
+            sql(env,"INSERT INTO settings(key,value) VALUES ('dr-proof:after_snapshot',to_jsonb('after_snapshot'::text))")
             report['checks'].append('post_snapshot_write')
             copy=cli(env,'backup:replicate',backup['id'])
             if not copy['offsite_verified'] or copy['sha256']!=backup['sha256']:
@@ -133,7 +141,7 @@ def main():
             time.sleep(2)
             cli(env,'backup:dr-certify',backup['id'],rejected,'1','300',fail=True)
             report['checks'].append('stale_rpo_rejected')
-            if sql(env,"SELECT EXISTS(SELECT 1 FROM pg_class WHERE relname='dr_proof')",rejected)!='f':
+            if sql(env,empty_sql,rejected)!='f':
                 raise AssertionError('Failed DR preflights mutated target')
             # The local archive is no longer available. The recovery path MUST
             # decrypt the offsite package into new scratch storage, not fall back.
@@ -148,11 +156,12 @@ def main():
                 raise AssertionError('Real offsite recovery not completed')
             report['checks'].append('offsite_only_restore')
             targetenv=dict(env,DB_DATABASE=target)
-            markers=sql(env,"SELECT marker FROM dr_proof WHERE marker='before_snapshot'",target).splitlines()
-            restored_rows=int(sql(env,'SELECT count(*) FROM dr_proof',target))
-            restored_checksum=sql(env,"SELECT md5(string_agg(marker, ',' ORDER BY marker)) FROM dr_proof",target)
+            markers=sql(env,"SELECT value #>> '{}' FROM settings WHERE key='dr-proof:before_snapshot'",target).splitlines()
+            restored_rows=int(sql(env,"SELECT count(*) FROM settings WHERE key LIKE 'dr-proof:%'",target))
+            restored_checksum=sql(env,proof_checksum,target)
             if (markers!=['before_snapshot'] or restored_rows!=snapshot_rows or
                 restored_checksum!=snapshot_checksum or
+                sql(env,"SELECT count(*) FROM settings WHERE key='dr-proof:after_snapshot'",target)!='0' or
                 sql(env,"SELECT count(*) FROM auth_sessions",target)!='0'):
                 raise AssertionError('Snapshot boundary or credential invalidation failed')
             report['checks'].append('data_boundary_verified')
