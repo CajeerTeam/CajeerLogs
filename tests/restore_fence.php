@@ -20,8 +20,8 @@ final class FencePDO extends PDO {
     }
     public function exec(string $statement): int|false {
         $this->calls[]=$statement;
-        if (str_contains($statement,"SET cajeerlogs.restore_state TO 'pending'")) $this->pending=true;
-        if (str_contains($statement,'RESET cajeerlogs.restore_state')) $this->pending=false;
+        if (str_contains($statement,"COMMENT ON DATABASE") && str_contains($statement,"IS 'cajeerlogs.restore_state=pending'")) $this->pending=true;
+        if (str_contains($statement,'COMMENT ON DATABASE') && str_contains($statement,'IS NULL')) $this->pending=false;
         return 0;
     }
     public function beginTransaction(): bool { $this->original=$this->pending;return $this->active=true; }

@@ -87,7 +87,7 @@ try {
     $targetConfig=clone $cfg; $targetConfig->set('database.database',$target);
     verify(rejected(fn()=>(new ConnectionFactory($targetConfig))->make('pgsql')),'failed restore quarantines new runtime connections');
     // Test-only cleanup: remove failed disposable schema and clear database fence as owner.
-    $base->exec('ALTER DATABASE "'.$target.'" RESET cajeerlogs.restore_state');
+    $base->exec('COMMENT ON DATABASE "'.$target.'" IS NULL');
     $failedTarget=(new ConnectionFactory($targetConfig))->make('pgsql');
     $failedTarget->exec('DROP SCHEMA "'.$schema.'" CASCADE'); $failedTarget=null;
     file_put_contents($manifestPath,json_encode($m,JSON_THROW_ON_ERROR));
@@ -97,7 +97,7 @@ try {
     $invalid=$backup->create(); $pdo->exec('DELETE FROM ingest_receipts');
     verify(rejected(fn()=>$backup->restore($invalid['id'],$target)),'logical integrity failure prevents restore publication');
     verify(rejected(fn()=>(new ConnectionFactory($targetConfig))->make('pgsql')),'logical failure persists database quarantine');
-    $base->exec('ALTER DATABASE "'.$target.'" RESET cajeerlogs.restore_state');
+    $base->exec('COMMENT ON DATABASE "'.$target.'" IS NULL');
     $failedTarget=(new ConnectionFactory($targetConfig))->make('pgsql');
     $failedTarget->exec('DROP SCHEMA "'.$schema.'" CASCADE'); $failedTarget=null;
     $result=$backup->restore($m['id'],$target); verify($result['status']==='restored'&&$result['api_tokens_revoked']&&$result['integrity_verified'],'restore into isolated database after logical audit');
