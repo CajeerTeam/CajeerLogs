@@ -92,6 +92,13 @@ def main():
                 if sql(env,empty_sql,db)!='f':
                     raise RuntimeError('DR fixture database already used')
             run(['php','bin/cajeer','migrate'],env)
+            # Production readiness requires an active administrator even when
+            # restoring an isolated test database. Use an unrecoverable random
+            # password and a real Argon2id hash; no credential enters reports.
+            admin_hash=run(['php','-r','echo password_hash(bin2hex(random_bytes(32)), PASSWORD_ARGON2ID);'],env).stdout.strip()
+            if not admin_hash.startswith('$argon2id$') or len(admin_hash)>255 or "'" in admin_hash:
+                raise RuntimeError('Cannot provision disposable DR administrator')
+            sql(env,"INSERT INTO users(email,password_hash,role) VALUES ('dr-admin@example.test','%s','administrator')" % admin_hash)
             # Exercise snapshot consistency with real durable rows in the
             # migrated settings table; no fixture DDL or snapshot bypass.
             sql(env,"INSERT INTO settings(key,value) VALUES ('dr-proof:before_snapshot',to_jsonb('before_snapshot'::text))")
