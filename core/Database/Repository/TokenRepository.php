@@ -75,11 +75,13 @@ final class TokenRepository
     public function findActive(string $token, bool $touch=true): ?array
     {
         if (!preg_match('/^cl_[a-f0-9]{64}$/D',$token)) return null;
+        // Non-key token lock blocks revocation and policy updates without blocking
+        // log_events foreign-key validation (FOR KEY SHARE) by async workers.
         // Materialize the row lock before checking wall-clock expiry, even if a
         // concurrent administrator was holding a lock without changing the row.
         $transaction=$this->pdo->inTransaction();
         $from=$transaction?'locked':'api_tokens';
-        $prefix=$transaction?'WITH locked AS MATERIALIZED (SELECT id,name,scopes,project_id,source_id,expires_at,requests_per_minute,service_account_id,last_used_at,revoked_at FROM api_tokens WHERE token_hash=:hash FOR UPDATE) ':'';
+        $prefix=$transaction?'WITH locked AS MATERIALIZED (SELECT id,name,scopes,project_id,source_id,expires_at,requests_per_minute,service_account_id,last_used_at,revoked_at FROM api_tokens WHERE token_hash=:hash FOR NO KEY UPDATE) ':'';
         $where=($transaction?'':'t.token_hash=:hash AND ').'t.revoked_at IS NULL AND (t.expires_at IS NULL OR t.expires_at>clock_timestamp()) AND (t.service_account_id IS NULL OR EXISTS (SELECT 1 FROM service_accounts a WHERE a.id=t.service_account_id AND a.project_id=t.project_id AND a.disabled_at IS NULL))';
         $row=$this->sql($prefix."SELECT t.id,t.name,t.scopes,t.project_id,t.source_id,t.expires_at,t.requests_per_minute,t.service_account_id,(t.last_used_at IS NULL OR t.last_used_at<clock_timestamp()-interval '5 minutes') AS usage_due FROM $from t WHERE $where",['hash'=>hash('sha256',$token)])->fetch();
         if(!$row) return null;
