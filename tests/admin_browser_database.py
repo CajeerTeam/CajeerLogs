@@ -26,6 +26,30 @@ def database_error_rows(page):
     )
 
 
+def confirm_logout_all(page):
+    """Open the non-mutating confirmation despite a concurrent view refresh.
+
+    Firefox may finish a focus/session revalidation after the settings button
+    was clicked, replacing the view and dismissing the dialog. Reopening the
+    *dialog* is safe; retrying the logout-all mutation itself is not.
+    """
+    for attempt in range(3):
+        opener = page.get_by_role('button', name='Выйти на всех устройствах', exact=True)
+        expect(opener).to_be_visible()
+        opener.click()
+        dialog = page.get_by_role('dialog', name='Отозвать все сессии', exact=True)
+        try:
+            expect(dialog).to_be_visible(timeout=2000)
+        except AssertionError:
+            if attempt == 2:
+                raise
+            # A view refresh can replace the modal, but no revocation request
+            # has been submitted. Never retry once confirmation was clicked.
+            continue
+        dialog.get_by_role('button', name='Подтвердить', exact=True).click()
+        return
+
+
 def run():
     if os.environ.get('CAJEER_TEST_DATABASE')!='1':
         raise SystemExit('Set CAJEER_TEST_DATABASE=1 and DB_* for an isolated PostgreSQL database.')
@@ -130,7 +154,7 @@ def run():
             login(page,'viewer@example.test','viewer-password-12345');expect(page.get_by_role('heading',name='Обзор',exact=True)).to_be_visible();assert page.locator('#nav a[href="#users"]').count()==0;assert page.locator('#nav a[href="#tokens"]').count()==0
             nav(page,'logs');expect(database_error_rows(page).first).to_be_visible();assert ctx.request.get(url+'/api/v1/users').status==403
             assert event_id in [e['id'] for e in ctx.request.get(url+'/api/v1/logs?project_id='+project).json()['items']]
-            nav(page,'settings');page.get_by_role('button',name='Выйти на всех устройствах').click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_role('heading',name='Вход в CajeerLogs')).to_be_visible();assert ctx.request.get(url+'/api/v1/auth/me').status==401
+            nav(page,'settings');confirm_logout_all(page);expect(page.get_by_role('heading',name='Вход в CajeerLogs')).to_be_visible();assert ctx.request.get(url+'/api/v1/auth/me').status==401
             # Real local TOTP enrollment, QR and recovery-code login against PostgreSQL.
             login(page);expect(page.get_by_role('heading',name='Настройки',exact=True)).to_be_visible();setup=page.locator('form').filter(has=page.get_by_role('button',name='Настроить 2FA',exact=True));setup.get_by_label('Текущий пароль').fill('admin-password-12345');setup.get_by_role('button',name='Настроить 2FA').click()
             dlg=page.get_by_role('dialog');expect(dlg.get_by_role('img',name='QR-код настройки TOTP')).to_be_visible();secret=dlg.locator('pre').inner_text().strip();key=base64.b32decode(secret+'='*((-len(secret))%8));digest=hmac.new(key,struct.pack('>Q',int(time.time())//30),hashlib.sha1).digest();offset=digest[-1]&15;otp=f'{(struct.unpack(">I",digest[offset:offset+4])[0]&0x7fffffff)%1000000:06d}'
