@@ -45,7 +45,7 @@ check(str_contains($pdo->calls[0][0],'disabled_at IS NULL')&&str_contains($pdo->
 $pdo->calls=[];$pdo->rows=[array_replace($row,['usage_due'=>true]),false];$repo->findActive($secret);
 check(count($pdo->calls)===2&&str_contains($pdo->calls[1][0],"interval '5 minutes'"),'due timestamp update conditional');
 $pdo->active=true;$pdo->calls=[];$pdo->rows=[$row];$repo->findActive($secret);
-check(str_starts_with($pdo->calls[0][0],'WITH locked AS MATERIALIZED')&&str_contains($pdo->calls[0][0],'FOR UPDATE'),'transactional lookup locks before eligibility');
+check(str_starts_with($pdo->calls[0][0],'WITH locked AS MATERIALIZED')&&str_contains($pdo->calls[0][0],'FOR NO KEY UPDATE')&&!str_contains($pdo->calls[0][0],'FOR UPDATE'),'transactional lookup takes FK-compatible row lock before eligibility');
 $pdo->active=false;$pdo->calls=[];$pdo->rows=[false];check($repo->findActive($secret)===null&&count($pdo->calls)===1,'inactive credential no timestamp update');
 try{$repo->rotate($p,$id,'1',3600,0,$id);check(false,'outside transaction');}catch(LogicException){check(true,'rotation requires owned transaction');}
 $pdo->active=true;$pdo->calls=[];check(reject(fn()=>$repo->rotate($p,$id,'1',60,60,$id))&&$pdo->calls===[],'overlap cannot outlive successor');
