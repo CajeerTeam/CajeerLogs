@@ -223,6 +223,25 @@ def gradle_with_registry_backoff(argv: list[str], cwd: Path) -> None:
         time.sleep(delay)
 
 
+def require_postgres_amd64_index(raw: bytes, reference: str) -> None:
+    """Fail closed if the PostgreSQL pin is a single-architecture image manifest."""
+    try:
+        manifest = json.loads(raw)
+    except (ValueError, TypeError) as error:
+        raise RuntimeError('Invalid PostgreSQL OCI index: ' + reference) from error
+    entries = manifest.get('manifests') if isinstance(manifest, dict) else None
+    if not isinstance(entries, list) or not any(
+        isinstance(entry, dict)
+        and isinstance(entry.get('platform'), dict)
+        and entry['platform'].get('os') == 'linux'
+        and entry['platform'].get('architecture') == 'amd64'
+        and isinstance(entry.get('digest'), str)
+        and re.fullmatch(r'sha256:[0-9a-f]{64}', entry['digest'])
+        for entry in entries
+    ):
+        raise RuntimeError('PostgreSQL pin must be an OCI index with linux/amd64: ' + reference)
+
+
 def validate_install(root: Path, docker: bool = True) -> None:
     """Verify downloads by package managers, then validate registry manifest digests."""
     composer, npm, gradle = (tool(x) for x in ('composer', 'npm', 'gradle'))
@@ -248,6 +267,8 @@ def validate_install(root: Path, docker: bool = True) -> None:
             expected = ref.rsplit('@sha256:',1)[-1]
             if hashlib.sha256(raw).hexdigest() != expected:
                 raise RuntimeError('OCI registry returned a different manifest: ' + ref)
+            if ref.startswith('postgres:17@'):
+                require_postgres_amd64_index(raw, ref)
 
 
 def refresh(root: Path) -> None:

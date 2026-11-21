@@ -25,6 +25,23 @@ class DependencyLockTest(unittest.TestCase):
         self.assertTrue(all(locks.REF.fullmatch(x['constraint']) for x in pins))
         self.assertFalse(any('OCI' in issue for issue in result['unresolved']))
 
+    def test_postgres_pin_must_be_amd64_capable_index(self):
+        reference = 'postgres:17@sha256:' + 'b'*64
+        valid = json.dumps({'manifests':[{'digest':'sha256:'+'a'*64,
+            'platform':{'os':'linux','architecture':'amd64'}}]}).encode()
+        locks.require_postgres_amd64_index(valid, reference)
+        invalid = (
+            b'not json',
+            json.dumps({'schemaVersion':2,'mediaType':'application/vnd.oci.image.manifest.v1+json'}).encode(),
+            json.dumps({'manifests':[{'digest':'sha256:'+'c'*64,
+                'platform':{'os':'linux','architecture':'386'}}]}).encode(),
+            json.dumps({'manifests':[{'digest':'not-a-sha256',
+                'platform':{'os':'linux','architecture':'amd64'}}]}).encode(),
+        )
+        for raw in invalid:
+            with self.subTest(raw=raw), self.assertRaises(RuntimeError):
+                locks.require_postgres_amd64_index(raw, reference)
+
     def test_missing_lockfiles_are_fatal(self):
         files = dict(self.files)
         for name in ('composer.lock', 'packages/ts-sdk/package-lock.json', locks.GRADLE_LOCK, locks.GRADLE_VERIFY):

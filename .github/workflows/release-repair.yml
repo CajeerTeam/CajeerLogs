@@ -1,27 +1,27 @@
-name: Repair unpublished CajeerLogs v1.0.0 certification
+name: Repair PostgreSQL OCI index for unpublished CajeerLogs v1.0.0
 on:
   push:
     branches:
-      - release-repair/v1.0.0
+      - release-repair-pg/v1.0.0
 
 permissions:
   contents: read
 
 jobs:
   repair-unpublished-tag:
-    if: github.repository == 'CajeerTeam/CajeerLogs' && github.ref == 'refs/heads/release-repair/v1.0.0'
+    if: github.repository == 'CajeerTeam/CajeerLogs' && github.ref == 'refs/heads/release-repair-pg/v1.0.0'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
       actions: write
     steps:
-      - name: Correct pre-publication tag only, then rerun all original GA security checks
+      - name: Correct pre-publication PostgreSQL architecture pin, then rerun full GA certification
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          expected_old=abdf7c2794fd909c357c4c6fe313173723be99d5
+          expected_old=4d6e8f5030c8979bfdfb10d9a63fcc53ddfc9dfc
           new_sha="${GITHUB_SHA}"
           main_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)"
           [[ "${main_sha}" == "${new_sha}" ]] || { echo "::error::Main moved; refusing to retag"; exit 1; }
