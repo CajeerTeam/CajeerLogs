@@ -17,6 +17,38 @@ function call(string $method,string $path,?array $body=null,array $headers=[]): 
 function data(Response $r,int $status=200): array { verify($r->status===$status,'HTTP '.$status.' (got '.$r->status.')'); return $r->body===''?[]:json_decode($r->body,true,64,JSON_THROW_ON_ERROR); }
 function credentials(Response $r): array { $d=data($r); return ['Cookie'=>explode(';',$r->header('Set-Cookie'),2)[0],'X-CSRF-Token'=>$d['csrf_token']]; }
 function rejected(callable $f): bool { try {$f();} catch(DatabaseException) { return true; } return false; }
+// Observe target backends from the primary database: querying the target would
+// itself create an extra backend and race BackupManager's exclusive restore gate.
+function awaitExclusiveTarget(PDO $primary,string $target,int $timeoutSeconds=25): void {
+    if (!preg_match('/^[a-z_][a-z0-9_]{0,62}$/D',$target)) throw new RuntimeException('Unsafe disposable restore target');
+    $stmt=$primary->prepare('SELECT count(*) FROM pg_stat_activity WHERE datname=:target');
+    $deadline=microtime(true)+$timeoutSeconds; $idleSince=null;
+    do {
+        $stmt->execute(['target'=>$target]); $active=(int)$stmt->fetchColumn(); $stmt->closeCursor();
+        if ($active===0) {
+            $idleSince ??=microtime(true);
+            if (microtime(true)-$idleSince>=0.75) return;
+        } else { $idleSince=null; }
+        usleep(100000);
+    } while (microtime(true)<$deadline);
+    throw new RuntimeException('Disposable restore target did not become exclusive');
+}
+// Only a pre-restore exclusivity refusal can be retried. Every other error
+// (quarantine, failed integrity, invalid archive, nonempty target) fails closed.
+function restoreDisposable(BackupManager $backup,string $id,string $target,PDO $primary): array {
+    $deadline=microtime(true)+30;
+    while (true) {
+        $remaining=(int)ceil($deadline-microtime(true));
+        if ($remaining<=0) throw new RuntimeException('Exclusive restore target timeout');
+        awaitExclusiveTarget($primary,$target,$remaining);
+        try { return $backup->restore($id,$target); }
+        catch (DatabaseException $error) {
+            if ($error->getMessage()!=='Restore requires an exclusive target without other connections.'
+                || microtime(true)>=$deadline) throw $error;
+            usleep(250000);
+        }
+    }
+}
 try {
     $app=new Application($root); $app->boot(); $cfg=$app->config(); $cfg->set('app.env','test'); $cfg->set('database.schema',$schema); $cfg->set('security.totp_key',bin2hex(random_bytes(32))); $cfg->set('security.require_admin_totp',true); $cfg->set('operations.backup_dir',$tmp.'/backups');
     $pdo=$app->container()->get(PDO::class);
@@ -83,30 +115,39 @@ try {
     $target=getenv('CAJEER_TEST_RESTORE_DB'); if (!$target || !preg_match('/^[a-z_][a-z0-9_]{0,62}$/D',$target) || $target===$cfg->get('database.database')) throw new RuntimeException('Provision a separate EMPTY CAJEER_TEST_RESTORE_DB owned by the test role.');
     // A false legacy label must be rejected, even if the archive checksum is correct.
     $manifestPath=$tmp.'/backups/'.$m['id'].'/manifest.json'; $previous=$m; $previous['version']='0.0.9'; file_put_contents($manifestPath,json_encode($previous,JSON_THROW_ON_ERROR));
-    verify(rejected(fn()=>$backup->restore($m['id'],$target)),'mislabeled archive rejected after restore history check');
+    verify(rejected(fn()=>restoreDisposable($backup,$m['id'],$target,$base)),'mislabeled archive rejected after restore history check');
     $targetConfig=clone $cfg; $targetConfig->set('database.database',$target);
     verify(rejected(fn()=>(new ConnectionFactory($targetConfig))->make('pgsql')),'failed restore quarantines new runtime connections');
     // Test-only cleanup: remove failed disposable schema and clear database fence as owner.
     $base->exec('COMMENT ON DATABASE "'.$target.'" IS NULL');
-    $failedTarget=(new ConnectionFactory($targetConfig))->make('pgsql');
-    $failedTarget->exec('DROP SCHEMA "'.$schema.'" CASCADE'); $failedTarget=null;
+    $cleanupConfig=clone $targetConfig; $cleanupConfig->set('database.schema','public');
+    $failedTarget=(new ConnectionFactory($cleanupConfig))->make('pgsql');
+    $failedTarget->exec('DROP SCHEMA IF EXISTS "'.$schema.'" CASCADE'); $failedTarget=null;
     file_put_contents($manifestPath,json_encode($m,JSON_THROW_ON_ERROR));
     // A structurally valid snapshot can still have inconsistent JSON receipts.
     $bad=$pdo->prepare("INSERT INTO ingest_receipts(token_id,key_hash,request_hash,event_ids,expires_at) VALUES (:token,:key,:hash,'[\"bad\"]'::jsonb,now()+interval '1 day')");
     $bad->execute(['token'=>$token['id'],'key'=>str_repeat('a',64),'hash'=>str_repeat('b',64)]);
     $invalid=$backup->create(); $pdo->exec('DELETE FROM ingest_receipts');
-    verify(rejected(fn()=>$backup->restore($invalid['id'],$target)),'logical integrity failure prevents restore publication');
+    try {
+        restoreDisposable($backup,$invalid['id'],$target,$base);
+        throw new RuntimeException('Invalid receipts were accepted by restore');
+    } catch (DatabaseException $failure) {
+        // An early exclusive-session refusal is NOT a logical-integrity test pass.
+        verify(str_starts_with($failure->getMessage(),'Restore did not complete;'),
+            'logical integrity failure prevents restore publication');
+    }
     verify(rejected(fn()=>(new ConnectionFactory($targetConfig))->make('pgsql')),'logical failure persists database quarantine');
     $base->exec('COMMENT ON DATABASE "'.$target.'" IS NULL');
-    $failedTarget=(new ConnectionFactory($targetConfig))->make('pgsql');
-    $failedTarget->exec('DROP SCHEMA "'.$schema.'" CASCADE'); $failedTarget=null;
-    $result=$backup->restore($m['id'],$target); verify($result['status']==='restored'&&$result['api_tokens_revoked']&&$result['integrity_verified'],'restore into isolated database after logical audit');
+    $failedTarget=(new ConnectionFactory($cleanupConfig))->make('pgsql');
+    $failedTarget->exec('DROP SCHEMA IF EXISTS "'.$schema.'" CASCADE'); $failedTarget=null;
+    $result=restoreDisposable($backup,$m['id'],$target,$base); verify($result['status']==='restored'&&$result['api_tokens_revoked']&&$result['integrity_verified'],'restore into isolated database after logical audit');
     $restored=(new ConnectionFactory($targetConfig))->make('pgsql');
     verify($restored->query('SELECT message FROM log_events')->fetchColumn()==='backup proof'&&(int)$restored->query('SELECT count(*) FROM users')->fetchColumn()===1,'restored real event and user');
     verify((int)$restored->query('SELECT count(*) FROM auth_sessions')->fetchColumn()===0&&$restored->query('SELECT revoked_at IS NOT NULL FROM api_tokens')->fetchColumn()===true,'restore invalidates credentials');
     verify($pdo->query('SELECT revoked_at IS NULL FROM api_tokens')->fetchColumn()===true,'source untouched by restore');
     verify(rejected(fn()=>$backup->restore($m['id'],$target)),'connected restore target rejected');
-    $restored=null; verify(rejected(fn()=>$backup->restore($m['id'],$target)),'nonempty restore target rejected');
+    $restored=null;
+    verify(rejected(fn()=>restoreDisposable($backup,$m['id'],$target,$base)),'nonempty restore target rejected');
     $restored=(new ConnectionFactory($targetConfig))->make('pgsql'); $restored->exec('DROP SCHEMA "'.$schema.'" CASCADE');
     echo "Security PostgreSQL & backup: $count checks passed\n";
 } finally {

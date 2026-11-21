@@ -344,25 +344,41 @@ def main(previous):
             assert sql("SELECT count(*) FROM pg_namespace WHERE nspname NOT LIKE 'pg\\_%' ESCAPE '\\' AND nspname NOT IN ('public','information_schema')",target)=='0', 'Candidate restore target has a leftover application schema'
             assert sql("SELECT COALESCE(shobj_description(oid,'pg_database'),'') FROM pg_database WHERE datname=current_database()",target)!='cajeerlogs.restore_state=pending', 'Previous candidate restore is quarantined'
             # Monitor pg_stat_activity from the PRIMARY database, not the target.
-            # A target-local psql preflight can exit before its PostgreSQL backend
-            # disappears, and can race the strict BackupManager exclusivity check.
-            # Require a quiet interval and open no more target sessions before the
-            # production backup:restore command acquires its advisory lock.
+            # Target-local psql checks can leave an unobserved backend for a
+            # short interval after the client exits. Never weaken the strict
+            # production restore gate or terminate someone else's connections.
             assert re.fullmatch(r'[a-z_][a-z0-9_]{0,62}',target)
-            deadline=time.monotonic()+30
-            idle_since=None
-            active=-1
-            while time.monotonic()<deadline:
-                active=int(sql(f"SELECT count(*) FROM pg_stat_activity WHERE datname='{target}'"))
-                if active==0:
-                    if idle_since is None: idle_since=time.monotonic()
-                    if time.monotonic()-idle_since>=0.5: break
-                else:
-                    idle_since=None
-                time.sleep(.1)
-            else:
+            def wait_for_exclusive_target(deadline):
+                idle_since=None
+                active=-1
+                while time.monotonic()<deadline:
+                    active=int(sql(f"SELECT count(*) FROM pg_stat_activity WHERE datname='{target}'"))
+                    if active==0:
+                        if idle_since is None: idle_since=time.monotonic()
+                        if time.monotonic()-idle_since>=0.75: return
+                    else:
+                        idle_since=None
+                    time.sleep(.1)
                 raise AssertionError(f'Candidate restore target still has {active} PostgreSQL connections')
-            result=json.loads(cli('backup:rehearse' if old_version in ('0.4.7','0.4.10','0.5.0','0.5.1','0.5.2','0.5.3','0.5.4','0.5.5') else 'backup:restore',backup['id'],target)); assert result['status']=='restored' and result['integrity_verified']
+
+            restore_command='backup:rehearse' if old_version in ('0.4.7','0.4.10','0.5.0','0.5.1','0.5.2','0.5.3','0.5.4','0.5.5') else 'backup:restore'
+            # Another libpq backend may connect between the last activity probe
+            # and the guarded CLI check. Only this *pre-restore* exclusivity
+            # refusal is safe to retry: it occurs before quarantine, pg_restore
+            # and any changes to the target. All other failures remain fatal.
+            restore_deadline=time.monotonic()+30
+            while True:
+                wait_for_exclusive_target(restore_deadline)
+                try:
+                    result=json.loads(cli(restore_command,backup['id'],target))
+                    break
+                except subprocess.CalledProcessError as error:
+                    exclusive=any(line.strip()=='Runtime failure: Restore requires an exclusive target without other connections.'
+                                  for line in error.output.splitlines())
+                    if not exclusive or time.monotonic()>=restore_deadline:
+                        raise
+                    time.sleep(.25)
+            assert result['status']=='restored' and result['integrity_verified']
             assert sql(f'SELECT count(*) FROM "{schema}".log_events',target)=='1'
             assert sql(f'SELECT count(*) FROM "{schema}".api_tokens WHERE revoked_at IS NULL',target)=='0'
             assert sql(f'SELECT count(*) FROM "{schema}".log_events')=='2'
