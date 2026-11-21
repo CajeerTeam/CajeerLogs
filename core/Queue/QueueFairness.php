@@ -58,51 +58,84 @@ final class QueueFairness
         return null;
     }
 
-    /** Find and lock the least-served READY project, not the globally oldest job.
-     * Expired leases participate in the same fair ordering. Returns a locked row
-     * until caller commits/rolls back; never call outside a transaction. */
+    /** Lock the FK parent before queue_project_state: PostgreSQL checks the
+     * projects parent row during queue counter/fair-dispatch updates. An HTTP
+     * admission can already hold that parent row while waiting for queue state.
+     * Acquiring queue state first in a worker creates a real deadlock cycle.
+     */
+    private function lockParent(string $project, bool $skipLocked=false): bool
+    {
+        $sql='SELECT id FROM projects WHERE id=CAST(:project AS uuid) FOR KEY SHARE'
+            .($skipLocked?' SKIP LOCKED':'');
+        $q=$this->pdo->prepare($sql);
+        $q->execute(['project'=>$project]);
+        return $q->fetchColumn()!==false;
+    }
+
+    /** Lock the least-served ready project, in FK-parent -> queue-state order.
+     * Do not lock a queue-state row while waiting on its projects FK parent.
+     * Recheck readiness under the row lock: another worker may have claimed it.
+     */
     public function selectReadyProject(): ?array
     {
         if (!$this->pdo->inTransaction()) throw new \LogicException('Fair claim requires a transaction.');
-        $q=$this->pdo->query(<<<'SQL'
-            SELECT s.project_id,s.weight,s.max_running_jobs,s.running_jobs
-            FROM queue_project_state s
-            WHERE (
+        $where=<<<'SQL'
+            (
                 (s.pending_jobs>0 AND (s.max_running_jobs=0 OR s.running_jobs<s.max_running_jobs)
                     AND EXISTS (SELECT 1 FROM jobs j WHERE j.queue='ingest-v1' AND j.status='pending'
                         AND j.project_id=s.project_id AND j.available_at<=statement_timestamp()))
                 OR (s.running_jobs>0 AND EXISTS (SELECT 1 FROM jobs j WHERE j.queue='ingest-v1'
                         AND j.status='running' AND j.project_id=s.project_id AND j.lease_until<=statement_timestamp()))
             )
-            ORDER BY s.virtual_finish,s.project_id
-            LIMIT 1 FOR UPDATE OF s SKIP LOCKED
-            SQL);
-        return $q->fetch(PDO::FETCH_ASSOC)?:null;
+            SQL;
+        // A bounded ordered shortlist prevents holding a large set of parent
+        // locks on systems with many projects, while preserving SKIP LOCKED.
+        $candidates=$this->pdo->query("SELECT s.project_id FROM queue_project_state s WHERE $where
+            ORDER BY s.virtual_finish,s.project_id LIMIT 64")->fetchAll(PDO::FETCH_COLUMN);
+        $q=$this->pdo->prepare("SELECT s.project_id,s.weight,s.max_running_jobs,s.running_jobs
+            FROM queue_project_state s WHERE s.project_id=CAST(:project AS uuid) AND $where
+            FOR UPDATE OF s SKIP LOCKED");
+        foreach ($candidates as $project) {
+            if (!$this->lockParent((string)$project,true)) continue;
+            $q->execute(['project'=>$project]);
+            $row=$q->fetch(PDO::FETCH_ASSOC);
+            $q->closeCursor();
+            if ($row) return $row;
+        }
+        return null;
     }
 
-    /** Select one project with a genuinely expired running lease, locking its
-     * accounting row before the job row (the same order as ordinary claims). */
+    /** A lease recovery takes the same FK-parent -> queue-state lock order. */
     public function selectExpiredProject(): ?string
     {
         if (!$this->pdo->inTransaction()) throw new \LogicException('Expired lease scan requires a transaction.');
-        $stmt=$this->pdo->query(<<<'SQL'
-            SELECT s.project_id FROM queue_project_state s
-            WHERE s.running_jobs>0 AND EXISTS (
+        $where=<<<'SQL'
+            s.running_jobs>0 AND EXISTS (
                 SELECT 1 FROM jobs j WHERE j.queue='ingest-v1'
                     AND j.project_id=s.project_id AND j.status='running'
                     AND j.lease_until<=statement_timestamp()
             )
-            ORDER BY s.virtual_finish,s.project_id
-            LIMIT 1 FOR UPDATE OF s SKIP LOCKED
-            SQL);
-        $project=$stmt->fetchColumn();
-        return is_string($project)?$project:null;
+            SQL;
+        $candidates=$this->pdo->query("SELECT s.project_id FROM queue_project_state s WHERE $where
+            ORDER BY s.virtual_finish,s.project_id LIMIT 64")->fetchAll(PDO::FETCH_COLUMN);
+        $q=$this->pdo->prepare("SELECT s.project_id FROM queue_project_state s
+            WHERE s.project_id=CAST(:project AS uuid) AND $where
+            FOR UPDATE OF s SKIP LOCKED");
+        foreach ($candidates as $project) {
+            if (!$this->lockParent((string)$project,true)) continue;
+            $q->execute(['project'=>$project]);
+            $row=$q->fetchColumn();
+            $q->closeCursor();
+            if (is_string($row)) return $row;
+        }
+        return null;
     }
 
     /** Lock project policy before acquiring more jobs in a worker microbatch. */
     public function lockProject(string $project): array
     {
         if (!$this->pdo->inTransaction()) throw new \LogicException('Project claim requires a transaction.');
+        if (!$this->lockParent($project)) throw new \RuntimeException('Project queue parent is missing.');
         $q=$this->pdo->prepare('SELECT weight,max_running_jobs,running_jobs FROM queue_project_state WHERE project_id=CAST(:id AS uuid) FOR UPDATE');
         $q->execute(['id'=>$project]);$row=$q->fetch(PDO::FETCH_ASSOC);
         if (!$row) throw new \RuntimeException('Project queue accounting is missing.');
