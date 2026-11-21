@@ -78,7 +78,7 @@ final class QueueFairness
      */
     public function selectReadyProject(): ?array
     {
-        if (!$this->pdo->inTransaction()) throw new \\LogicException('Fair claim requires a transaction.');
+        if (!$this->pdo->inTransaction()) throw new \LogicException('Fair claim requires a transaction.');
         $where=<<<'SQL'
             (
                 (s.pending_jobs>0 AND (s.max_running_jobs=0 OR s.running_jobs<s.max_running_jobs)
@@ -108,7 +108,7 @@ final class QueueFairness
     /** A lease recovery takes the same FK-parent -> queue-state lock order. */
     public function selectExpiredProject(): ?string
     {
-        if (!$this->pdo->inTransaction()) throw new \\LogicException('Expired lease scan requires a transaction.');
+        if (!$this->pdo->inTransaction()) throw new \LogicException('Expired lease scan requires a transaction.');
         $where=<<<'SQL'
             s.running_jobs>0 AND EXISTS (
                 SELECT 1 FROM jobs j WHERE j.queue='ingest-v1'
@@ -134,11 +134,11 @@ final class QueueFairness
     /** Lock project policy before acquiring more jobs in a worker microbatch. */
     public function lockProject(string $project): array
     {
-        if (!$this->pdo->inTransaction()) throw new \\LogicException('Project claim requires a transaction.');
-        if (!$this->lockParent($project)) throw new \\RuntimeException('Project queue parent is missing.');
+        if (!$this->pdo->inTransaction()) throw new \LogicException('Project claim requires a transaction.');
+        if (!$this->lockParent($project)) throw new \RuntimeException('Project queue parent is missing.');
         $q=$this->pdo->prepare('SELECT weight,max_running_jobs,running_jobs FROM queue_project_state WHERE project_id=CAST(:id AS uuid) FOR UPDATE');
         $q->execute(['id'=>$project]);$row=$q->fetch(PDO::FETCH_ASSOC);
-        if (!$row) throw new \\RuntimeException('Project queue accounting is missing.');
+        if (!$row) throw new \RuntimeException('Project queue accounting is missing.');
         return $row;
     }
 
