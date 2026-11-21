@@ -214,6 +214,12 @@ class Fixture:
             project=next(p for p in self.projects if p['id']==path.split('/')[2]); assert body['revision']==project['revision']; project['status']='archived' if path.endswith('/archive') else 'active'; project['revision']=str(int(project['revision'])+1); return send(project)
         if path.startswith('/projects/') and path.endswith('/stats'):
             return send({'sources':len(self.sources),'members':len(self.members),'active_tokens':len(self.tokens),'events':2,'events_24h':2,'queued_jobs':0,'dead_jobs':0,'last_received_at':None})
+        if path in ('/projects/'+P1+'/exports', '/projects/'+P2+'/exports'):
+            # The shipped Logs page always loads the current user's bulk-export jobs.
+            # Mirror the real GET contract; unexpected writes/parameters still fail.
+            assert method=='GET' and q=={'limit':'30'}, (method,path,q)
+            assert path.split('/')[2] not in self.denied_projects
+            return send({'items':[]})
         if path.endswith('/sources'):
             if method=='POST': self.sources.append({'id':str(uuid.uuid4()),'project_id':path.split('/')[2],'status':'active','revision':'1','metadata':{},**body});return send({'id':self.sources[-1]['id']},201)
             return listing([s for s in self.sources if s['project_id']==path.split('/')[2] and (q.get('status','all')=='all' or s['status']==q['status']) and q.get('q','').lower() in (s['name']+' '+s['slug']+' '+s['id']).lower() and (q.get('source_type','all')=='all' or s['source_type']==q['source_type'])])
@@ -425,6 +431,11 @@ def run():
         dlg.get_by_label('Поиск проекта для перехода').fill('missing');dlg.get_by_role('button',name='Найти проекты').click();expect(dlg.get_by_text('Проекты не найдены.')).to_be_visible()
         dlg.get_by_label('Поиск проекта для перехода').fill('production');dlg.get_by_role('button',name='Найти проекты').click();expect(dlg.get_by_role('button',name='Production',exact=False)).to_be_visible()
         dlg.get_by_label('Открыть раздел').select_option('logs');dlg.get_by_role('button',name='Production',exact=False).click();expect(page.get_by_role('heading',name='Логи',exact=True)).to_be_visible()
+        # Browser E2E must exercise the real export-job list request, rather
+        # than silently swallowing an unhandled fetch in the fixture.
+        expect(page.get_by_role('heading',name='Массовый экспорт JSON/CSV')).to_be_visible()
+        expect(page.get_by_text('Экспортных заданий пока нет.',exact=True)).to_be_visible()
+        assert any(m=='GET' and path=='/projects/'+P1+'/exports' and q=={'limit':'30'} for m,path,q,b in f.calls)
         assert any(m=='GET' and path=='/projects' and q.get('q')=='production' for m,path,q,b in f.calls)
         page.keyboard.press('Control+k');expect(dlg.get_by_role('heading',name='Быстрый переход')).to_be_visible();dlg.get_by_role('button',name='Обзор',exact=True).click();expect(page.get_by_role('heading',name='Обзор',exact=True)).to_be_visible()
         # Access can be revoked between listing and opening a project.
