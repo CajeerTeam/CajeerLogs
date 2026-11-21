@@ -35,6 +35,27 @@ try {
     unlink($path);
 } finally { if (file_exists($tmp.'/.install.lock') || is_link($tmp.'/.install.lock')) unlink($tmp.'/.install.lock'); rmdir($tmp); }
 $root=dirname(__DIR__);
+$socketConfig=new \Cajeer\Logs\Config\ConfigRepository([
+    'app'=>['env'=>'production','url'=>'https://logs.example.test','debug'=>false],
+    'security'=>['require_admin_totp'=>true,'totp_key'=>str_repeat('a',64),
+        'session_idle_seconds'=>1800,'reauth_seconds'=>300],
+    'observability'=>['prometheus_enabled'=>true],
+    'operations'=>['metrics_token'=>str_repeat('b',32)],
+    'database'=>['host'=>'/var/run/postgresql','require_tls'=>false,
+        'sslmode'=>'disable','sslrootcert'=>'']
+]);
+ok(\Cajeer\Logs\Security\SecurityPosture::configuration($socketConfig)['remote_database_tls']===true,
+   'local PostgreSQL Unix socket meets private-database security posture');
+$socketConfig->set('database.host','db');
+ok(\Cajeer\Logs\Security\SecurityPosture::configuration($socketConfig)['remote_database_tls']===false,
+   'unencrypted remote PostgreSQL transport remains blocked');
+$productionCompose=file_get_contents($root.'/compose.production.yaml');
+ok(is_string($productionCompose)
+    && str_contains($productionCompose,'DB_HOST: /var/run/postgresql')
+    && str_contains($productionCompose,'- pgsocket:/var/run/postgresql:ro')
+    && str_contains($productionCompose,'- pgsocket:/var/run/postgresql')
+    && str_contains($productionCompose,"POSTGRES_INITDB_ARGS: '--auth-local=scram-sha-256 --auth-host=scram-sha-256'"),
+    'production Compose requires shared private socket and password-authenticated local PostgreSQL');
 // A bad production origin is rejected before backup checks or database writes.
 $settings=[];
 foreach (['CAJEER_ENV_FILE','APP_ENV','APP_URL'] as $name) { $settings[$name]=getenv($name); }

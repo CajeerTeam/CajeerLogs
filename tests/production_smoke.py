@@ -397,6 +397,16 @@ def main():
 
 
         except BaseException:
+            # Read-only readiness diagnostics expose the failing check without
+            # relaxing the production health gate or logging credentials.
+            if compose('ps','-q','app',capture=True,check=False).strip():
+                compose('exec','-T','app','php','bin/cajeer','health:ready',check=False)
+                diagnostics = ('\$app=require "/app/core/bootstrap.php"; \$app->boot(); '
+                               'echo json_encode(["diagnostics"=>'
+                               '\$app->container()->get(\\Cajeer\\Logs\\Observability\\Diagnostics::class)->checks(),'
+                               '"security"=>\\Cajeer\\Logs\\Security\\SecurityPosture::configuration(\$app->config())],'
+                               'JSON_THROW_ON_ERROR),PHP_EOL;')
+                compose('exec','-T','app','php','-r',diagnostics,check=False)
             compose('ps',check=False); compose('logs','--tail','80',check=False); raise
         finally:
             compose('down','-v','--remove-orphans',check=False)
