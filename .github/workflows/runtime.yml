@@ -4,6 +4,7 @@ on:
     branches: [main]
     tags: ['v1.0.0']
   pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
@@ -68,7 +69,7 @@ jobs:
           python3 scripts/supply_chain.py generate release-out/CajeerLogs-1.0.0.zip --sbom release-out/CajeerLogs-1.0.0.sbom.cdx.json --provenance release-out/CajeerLogs-1.0.0.provenance.json --report release-out/supply-chain-report.json
           python3 scripts/supply_chain.py verify release-out/CajeerLogs-1.0.0.zip --sbom release-out/CajeerLogs-1.0.0.sbom.cdx.json --provenance release-out/CajeerLogs-1.0.0.provenance.json --report release-out/supply-chain-report.json
       - name: Record real GitHub OIDC build provenance for candidate ZIP
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: release-out/CajeerLogs-1.0.0.zip
@@ -1019,7 +1020,7 @@ jobs:
           if-no-files-found: error
 
   public-release:
-    if: github.event_name == 'push' && github.ref == 'refs/tags/v1.0.0'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/tags/v1.0.0'
     permissions:
       contents: read
       id-token: write
@@ -1092,7 +1093,7 @@ jobs:
 
   publish-ga:
     # Never publish on PRs/branches; only after signed final CI certification.
-    if: github.event_name == 'push' && github.ref == 'refs/tags/v1.0.0'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/tags/v1.0.0'
     needs: [public-release]
     runs-on: ubuntu-latest
     permissions:
