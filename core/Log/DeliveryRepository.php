@@ -59,6 +59,17 @@ final class DeliveryRepository
     public function lookup(IngestPrincipal $p,string $family,string $key,string $digest,string $legacyHash,bool $async): ?array
     {
         if (!$this->pdo->inTransaction()) throw new \LogicException('Delivery lookup requires transaction.');
+        // FOR SHARE on projects allows concurrent members of the same rotated-token
+        // family. Serialize only the same family/key before looking up a receipt or
+        // job; otherwise two different tokens can both observe an absent delivery
+        // and commit two distinct records. Held through commit/rollback by PostgreSQL.
+        // This never locks the projects or api_tokens rows and cannot invert their
+        // foreign-key lock order with an async worker.
+        $this->sql(<<<'SQL'
+            SELECT pg_advisory_xact_lock(hashtextextended(
+                'cajeerlogs:delivery:' || current_schema() || ':' || CAST(:project AS text)
+                || ':' || CAST(:family AS text) || ':' || CAST(:key AS text), 0))
+            SQL,['project'=>$p->projectId,'family'=>$family,'key'=>$key])->fetchColumn();
         $rows=$this->sql(<<<'SQL'
             WITH members AS MATERIALIZED (
                 SELECT t.id FROM api_tokens t JOIN api_tokens root ON root.id=CAST(:root AS uuid)

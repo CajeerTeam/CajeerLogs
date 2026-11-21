@@ -34,7 +34,13 @@ $db=new DeliveryPDO();$repo=new D($db);$db->active=false;
 check(fails(fn()=>$repo->namespace($principal),LogicException::class),'namespace needs a transaction');$db->active=true;
 check(fails(fn()=>$repo->namespace($principal),DatabaseException::class),'unknown namespace fails closed');
 $db->root=['id'=>$other,'token_hash'=>$rootHash];check($repo->namespace($principal)===$db->root,'root resolved using token and project');
+$db->calls=[];
 check($repo->lookup($principal,$other,$key,$hash,$legacy,false)===null,'absent operation');
+check(count($db->calls)===2
+    && str_contains($db->calls[0][0],'pg_advisory_xact_lock')
+    && str_contains($db->calls[0][0],'current_schema()')
+    && $db->calls[0][1]===['project'=>$p,'family'=>$other,'key'=>$key],
+    'same-family idempotency key is locked before lookup');
 $sync=['mode'=>'sync','token_id'=>$other,'request_hash'=>$legacy,'delivery_digest'=>$hash,'ids'=>json_encode([$s]),'job_id'=>null,'status'=>null,'delivery_count'=>null];$db->rows=[$sync];
 check($repo->lookup($principal,$other,$key,$hash,$legacy,false)===['event_ids'=>[$s],'received'=>1],'rotation sync replay original IDs');
 check(fails(fn()=>$repo->lookup($principal,$other,$key,$hash,$legacy,true),HttpException::class,409),'cross-mode conflict');
