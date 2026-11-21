@@ -87,7 +87,7 @@ def open_token_rotation_dialog(page):
             if attempt == 2:
                 raise
             continue
-        return dialog
+        return page.get_by_role('dialog')
 
 
 def run():
