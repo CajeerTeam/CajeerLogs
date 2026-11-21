@@ -18,6 +18,14 @@ from playwright.sync_api import sync_playwright, expect
 from admin_browser import ROOT, server, browser_for, nav, login, http
 
 
+def database_error_rows(page):
+    # The event is ingested twice (with the original and rotated token).
+    # Restrict assertions to the actual log message column, not page-wide text.
+    return page.locator('.explorer-table tbody .col-message .explorer-value').filter(
+        has_text='e2e database error'
+    )
+
+
 def run():
     if os.environ.get('CAJEER_TEST_DATABASE')!='1':
         raise SystemExit('Set CAJEER_TEST_DATABASE=1 and DB_* for an isolated PostgreSQL database.')
@@ -57,12 +65,12 @@ def run():
             nav(page,'overview');expect(page.get_by_text('Всего событий')).to_be_visible();expect(page.locator('.metric').first.locator('strong')).to_have_text('1')
             page.get_by_label('Период',exact=True).select_option('15m');page.get_by_role('button',name='Применить',exact=True).click();expect(page.locator('.metric').first.locator('strong')).to_have_text('1')
             page.get_by_role('button',name='Выбрать',exact=True).first.click();expect(page.get_by_label('Источник dashboard')).not_to_have_value('')
-            page.get_by_role('button',name='Все логи',exact=True).click();expect(page.get_by_role('heading',name='Логи',exact=True)).to_be_visible();expect(page.get_by_text('e2e database error',exact=False)).to_be_visible()
+            page.get_by_role('button',name='Все логи',exact=True).click();expect(page.get_by_role('heading',name='Логи',exact=True)).to_be_visible();expect(database_error_rows(page).first).to_be_visible()
             page.get_by_role('button',name='Сбросить',exact=True).click()
-            nav(page,'logs');expect(page.get_by_text('e2e database error',exact=False)).to_be_visible();page.get_by_label('Поиск',exact=True).fill('database');page.get_by_label('Уровень',exact=True).select_option('error');page.get_by_role('button',name='Найти').click();expect(page.get_by_text('e2e database error',exact=False)).to_be_visible()
+            nav(page,'logs');expect(database_error_rows(page).first).to_be_visible();page.get_by_label('Поиск',exact=True).fill('database');page.get_by_label('Уровень',exact=True).select_option('error');page.get_by_role('button',name='Найти').click();expect(database_error_rows(page).first).to_be_visible()
             page.get_by_text('Сохранённые представления',exact=True).click();page.get_by_role('button',name='Сохранить текущее').click();page.get_by_label('Название',exact=True).fill('E2E saved search');page.get_by_role('dialog').get_by_role('button',name='Сохранить',exact=True).click()
             expect(page.get_by_label('Сохранённое представление').locator('option')).to_have_count(2); saved_id=page.get_by_label('Сохранённое представление').input_value();assert saved_id
-            page.get_by_role('button',name='Сбросить',exact=True).click();page.get_by_text('Сохранённые представления',exact=True).click();page.get_by_label('Сохранённое представление').select_option(saved_id);page.get_by_role('button',name='Применить',exact=True).click();expect(page.get_by_label('Поиск',exact=True)).to_have_value('database');expect(page.get_by_text('e2e database error',exact=False)).to_be_visible()
+            page.get_by_role('button',name='Сбросить',exact=True).click();page.get_by_text('Сохранённые представления',exact=True).click();page.get_by_label('Сохранённое представление').select_option(saved_id);page.get_by_role('button',name='Применить',exact=True).click();expect(page.get_by_label('Поиск',exact=True)).to_have_value('database');expect(database_error_rows(page).first).to_be_visible()
             page.get_by_role('button',name='Подробнее').click();expect(page.get_by_role('dialog')).to_contain_text(event_id);expect(page.get_by_role('dialog')).to_contain_text('[redacted]');assert page.locator('#modal img').count()==0;assert page.evaluate('window.pwned') is None;dlg=page.get_by_role('dialog');dlg.get_by_role('button',name='JSON context',exact=True).click();dlg.get_by_label('Поиск по JSON').fill('E2E');dlg.get_by_role('button',name='Найти в JSON').click();expect(dlg.locator('.json-result')).to_contain_text('/error_code');dlg.get_by_role('button',name='Связанные события').click();expect(dlg.get_by_text('Текущее',exact=True)).to_be_visible();dlg.get_by_role('button',name='Request ID',exact=True).click();expect(dlg.get_by_text('Текущее',exact=True)).to_be_visible();page.locator('#close-modal').click()
             with page.expect_download() as dl:page.get_by_role('button',name='CSV',exact=True).click()
             assert event_id in Path(dl.value.path()).read_text()
@@ -95,10 +103,10 @@ def run():
             api=ctx.request; csrf=api.get(url+'/api/v1/auth/me').json()['csrf_token']; headers={'X-CSRF-Token':csrf,'Origin':url}
             # Switching projects must discard source/query/cursor state rather than leak the old workspace.
             resp=api.post(url+'/api/v1/projects',headers=headers,data={'name':'Other Project','slug':'other-project'});assert resp.status==201;other_project=resp.json()['id']
-            page.get_by_label('Поиск',exact=True).fill('database');page.get_by_role('button',name='Найти').click();expect(page.get_by_text('e2e database error',exact=False)).to_be_visible()
+            page.get_by_label('Поиск',exact=True).fill('database');page.get_by_role('button',name='Найти').click();expect(database_error_rows(page).first).to_be_visible()
             page.get_by_role('button',name='Обновить проекты').click();expect(page.get_by_label('Активный проект').locator('option[value="'+other_project+'"]')).to_have_count(1)
-            page.get_by_role('button',name='Быстрый переход').click();dlg=page.get_by_role('dialog');dlg.get_by_label('Поиск проекта для перехода').fill(other_project);dlg.get_by_role('button',name='Найти проекты').click();dlg.get_by_label('Открыть раздел').select_option('logs');dlg.get_by_role('button',name='Other Project',exact=False).click();expect(page.get_by_label('Активный проект')).to_have_value(other_project);expect(page.get_by_label('Поиск',exact=True)).to_have_value('');expect(page.get_by_text('e2e database error',exact=False)).to_have_count(0)
-            page.get_by_label('Активный проект').select_option(project);expect(page.get_by_text('e2e database error',exact=False)).to_be_visible()
+            page.get_by_role('button',name='Быстрый переход').click();dlg=page.get_by_role('dialog');dlg.get_by_label('Поиск проекта для перехода').fill(other_project);dlg.get_by_role('button',name='Найти проекты').click();dlg.get_by_label('Открыть раздел').select_option('logs');dlg.get_by_role('button',name='Other Project',exact=False).click();expect(page.get_by_label('Активный проект')).to_have_value(other_project);expect(page.get_by_label('Поиск',exact=True)).to_have_value('');expect(database_error_rows(page)).to_have_count(0)
+            page.get_by_label('Активный проект').select_option(project);expect(database_error_rows(page).first).to_be_visible()
             resp=api.post(url+'/api/v1/users',headers=headers,data={'email':'operator@example.test','password':'operator-password-12345','role':'operator'});assert resp.status==201;operator=resp.json()['id']
             membership=url+'/api/v1/projects/'+project+'/members/'+operator
             assert api.put(membership,headers=headers,data={'role':'operator'}).status==204
@@ -109,18 +117,18 @@ def run():
             role_row=page.get_by_role('row').filter(has_text='E2E restricted operator');expect(role_row).to_be_visible();custom_id=role_row.locator('code').inner_text()
             nav(page,'users');page.get_by_label('Поиск пользователей').fill('operator@example.test');page.get_by_role('button',name='Найти пользователей',exact=True).click();page.get_by_role('row').filter(has_text='operator@example.test').get_by_role('button',name='Карточка',exact=True).click()
             page.get_by_role('button',name='Назначить глобальную роль',exact=True).click();dlg.get_by_label('Пользовательская роль').select_option(custom_id);dlg.get_by_role('button',name='Сохранить назначение').click();expect(page.get_by_text(custom_id,exact=True).first).to_be_visible()
-            op.bring_to_front();op.evaluate("window.dispatchEvent(new Event('focus'))");expect(op.locator('#nav a[href="#tokens"]')).to_have_count(0);nav(op,'logs');expect(op.get_by_text('e2e database error',exact=False)).to_be_visible();expect(op.get_by_role('button',name='CSV',exact=True)).to_have_count(0)
+            op.bring_to_front();op.evaluate("window.dispatchEvent(new Event('focus'))");expect(op.locator('#nav a[href="#tokens"]')).to_have_count(0);nav(op,'logs');expect(database_error_rows(op).first).to_be_visible();expect(op.get_by_role('button',name='CSV',exact=True)).to_have_count(0)
             assert operator_ctx.request.get(url+'/api/v1/logs/export?project_id='+project+'&format=json').status==403
             assert api.put(url+'/api/v1/users/'+operator+'/role-assignment',headers=headers,data={'role_id':None,'expected_role_id':custom_id}).status==204
             op.evaluate("window.dispatchEvent(new Event('focus'))");expect(op.locator('#nav a[href="#tokens"]')).to_have_count(1)
             assert api.put(membership,headers=headers,data={'role':'viewer'}).status==204
             nav(op,'tokens');expect(op.get_by_text('Нет разрешений на токены или сервисные аккаунты в этом проекте.')).to_be_visible();assert operator_ctx.request.get(url+'/api/v1/projects/'+project+'/tokens').status==403
-            nav(op,'logs');expect(op.get_by_text('e2e database error',exact=False)).to_be_visible();op.get_by_role('button',name='Подробнее').first.click();expect(op.get_by_role('dialog')).to_be_visible();assert api.delete(membership,headers=headers).status==204
-            op.bring_to_front();op.evaluate("window.dispatchEvent(new Event('focus'))");expect(op.get_by_label('Активный проект')).to_be_disabled();expect(op.get_by_role('dialog')).not_to_be_visible();expect(op.get_by_text('e2e database error',exact=False)).to_have_count(0);assert operator_ctx.request.get(url+'/api/v1/logs?project_id='+project).status==403;operator_ctx.close()
+            nav(op,'logs');expect(database_error_rows(op).first).to_be_visible();op.get_by_role('button',name='Подробнее').first.click();expect(op.get_by_role('dialog')).to_be_visible();assert api.delete(membership,headers=headers).status==204
+            op.bring_to_front();op.evaluate("window.dispatchEvent(new Event('focus'))");expect(op.get_by_label('Активный проект')).to_be_disabled();expect(op.get_by_role('dialog')).not_to_be_visible();expect(database_error_rows(op)).to_have_count(0);assert operator_ctx.request.get(url+'/api/v1/logs?project_id='+project).status==403;operator_ctx.close()
             nav(page,'system');expect(page.get_by_role('heading',name='Системный отчёт')).to_be_visible();expect(page.get_by_role('row').filter(has_text='PostgreSQL readiness')).to_contain_text('ok')
             page.get_by_role('button',name='Выйти',exact=True).click();expect(page.get_by_role('heading',name='Вход в CajeerLogs')).to_be_visible();assert ctx.request.get(url+'/api/v1/auth/me').status==401
             login(page,'viewer@example.test','viewer-password-12345');expect(page.get_by_role('heading',name='Обзор',exact=True)).to_be_visible();assert page.locator('#nav a[href="#users"]').count()==0;assert page.locator('#nav a[href="#tokens"]').count()==0
-            nav(page,'logs');expect(page.get_by_text('e2e database error',exact=False)).to_be_visible();assert ctx.request.get(url+'/api/v1/users').status==403
+            nav(page,'logs');expect(database_error_rows(page).first).to_be_visible();assert ctx.request.get(url+'/api/v1/users').status==403
             assert event_id in [e['id'] for e in ctx.request.get(url+'/api/v1/logs?project_id='+project).json()['items']]
             nav(page,'settings');page.get_by_role('button',name='Выйти на всех устройствах').click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_role('heading',name='Вход в CajeerLogs')).to_be_visible();assert ctx.request.get(url+'/api/v1/auth/me').status==401
             # Real local TOTP enrollment, QR and recovery-code login against PostgreSQL.
