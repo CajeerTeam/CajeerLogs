@@ -309,8 +309,8 @@ def main():
             # Real four-scenario performance gate on this disposable Docker/PostgreSQL/TLS stack.
             load_cmd=['python3',str(ROOT/'scripts/load_test.py'),'--url',url,'--project',pid,
                       '--source','app','--scenario','all','--rate','4','--batch','20',
-                      '--concurrency','4','--async-percent','100',
-                      '--sustained-seconds','3','--stress-seconds','3',
+                      '--concurrency','12','--async-percent','100',
+                      '--sustained-seconds','3','--stress-seconds','12',
                       '--soak-seconds','3','--fault-seconds','3',
                       '--drain-seconds','120','--p95-ms','5000','--fault-p95-ms','5000',
                       '--min-rate-ratio','0.8','--ca-file',str(tls/'fullchain.pem'),'--confirm-disposable']
