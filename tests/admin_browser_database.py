@@ -50,6 +50,46 @@ def confirm_logout_all(page):
         return
 
 
+def confirm_logout_others(page):
+    """Reopen the non-mutating confirmation if a session revalidation redraws it.
+
+    The logout request is issued only once, after the confirmation is visible.
+    """
+    for attempt in range(3):
+        opener = page.get_by_role('button', name='Завершить остальные сессии', exact=True)
+        expect(opener).to_be_visible()
+        opener.click()
+        dialog = page.get_by_role('dialog', name='Завершить остальные сессии', exact=True)
+        try:
+            expect(dialog).to_be_visible(timeout=2000)
+        except AssertionError:
+            if attempt == 2:
+                raise
+            continue
+        dialog.get_by_role('button', name='Подтвердить', exact=True).click()
+        return
+
+
+def open_token_rotation_dialog(page):
+    """Fill the non-mutating rotation form despite a concurrent view refresh.
+
+    No token is rotated until the caller explicitly submits the form.
+    """
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+    for attempt in range(3):
+        opener = page.get_by_role('button', name='Ротация', exact=True)
+        expect(opener).to_be_visible()
+        opener.click()
+        dialog = page.get_by_role('dialog', name='Ротация токена', exact=True)
+        try:
+            dialog.get_by_label('Перекрытие, секунд (0 = немедленно)').fill('0', timeout=2500)
+        except PlaywrightTimeoutError:
+            if attempt == 2:
+                raise
+            continue
+        return dialog
+
+
 def run():
     if os.environ.get('CAJEER_TEST_DATABASE')!='1':
         raise SystemExit('Set CAJEER_TEST_DATABASE=1 and DB_* for an isolated PostgreSQL database.')
@@ -67,7 +107,7 @@ def run():
             expect(other_page.get_by_role('heading',name='Обзор',exact=True)).to_be_visible()
             nav(page,'settings'); expect(page.get_by_text('Текущая сессия',exact=True)).to_be_visible()
             page.get_by_label('Отображаемое имя').fill('E2E Admin'); page.get_by_role('button',name='Сохранить профиль').click(); expect(page.locator('#account')).to_contain_text('E2E Admin')
-            page.get_by_role('button',name='Завершить остальные сессии').click(); page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click()
+            confirm_logout_others(page)
             expect(page.get_by_text('Страница 1 · 1 записей',exact=True)).to_be_visible()
             assert other.request.get(url+'/api/v1/auth/me').status==401; assert ctx.request.get(url+'/api/v1/auth/me').status==200; other.close()
             nav(page,'projects');form=page.locator('form').filter(has=page.get_by_role('button',name='Создать проект',exact=True));form.get_by_label('Название').fill('E2E Project');form.get_by_label('Slug').fill('e2e');form.get_by_role('button',name='Создать проект').click();expect(page.get_by_role('heading',name='E2E Project')).to_be_visible()
@@ -115,7 +155,7 @@ def run():
             page.get_by_role('button',name='Открыть источник').click();page.get_by_label('Токен logs:write').fill(token);page.get_by_role('button',name='Отправить тестовый лог').click();expect(page.get_by_text('Тестовое событие сохранено:',exact=False)).to_be_visible();page.locator('#close-modal').click()
             nav(page,'users');form=page.locator('form').filter(has=page.get_by_role('button',name='Создать пользователя'));form.get_by_label('Email').fill('viewer@example.test');form.get_by_label('Пароль').fill('viewer-password-12345');form.get_by_role('button',name='Создать пользователя').click();row=page.get_by_role('row').filter(has_text='viewer@example.test');expect(row).to_be_visible();viewer=row.locator('code').inner_text()
             nav(page,'projects');page.get_by_label('UUID пользователя').fill(viewer);page.get_by_role('button',name='Добавить участника').click();expect(page.get_by_text('viewer@example.test',exact=True)).to_be_visible()
-            nav(page,'tokens');page.get_by_role('button',name='Ротация',exact=True).click();dlg=page.get_by_role('dialog');dlg.get_by_label('Перекрытие, секунд (0 = немедленно)').fill('0');dlg.get_by_role('button',name='Выпустить замену').click();expect(dlg.locator('.secret')).to_be_visible();successor=dlg.locator('.secret').inner_text();assert successor!=token;page.locator('#close-modal').click();expect(page.get_by_text('Отозван',exact=True)).to_be_visible();assert http(url+'/api/v1/ingest','POST',json.dumps(event).encode(),{'Content-Type':'application/json','Authorization':'Bearer '+token})[0]==401;assert http(url+'/api/v1/ingest','POST',json.dumps(event).encode(),{'Content-Type':'application/json','Authorization':'Bearer '+successor})[0]==201;page.get_by_role('button',name='Отключить сервис').click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_text('Отключена',exact=True)).to_be_visible();assert http(url+'/api/v1/ingest','POST',json.dumps(event).encode(),{'Content-Type':'application/json','Authorization':'Bearer '+successor})[0]==401
+            nav(page,'tokens');dlg=open_token_rotation_dialog(page);dlg.get_by_role('button',name='Выпустить замену').click();expect(dlg.locator('.secret')).to_be_visible();successor=dlg.locator('.secret').inner_text();assert successor!=token;page.locator('#close-modal').click();expect(page.get_by_text('Отозван',exact=True)).to_be_visible();assert http(url+'/api/v1/ingest','POST',json.dumps(event).encode(),{'Content-Type':'application/json','Authorization':'Bearer '+token})[0]==401;assert http(url+'/api/v1/ingest','POST',json.dumps(event).encode(),{'Content-Type':'application/json','Authorization':'Bearer '+successor})[0]==201;page.get_by_role('button',name='Отключить сервис').click();page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click();expect(page.get_by_text('Отключена',exact=True)).to_be_visible();assert http(url+'/api/v1/ingest','POST',json.dumps(event).encode(),{'Content-Type':'application/json','Authorization':'Bearer '+successor})[0]==401
             nav(page,'projects');page.get_by_role('button',name='Мастер подключения').click();dlg=page.get_by_role('dialog');dlg.get_by_label('Название',exact=True).fill('Wizard app');dlg.get_by_label('Slug').fill('wizard-app');dlg.get_by_label('Тип подключения').select_option('server');dlg.get_by_role('button',name='Создать источник подключения').click()
             dlg.get_by_label('Режим подписи подключения').select_option('separate');dlg.get_by_role('button',name='Выпустить токен подключения').click();expect(dlg.locator('.secret')).to_have_count(2);wizard_token=dlg.locator('.secret').first.inner_text();assert wizard_token.startswith('cl_');assert dlg.locator('.secret').last.inner_text().startswith('sk_')
             dlg.get_by_role('button',name='Проверить подключение').click();expect(dlg).to_contain_text('Тестовое событие сохранено и найдено:');dlg.get_by_role('button',name='Открыть тестовое событие в логах').click();expect(page.get_by_text('CajeerLogs source connection test',exact=True)).to_be_visible()

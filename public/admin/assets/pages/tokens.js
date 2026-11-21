@@ -67,9 +67,22 @@ async function signingDialog(url,epoch,signal) {
 }
 async function issueCredential(path,body,epoch) {
     if(tokenIssuing) throw new Error('Дождитесь завершения выпуска предыдущего токена.');
-    tokenIssuing=true; const authEpoch=state.authEpoch;
-    try { const result=await write(path,'POST',body); if(authEpoch!==state.authEpoch||!state.user) return; if(!active(epoch)){notify('Токен выпущен после смены раздела. Отзовите его, если секрет не сохранён.');return;} const project=state.project; const route=state.route; await render(); if(authEpoch===state.authEpoch&&state.user&&state.route===route&&state.project===project&&state.epoch===epoch+1) showCredential(result); }
-    finally {tokenIssuing=false;}
+    tokenIssuing=true;
+    const authEpoch=state.authEpoch, project=state.project, route=state.route;
+    try {
+        const result=await write(path,'POST',body);
+        if(authEpoch!==state.authEpoch||!state.user)return;
+        // A harmless session/focus revalidation can rerender the current route
+        // while the token is issued. View epochs are not credential ownership.
+        // Do not discard a one-time secret just because the view was refreshed.
+        if(state.route!==route||state.project!==project){
+            notify('Токен выпущен после смены раздела. Отзовите его, если секрет не сохранён.');
+            return;
+        }
+        await render();
+        if(authEpoch===state.authEpoch&&state.user&&state.route===route&&state.project===project)
+            showCredential(result);
+    } finally {tokenIssuing=false;}
 }
 function serviceAccountSection(path,signal,epoch,onTokens) {
     const list=h('div');
