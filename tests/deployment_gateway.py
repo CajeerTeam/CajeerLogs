@@ -9,6 +9,10 @@ with tempfile.TemporaryDirectory(prefix='cl-gateway-') as td:
     with socket.socket() as s: s.bind(('127.0.0.1',0)); port=s.getsockname()[1]
     subprocess.run(['sh',str(ROOT/'deploy/production/gateway-origin.sh')],env=os.environ|{'APP_URL':f'https://localhost:{port}','CAJEER_NGINX_ORIGIN_FILE':str(origin)},check=True)
     site=(ROOT/'deploy/production/nginx.conf').read_text().replace('listen 443 ssl;',f'listen 127.0.0.1:{port} ssl;').replace('/tls/fullchain.pem',str(cert)).replace('/tls/privkey.pem',str(key)).replace('/app/public',str(ROOT/'public')).replace('include fastcgi_params;','include /etc/nginx/fastcgi_params;').replace('app:9000','127.0.0.1:1')
+    # Regression: a missing Authorization header cannot become an empty FastCGI
+    # HTTP_AUTHORIZATION parameter (which would invalidate cookie sessions).
+    assert 'fastcgi_param HTTP_AUTHORIZATION $http_authorization if_not_empty;' in site
+    assert 'fastcgi_param HTTP_AUTHORIZATION $http_authorization;' not in site
     (d/'site.conf').write_text(site)
     conf.write_text(f'pid {d}/nginx.pid; error_log {d}/error.log; worker_processes 1; events {{ worker_connections 128; }} http {{ include /etc/nginx/mime.types; client_body_temp_path {d}/body; fastcgi_temp_path {d}/fastcgi; proxy_temp_path {d}/proxy; uwsgi_temp_path {d}/uwsgi; scgi_temp_path {d}/scgi; include {origin}; include {d}/site.conf; }}')
     cmd=['nginx','-p',str(d)+'/', '-c',str(conf)]

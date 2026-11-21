@@ -1,27 +1,27 @@
-name: Repair local PostgreSQL transport for unpublished CajeerLogs v1.0.0
+name: Repair FastCGI authorization header for unpublished CajeerLogs v1.0.0
 on:
   push:
     branches:
-      - release-repair-socket/v1.0.0
+      - release-repair-auth/v1.0.0
 
 permissions:
   contents: read
 
 jobs:
   repair-unpublished-tag:
-    if: github.repository == 'CajeerTeam/CajeerLogs' && github.ref == 'refs/heads/release-repair-socket/v1.0.0'
+    if: github.repository == 'CajeerTeam/CajeerLogs' && github.ref == 'refs/heads/release-repair-auth/v1.0.0'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
       actions: write
     steps:
-      - name: Correct production PostgreSQL local transport, then rerun full GA certification
+      - name: Correct empty FastCGI authorization header, then rerun full GA certification
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          expected_old=4656f0b14792c35ba124b9a4ab9f4b3c53957811
+          expected_old=a632951a3e5ae30023f8140bd8843ceda931b613
           new_sha="${GITHUB_SHA}"
           main_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)"
           [[ "${main_sha}" == "${new_sha}" ]] || { echo "::error::Main moved; refusing to retag"; exit 1; }
