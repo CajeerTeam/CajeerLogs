@@ -188,7 +188,9 @@ def main():
         with tempfile.TemporaryDirectory() as d:
             d=Path(d)
             run('php',ROOT/'tests/sdk/async.php',url,TOKEN)
-            tsc=shutil.which('tsc') or str(ROOT/'packages/ts-sdk/node_modules/.bin/tsc')
+            local_tsc=ROOT/'packages/ts-sdk/node_modules/.bin/tsc'
+            tsc=str(local_tsc) if local_tsc.is_file() else shutil.which('tsc')
+            if not tsc: raise RuntimeError('TypeScript compiler unavailable: install packages/ts-sdk dependencies')
             run(tsc,'-p',ROOT/'packages/ts-sdk/tsconfig.json','--outDir',d)
             (d/'package.json').write_text('{"type":"module"}')
             shutil.copy(ROOT/'tests/sdk/async.mjs',d/'async.mjs')
