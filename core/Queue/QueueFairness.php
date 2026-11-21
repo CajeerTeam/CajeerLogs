@@ -92,6 +92,7 @@ final class QueueFairness
         // locks on systems with many projects, while preserving SKIP LOCKED.
         $candidates=$this->pdo->query("SELECT s.project_id FROM queue_project_state s WHERE $where
             ORDER BY s.virtual_finish,s.project_id LIMIT 64")->fetchAll(PDO::FETCH_COLUMN);
+        if ($candidates===[]) return null; // Avoid preparing unused statements; no eligible project.
         $q=$this->pdo->prepare("SELECT s.project_id,s.weight,s.max_running_jobs,s.running_jobs
             FROM queue_project_state s WHERE s.project_id=CAST(:project AS uuid) AND $where
             FOR UPDATE OF s SKIP LOCKED");
@@ -118,6 +119,7 @@ final class QueueFairness
             SQL;
         $candidates=$this->pdo->query("SELECT s.project_id FROM queue_project_state s WHERE $where
             ORDER BY s.virtual_finish,s.project_id LIMIT 64")->fetchAll(PDO::FETCH_COLUMN);
+        if ($candidates===[]) return null; // Avoid preparing unused statements; no eligible project.
         $q=$this->pdo->prepare("SELECT s.project_id FROM queue_project_state s
             WHERE s.project_id=CAST(:project AS uuid) AND $where
             FOR UPDATE OF s SKIP LOCKED");
