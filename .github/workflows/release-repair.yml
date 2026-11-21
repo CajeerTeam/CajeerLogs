@@ -1,0 +1,42 @@
+name: Repair unpublished CajeerLogs v1.0.0 certification
+on:
+  push:
+    branches:
+      - release-repair/v1.0.0
+
+permissions:
+  contents: read
+
+jobs:
+  repair-unpublished-tag:
+    if: github.repository == 'CajeerTeam/CajeerLogs' && github.ref == 'refs/heads/release-repair/v1.0.0'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - name: Correct pre-publication tag only, then rerun all original GA security checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_old=abdf7c2794fd909c357c4c6fe313173723be99d5
+          new_sha="${GITHUB_SHA}"
+          main_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)"
+          [[ "${main_sha}" == "${new_sha}" ]] || { echo "::error::Main moved; refusing to retag"; exit 1; }
+          old_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/v1.0.0" --jq .object.sha)"
+          [[ "${old_sha}" == "${expected_old}" ]] || { echo "::error::Unexpected existing tag; refusing to rewrite"; exit 1; }
+          if gh release view v1.0.0 --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "::error::GA release exists; no tag mutation allowed"
+            exit 1
+          fi
+          echo "Updating only the failed, never-published v1.0.0 tag ${old_sha} -> ${new_sha}"
+          gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/v1.0.0" \
+            -f "sha=${new_sha}" -F force=true >/dev/null
+          verified="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/v1.0.0" --jq .object.sha)"
+          [[ "${verified}" == "${new_sha}" ]] || { echo "::error::Tag update not verified"; exit 1; }
+          # The original release workflow performs all full matrix checks,
+          # attestation verification, production smoke and final GA promotion.
+          gh workflow run runtime.yml --ref v1.0.0 --repo "${GITHUB_REPOSITORY}"
+          echo "Full signed GA certification dispatched for ${new_sha}"
