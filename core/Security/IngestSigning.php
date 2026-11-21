@@ -33,9 +33,13 @@ final class IngestSigning
     public function verify(Request $r,IngestPrincipal $p,string $bearer,?string $key,bool $global,bool $locked=false): ?string
     {
         if ($locked && !$this->pdo->inTransaction()) throw new \LogicException('Signing policy lock requires transaction.');
-        // Token row is already locked by IngestAuthorization. Project row serializes policy changes
-        // and admission; use UPDATE, not a shared lock that would need upgrading later.
-        $project=$this->sql('SELECT require_ingest_hmac FROM projects WHERE id=:id'.($locked?' FOR UPDATE':''),['id'=>$p->projectId])->fetch();
+        // Token row is already locked by IngestAuthorization. FOR SHARE keeps
+        // the HMAC policy stable against concurrent UPDATE/DELETE, without
+        // conflicting with the FOR KEY SHARE parent locks taken by PostgreSQL
+        // when async queue workers persist log_events. FOR UPDATE here made
+        // ingest token->project lock order deadlock with worker project->token
+        // foreign-key checks under sustained production load.
+        $project=$this->sql('SELECT require_ingest_hmac FROM projects WHERE id=:id'.($locked?' FOR SHARE':''),['id'=>$p->projectId])->fetch();
         if (!$project) Identity::forbidden();
         $row=$this->sql('SELECT current_key_id,current_ciphertext,previous_key_id,previous_ciphertext,(previous_until>clock_timestamp()) AS previous_active FROM ingest_signing WHERE token_id=:id',['id'=>$p->id])->fetch();
         $now=(int)$this->pdo->query('SELECT floor(extract(epoch FROM clock_timestamp()))::bigint')->fetchColumn();
