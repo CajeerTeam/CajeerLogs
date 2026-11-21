@@ -50,6 +50,26 @@ def confirm_logout_all(page):
         return
 
 
+def confirm_logout_others(page):
+    """Reopen the non-mutating confirmation if a session revalidation redraws it.
+
+    The logout request is issued only once, after the confirmation is visible.
+    """
+    for attempt in range(3):
+        opener = page.get_by_role('button', name='Завершить остальные сессии', exact=True)
+        expect(opener).to_be_visible()
+        opener.click()
+        dialog = page.get_by_role('dialog', name='Завершить остальные сессии', exact=True)
+        try:
+            expect(dialog).to_be_visible(timeout=2000)
+        except AssertionError:
+            if attempt == 2:
+                raise
+            continue
+        dialog.get_by_role('button', name='Подтвердить', exact=True).click()
+        return
+
+
 def run():
     if os.environ.get('CAJEER_TEST_DATABASE')!='1':
         raise SystemExit('Set CAJEER_TEST_DATABASE=1 and DB_* for an isolated PostgreSQL database.')
@@ -67,7 +87,7 @@ def run():
             expect(other_page.get_by_role('heading',name='Обзор',exact=True)).to_be_visible()
             nav(page,'settings'); expect(page.get_by_text('Текущая сессия',exact=True)).to_be_visible()
             page.get_by_label('Отображаемое имя').fill('E2E Admin'); page.get_by_role('button',name='Сохранить профиль').click(); expect(page.locator('#account')).to_contain_text('E2E Admin')
-            page.get_by_role('button',name='Завершить остальные сессии').click(); page.get_by_role('dialog').get_by_role('button',name='Подтвердить').click()
+            confirm_logout_others(page)
             expect(page.get_by_text('Страница 1 · 1 записей',exact=True)).to_be_visible()
             assert other.request.get(url+'/api/v1/auth/me').status==401; assert ctx.request.get(url+'/api/v1/auth/me').status==200; other.close()
             nav(page,'projects');form=page.locator('form').filter(has=page.get_by_role('button',name='Создать проект',exact=True));form.get_by_label('Название').fill('E2E Project');form.get_by_label('Slug').fill('e2e');form.get_by_role('button',name='Создать проект').click();expect(page.get_by_role('heading',name='E2E Project')).to_be_visible()
