@@ -58,7 +58,7 @@ $db->rows=$policy(false,array_replace($row,['previous_active'=>'f']));check(reje
 $db->rows=$policy(false,array_replace($row,['previous_active'=>'t']));check($keys->verify($r($headers($old,$oldSecret)),$p,$bearer,$key,false)===$nonce,'active previous key string t accepted');
 $db->rows=$policy(false,$row);check(rejects(fn()=>$keys->verify($r($v1),$p,$bearer,$key,false)),'no fallback to bearer after separate mode');
 $db->rows=$policy(false,$row);check(rejects(fn()=>$keys->verify($r(),$p,$bearer,null,false)),'separate mode cannot be unsigned');
-$db->active=true;$db->rows=$policy(false,$row);$db->calls=[];$keys->verify($r($h),$p,$bearer,$key,false,true);check(str_contains($db->calls[0][0],'FOR UPDATE')&&str_contains($db->calls[2][0],'clock_timestamp'),'locked policy check and database clock');
+$db->active=true;$db->rows=$policy(false,$row);$db->calls=[];$keys->verify($r($h),$p,$bearer,$key,false,true);check(str_contains($db->calls[0][0],'FOR SHARE')&&!str_contains($db->calls[0][0],'FOR UPDATE')&&str_contains($db->calls[2][0],'clock_timestamp'),'shared policy lock and database clock');
 check(!str_contains((new \Cajeer\Logs\Log\Redactor())->text('key '.$secret),$secret),'separate signing secret redacted');
 $activeToken=['id'=>$token,'scopes'=>'["logs:write"]','revoked_at'=>null,'active'=>true];
 $db->rows=[array_replace($activeToken,['active'=>'f'])];check(rejects(fn()=>$keys->configure($project,$token,'separate',0,$old),409),'string f inactive token cannot rotate signing key');
