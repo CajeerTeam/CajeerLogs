@@ -87,9 +87,11 @@ final class SourceRepository
         // Acquire every source lock in UUID order in one round trip, then check all
         // policies before modifying any counters. This preserves the project->source
         // lock hierarchy and prevents opposite-order mixed batches from deadlocking.
+        // NO KEY UPDATE conflicts with policy/counter changes but not with the
+        // KEY SHARE references of queued log inserts (foreign key checks).
         $rows=$this->sql("SELECT s.id,s.status,s.max_body_bytes,s.max_batch_events,s.events_per_minute,b.events
             FROM sources s JOIN jsonb_to_recordset(CAST(:batch AS jsonb)) AS b(id uuid,events integer) ON s.id=b.id
-            WHERE s.project_id=:project ORDER BY s.id FOR UPDATE OF s",['project'=>$project,'batch'=>$batch])->fetchAll();
+            WHERE s.project_id=:project ORDER BY s.id FOR NO KEY UPDATE OF s",['project'=>$project,'batch'=>$batch])->fetchAll();
         if (count($rows)!==count($counts)) throw new HttpException(403,'forbidden','Access denied.');
         foreach ($rows as $row) {
             $events=(int)$row['events'];
@@ -125,7 +127,8 @@ final class SourceRepository
         $this->requireTransaction(); $batch=self::admissionRows($counts);
         // UPDATE alone does not guarantee lock order. Lock the exact same source
         // set in order before the bulk write, including the rejection path.
-        $locked=$this->sql("SELECT s.id FROM sources s JOIN jsonb_to_recordset(CAST(:batch AS jsonb)) AS b(id uuid,events integer) ON s.id=b.id WHERE s.project_id=:project ORDER BY s.id FOR UPDATE OF s",['project'=>$project,'batch'=>$batch])->fetchAll();
+        // Keep the same FK-compatible lock mode as successful admissions.
+        $locked=$this->sql("SELECT s.id FROM sources s JOIN jsonb_to_recordset(CAST(:batch AS jsonb)) AS b(id uuid,events integer) ON s.id=b.id WHERE s.project_id=:project ORDER BY s.id FOR NO KEY UPDATE OF s",['project'=>$project,'batch'=>$batch])->fetchAll();
         if (count($locked)!==count($counts)) throw new HttpException(403,'forbidden','Access denied.');
         $updated=$this->sql("UPDATE sources s SET rejected_events_total=s.rejected_events_total+b.events FROM jsonb_to_recordset(CAST(:batch AS jsonb)) AS b(id uuid,events integer) WHERE s.project_id=:project AND s.id=b.id",['project'=>$project,'batch'=>$batch])->rowCount();
         if ($updated!==count($counts)) throw new \RuntimeException('Incomplete rejection accounting; roll back transaction.');
