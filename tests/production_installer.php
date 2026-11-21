@@ -35,6 +35,12 @@ try {
     unlink($path);
 } finally { if (file_exists($tmp.'/.install.lock') || is_link($tmp.'/.install.lock')) unlink($tmp.'/.install.lock'); rmdir($tmp); }
 $root=dirname(__DIR__);
+$productionSmoke=file_get_contents($root.'/tests/production_smoke.py');
+ok(is_string($productionSmoke)
+    && substr_count($productionSmoke,'postgres_admin(')===4
+    && str_contains($productionSmoke,'PGPASSWORD="$POSTGRES_PASSWORD" exec psql -X -w')
+    && !str_contains($productionSmoke,"'db','psql'"),
+    'production smoke always authenticates privileged PostgreSQL probes through SCRAM without exposing passwords');
 $socketConfig=new \Cajeer\Logs\Config\ConfigRepository([
     'app'=>['env'=>'production','url'=>'https://logs.example.test','debug'=>false],
     'security'=>['require_admin_totp'=>true,'totp_key'=>str_repeat('a',64),

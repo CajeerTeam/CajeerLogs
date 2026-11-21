@@ -45,6 +45,14 @@ def main():
         def compose(*args, capture=False, check=True, timeout=600):
             return subprocess.run(cmd+list(args),cwd=ROOT,env=env,check=check,timeout=timeout,stdout=subprocess.PIPE if capture else None,text=True).stdout
         def cli(*args): return compose('exec','-T','app','php','bin/cajeer',*args,capture=True)
+        def postgres_admin(sql, database='cajeer_logs'):
+            # PostgreSQL uses mandatory SCRAM even on its private Unix socket.
+            # Read the existing superuser secret inside the database container:
+            # never copy it to CI logs, Python command arguments or the host.
+            return compose('exec', '-T', 'db', 'sh', '-ec',
+                           'PGPASSWORD="$POSTGRES_PASSWORD" exec psql -X -w -U postgres -d "$1" -v ON_ERROR_STOP=1 -c "$2"',
+                           'cajeer-psql', database, sql)
+
         context=ssl.create_default_context(cafile=str(tls/'fullchain.pem'))
         def http(method,path,body=None,headers=None,expected=200,raw_response=False):
             raw=body if isinstance(body,bytes) else (None if body is None else json.dumps(body,separators=(',',':')).encode())
@@ -124,8 +132,7 @@ def main():
             print('PASS real TOTP, recovery, token, synchronous and async ingest, worker, search and export',flush=True)
             # Prove policy composition over real TLS: an expired recent-auth window, a fresh
             # second factor, then a restricted operator with a live session and no export.
-            compose('exec','-T','db','psql','-U','postgres','-d','cajeer_logs','-v','ON_ERROR_STOP=1','-c',
-                "UPDATE auth_sessions SET reauthenticated_at=now()-interval '10 minutes' WHERE user_id=(SELECT id FROM users WHERE email='release@example.test')")
+            postgres_admin("UPDATE auth_sessions SET reauthenticated_at=now()-interval '10 minutes' WHERE user_id=(SELECT id FROM users WHERE email='release@example.test')")
             role_body={'name':'Smoke read only','scope':'global','permissions':['projects:read','logs:read','tokens:read','tokens:create']}
             denied,_=http('POST','/api/v1/roles',role_body,auth,403); assert denied['error']=='reauthentication_required'
             fresh,_=http('POST','/api/v1/auth/reauthenticate',{'password':admin,'otp':recovery_codes[1]},auth); assert fresh['security']['reauth_seconds']==300
@@ -146,7 +153,7 @@ def main():
             m=scheduled['backup']; assert m['bytes']>0
             assert json.loads(cli('backup:run'))['status']=='not_due'
             assert json.loads(cli('backup:verify',m['id']))['sha256']==m['sha256']
-            compose('exec','-T','db','psql','-U','postgres','-d','postgres','-v','ON_ERROR_STOP=1','-c','CREATE DATABASE cajeer_restore_smoke OWNER cajeer_logs')
+            postgres_admin('CREATE DATABASE cajeer_restore_smoke OWNER cajeer_logs', database='postgres')
             restored=json.loads(cli('backup:rehearse',m['id'],'cajeer_restore_smoke')); assert restored['api_tokens_revoked'] and restored['integrity_verified']
             history=json.loads(cli('backup:history')); assert history['state']['last_restore_id']==m['id'] and history['state']['last_success_id']==m['id']
             # Independent target connection: check actual restored events, credentials and source isolation.
@@ -319,8 +326,7 @@ def main():
             # again for the monitor checks. Only the intentionally aged event may be removed.
             compose('stop','scheduler')
             cli('retention:set',pid,'1')
-            compose('exec','-T','db','psql','-U','postgres','-d','cajeer_logs','-v','ON_ERROR_STOP=1','-c',
-                f"UPDATE log_events SET received_at=now()-interval '2 days' WHERE id='{eventid}'")
+            postgres_admin(f"UPDATE log_events SET received_at=now()-interval '2 days' WHERE id='{eventid}'")
             assert json.loads(cli('retention:preview','10',pid))['candidates']==1
             assert json.loads(cli('retention:run','10'))['removed']==1
             http('GET',f'/api/v1/logs/{eventid}?project_id={pid}',headers=bearer,expected=404)

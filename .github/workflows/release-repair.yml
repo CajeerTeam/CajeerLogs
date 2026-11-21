@@ -1,27 +1,27 @@
-name: Repair FastCGI authorization header for unpublished CajeerLogs v1.0.0
+name: Repair SCRAM-authenticated production smoke for unpublished CajeerLogs v1.0.0
 on:
   push:
     branches:
-      - release-repair-auth/v1.0.0
+      - release-repair-psql/v1.0.0
 
 permissions:
   contents: read
 
 jobs:
   repair-unpublished-tag:
-    if: github.repository == 'CajeerTeam/CajeerLogs' && github.ref == 'refs/heads/release-repair-auth/v1.0.0'
+    if: github.repository == 'CajeerTeam/CajeerLogs' && github.ref == 'refs/heads/release-repair-psql/v1.0.0'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
       actions: write
     steps:
-      - name: Correct empty FastCGI authorization header, then rerun full GA certification
+      - name: Authenticate production smoke PostgreSQL probes, then rerun full GA certification
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          expected_old=a632951a3e5ae30023f8140bd8843ceda931b613
+          expected_old=2cfb742f62ef1612b81c3412b61e8c0757458031
           new_sha="${GITHUB_SHA}"
           main_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)"
           [[ "${main_sha}" == "${new_sha}" ]] || { echo "::error::Main moved; refusing to retag"; exit 1; }
