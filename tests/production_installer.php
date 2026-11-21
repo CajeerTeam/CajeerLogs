@@ -35,6 +35,13 @@ try {
     unlink($path);
 } finally { if (file_exists($tmp.'/.install.lock') || is_link($tmp.'/.install.lock')) unlink($tmp.'/.install.lock'); rmdir($tmp); }
 $root=dirname(__DIR__);
+$smokeReportSource=file_get_contents($root.'/tests/production_smoke.py');
+ok(is_string($smokeReportSource)
+    && substr_count($smokeReportSource,'load_test_failed_gates=')===2
+    && str_contains($smokeReportSource,"'failed_gates'")
+    && str_contains($smokeReportSource,"'durable_events'")
+    && str_contains($smokeReportSource,"'verified_events'"),
+    'failed production throughput qualification exposes only aggregate gates and durability counts');
 $dockerfile=file_get_contents($root.'/deploy/production/Dockerfile');
 ok(is_string($dockerfile)
     && str_contains($dockerfile, "cgi.nph=1")

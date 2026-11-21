@@ -74,6 +74,37 @@ def main():
             # Don't log response bodies that might include credentials.
             if status not in (expected if isinstance(expected,tuple) else (expected,)): raise AssertionError(f'{method} {path}: expected {expected}, got {status}')
             return (json.loads(data) if not raw_response and h.get('Content-Type','').startswith('application/json') and data else data),h
+        def load_failure_summary(raw):
+            """Only bounded aggregate metrics; never print credentials or event payloads."""
+            try:
+                report=json.loads(raw)
+            except (ValueError, TypeError):
+                return {'report':'unavailable'}
+            if not isinstance(report,dict):
+                return {'report':'invalid'}
+            phases=[]
+            for phase in report.get('phases',[]):
+                if not isinstance(phase,dict):
+                    continue
+                gates=phase.get('gates',{})
+                phases.append({
+                    'scenario':phase.get('scenario'),
+                    'status':phase.get('status'),
+                    'failed_gates':[name for name,ok in gates.items() if not ok] if isinstance(gates,dict) else [],
+                    'scheduled_requests':phase.get('scheduled_requests'),
+                    'completed_requests':phase.get('completed_requests'),
+                    'durable_events':phase.get('durable_events'),
+                    'verified_events':phase.get('verified_events'),
+                    'async_jobs':phase.get('async_jobs'),
+                    'effective_ingest_rps':phase.get('effective_ingest_rps'),
+                    'latency':phase.get('latency'),
+                    'concurrent_search_latency':phase.get('concurrent_search_latency'),
+                    'errors':phase.get('errors'),
+                    'concurrent_search_errors':phase.get('concurrent_search_errors'),
+                    'fault_injection':phase.get('fault_injection'),
+                })
+            return {'status':report.get('status'),'phases':phases,
+                    'error_kind':str(report.get('error','')).split(':',1)[0] or None}
         def session(data,headers):
             cookie=headers['Set-Cookie']; assert 'Secure' in cookie and 'HttpOnly' in cookie and 'SameSite=Strict' in cookie
             return {'Cookie':cookie.split(';',1)[0],'X-CSRF-Token':data['csrf_token'],'Origin':url}
@@ -285,7 +316,10 @@ def main():
                       '--min-rate-ratio','0.8','--ca-file',str(tls/'fullchain.pem'),'--confirm-disposable']
             perf=subprocess.run(load_cmd,env=dict(env,CAJEER_TOKEN=t['token'],CAJEER_LOAD_TEST='1'),
                                 text=True,capture_output=True,timeout=180)
-            assert perf.returncode==0, 'Real load/fault tests did not pass on Docker PostgreSQL runtime'
+            if perf.returncode!=0:
+                print('load_test_failed_gates='+json.dumps(load_failure_summary(perf.stdout),
+                      ensure_ascii=True,sort_keys=True),flush=True)
+                raise AssertionError('Real load/fault tests did not pass on Docker PostgreSQL runtime')
             perf_report=json.loads(perf.stdout)
             assert perf_report['status']=='passed' and not perf_report['certified']
             assert [p['scenario'] for p in perf_report['phases']]==['sustained','stress','soak','fault']
@@ -317,7 +351,12 @@ def main():
                 full_run=subprocess.run(full_cmd,env=dict(env,CAJEER_TOKEN=t['token'],CAJEER_LOAD_TEST='1'),
                                         text=True,capture_output=True,timeout=3000)
                 if full_run.returncode!=0:
-                    # No credentials, response body or private payload in the error.
+                    # Keep the signed release gate fail-closed but reveal only
+                    # aggregate SLO gates; never dump credentials/HTTP payloads.
+                    report_data=(Path(report_path).read_text() if Path(report_path).is_file()
+                                 else full_run.stdout)
+                    print('load_test_failed_gates='+json.dumps(load_failure_summary(report_data),
+                          ensure_ascii=True,sort_keys=True),flush=True)
                     raise AssertionError('Live long-duration high-throughput certification failed')
                 full_report=json.loads(Path(report_path).read_text())
                 assert full_report['status']=='passed' and full_report['certified']

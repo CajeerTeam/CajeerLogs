@@ -1,27 +1,27 @@
-name: Repair FastCGI explicit status for unpublished CajeerLogs v1.0.0
+name: Diagnose live production load gates for unpublished CajeerLogs v1.0.0
 on:
   push:
     branches:
-      - release-repair-fastcgi-status/v1.0.0
+      - release-repair-load-report/v1.0.0
 
 permissions:
   contents: read
 
 jobs:
   repair-unpublished-tag:
-    if: github.repository == 'CajeerTeam/CajeerLogs' && github.ref == 'refs/heads/release-repair-fastcgi-status/v1.0.0'
+    if: github.repository == 'CajeerTeam/CajeerLogs' && github.ref == 'refs/heads/release-repair-load-report/v1.0.0'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
       actions: write
     steps:
-      - name: Emit FastCGI Status 200 for async replay, then rerun full GA certification
+      - name: Surface failed live throughput gates and rerun full GA certification
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          expected_old=f8f44524174dab59bd3668c3bde5e220b40bee9e
+          expected_old=b8f9b3e8c6a7ba9e0a58892951fd78cfc0841fff
           new_sha="${GITHUB_SHA}"
           main_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)"
           [[ "${main_sha}" == "${new_sha}" ]] || { echo "::error::Main moved; refusing to retag"; exit 1; }
