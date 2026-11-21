@@ -1,27 +1,27 @@
-name: Repair SCRAM-authenticated production smoke for unpublished CajeerLogs v1.0.0
+name: Repair async Location response status for unpublished CajeerLogs v1.0.0
 on:
   push:
     branches:
-      - release-repair-psql/v1.0.0
+      - release-repair-location/v1.0.0
 
 permissions:
   contents: read
 
 jobs:
   repair-unpublished-tag:
-    if: github.repository == 'CajeerTeam/CajeerLogs' && github.ref == 'refs/heads/release-repair-psql/v1.0.0'
+    if: github.repository == 'CajeerTeam/CajeerLogs' && github.ref == 'refs/heads/release-repair-location/v1.0.0'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
       actions: write
     steps:
-      - name: Authenticate production smoke PostgreSQL probes, then rerun full GA certification
+      - name: Preserve HTTP 200 on async replay with Location, then rerun full GA certification
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          expected_old=2cfb742f62ef1612b81c3412b61e8c0757458031
+          expected_old=7ad5999ca3f138d94d0e48b7200dc33dcf4a3f01
           new_sha="${GITHUB_SHA}"
           main_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)"
           [[ "${main_sha}" == "${new_sha}" ]] || { echo "::error::Main moved; refusing to retag"; exit 1; }

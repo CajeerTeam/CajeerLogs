@@ -39,10 +39,13 @@ class Response
 
     public function send(bool $head = false): void
     {
+        // PHP-FPM can coerce Location responses to 302 unless the intended
+        // status is explicitly given on the Location header itself. In
+        // particular, a successful async replay is 200 + Location, not 302.
+        http_response_code($this->status);
         foreach ($this->headers as $name => $value) {
-            header($name . ': ' . $value, true);
+            header($name . ': ' . $value, true, $name === 'location' ? $this->status : 0);
         }
-        // Location headers can implicitly change the status to 302.
         http_response_code($this->status);
         if (!$head && !in_array($this->status, [204, 304], true)) {
             echo $this->body;

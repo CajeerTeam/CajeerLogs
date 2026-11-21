@@ -112,7 +112,13 @@ def main():
             d,_=http('POST','/api/v1/ingest',event,bearer|{'Idempotency-Key':'release-sync'}); assert d['replayed'] and d['event_ids']==[eventid]
             d,h=http('POST','/api/v1/ingest',event,bearer|{'Content-Encoding':'gzip'},415); assert d['error']=='unsupported_media_type' and d['request_id']==h['X-Request-ID']
             m,_=http('GET','/metrics',headers={'Authorization':'Bearer '+metrics}); assert b'cajeerlogs_ingest_requests_total{mode="sync",status="201"}' in m and b'cajeerlogs_ingest_duration_seconds_count{mode="sync"}' in m
-            d,_=http('POST','/api/v1/ingest/async',event|{'message':'release async error'},bearer|{'Idempotency-Key':'release-async'},202); job=d['job_id']
+            async_event=event|{'message':'release async error'}
+            d,h=http('POST','/api/v1/ingest/async',async_event,bearer|{'Idempotency-Key':'release-async'},202)
+            job=d['job_id']; job_location=f'/api/v1/ingest/jobs/{job}'
+            assert h.get('Location')==job_location, 'New async receipt must provide status resource'
+            replay,h=http('POST','/api/v1/ingest/async',async_event,bearer|{'Idempotency-Key':'release-async'},200)
+            assert replay['replayed'] and replay['job_id']==job and replay['received']==1
+            assert h.get('Location')==job_location, 'Replayed receipt must preserve Location without redirect'
             for _ in range(60):
                 d,_=http('GET',f'/api/v1/ingest/jobs/{job}',headers=bearer)
                 if d['status']=='completed': break
