@@ -13,6 +13,20 @@ final class Worker
         $end=hrtime(true)+$ms*1_000_000;
         while (!$this->stop && ($remaining=$end-hrtime(true))>0) usleep((int)min(100000,max(1,intdiv($remaining,1000))));
     }
+    /** A server restart can surface as a transaction-boundary LogicException.
+     * Verify that the underlying session is actually gone before treating it as
+     * an outage; genuine transaction/worker invariants must still fail closed.
+     * This probe must not replay a job, claim or COMMIT. */
+    private static function lostSessionBehindLogic(\Throwable $error, ?\PDO $pdo): bool {
+        if (!$error instanceof \LogicException || $pdo===null) return false;
+        try {
+            $statement=$pdo->query('SELECT 1');
+            if ($statement!==false) $statement->closeCursor();
+        } catch (\Throwable $probeError) {
+            return DatabaseFailure::reconnectable($probeError);
+        }
+        return false;
+    }
     /** Limit 0 means continuous, subject to configured recycling limits. */
     public function run(int $limit=0): array {
         if ($limit<0 || $limit>10000) throw new \InvalidArgumentException('Invalid worker limit.');
@@ -64,11 +78,15 @@ final class Worker
                     }
                 } catch (\Throwable $error) {
                     $decision=RetryPolicy::classify($error);
-                    if (!$this->connection instanceof ConnectionManager || (!DatabaseFailure::unavailable($error) && $decision['action']!=='pause' && (!isset($pdo) || TransactionManager::usable($pdo)))) throw $error;
+                    $lostSession=self::lostSessionBehindLogic($error,$pdo??null);
+                    // An interrupted server-side transaction can leave PDO reporting
+                    // a LogicException instead of its original connection error.
+                    // Reconnect only when a separate read-only probe confirms loss.
+                    if (!$this->connection instanceof ConnectionManager || (!DatabaseFailure::unavailable($error) && !$lostSession && $decision['action']!=='pause' && (!isset($pdo) || TransactionManager::usable($pdo)))) throw $error;
                     // Durable job state is authoritative. Never replay uncertain claim/process/COMMIT.
                     unset($queue,$claims,$guard,$pdo);$this->connection->invalidate();
                     if ($limit!==0 || ++$failures>=$this->retryPolicy->get('outage_max_failures')) throw $error;
-                    fwrite(STDERR,'Queue database unavailable: '.$decision['reason'].'; reconnecting at next operation boundary.'.PHP_EOL);
+                    fwrite(STDERR,'Queue database unavailable: '.($lostSession?'connection_lost':$decision['reason']).'; reconnecting at next operation boundary.'.PHP_EOL);
                     $delay=$this->retryPolicy->outageDelay($failures);
                 } finally {if (isset($guard)) $guard->release();}
                 if ($delay>0) $this->sleep($delay);

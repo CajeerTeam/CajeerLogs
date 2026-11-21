@@ -21,7 +21,19 @@ final class ConnectionManager
         if ($this->pdo!==null && !TransactionManager::usable($this->pdo)) { $this->invalidate(); }
         if ($this->pdo!==null) {
             try {
-                if ($this->pdo->inTransaction()) { throw new \LogicException('Cannot acquire a session at a transaction boundary while a transaction is active.'); }
+                if ($this->pdo->inTransaction()) {
+                    // A connection killed during a transaction may retain its
+                    // local inTransaction flag. Preserve the guard on a live
+                    // session, but reconnect when a read-only probe proves the
+                    // backend has disappeared (never replay its transaction).
+                    try {
+                        $check=$this->pdo->query('SELECT 1');
+                        if ($check!==false) $check->closeCursor();
+                    } catch (\Throwable $probeError) {
+                        if (DatabaseFailure::reconnectable($probeError)) throw $probeError;
+                    }
+                    throw new \LogicException('Cannot acquire a session at a transaction boundary while a transaction is active.');
+                }
                 if (hrtime(true)-$this->lastProbe >= 5_000_000_000) { $this->probe(); }
                 return $this->pdo;
             } catch (\Throwable $e) {

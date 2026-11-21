@@ -51,4 +51,39 @@ $factory=new RecoveryFactory();$manager=new \Cajeer\Logs\Database\ConnectionMana
 $worker=new \Cajeer\Logs\Queue\Worker($manager,1000,null,null,function()use(&$worker,&$beats){++$beats;$worker->stop();},new \Cajeer\Logs\Queue\WorkerPolicy(['max_seconds'=>3]),null,new RetryPolicy(['outage_base_ms'=>50,'outage_max_ms'=>100,'outage_max_failures'=>4]),function(PDO $pdo)use(&$checks){++$checks;return $checks>=2;});
 $worker->run();
 check($factory->calls===3&&$checks===2&&$beats===1&&$factory->sessions[0]->claims===0&&$factory->sessions[1]->claims===1,'continuous worker waits for recovery readiness before claiming');
+// A PostgreSQL restart can leave the PHP transaction-boundary state stale.
+// The real worker must reconnect when the socket is dead, but must not hide
+// a genuine LogicException while its database session is still healthy.
+final class BoundaryPDO extends PDO {
+    public function __construct(private readonly bool $active,private readonly bool $offline) {}
+    public function inTransaction():bool{return $this->active;}
+    public function beginTransaction():bool{throw new LogicException('Transaction boundary interrupted');}
+    public function query(string $query,?int $fetchMode=null,mixed ...$args):PDOStatement|false {
+        if ($this->offline && $query==='SELECT 1') throw sqlError('08006');
+        return new EmptyClaimStatement();
+    }
+}
+final class BoundaryFactory implements \Cajeer\Logs\Database\ConnectionFactoryInterface {
+    public int $calls=0;
+    public function __construct(private readonly bool $active,private readonly bool $offline) {}
+    public function make(string $connection):PDO {
+        return ++$this->calls===1?new BoundaryPDO($this->active,$this->offline):new RecoveryPDO();
+    }
+}
+$boundaryFactory=new BoundaryFactory(true,true);$boundaryManager=new \Cajeer\Logs\Database\ConnectionManager($boundaryFactory);
+$lost=$boundaryManager->connection();$replaced=$boundaryManager->connection();
+check($lost!==$replaced && $boundaryFactory->calls===2,'stale transaction session reconnected only after confirming server loss');
+$boundaryFactory=new BoundaryFactory(true,false);$boundaryManager=new \Cajeer\Logs\Database\ConnectionManager($boundaryFactory);
+$boundaryManager->connection();$rejected=false;
+try{$boundaryManager->connection();}catch(LogicException){$rejected=true;}
+check($rejected && $boundaryFactory->calls===1,'healthy transaction cannot be replaced at a boundary');
+$boundaryFactory=new BoundaryFactory(false,true);$boundaryManager=new \Cajeer\Logs\Database\ConnectionManager($boundaryFactory);
+$beats=0;$worker=null;
+$worker=new \Cajeer\Logs\Queue\Worker($boundaryManager,1000,null,null,function()use(&$worker,&$beats){++$beats;$worker->stop();},new \Cajeer\Logs\Queue\WorkerPolicy(['max_seconds'=>3]),null,new RetryPolicy(['outage_base_ms'=>50,'outage_max_ms'=>100,'outage_max_failures'=>4]));
+$worker->run();
+check($boundaryFactory->calls===2 && $beats===1,'continuous worker reconnects after transaction logic exception from lost session');
+$boundaryFactory=new BoundaryFactory(false,false);$boundaryManager=new \Cajeer\Logs\Database\ConnectionManager($boundaryFactory);
+$worker=new \Cajeer\Logs\Queue\Worker($boundaryManager);$rejected=false;
+try{$worker->run(1);}catch(LogicException){$rejected=true;}
+check($rejected && $boundaryFactory->calls===1,'healthy transaction logic exception still fails closed');
 echo "Retry policy: $n checks passed\n";
