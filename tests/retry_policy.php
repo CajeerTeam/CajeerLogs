@@ -32,6 +32,7 @@ final class EmptyClaimStatement extends PDOStatement {
     public function fetch(int $mode=PDO::FETCH_DEFAULT,int $cursorOrientation=PDO::FETCH_ORI_NEXT,int $cursorOffset=0):mixed{return false;}
     public function closeCursor():bool{return true;}
     public function fetchColumn(int $column=0):mixed{return 0;}
+    public function fetchAll(int $mode=PDO::FETCH_DEFAULT,mixed ...$args):array{return [];}
 }
 final class RecoveryPDO extends PDO {
     private bool $active=false;public int $claims=0;
@@ -41,7 +42,7 @@ final class RecoveryPDO extends PDO {
     public function commit():bool{$this->active=false;return true;}
     public function rollBack():bool{$this->active=false;return true;}
     public function exec(string $statement):int|false{return 0;}
-    public function query(string $query,?int $fetchMode=null,mixed ...$args):PDOStatement|false{if(str_contains($query,'FROM jobs'))++$this->claims;return new EmptyClaimStatement();}
+    public function query(string $query,?int $fetchMode=null,mixed ...$args):PDOStatement|false{if(str_contains($query,'FROM queue_project_state') || str_contains($query,'FROM jobs'))++$this->claims;return new EmptyClaimStatement();}
 }
 final class RecoveryFactory implements \Cajeer\Logs\Database\ConnectionFactoryInterface {
     public int $calls=0;public array $sessions=[];
