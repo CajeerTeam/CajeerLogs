@@ -52,7 +52,7 @@ $db=new AuthPDO();$db->row=array_replace($row,['scopes'=>'["logs:write","logs:re
 $a=$auth->begin($r(),$credential);check(count($db->hits)===3&&array_sum($db->hits)===3,'IP, token and credential buckets charged once');
 check(!str_contains(json_encode($db->calls),'UPDATE api_tokens')&&!str_contains(json_encode($db->calls),$secret),'preflight does not write token or bind raw credential');
 $db->active=true;$auth->locked($r(),$credential,$a);$auth->locked($r(),$credential,$a,false);
-check(array_sum($db->hits)===3&&count(array_filter($db->calls,fn($c)=>str_contains($c[0],'FOR UPDATE')))===2,'locked checks never charge again');
+check(array_sum($db->hits)===3&&count(array_filter($db->calls,fn($c)=>str_contains($c[0],'FOR NO KEY UPDATE')))===2,'locked checks never charge again');
 check(count(array_filter($db->calls,fn($c)=>str_starts_with($c[0],'UPDATE api_tokens')))===1,'usage update only at locked admission');
 $db->row['requests_per_minute']=1;check(denied(fn()=>$auth->locked($r(),$credential,$a,false),503,'authorization_changed'),'service rejects changed credential limit under lock');
 $db->row=false;check(denied(fn()=>$auth->locked($r(),$credential,$a,false),401,'unauthorized'),'revoked credential rejected on reauthorization');
