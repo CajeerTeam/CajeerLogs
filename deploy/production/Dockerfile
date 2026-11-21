@@ -17,6 +17,10 @@ COPY release.json openapi.yaml .env.example ./
 ARG CAJEER_RELEASE_VERSION=1.0.0
 # A retagged old image must fail at build-time, before it can be deployed.
 RUN php -r '$d=json_decode(file_get_contents("release.json"),true,8,JSON_THROW_ON_ERROR); exit(($d["version"]??"")===getenv("CAJEER_RELEASE_VERSION") ? 0 : 1);'
+# PHP-FPM normally omits the FastCGI Status header for HTTP 200.
+# A response with Location but no Status is interpreted as HTTP 302 by Nginx.
+# Force explicit FastCGI status for every response, preserving 200 + Location.
+RUN printf '%s\n' 'cgi.nph=1' > /usr/local/etc/php/conf.d/zz-cajeer-fastcgi-status.ini
 COPY deploy/production/pool.conf /usr/local/etc/php-fpm.d/zz-cajeer.conf
 COPY deploy/production/maintenance.sh /usr/local/bin/cajeer-maintenance
 RUN mkdir -p /config /app/storage/app /app/storage/archives /app/storage/backups /app/storage/cache /app/storage/database /app/storage/logs /app/storage/tmp \

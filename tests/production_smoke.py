@@ -54,12 +54,20 @@ def main():
                            'cajeer-psql', database, sql)
 
         context=ssl.create_default_context(cafile=str(tls/'fullchain.pem'))
+        # Never follow redirects while certifying API responses: a hidden
+        # 302 from FastCGI can otherwise be mistaken for the intended HTTP 200.
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                return None
+        opener=urllib.request.build_opener(
+            NoRedirect(), urllib.request.ProxyHandler({}),
+            urllib.request.HTTPSHandler(context=context))
         def http(method,path,body=None,headers=None,expected=200,raw_response=False):
             raw=body if isinstance(body,bytes) else (None if body is None else json.dumps(body,separators=(',',':')).encode())
             hs={'Accept':'application/json'}; hs.update(headers or {})
             if raw is not None: hs['Content-Type']='application/json'
             req=urllib.request.Request(url+path,data=raw,headers=hs,method=method)
-            try: resp=urllib.request.urlopen(req,context=context,timeout=20)
+            try: resp=opener.open(req,timeout=20)
             except urllib.error.HTTPError as err: resp=err
             with resp:
                 status=resp.code; data=resp.read(); h=resp.headers

@@ -35,6 +35,17 @@ try {
     unlink($path);
 } finally { if (file_exists($tmp.'/.install.lock') || is_link($tmp.'/.install.lock')) unlink($tmp.'/.install.lock'); rmdir($tmp); }
 $root=dirname(__DIR__);
+$dockerfile=file_get_contents($root.'/deploy/production/Dockerfile');
+ok(is_string($dockerfile)
+    && str_contains($dockerfile, "cgi.nph=1")
+    && str_contains($dockerfile, '/usr/local/etc/php/conf.d/zz-cajeer-fastcgi-status.ini'),
+    'PHP-FPM image emits explicit Status 200 alongside Location, preventing implicit redirects');
+$productionSmokeSource=file_get_contents($root.'/tests/production_smoke.py');
+ok(is_string($productionSmokeSource)
+    && str_contains($productionSmokeSource, 'class NoRedirect(urllib.request.HTTPRedirectHandler)')
+    && str_contains($productionSmokeSource, 'opener.open(req,timeout=20)'),
+    'production HTTP certification cannot hide a 302 by auto-following Location');
+
 $productionSmoke=file_get_contents($root.'/tests/production_smoke.py');
 ok(is_string($productionSmoke)
     && substr_count($productionSmoke,'postgres_admin(')===4
