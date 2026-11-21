@@ -21,7 +21,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          expected_old=ffb8c784c38d969656d12a9380eb68c965b53a5b
+          expected_old=2f726eb0c798d1b8a78ccc45a24709c611393cfe
           new_sha="${GITHUB_SHA}"
           main_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)"
           [[ "${main_sha}" == "${new_sha}" ]] || { echo "::error::Main moved; refusing to retag"; exit 1; }
