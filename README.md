@@ -1,6 +1,8 @@
-## CajeerLogs 1.0.2 — Verified Update Downloads
+## CajeerLogs 1.0.3 — Safe Update Installation
 
-1.0.2 adds a working verified download path for published GitHub releases: `php bin/cajeer update:download [--refresh]` downloads real ZIP and SHA-256 sidecar assets, validates signed GitHub OIDC/Sigstore build provenance with `gh attestation verify`, checks every archived file against the official release manifest and enforces PHP/PostgreSQL/API compatibility. `php bin/cajeer update:verify VERSION` re-verifies an archived release. The authenticated System panel can serve verified ZIP files. **No installation or code execution** occurs in this version. Requirements and production operation: [Verified Update Downloads](docs/Verified-Update-Downloads-1.0.2.md).
+Native Linux/systemd deployments now support `php bin/cajeer update:install VERSION --target-db EMPTY_DB --unit UNIT ... --confirm`. The installer re-verifies the signed ZIP, prepares locked dependencies, persistently stops all declared services and timers, verifies a PostgreSQL backup, restores an isolated exact database clone, runs the signed release's migrations and readiness checks, and switches release directories atomically. Before the durable commit, failures restore the previous application and database; after activation, recovery resumes the new database rather than discarding accepted writes. `update:status` and `update:recover --confirm` expose the durable maintenance journal. See [Safe Update Installation](docs/Safe-Update-Installation-1.0.3.md) for requirements and recovery.
+
+Discovery and verified downloads remain available: [Verified Update Downloads 1.0.2](docs/Verified-Update-Downloads-1.0.2.md). Docker, distributed and split-role deployments require their existing operator-driven upgrade process; this command intentionally does not modify containers or grant web processes privileged deployment access.
 
 A source archive or version change does not confirm successful external GitHub Actions GA certification.
 

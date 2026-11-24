@@ -1,5 +1,5 @@
 /* CajeerLogs design system. Versioned imports keep upgrades cache-consistent. */
-@import url("./styles/tokens.css?v=1.0.2");
-@import url("./styles/base.css?v=1.0.2");
-@import url("./styles/layout.css?v=1.0.2");
-@import url("./styles/components.css?v=1.0.2");
+@import url("./styles/tokens.css?v=1.0.3");
+@import url("./styles/base.css?v=1.0.3");
+@import url("./styles/layout.css?v=1.0.3");
+@import url("./styles/components.css?v=1.0.3");

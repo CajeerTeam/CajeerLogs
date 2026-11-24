@@ -293,6 +293,10 @@ def mode(name):
 REQUIRED.update({'core/Update/VerifiedReleaseDownloader.php','tests/update_downloads.php',
                  'docs/Verified-Update-Downloads-1.0.2.md'})
 
+REQUIRED.update({'scripts/safe_update.py','scripts/update_database.php','tests/safe_update.py',
+                 'tests/update_install_database.php','docs/Safe-Update-Installation-1.0.3.md',
+                 'docs/Production-Stable-GA-1.0.3.md'})
+
 REQUIRED.update({'scripts/integration_stability.py', 'tests/integration_stability.py',
                  'docs/Integration-Test-Stabilization-0.8.1.md'})
 

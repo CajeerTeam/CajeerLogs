@@ -58,4 +58,5 @@ check(BackupManager::expectedPending('0.7.6')===['0032_advanced_search.sql','003
     && BackupManager::expectedPending('0.7.9')===[] && BackupManager::expectedPending('0.8.1')===[] && BackupManager::expectedPending('0.8.4')===[] && BackupManager::expectedPending('0.8.7')===[] && BackupManager::expectedPending('0.8.8')===[] && BackupManager::expectedPending('1.0.0')===[]
     && BackupManager::expectedPending('0.7.0')===['0028_analytics_replication.sql','0029_analytics_rollups.sql','0030_source_ingestion_monitoring.sql','0031_error_analytics.sql','0032_advanced_search.sql','0033_storage_tiers.sql'],
     '0.7.9 storage migration and backward backup compatibility');
+check(BackupManager::compatibleRelease('1.0.2','1.0.3') && BackupManager::expectedPending('1.0.1')===[] && BackupManager::expectedPending('1.0.2')===[] && BackupManager::expectedPending('1.0.3')===[], 'stable 1.0.x backups retain exact migration history');
 echo "Restore fence: $n checks passed\n";

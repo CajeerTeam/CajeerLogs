@@ -1,3 +1,11 @@
+## 1.0.3 — Safe Update Installation (2026-11-24)
+
+- Install a verified newer stable release through an operator-only native Linux/systemd CLI, rechecking live GitHub/Sigstore provenance before executing any candidate code.
+- Prepare locked dependencies, persistently mask all declared application services/timers and confirm source database quiescence; take and verify a PostgreSQL snapshot.
+- Restore an exact clone into a fresh operator-provisioned database, preserve credentials during maintenance cloning, apply the candidate's migrations and validate readiness without modifying the old database.
+- Atomically exchange release directories with a durable journal; recover the old installation before commit, or resume the committed deployment after activation without losing accepted writes.
+- Extend backup compatibility across 1.0.0–1.0.3 without changing historical migrations; keep the complete production release gates.
+
 ## 1.0.2 — Verified Update Downloads (2026-11-24)
 
 - Fetch the latest eligible published CajeerLogs ZIP and `.zip.sha256` directly from the pinned GitHub Releases repository.

@@ -17,7 +17,7 @@ import time
 
 import release
 
-VERSION = '1.0.2'
+VERSION = '1.0.3'
 STAGES = (
     'composer-dependencies', 'typescript-dependencies', 'typescript-package',
     'typescript-installed-package', 'python-wheel', 'python-installed-import', 'kotlin-package',
@@ -44,7 +44,7 @@ def run_stage(report, name, cmd, root, env, *, timeout=360):
 def execute(archive, report):
     info = release.verify(archive)
     if info['version'] != VERSION:
-        raise ValueError('Expected the 1.0.2 release archive')
+        raise ValueError('Expected the 1.0.3 release archive')
     report.update(version=VERSION, archive_sha256=hashlib.sha256(archive.read_bytes()).hexdigest())
     with tempfile.TemporaryDirectory(prefix='cl-sdk-release-') as tmp:
         root = Path(tmp)/'app'

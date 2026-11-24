@@ -4,7 +4,7 @@ namespace Cajeer\Logs\Operations;
 
 use Cajeer\Logs\Database\TransactionManager;
 
-use Cajeer\Logs\Database\{ConnectionFactory,DatabaseException,MigrationRunner};
+use Cajeer\Logs\Database\{ConnectionFactory,DatabaseException,MigrationRunner,PostgresBoolean};
 use Cajeer\Logs\Kernel\Application;
 use PDO;
 use Cajeer\Logs\Database\{IntegrityInspector,RestoreFence};
@@ -112,16 +112,16 @@ final class BackupManager
     /** Explicit supported release histories, no acceptance of unknown versions. */
     public static function compatibleRelease(mixed $backup, string $current): bool
     {
-        $versions=['0.0.9','0.1.0','0.1.1','0.1.2','0.1.3','0.1.4','0.1.5','0.1.6','0.1.7','0.1.8','0.1.9','0.2.0','0.2.1','0.2.2','0.2.3','0.2.4','0.2.5','0.2.6','0.2.7','0.2.8','0.2.9','0.3.0','0.3.1','0.3.2','0.3.3','0.3.4','0.3.5','0.3.6','0.3.7','0.3.8','0.3.9','0.4.0','0.4.1','0.4.2','0.4.3','0.4.4','0.4.5','0.4.6','0.4.7','0.4.8','0.4.9','0.4.10','0.5.0','0.5.1','0.5.2','0.5.3','0.5.4','0.5.5','0.5.6','0.5.7','0.5.8','0.5.9','0.5.10','0.6.0','0.6.1','0.6.2','0.6.3','0.6.4','0.6.5','0.6.6','0.6.7','0.6.8','0.6.9','0.7.0','0.7.1','0.7.2','0.7.3','0.7.4','0.7.5','0.7.6','0.7.7','0.7.8','0.7.9','0.8.0','0.8.1','0.8.2','0.8.3','0.8.4','0.8.5','0.8.6','0.8.7','0.8.8','0.8.9','0.9.0','0.9.1','0.9.2','0.9.3','0.9.4','0.9.5','0.9.6','0.9.7','0.9.8','0.9.9','1.0.0'];
+        $versions=['0.0.9','0.1.0','0.1.1','0.1.2','0.1.3','0.1.4','0.1.5','0.1.6','0.1.7','0.1.8','0.1.9','0.2.0','0.2.1','0.2.2','0.2.3','0.2.4','0.2.5','0.2.6','0.2.7','0.2.8','0.2.9','0.3.0','0.3.1','0.3.2','0.3.3','0.3.4','0.3.5','0.3.6','0.3.7','0.3.8','0.3.9','0.4.0','0.4.1','0.4.2','0.4.3','0.4.4','0.4.5','0.4.6','0.4.7','0.4.8','0.4.9','0.4.10','0.5.0','0.5.1','0.5.2','0.5.3','0.5.4','0.5.5','0.5.6','0.5.7','0.5.8','0.5.9','0.5.10','0.6.0','0.6.1','0.6.2','0.6.3','0.6.4','0.6.5','0.6.6','0.6.7','0.6.8','0.6.9','0.7.0','0.7.1','0.7.2','0.7.3','0.7.4','0.7.5','0.7.6','0.7.7','0.7.8','0.7.9','0.8.0','0.8.1','0.8.2','0.8.3','0.8.4','0.8.5','0.8.6','0.8.7','0.8.8','0.8.9','0.9.0','0.9.1','0.9.2','0.9.3','0.9.4','0.9.5','0.9.6','0.9.7','0.9.8','0.9.9','1.0.0','1.0.1','1.0.2','1.0.3'];
         $from=array_search($backup,$versions,true); $to=array_search($current,$versions,true);
         return $from!==false && $to!==false && $from<=$to;
     }
 
     public static function expectedPending(string $version): array
     {
-        if (!self::compatibleRelease($version,'1.0.0')) throw new DatabaseException('Unsupported backup release.');
+        if (!self::compatibleRelease($version,'1.0.3')) throw new DatabaseException('Unsupported backup release.');
         $migrations=['0009_project_management.sql','0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql','0013_ingest_signing.sql','0014_delivery_idempotency.sql','0015_authentication_sessions.sql','0016_saved_log_views.sql','0017_rbac_roles_permissions.sql','0018_identity_security.sql','0019_audit_accountability.sql','0020_rate_limit_buckets.sql','0021_retention_execution_history.sql','0022_queue_accounting.sql','0023_queue_backpressure.sql','0024_project_queue_fairness.sql','0025_queue_operations_metrics.sql','0026_webhook_subscriptions.sql','0027_export_jobs.sql','0028_analytics_replication.sql','0029_analytics_rollups.sql','0030_source_ingestion_monitoring.sql','0031_error_analytics.sql','0032_advanced_search.sql','0033_storage_tiers.sql'];
-        return array_slice($migrations,match($version) {'0.5.1','0.5.2','0.5.3','0.5.4','0.5.5'=>14,'0.5.6'=>15,'0.5.7','0.5.8'=>16,'0.5.9','0.5.10','0.6.0','0.6.1','0.6.2','0.6.3','0.6.4','0.6.5','0.6.6'=>17,'0.6.7'=>18,'0.6.8','0.6.9','0.7.0','0.7.1'=>19,'0.7.2'=>20,'0.7.3'=>21,'0.7.4','0.7.5'=>22,'0.7.6'=>23,'0.7.7'=>24,'0.7.8','0.7.9','0.8.0','0.8.1','0.8.2','0.8.3','0.8.4','0.8.5','0.8.6','0.8.7','0.8.8','0.8.9','0.9.0','0.9.1','0.9.2','0.9.3','0.9.4','0.9.5','0.9.6','0.9.7','0.9.8','0.9.9','1.0.0'=>25,'0.4.9','0.4.10','0.5.0'=>13,'0.4.5','0.4.6','0.4.7','0.4.8'=>12,'0.4.4'=>11,'0.4.3'=>10,'0.4.2'=>9,'0.3.5','0.3.6','0.3.7','0.3.8','0.3.9','0.4.0','0.4.1'=>8,'0.3.4','0.3.3','0.3.2'=>7,'0.3.1','0.3.0','0.2.9','0.2.8','0.2.7'=>6,'0.2.6','0.2.5'=>5,'0.2.4','0.2.3','0.2.2','0.2.1','0.2.0','0.1.9'=>4,'0.1.8'=>3,'0.1.7'=>2,'0.1.6'=>1,default=>0});
+        return array_slice($migrations,match($version) {'0.5.1','0.5.2','0.5.3','0.5.4','0.5.5'=>14,'0.5.6'=>15,'0.5.7','0.5.8'=>16,'0.5.9','0.5.10','0.6.0','0.6.1','0.6.2','0.6.3','0.6.4','0.6.5','0.6.6'=>17,'0.6.7'=>18,'0.6.8','0.6.9','0.7.0','0.7.1'=>19,'0.7.2'=>20,'0.7.3'=>21,'0.7.4','0.7.5'=>22,'0.7.6'=>23,'0.7.7'=>24,'0.7.8','0.7.9','0.8.0','0.8.1','0.8.2','0.8.3','0.8.4','0.8.5','0.8.6','0.8.7','0.8.8','0.8.9','0.9.0','0.9.1','0.9.2','0.9.3','0.9.4','0.9.5','0.9.6','0.9.7','0.9.8','0.9.9','1.0.0','1.0.1','1.0.2','1.0.3'=>25,'0.4.9','0.4.10','0.5.0'=>13,'0.4.5','0.4.6','0.4.7','0.4.8'=>12,'0.4.4'=>11,'0.4.3'=>10,'0.4.2'=>9,'0.3.5','0.3.6','0.3.7','0.3.8','0.3.9','0.4.0','0.4.1'=>8,'0.3.4','0.3.3','0.3.2'=>7,'0.3.1','0.3.0','0.2.9','0.2.8','0.2.7'=>6,'0.2.6','0.2.5'=>5,'0.2.4','0.2.3','0.2.2','0.2.1','0.2.0','0.1.9'=>4,'0.1.8'=>3,'0.1.7'=>2,'0.1.6'=>1,default=>0});
     }
     public function restore(string $id,string $target): array
     {
@@ -130,9 +130,30 @@ final class BackupManager
     /** Restore an authenticated, checked isolated archive without ever opening a local backup. */
     public function restoreDirectory(string $directory,string $id,string $target): array
     {
+        return $this->restoreSnapshot($directory,$id,$target,false);
+    }
+    /** Exact maintenance-only clone, never used by disaster recovery. The source
+     * stays untouched; a failed clone is quarantined and must not be reused. */
+    public function cloneForUpdate(string $id,string $target): array
+    {
+        $this->assertUpdateQuiescent();
+        return $this->restoreSnapshot($this->location($id),$id,$target,true);
+    }
+    public function assertUpdateQuiescent(): void
+    {
+        $pdo=$this->app->container()->get(PDO::class);
+        if (!PostgresBoolean::required($pdo->query('SELECT current_user=pg_get_userbyid(datdba) FROM pg_database WHERE datname=current_database()')->fetchColumn())) throw new DatabaseException('Native clone requires a dedicated database owned by the runtime role; split-role deployments require manual upgrade.');
+        if (PostgresBoolean::required($pdo->query("SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid() AND backend_type='client backend')")->fetchColumn())) {
+            throw new DatabaseException('Update requires an exclusive source database with every API writer and worker stopped.');
+        }
+        $this->app->container()->get(MigrationRunner::class)->assertCurrent();
+    }
+    private function restoreSnapshot(string $directory,string $id,string $target,bool $updateClone): array
+    {
         if (is_link($directory) || !\Cajeer\Logs\Installer\SecureFile::directory($directory) ||
             (fileperms($directory)&0077)!==0) throw new DatabaseException('Unsafe disaster recovery staging directory.');
         $m=$this->verifyDirectory($directory,$id); $c=$this->app->config();
+        if ($updateClone && ($m['version']??null)!==$this->app->version()) throw new DatabaseException('Update clone requires a backup of the exact running version.');
         if (!preg_match('/^[a-z_][a-z0-9_]{0,62}$/D',$target)||strcasecmp($target,$c->get('database.database'))===0||in_array($target,['postgres','template0','template1'],true)||$m['schema']!==$this->app->container()->get(ConnectionFactory::class)->schema()||!self::compatibleRelease($m['version']??null,$this->app->version())) { throw new DatabaseException('Restore requires a different empty database, matching schema and compatible release version.'); }
         $targetConfig=clone $c; $targetConfig->set('database.database',$target); $targetConfig->set('database.schema','public');
         $pdo=(new ConnectionFactory($targetConfig))->make('pgsql');
@@ -165,17 +186,19 @@ final class BackupManager
             if (!(new \Cajeer\Logs\Queue\QueueAccounting($pdo))->verify()['valid']) throw new DatabaseException('Restored queue accounting failed integrity checks.');
             // Credentials and publication share a durable transaction: no restored secret
             // becomes usable if the process dies before the final commit.
-            (new TransactionManager($pdo))->run(function () use ($pdo,$target,$c) {
+            (new TransactionManager($pdo))->run(function () use ($pdo,$target,$c,$updateClone) {
                 // Pending enrollment is bound to a session that will be revoked.
-                $pdo->exec('DELETE FROM user_totp WHERE pending_session IS NOT NULL');
+                if (!$updateClone) $pdo->exec('DELETE FROM user_totp WHERE pending_session IS NOT NULL');
                 \Cajeer\Logs\Security\TwoFactorManager::fromConfig($pdo,$c)->verifyKeys();
-                $pdo->exec('DELETE FROM auth_sessions; DELETE FROM user_recovery_codes; UPDATE api_tokens SET revoked_at=now(), updated_at=now(), revision=revision+1 WHERE revoked_at IS NULL');
+                if (!$updateClone) {
+                    $pdo->exec('DELETE FROM auth_sessions; DELETE FROM user_recovery_codes; UPDATE api_tokens SET revoked_at=now(), updated_at=now(), revision=revision+1 WHERE revoked_at IS NULL');
+                }
                 RestoreFence::publish($pdo,$target);
             }, maxAttempts: 3);
         } catch (\Throwable $e) {
             throw new DatabaseException('Restore did not complete; target remains quarantined or commit outcome must be checked. Never switch production to this target. Recreate an empty target and retry.',0,$e);
         }
-        return ['id'=>$id,'database'=>$target,'schema'=>$m['schema'],'status'=>'restored','integrity_verified'=>true,'sessions_revoked'=>true,'api_tokens_revoked'=>true,'recovery_codes_invalidated'=>true];
+        return ['id'=>$id,'database'=>$target,'schema'=>$m['schema'],'status'=>$updateClone?'cloned':'restored','integrity_verified'=>true,'sessions_revoked'=>!$updateClone,'api_tokens_revoked'=>!$updateClone,'recovery_codes_invalidated'=>!$updateClone];
     }
     public function list(): array
     {

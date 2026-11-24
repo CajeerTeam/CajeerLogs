@@ -79,8 +79,8 @@ def execute(archive: Path, passes: int, timeout: int, report: dict) -> None:
     info = release.verify(archive)
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     report.update(version=info['version'], archive_sha256=digest, passes=passes)
-    if info['version'] != '1.0.2':
-        raise ValueError('Expected the 1.0.2 distribution')
+    if info['version'] != '1.0.3':
+        raise ValueError('Expected the 1.0.3 distribution')
     for run in range(1, passes + 1):
         with tempfile.TemporaryDirectory(prefix='cl-integration-stability-') as directory:
             temp = Path(directory)

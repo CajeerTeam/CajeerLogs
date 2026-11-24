@@ -1,7 +1,7 @@
-import { admin, render, active } from '../app/store.js?v=1.0.2';
-import { h, button, card, badge, heading, table, copy, message, empty, modal, clearModal, notify } from '../components/ui.js?v=1.0.2';
-import { redactionButton } from './projects.js?v=1.0.2';
-import { request, ready } from '../api/client.js?v=1.0.2';
+import { admin, render, active } from '../app/store.js?v=1.0.3';
+import { h, button, card, badge, heading, table, copy, message, empty, modal, clearModal, notify } from '../components/ui.js?v=1.0.3';
+import { redactionButton } from './projects.js?v=1.0.3';
+import { request, ready } from '../api/client.js?v=1.0.3';
 
 // Each endpoint is independent: a failed report must not hide successful liveness/readiness.
 async function system(signal, epoch) {
@@ -19,7 +19,7 @@ async function system(signal, epoch) {
     const checkUpdates=button('Проверить сейчас',()=>void loadUpdates(true));
     root.append(card(h('h2',{},'Обновления · GitHub Releases'),releaseContent,
         h('div',{class:'actions'},checkUpdates),
-        h('p',{class:'muted small'},'Загрузка подписанных ZIP: php bin/cajeer update:download. Установка обновлений не выполняется.')));
+        h('p',{class:'muted small'},'Загрузка подписанных ZIP: php bin/cajeer update:download. Установка доступна оператору через php bin/cajeer update:install; веб-панель не запускает миграции и системные команды.')));
     async function loadUpdates(refresh=false) {
         if(signal.aborted||!active(epoch))return;
         checkUpdates.disabled=true;
