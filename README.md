@@ -1,3 +1,7 @@
+## CajeerLogs 1.0.6 — ChatGPT Assistant
+
+Optional OpenAI-powered project log chat. See [setup, privacy and limits](docs/ChatGPT-Assistant-1.0.6.md).
+
 ## CajeerLogs 1.0.5 — Identity Linking & Security
 
 Link or unlink SkiF4er ID in account settings after local password and enrolled factor confirmation. Revoke external sessions independently of password sessions. Local RBAC and TOTP remain authoritative. See [Identity Linking & Security](docs/Identity-Linking-Security-1.0.5.md). The provider's public SDK page was unavailable during implementation; live interoperability must be checked with registered client credentials.

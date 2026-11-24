@@ -413,3 +413,9 @@ details .form-grid {
 
 /* GitHub release notes are untrusted Markdown rendered strictly as text. */
 .release-changelog { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 26rem; overflow: auto; padding: 0.75rem; border: 1px solid var(--border, #bbb); border-radius: 0.5rem; margin-top: 0.5rem; }
+
+.assistant-chat{display:grid;gap:1rem;max-height:65vh;overflow:auto}
+.assistant-turn{border-bottom:1px solid currentColor;padding:.8rem 0;min-width:0}
+.assistant-text{white-space:pre-wrap;overflow-wrap:anywhere}
+.assistant-form{display:grid;gap:1rem;margin-top:1rem}
+.assistant-form textarea{width:100%;resize:vertical}

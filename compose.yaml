@@ -21,6 +21,10 @@ services:
       dockerfile: deploy/dev/Dockerfile
     user: '${LOCAL_UID:-1000}:${LOCAL_GID:-1000}'
     environment:
+      AI_ASSISTANT_ENABLED: ${AI_ASSISTANT_ENABLED:-false}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-6.1-sol}
+      AI_ASSISTANT_INCLUDE_MESSAGES: ${AI_ASSISTANT_INCLUDE_MESSAGES:-false}
       APP_ENV: local
       APP_DEBUG: 'false'
       APP_URL: http://localhost:8080

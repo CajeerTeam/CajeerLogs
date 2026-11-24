@@ -210,6 +210,7 @@ final class Application
         \Cajeer\Logs\Api\Controller\Skif4erController::register($router,$this,$config->get('api.prefix'));
         IngestController::register($router, $this, $config->get('api.prefix'));
         LogsController::register($router, $this, $config->get('api.prefix'));
+        \Cajeer\Logs\Api\Controller\AssistantController::register($router,$this,$config->get('api.prefix'));
         return $router;
     }
 

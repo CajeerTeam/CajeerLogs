@@ -1,3 +1,8 @@
+## 1.0.6 — ChatGPT Assistant (2026-11-24)
+
+- Optional project-scoped chat using OpenAI Responses API, with bounded keyword/time/severity retrieval, consent, current RBAC/CSRF/TOTP enforcement, redaction and audit. No schema changes.
+- Metadata-only by default; message export requires explicit operator opt-in. No model tools or persistent conversation storage.
+
 ## 1.0.5 — Identity Linking & Security (2026-11-24)
 
 - Self-service SkiF4er ID linking with current local password, enrolled second factor, verified OIDC identity and explicit session-bound confirmation.

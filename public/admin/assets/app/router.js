@@ -1,21 +1,22 @@
-import { state, names, active, render, installRenderer } from './store.js?v=1.0.5';
-import { $, h, button, message, clearModal, heading } from '../components/ui.js?v=1.0.5';
-import { clearSession, bootstrap } from './session.js?v=1.0.5';
-import { loadProjects, refreshProject } from './projects.js?v=1.0.5';
-import { navigation } from './shell.js?v=1.0.5';
-import { currentRoute, permitted } from './routes.js?v=1.0.5';
-import { overview } from '../pages/overview.js?v=1.0.5';
-import { logs } from '../pages/logs.js?v=1.0.5';
-import { errors } from '../pages/errors.js?v=1.0.5';
-import { projects } from '../pages/projects.js?v=1.0.5';
-import { tokens } from '../pages/tokens.js?v=1.0.5';
-import { security } from '../pages/security.js?v=1.0.5';
-import { users } from '../pages/users.js?v=1.0.5';
-import { system } from '../pages/system.js?v=1.0.5';
-import { rbac } from '../pages/rbac.js?v=1.0.5';
-import { queue } from '../pages/queue.js?v=1.0.5';
-import { webhooks } from '../pages/webhooks.js?v=1.0.5';
-import { settings } from '../pages/settings.js?v=1.0.5';
+import { state, names, active, render, installRenderer } from './store.js?v=1.0.6';
+import { $, h, button, message, clearModal, heading } from '../components/ui.js?v=1.0.6';
+import { clearSession, bootstrap } from './session.js?v=1.0.6';
+import { loadProjects, refreshProject } from './projects.js?v=1.0.6';
+import { navigation } from './shell.js?v=1.0.6';
+import { currentRoute, permitted } from './routes.js?v=1.0.6';
+import { overview } from '../pages/overview.js?v=1.0.6';
+import { assistant } from '../pages/assistant.js?v=1.0.6';
+import { logs } from '../pages/logs.js?v=1.0.6';
+import { errors } from '../pages/errors.js?v=1.0.6';
+import { projects } from '../pages/projects.js?v=1.0.6';
+import { tokens } from '../pages/tokens.js?v=1.0.6';
+import { security } from '../pages/security.js?v=1.0.6';
+import { users } from '../pages/users.js?v=1.0.6';
+import { system } from '../pages/system.js?v=1.0.6';
+import { rbac } from '../pages/rbac.js?v=1.0.6';
+import { queue } from '../pages/queue.js?v=1.0.6';
+import { webhooks } from '../pages/webhooks.js?v=1.0.6';
+import { settings } from '../pages/settings.js?v=1.0.6';
 
 async function renderRoute({ focus = false, background = false } = {}) {
     if (!state.user)
@@ -39,7 +40,7 @@ async function renderRoute({ focus = false, background = false } = {}) {
     document.title = names[state.route] + ' — CajeerLogs';
     if (focus) main.focus();
     try {
-        if (['overview', 'logs', 'errors', 'projects', 'tokens', 'security', 'queue', 'webhooks'].includes(state.route)) {
+        if (['overview', 'logs', 'assistant', 'errors', 'projects', 'tokens', 'security', 'queue', 'webhooks'].includes(state.route)) {
             if(state.project) await refreshProject(signal, background);
             if(!active(epoch)||signal.aborted)return;
             if(!state.projects.length) { await loadProjects(signal,false,background); if(active(epoch)&&!signal.aborted&&state.project) await refreshProject(signal, background); }
@@ -67,7 +68,7 @@ window.addEventListener('pageshow', e => { if (e.persisted) {
     clearSession();
     void bootstrap();
 } });
-const pages = { overview, logs, errors, projects, tokens, security, users, rbac, system, settings, queue, webhooks };
+const pages = { overview, logs, assistant, errors, projects, tokens, security, users, rbac, system, settings, queue, webhooks };
 
 installRenderer(renderRoute);
 

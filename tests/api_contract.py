@@ -24,7 +24,7 @@ class ContractRegression(unittest.TestCase):
         cls.full_test = result.stdout.strip()
 
     def test_real_router_and_error_responses(self):
-        self.assertIn('125 executed router operations',self.full_test)
+        self.assertIn('136 executed router operations',self.full_test)
 
     def rejects(self, change, message):
         changed = copy.deepcopy(ORIGINAL)
