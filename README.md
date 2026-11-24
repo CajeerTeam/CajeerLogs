@@ -1,6 +1,6 @@
-## CajeerLogs 1.0.6 — ChatGPT Assistant
+## CajeerLogs 1.0.7 — AI Log Investigation
 
-Optional OpenAI-powered project log chat. See [setup, privacy and limits](docs/ChatGPT-Assistant-1.0.6.md).
+Optional OpenAI-powered project log chat and bounded trace/request investigations. See [investigation setup, privacy and limits](docs/AI-Log-Investigation-1.0.7.md).
 
 ## CajeerLogs 1.0.5 — Identity Linking & Security
 

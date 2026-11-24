@@ -1,7 +1,7 @@
-import { state, names, active, selectProject } from '../app/store.js?v=1.0.6';
-import { $, h, button, field, input, select, form, modal, modalEpoch, clearModal, message, empty, text } from './ui.js?v=1.0.6';
-import { get } from '../api/client.js?v=1.0.6';
-import { permitted, navigate } from '../app/routes.js?v=1.0.6';
+import { state, names, active, selectProject } from '../app/store.js?v=1.0.7';
+import { $, h, button, field, input, select, form, modal, modalEpoch, clearModal, message, empty, text } from './ui.js?v=1.0.7';
+import { get } from '../api/client.js?v=1.0.7';
+import { permitted, navigate } from '../app/routes.js?v=1.0.7';
 
 const projectRoutes = ['overview','logs','projects','tokens','security'];
 

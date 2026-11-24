@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 namespace Cajeer\Logs\Api\Controller;
-use Cajeer\Logs\AI\{Assistant,OpenAIClient};
+use Cajeer\Logs\AI\{Assistant,Investigation,OpenAIClient};
 use Cajeer\Logs\Audit\AuditLogger;
 use Cajeer\Logs\Database\MigrationRunner;
 use Cajeer\Logs\Http\{HttpException,JsonResponse,Request,Response,Router};
@@ -41,16 +41,17 @@ final class AssistantController
         if (!$configured) throw new HttpException(503,'ai_unavailable','OpenAI is not configured.');
         // Fixed global and user budgets, charged even for failed upstream calls. No retries.
         $rate->enforce('assistant-user:'.$p['id'],6,60); $rate->enforce('assistant-global',30,60); $rate->enforce('assistant-user-hour:'.$p['id'],60,3600); $rate->enforce('assistant-global-hour',300,3600);
-        $context=Assistant::sample($pdo,$request['query'],min((int)$config->get('api.search_timeout_ms'),(int)$config->get('database.statement_timeout_ms')),$messages);
+        $budget=min((int)$config->get('api.search_timeout_ms'),(int)$config->get('database.statement_timeout_ms'));
+        $context=$request['investigation']===null?Assistant::sample($pdo,$request['query'],$budget,$messages):Investigation::sample($pdo,$request['query'],$request['investigation'],$budget,$messages);
         // Recheck session and current project grants before any external disclosure.
         $p=$identity->authenticate($r,$credential,false,false,false); $identity->permission($p,'logs:read',$project);
-        $audit=new AuditLogger($pdo); $audit->record('assistant.requested',['request_id'=>$r->requestId,'event_count'=>count($context['events']),'messages_included'=>$messages],$p['id'],$project);
+        $audit=new AuditLogger($pdo); $audit->record('assistant.requested',['request_id'=>$r->requestId,'event_count'=>count($context['events']),'messages_included'=>$messages,'investigation'=>$request['investigation']!==null],$p['id'],$project);
         try { $answer=(new OpenAIClient($key,$this->transport))->answer(Assistant::payload($model,$request,$context)); }
         catch (\Throwable $e) { $audit->record('assistant.failed',['request_id'=>$r->requestId],$p['id'],$project,'failure'); throw $e; }
         $p=$identity->authenticate($r,$credential,false,false,false); $identity->permission($p,'logs:read',$project);
         $audit->record('assistant.completed',['request_id'=>$r->requestId,'usage'=>$answer['usage']],$p['id'],$project);
         // Return only known, local evidence IDs. Never forward provider-supplied links or tools.
-        $evidence=array_map(static fn($event)=>array_intersect_key($event,array_flip(['id','timestamp','level'])),$context['events']);
-        return new JsonResponse($answer+['evidence'=>$evidence,'truncated'=>$context['truncated'],'messages_included'=>$messages,'model'=>$model],200,['Cache-Control'=>'no-store']);
+        $evidence=array_map(static fn($event)=>array_intersect_key($event,array_flip(['id','timestamp','level','seed','trace','request'])),$context['events']);
+        return new JsonResponse($answer+['evidence'=>$evidence,'truncated'=>$context['truncated'],'messages_included'=>$messages,'model'=>$model]+(isset($context['investigation'])?['investigation'=>$context['investigation']]:[]),200,['Cache-Control'=>'no-store']);
     }
 }

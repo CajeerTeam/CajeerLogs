@@ -1,3 +1,8 @@
+## 1.0.7 — AI Log Investigation (2026-11-24)
+
+- Investigate recent errors or a selected event, Trace ID or Request ID in a bounded project/time snapshot; retain seeds and expand one hop to related events across severities.
+- Chronological local evidence, correlation aliases, selected masked stack traces and explicit truncation/omission counts. Existing assistant privacy controls, RBAC and rate limits remain in effect. No new database migrations.
+
 ## 1.0.6 — ChatGPT Assistant (2026-11-24)
 
 - Optional project-scoped chat using OpenAI Responses API, with bounded keyword/time/severity retrieval, consent, current RBAC/CSRF/TOTP enforcement, redaction and audit. No schema changes.

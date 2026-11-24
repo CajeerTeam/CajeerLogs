@@ -9,10 +9,10 @@ use Cajeer\Logs\Operations\BackupManager;
 use Cajeer\Logs\Http\Request;
 $root=dirname(__DIR__); require $root.'/core/bootstrap.php';
 $expectedRuntime=getenv('CAJEER_RELEASE_VERSION');
-putenv('CAJEER_RELEASE_VERSION=1.0.6');
+putenv('CAJEER_RELEASE_VERSION=1.0.7');
 $n=0; function check(bool $ok,string $label): void { global $n; if (!$ok) throw new RuntimeException('FAIL '.$label); ++$n; echo "PASS $label\n"; }
 function rejects(callable $f,string $message): bool { try { $f(); } catch (Throwable $e) { return str_contains($e->getMessage(),$message); } return false; }
-check(\Cajeer\Logs\Kernel\Version::read($root)==='1.0.6','expected running release accepted');
+check(\Cajeer\Logs\Kernel\Version::read($root)==='1.0.7','expected running release accepted');
 putenv('CAJEER_RELEASE_VERSION=0.8.9');
 check(rejects(fn()=>\Cajeer\Logs\Kernel\Version::read($root),'CAJEER_RELEASE_VERSION'),'mixed running binary refused');
 if ($expectedRuntime===false) putenv('CAJEER_RELEASE_VERSION'); else putenv('CAJEER_RELEASE_VERSION='.$expectedRuntime);

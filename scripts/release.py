@@ -300,6 +300,8 @@ REQUIRED.update({'scripts/safe_update.py','scripts/update_database.php','tests/s
                  'config/skif4er.php','migrations/pgsql/0034_skif4er_auth.sql','tests/skif4er_auth.php','tests/skif4er_auth_database.php',
                  'migrations/pgsql/0035_skif4er_linking.sql','docs/Identity-Linking-Security-1.0.5.md','docs/Production-Stable-GA-1.0.5.md'})
 
+REQUIRED.update({'core/AI/Investigation.php','tests/ai_investigation.php','docs/AI-Log-Investigation-1.0.7.md','docs/Production-Stable-GA-1.0.7.md'})
+
 REQUIRED.update({'core/AI/Assistant.php','core/AI/OpenAIClient.php','core/Api/Controller/AssistantController.php','config/ai.php','public/admin/assets/pages/assistant.js','tests/assistant.php','tests/assistant_database.php','docs/ChatGPT-Assistant-1.0.6.md','docs/Production-Stable-GA-1.0.6.md'})
 
 REQUIRED.update({'scripts/integration_stability.py', 'tests/integration_stability.py',

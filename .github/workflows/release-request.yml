@@ -1,21 +1,21 @@
-name: Request certified CajeerLogs v1.0.6
+name: Request certified CajeerLogs v1.0.7
 on:
   push:
     branches:
-      - release-request/v1.0.6
+      - release-request/v1.0.7
 
 permissions:
   contents: read
 
 jobs:
   request-release:
-    if: github.repository == 'CajeerTeam/CajeerLogs' && github.ref == 'refs/heads/release-request/v1.0.6'
+    if: github.repository == 'CajeerTeam/CajeerLogs' && github.ref == 'refs/heads/release-request/v1.0.7'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
       actions: write
     steps:
-      - name: Create immutable v1.0.6 tag on exact main head and dispatch original GA checks
+      - name: Create immutable v1.0.7 tag on exact main head and dispatch original GA checks
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -26,14 +26,14 @@ jobs:
             echo "::error::Release request must be identical to current main"
             exit 1
           fi
-          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/v1.0.6" >/dev/null 2>&1; then
-            echo "::error::v1.0.6 already exists; refusing to overwrite tag"
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/v1.0.7" >/dev/null 2>&1; then
+            echo "::error::v1.0.7 already exists; refusing to overwrite tag"
             exit 1
           fi
           gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" \
-            -f ref=refs/tags/v1.0.6 -f "sha=${main_sha}"
+            -f ref=refs/tags/v1.0.7 -f "sha=${main_sha}"
           # GITHUB_TOKEN tag creation does not trigger tag-push workflows.
           # workflow_dispatch is exempt from that restriction, and preserves
-          # refs/tags/v1.0.6 so the existing fail-closed GA verifier still applies.
-          gh workflow run runtime.yml --ref v1.0.6 --repo "${GITHUB_REPOSITORY}"
-          echo "Certified v1.0.6 release workflow dispatched for ${main_sha}"
+          # refs/tags/v1.0.7 so the existing fail-closed GA verifier still applies.
+          gh workflow run runtime.yml --ref v1.0.7 --repo "${GITHUB_REPOSITORY}"
+          echo "Certified v1.0.7 release workflow dispatched for ${main_sha}"
