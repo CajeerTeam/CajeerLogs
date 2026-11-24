@@ -29,4 +29,6 @@ $app->config()->set('skif4er.enabled',false);$app->config()->set('app.env','test
 check(json_decode($app->handle(new Request('GET','/api/v1/auth/skif4er/status',secureTransport:true))->body,true)['enabled']===false,'disabled login discovery');
 check($app->handle(new Request('GET','/api/v1/auth/skif4er/start',secureTransport:true))->status===404,'disabled flow denied without database');
 $app->config()->set('skif4er.enabled',true);check($app->handle(new Request('GET','/api/v1/auth/skif4er/start'))->status===403,'HTTPS mandatory');
+foreach(['GET /account','POST /link','POST /link/finish','POST /unlink','POST /revoke'] as $route){[$method,$path]=explode(' ',$route,2);check($app->handle(new Request($method,'/api/v1/auth/skif4er'.$path,secureTransport:true))->status===401,'external account action requires local session '.$path);}
+check($app->handle(new Request('GET','/api/v1/auth/skif4er/account',['Authorization'=>'Bearer cl_'.str_repeat('a',64)],secureTransport:true))->status===403,'API token cannot manage identity');
 echo "SkiF4er OIDC: $n checks passed\n";

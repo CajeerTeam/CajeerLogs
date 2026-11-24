@@ -1,11 +1,11 @@
-import { roles, state, render, active } from '../app/store.js?v=1.0.4';
-import { h, button, card, field, input, clearModal, modal, form, heading, table, date, copy, notify } from '../components/ui.js?v=1.0.4';
-import { clearSession, startSession, sessionChanged } from '../app/session.js?v=1.0.4';
-import { confirmAction } from '../components/mutations.js?v=1.0.4';
-import { themeSelector } from '../app/theme.js?v=1.0.4';
-import { sessionList } from '../components/session-list.js?v=1.0.4';
-import { qrMatrix } from '../components/qr-encoder.js?v=1.0.4';
-import { write } from '../api/client.js?v=1.0.4';
+import { roles, state, render, active } from '../app/store.js?v=1.0.5';
+import { h, button, card, field, input, clearModal, modal, form, heading, table, date, copy, notify } from '../components/ui.js?v=1.0.5';
+import { clearSession, startSession, sessionChanged } from '../app/session.js?v=1.0.5';
+import { confirmAction } from '../components/mutations.js?v=1.0.5';
+import { themeSelector } from '../app/theme.js?v=1.0.5';
+import { sessionList } from '../components/session-list.js?v=1.0.5';
+import { qrMatrix } from '../components/qr-encoder.js?v=1.0.5';
+import { write, get } from '../api/client.js?v=1.0.5';
 
 function recoveryDialog(codes) {
     modal('Сохраните recovery-коды',h('div',{},h('p',{},'Каждый код действует один раз. Сохраните их в защищённом месте. Они больше не будут показаны.'),h('pre',{},codes.join('\n')),button('Копировать коды',()=>void copy(codes.join('\n'))),button('Сохранено',clearModal)));
@@ -49,14 +49,44 @@ function reauthCard() {
         if(epoch!==state.authEpoch)return; state.security=result.security; status.textContent='Подтверждение действительно до '+date(result.security.reauthenticated_until); notify('Личность подтверждена. Повторите исходную операцию.');
     }));
 }
+async function externalIdentityCard(signal, epoch) {
+    if(location.protocol!=='https:')return null;
+    let data;
+    try {data=await get('/auth/skif4er/account',{},signal);} catch(e) {
+        if(e.name==='AbortError')throw e;
+        return card(h('h2',{},'SkiF4er ID'),h('p',{class:'muted'},'Настройки внешней авторизации временно недоступны. Локальная авторизация продолжает работать.'));
+    }
+    const section=card(h('h2',{},'SkiF4er ID'),h('p',{},data.linked?'Внешняя учётная запись привязана.':'Внешняя учётная запись не привязана.'),h('p',{class:'muted'},'Локальный пароль, роли и 2FA остаются обязательными согласно политике CajeerLogs. Отзыв завершает сессии CajeerLogs, но не глобальный вход у SkiF4er ID.'));
+    const fields=()=>[field('Текущий пароль',input('password',{type:'password',required:true,autocomplete:'current-password',maxlength:1024})),...(state.user.two_factor_enabled?[field('Код 2FA или recovery',input('otp',{required:true,autocomplete:'one-time-code',maxlength:32}))]:[])];
+    const body=d=>({password:String(d.get('password')),...(state.user.two_factor_enabled?{otp:String(d.get('otp')).trim().toLowerCase()}:{})});
+    if(data.linked_at)section.append(h('p',{class:'muted'},'Привязано: '+date(data.linked_at)));
+    if(data.enabled&&!data.linked){
+        if(data.pending_email)section.append(h('p',{},'Подтверждённый аккаунт: '+data.pending_email),form('Подтвердить привязку',[],async()=>{await write('/auth/skif4er/link/finish','POST',{});notify('SkiF4er ID привязан.');if(active(epoch))await render();}));
+        section.append(form('Привязать SkiF4er ID',fields(),async(d,f)=>{
+            const result=await write('/auth/skif4er/link','POST',body(d)); f.reset();
+            if(!active(epoch))return;
+            const url=new URL(result.authorization_url);
+            if(url.origin!=='https://id.skif4er.ru'||!url.pathname.startsWith('/realms/skif4er/')||url.username||url.password)throw new Error('Недоверенный адрес авторизации.');
+            location.assign(url.href);
+        }));
+    }
+    if(!data.enabled)section.append(h('p',{class:'muted'},'Внешний вход отключён администратором.'));
+    if(data.linked||data.auth_method==='skif4er'){
+        const revoke=async(d,f,path)=>{const result=await write(path,'POST',body(d));f.reset();sessionChanged();if(result.current_session_revoked){clearSession('Внешняя сессия завершена. Войдите локальным паролем.');return;}notify('Внешние сессии отозваны: '+result.sessions_revoked);if(active(epoch))await render();};
+        section.append(form('Завершить все внешние сессии',fields(),(d,f)=>revoke(d,f,'/auth/skif4er/revoke')));
+        if(data.linked)section.append(form('Отвязать SkiF4er ID и завершить внешние сессии',fields(),(d,f)=>revoke(d,f,'/auth/skif4er/unlink')));
+    }
+    return section;
+}
 async function settings(signal, epoch) {
     if(state.enrollmentRequired) return h('div',{},heading('Настройка 2FA','Политика безопасности требует подключения второго фактора.'),twoFactorCard());
+    const external=await externalIdentityCard(signal,epoch);
     return h('div',{},heading('Настройки','Настройки учётной записи и интерфейса.'),
         card(h('h2',{},'Профиль'),table(['Поле','Значение'],[['Email',state.user.email],['Роль',roles[state.user.role]],['UUID',state.user.id],['Создан',date(state.user.created_at)],['Последний вход',date(state.user.last_login_at)]]),
             form('Сохранить профиль',[field('Отображаемое имя',input('display_name',{value:state.user.display_name||'',maxlength:120,autocomplete:'name'}))],async(d)=>{
                 const result=await write('/auth/profile','PATCH',{display_name:String(d.get('display_name'))});state.user={...state.user,...result.user};notify('Профиль обновлён.');if(active(epoch))await render();
             }),h('div',{class:'actions'},field('Цветовая тема',themeSelector()))),twoFactorCard(),
-        state.security?.reauth_seconds>0?reauthCard():null,
+        state.security?.reauth_seconds>0?reauthCard():null,external,
         card(h('h2',{},'Сменить пароль'),h('p',{class:'muted'},'После смены пароля все сессии будут отозваны.'),form('Сменить пароль',[
             field('Текущий пароль',input('current_password',{type:'password',required:true,autocomplete:'current-password',maxlength:1024})),
             field('Новый пароль',input('password',{type:'password',required:true,minlength:12,maxlength:1024,autocomplete:'new-password'})),

@@ -107,11 +107,12 @@ final class Identity
         if ($p['kind']!=='session') self::forbidden();
         if (!$this->sql("SELECT 1 FROM auth_sessions WHERE token_hash=:hash AND reauthenticated_at>clock_timestamp()-interval '".$this->policy->fresh." seconds'",['hash'=>$p['hash']])->fetchColumn()) throw new HttpException(403,'reauthentication_required','Confirm your identity in account settings and retry the operation.');
     }
-    public function issueSession(array $user, ?Request $request = null, bool $fresh = true): array
+    public function issueSession(array $user, ?Request $request = null, bool $fresh = true, string $method = 'password'): array
     {
         if (!$this->pdo->inTransaction()) { throw new \LogicException('Session creation requires transaction.'); }
+        if (!in_array($method,['password','skif4er'],true)) throw new \InvalidArgumentException('Invalid session authentication method.');
         $secret=bin2hex(random_bytes(32)); $csrf=(new CsrfProtection())->token();
-        $this->sql("INSERT INTO auth_sessions(token_hash,user_id,csrf_token,expires_at,user_agent,remote_address,reauthenticated_at) VALUES (:hash,:id,:csrf,now()+CAST(:ttl AS integer)*interval '1 second',:agent,:address,CASE WHEN CAST(:fresh AS boolean) THEN now() ELSE NULL END)",['hash'=>hash('sha256',$secret),'id'=>$user['id'],'csrf'=>$csrf,'ttl'=>$this->ttl,'agent'=>self::sessionAgent($request),'fresh'=>$fresh?'true':'false','address'=>$request !== null && filter_var($request->remoteAddress,FILTER_VALIDATE_IP) ? $request->remoteAddress : null]);
+        $this->sql("INSERT INTO auth_sessions(token_hash,user_id,csrf_token,expires_at,user_agent,remote_address,reauthenticated_at,auth_method) VALUES (:hash,:id,:csrf,now()+CAST(:ttl AS integer)*interval '1 second',:agent,:address,CASE WHEN CAST(:fresh AS boolean) THEN now() ELSE NULL END,:method)",['hash'=>hash('sha256',$secret),'id'=>$user['id'],'csrf'=>$csrf,'ttl'=>$this->ttl,'agent'=>self::sessionAgent($request),'fresh'=>$fresh?'true':'false','method'=>$method,'address'=>$request !== null && filter_var($request->remoteAddress,FILTER_VALIDATE_IP) ? $request->remoteAddress : null]);
         return ['user'=>self::publicUser($user)+['permissions'=>$this->effectivePermissions(['kind'=>'session','id'=>$user['id']])],'csrf_token'=>$csrf,'cookie'=>$this->cookie($secret),'expires_in'=>$this->ttl,'enrollment_required'=>$this->enrollmentRequired($user),'security'=>$this->securityState($user,$fresh&&$this->policy->fresh>0?gmdate('Y-m-d\TH:i:s\Z',time()+$this->policy->fresh):null)];
     }
     private static function sessionAgent(?Request $request): ?string
@@ -134,7 +135,7 @@ final class Identity
         $hash = hash('sha256',$credential['secret']);
         $idle=$this->policy->idle;
         $condition=$idle>0?" AND s.last_seen_at>clock_timestamp()-interval '$idle seconds'":'';
-        $row = $this->sql('SELECT u.id,u.email,u.role,u.blocked_at,u.two_factor_enabled,u.created_at,u.updated_at,u.display_name,u.last_login_at,s.csrf_token,s.id AS session_id,s.expires_at,s.reauthenticated_at FROM auth_sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=:hash AND s.expires_at>clock_timestamp() AND u.blocked_at IS NULL'.$condition,['hash'=>$hash])->fetch();
+        $row = $this->sql('SELECT u.id,u.email,u.role,u.blocked_at,u.two_factor_enabled,u.created_at,u.updated_at,u.display_name,u.last_login_at,s.csrf_token,s.id AS session_id,s.expires_at,s.reauthenticated_at,s.auth_method FROM auth_sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=:hash AND s.expires_at>clock_timestamp() AND u.blocked_at IS NULL'.$condition,['hash'=>$hash])->fetch();
         if (!$row) { self::unauthorized(); }
         $row['two_factor_enabled']=PostgresBoolean::required($row['two_factor_enabled']);
         if (!$allowEnrollment && $this->enrollmentRequired($row)) { throw new HttpException(403,'totp_enrollment_required','Enroll in two-factor authentication first.'); }
@@ -147,7 +148,7 @@ final class Identity
             $updated=$this->sql("UPDATE auth_sessions SET last_seen_at=clock_timestamp() WHERE token_hash=:hash AND expires_at>clock_timestamp() AND last_seen_at>clock_timestamp()-interval '$idle seconds'",['hash'=>$hash]);
             if ($updated->rowCount()!==1) self::unauthorized();
         } elseif ($idle===0) $this->sql("UPDATE auth_sessions SET last_seen_at=now() WHERE token_hash=:hash AND last_seen_at<now()-interval '5 minutes'",['hash'=>$hash]);
-        return ['kind'=>'session','id'=>$row['id'],'user'=>self::publicUser($row),'hash'=>$hash,'csrf'=>$row['csrf_token'],'session_id'=>$row['session_id'],'expires_at'=>$row['expires_at'],'reauthenticated_at'=>$row['reauthenticated_at']];
+        return ['kind'=>'session','id'=>$row['id'],'user'=>self::publicUser($row),'hash'=>$hash,'csrf'=>$row['csrf_token'],'session_id'=>$row['session_id'],'expires_at'=>$row['expires_at'],'reauthenticated_at'=>$row['reauthenticated_at'],'auth_method'=>$row['auth_method']??'password'];
     }
     /** A project role can restrict, never elevate, the global role. Administrators retain global access. */
     public function projectRole(array $p,string $project): string

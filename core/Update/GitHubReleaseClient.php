@@ -79,7 +79,7 @@ final class GitHubReleaseClient
         $context=stream_context_create([
             'http'=>[
                 'method'=>'GET','timeout'=>5,'follow_location'=>0,'ignore_errors'=>true,
-                'header'=>"Accept: application/vnd.github+json\r\nX-GitHub-Api-Version: 2022-11-28\r\nUser-Agent: CajeerLogs-UpdateDiscovery/1.0.4\r\nConnection: close\r\n",
+                'header'=>"Accept: application/vnd.github+json\r\nX-GitHub-Api-Version: 2022-11-28\r\nUser-Agent: CajeerLogs-UpdateDiscovery/1.0.5\r\nConnection: close\r\n",
             ],
             'ssl'=>['verify_peer'=>true,'verify_peer_name'=>true,'allow_self_signed'=>false,'SNI_enabled'=>true],
         ]);

@@ -1,0 +1,9 @@
+# SkiF4er ID: account linking and session management (1.0.5)
+
+Configure the confidential OIDC client using `docs/SkiF4er-ID-Authentication-1.0.4.md`. The issuer and protocol are unchanged. Live acceptance requires an actual registered client and reachable identity provider.
+
+In Settings → SkiF4er ID, sign in locally, supply your current password and enrolled TOTP/recovery code, authenticate at the provider, review the verified email, and confirm linking in the initiating local session. The email is informational; only the verified issuer subject identifies an account. An identity cannot be assigned to two users or silently replace an existing binding. The link expires after five minutes and is consumed once. Logout, session revocation, password change and TOTP changes invalidate session-bound flows. Roles and access grants remain local; provider role claims are never trusted.
+
+The session list identifies password and SkiF4er ID logins. Individual session revocation uses existing session controls; bulk external revocation and unlink require the local password and enrolled second factor even when generic recent-authentication policy is disabled. Unlink removes the binding and revokes external CajeerLogs sessions, leaving password sessions intact. If the current session was external, the user must sign in again. Revocation is local to CajeerLogs, not global provider SSO logout; no provider refresh/access tokens are persisted. Revocation remains available on HTTPS when external login is disabled.
+
+Migration `0035_skif4er_linking.sql` invalidates existing sessions of linked users because 1.0.4 did not store login provenance. Existing bindings, users and roles remain unchanged; users can sign in again. All incomplete legacy flows are removed. Apply migration before starting the new application and follow the existing backup/upgrade procedure.

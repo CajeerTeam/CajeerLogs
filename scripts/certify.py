@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CajeerLogs 1.0.4 release gate, including live load/fault smoke. Executes real tests on a verified distribution.
+"""CajeerLogs 1.0.5 release gate, including live load/fault smoke. Executes real tests on a verified distribution.
 
 Database: explicit disposable PostgreSQL credentials and two empty restore targets.
 Admin: real browser/PHP/PostgreSQL E2E on the exact archive.
@@ -27,7 +27,7 @@ from analytics_storage_certify import STAGES as ANALYTICS_STORAGE_STAGES
 from integration_stability import STAGES as STABILITY_STAGES
 from security_acceptance import STAGES as SECURITY_STAGES
 
-VERSION = '1.0.4'
+VERSION = '1.0.5'
 DATABASE_TESTS = (
     'database', 'migration_engine_database', 'migration_scale_database', 'transaction_database',
     'identity_database', 'skif4er_auth_database', 'identity_security_database', 'audit_database', 'rate_limit_database', 'rbac_database', 'ingest_database', 'delivery_database', 'hmac_database', 'redaction_database', 'search_database',
@@ -43,7 +43,7 @@ MATRIX = {(php, pg) for php in ('8.4', '8.5') for pg in ('17', '18')}
 def archive_info(path):
     meta = release.verify(path)
     if meta['version'] != VERSION:
-        raise ValueError('Expected the 1.0.4 release archive')
+        raise ValueError('Expected the 1.0.5 release archive')
     return {'version': VERSION, 'archive_sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
 
 
@@ -268,7 +268,7 @@ def validate_matrix(reports, info):
             raise ValueError('Missing or invalid large-database migration certification')
         replay=scale.get('independent_replay')
         if (not isinstance(replay,dict) or replay.get('status')!='verified'
-            or replay.get('migrations')!=34 or replay.get('scratch_schema_persisted') is not False
+            or replay.get('migrations')!=35 or replay.get('scratch_schema_persisted') is not False
             or not isinstance(replay.get('schema'),str) or not replay['schema'].startswith('cl_cert_')
             or not isinstance(replay.get('duration_ms'),int) or replay['duration_ms'] < 0
             or not all(isinstance(replay.get(key),str) and len(replay[key])==64
@@ -600,7 +600,7 @@ def final_release(args,report):
         root=Path(tmp)/'app'; release.verify(args.archive,root)
         # This stage operates on real isolated Docker/PG/TLS, then performs
         # all four long async workload phases. No fabricated or short smoke
-        # report can certify a stable 1.0.4 release.
+        # report can certify a stable 1.0.5 release.
         evidence_path=Path(tmp)/'throughput-certification.json'
         smoke_env=dict(os.environ,CAJEER_PERF_ARCHIVE_PATH=str(args.archive.resolve()),
                        CAJEER_PERF_REPORT_PATH=str(evidence_path))

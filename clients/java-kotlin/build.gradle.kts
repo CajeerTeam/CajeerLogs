@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "ru.cajeer.logs"
-version = "1.0.4"
+version = "1.0.5"
 
 repositories { mavenCentral() }
 // Pin each resolved configuration; Gradle verification metadata additionally pins

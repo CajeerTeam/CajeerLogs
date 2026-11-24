@@ -1,6 +1,6 @@
-## CajeerLogs 1.0.4 — SkiF4er ID Authentication
+## CajeerLogs 1.0.5 — Identity Linking & Security
 
-Optional additional login via SkiF4er ID. Configure a confidential OIDC client, provision its verified subject against an existing local user and enable the login button. Local RBAC, local TOTP and password sign-in remain authoritative. See [SkiF4er ID Authentication](docs/SkiF4er-ID-Authentication-1.0.4.md). The provider's public SDK page was unavailable during implementation; live interoperability must be checked with registered client credentials.
+Link or unlink SkiF4er ID in account settings after local password and enrolled factor confirmation. Revoke external sessions independently of password sessions. Local RBAC and TOTP remain authoritative. See [Identity Linking & Security](docs/Identity-Linking-Security-1.0.5.md). The provider's public SDK page was unavailable during implementation; live interoperability must be checked with registered client credentials.
 
 ## CajeerLogs 1.0.3 — Safe Update Installation
 

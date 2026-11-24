@@ -1,8 +1,8 @@
-import { state, resetWorkspace, render, advanceSession } from './store.js?v=1.0.4';
-import { $, h, field, input, clearModal, form } from '../components/ui.js?v=1.0.4';
-import { refreshProject } from './projects.js?v=1.0.4';
-import { navigation } from './shell.js?v=1.0.4';
-import { request, get, apiPrefix } from '../api/client.js?v=1.0.4';
+import { state, resetWorkspace, render, advanceSession } from './store.js?v=1.0.5';
+import { $, h, field, input, clearModal, form } from '../components/ui.js?v=1.0.5';
+import { refreshProject } from './projects.js?v=1.0.5';
+import { navigation } from './shell.js?v=1.0.5';
+import { request, get, apiPrefix } from '../api/client.js?v=1.0.5';
 
 const version = document.querySelector('meta[name=cajeer-version]').content;
 let sessionChecking = false;
@@ -68,7 +68,7 @@ function externalFinish(mode) {
 async function startSession(res) { loginAttempt++; advanceSession(); state.user = res.user; state.security = res.security??null; state.enrollmentRequired = Boolean(res.enrollment_required); state.csrf = res.csrf_token; resetWorkspace(); await render({ focus: true }); }
 async function bootstrap() {
     const url=new URL(location.href), external=url.searchParams.get('skif4er');
-    if(external!==null){url.searchParams.delete('skif4er');history.replaceState(null,'',url.pathname+url.search+url.hash);if(external==='otp'||external==='continue'){externalFinish(external);return;} if(external==='failed'){renderLogin('Вход через SkiF4er ID не выполнен. Проверьте привязку аккаунта или используйте пароль.');return;}}
+    if(external!==null){url.searchParams.delete('skif4er');history.replaceState(null,'',url.pathname+url.search+url.hash);if(external==='otp'||external==='continue'){externalFinish(external);return;} if(external==='link'||external==='link_failed'){history.replaceState(null,'',url.pathname+url.search+'#settings');} if(external==='failed'){renderLogin('Вход через SkiF4er ID не выполнен. Проверьте привязку аккаунта или используйте пароль.');return;}}
     const epoch = state.authEpoch;
     try {
         const result = await get('/auth/me');

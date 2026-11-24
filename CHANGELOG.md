@@ -1,3 +1,9 @@
+## 1.0.5 — Identity Linking & Security (2026-11-24)
+
+- Self-service SkiF4er ID linking with current local password, enrolled second factor, verified OIDC identity and explicit session-bound confirmation.
+- Unlink and selectively revoke external CajeerLogs sessions; label session authentication method, preserve local roles and password access.
+- Migration 0035 revokes ambiguous pre-1.0.5 sessions for linked users; existing identities are retained.
+
 ## 1.0.4 — SkiF4er ID Authentication (2026-11-24)
 
 - Optional SkiF4er ID external sign-in through the pinned Keycloak OIDC issuer, verified discovery, authorization code with PKCE S256 and RSA-signed ID tokens.

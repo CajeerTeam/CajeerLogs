@@ -1,14 +1,14 @@
-import { state, active, render } from '../app/store.js?v=1.0.4';
-import { h, button, date, enc, modal } from './ui.js?v=1.0.4';
-import { pagedList } from './pagination.js?v=1.0.4';
-import { confirmAction, mutationSuccess } from './mutations.js?v=1.0.4';
-import { write } from '../api/client.js?v=1.0.4';
-import { clearSession, sessionChanged } from '../app/session.js?v=1.0.4';
+import { state, active, render } from '../app/store.js?v=1.0.5';
+import { h, button, date, enc, modal } from './ui.js?v=1.0.5';
+import { pagedList } from './pagination.js?v=1.0.5';
+import { confirmAction, mutationSuccess } from './mutations.js?v=1.0.5';
+import { write } from '../api/client.js?v=1.0.5';
+import { clearSession, sessionChanged } from '../app/session.js?v=1.0.5';
 
 export function sessionList(path, signal, epoch) {
-    return pagedList({path, query:{limit:25}, signal, epoch, headers:['Устройство / браузер','IP','Создана','Активность','Истекает',''], rows:s=>[
+    return pagedList({path, query:{limit:25}, signal, epoch, headers:['Устройство / браузер','Способ входа','IP','Создана','Активность','Истекает',''], rows:s=>[
         h('div',{class:'session-agent'},s.user_agent||'Неизвестное устройство',s.current?h('strong',{class:'current-session'},'Текущая сессия'):null),
-        s.remote_address||'—',date(s.created_at),date(s.last_seen_at),date(s.effective_expires_at||s.expires_at),
+        s.auth_method==='skif4er'?'SkiF4er ID':'Пароль',s.remote_address||'—',date(s.created_at),date(s.last_seen_at),date(s.effective_expires_at||s.expires_at),
         button('Завершить',()=>confirmAction('Завершить сессию','Доступ с этого устройства будет прекращён.',async()=>{
             await write(path+'/'+enc(s.id),'DELETE');
             if(s.current) { clearSession('Сессия завершена.'); sessionChanged(); }

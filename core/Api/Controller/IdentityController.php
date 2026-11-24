@@ -289,7 +289,7 @@ final class IdentityController
         $codes=$this->totp()->enable($p['id'],$p['hash'],self::str($d,'otp',6));
         $this->sql('DELETE FROM auth_sessions WHERE user_id=:id',['id'=>$p['id']]);
         $user=$this->one('SELECT id,email,role,blocked_at,two_factor_enabled,created_at,updated_at,display_name,last_login_at FROM users WHERE id=:id',['id'=>$p['id']]);
-        $result=$this->identity->issueSession($user,$r); $cookie=$result['cookie']; unset($result['cookie']);
+        $result=$this->identity->issueSession($user,$r,$p['auth_method']==='password',$p['auth_method']); $cookie=$result['cookie']; unset($result['cookie']);
         $this->audit($r,$p,'auth.totp_enabled');
         return new JsonResponse($result+['recovery_codes'=>$codes],200,['Set-Cookie'=>$cookie]);
     }
@@ -326,7 +326,7 @@ final class IdentityController
     private function sessionList(Request $r,array $p,string $user): Response
     {
          $idle=$this->identity->policy()->idle; $expiry=$idle>0?"LEAST(expires_at,last_seen_at+interval '$idle seconds')":'expires_at';
-        return $this->page($r,"SELECT id,created_at,last_seen_at,expires_at,$expiry AS effective_expires_at,user_agent,remote_address,(id=CAST(:current AS uuid)) AS current FROM auth_sessions WHERE user_id=:user AND $expiry>clock_timestamp()", ['user'=>$user,'current'=>$p['session_id']]);
+        return $this->page($r,"SELECT id,created_at,last_seen_at,expires_at,$expiry AS effective_expires_at,user_agent,remote_address,auth_method,(id=CAST(:current AS uuid)) AS current FROM auth_sessions WHERE user_id=:user AND $expiry>clock_timestamp()", ['user'=>$user,'current'=>$p['session_id']]);
     }
     private function sessions(Request $r,array $p): Response
     { $this->session($p); return $this->sessionList($r,$p,$p['id']); }
