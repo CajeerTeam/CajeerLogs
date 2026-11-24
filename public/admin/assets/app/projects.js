@@ -1,6 +1,6 @@
-import { state, render, selectProject } from './store.js?v=1.0.7';
-import { h, button, select, notify } from '../components/ui.js?v=1.0.7';
-import { get, request } from '../api/client.js?v=1.0.7';
+import { state, render, selectProject } from './store.js?v=1.0.8';
+import { h, button, select, notify } from '../components/ui.js?v=1.0.8';
+import { get, request } from '../api/client.js?v=1.0.8';
 
 async function loadProjects(signal, more = false, background=false) {
     const read=(path,query,signal)=>background?request(path,{query,signal,extraHeaders:{'X-Cajeer-Background':'1'}}):get(path,query,signal);

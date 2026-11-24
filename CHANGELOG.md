@@ -1,3 +1,10 @@
+## 1.0.8 — AI Incident Intelligence (2026-11-24)
+
+- Group up to 200 recent error events by normalized failure pattern or correlation ID; analyze representative events and related chronology with OpenAI.
+- Show observed evidence, likely causes and suggested diagnostic/remediation steps, with sample limits visible.
+- Optional private per-user/project investigation history, bounded to 30 entries and 30 days, with list, detail, deletion and scheduled cleanup.
+- Migration 0036 adds history storage; existing chat, RBAC, local sessions and 2FA remain unchanged.
+
 ## 1.0.7 — AI Log Investigation (2026-11-24)
 
 - Investigate recent errors or a selected event, Trace ID or Request ID in a bounded project/time snapshot; retain seeds and expand one hop to related events across severities.

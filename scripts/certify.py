@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CajeerLogs 1.0.7 release gate, including live load/fault smoke. Executes real tests on a verified distribution.
+"""CajeerLogs 1.0.8 release gate, including live load/fault smoke. Executes real tests on a verified distribution.
 
 Database: explicit disposable PostgreSQL credentials and two empty restore targets.
 Admin: real browser/PHP/PostgreSQL E2E on the exact archive.
@@ -27,7 +27,7 @@ from analytics_storage_certify import STAGES as ANALYTICS_STORAGE_STAGES
 from integration_stability import STAGES as STABILITY_STAGES
 from security_acceptance import STAGES as SECURITY_STAGES
 
-VERSION = '1.0.7'
+VERSION = '1.0.8'
 DATABASE_TESTS = (
     'database', 'migration_engine_database', 'migration_scale_database', 'transaction_database',
     'identity_database', 'skif4er_auth_database', 'assistant_database', 'identity_security_database', 'audit_database', 'rate_limit_database', 'rbac_database', 'ingest_database', 'delivery_database', 'hmac_database', 'redaction_database', 'search_database',
@@ -36,14 +36,14 @@ DATABASE_TESTS = (
     'integrity_database', 'security_database', 'security_posture_database',
 )
 STAGES = tuple(DATABASE_TESTS) + ('disaster-recovery','pipeline', 'pipeline-repeat', 'aapanel-integration', 'upgrade-0.1.0', 'upgrade-0.2.0', 'upgrade-0.2.9', 'upgrade-0.3.0', 'upgrade-0.3.2', 'upgrade-0.3.3', 'upgrade-0.3.4', 'upgrade-0.3.5', 'upgrade-0.3.6', 'upgrade-0.3.7', 'upgrade-0.3.8', 'upgrade-0.3.9', 'upgrade-0.4.0', 'upgrade-0.4.1', 'upgrade-0.4.2', 'upgrade-0.4.3','upgrade-0.4.4','upgrade-0.4.5', 'upgrade-0.4.6', 'upgrade-0.4.7','upgrade-0.4.8','upgrade-0.4.9','upgrade-0.4.10','upgrade-0.5.0','upgrade-0.5.1','upgrade-0.5.2','upgrade-0.5.3','upgrade-0.5.4','upgrade-0.5.5','upgrade-0.5.6','upgrade-0.5.7','upgrade-0.5.8','upgrade-0.5.9','upgrade-0.5.10','upgrade-0.6.0','upgrade-0.6.1','upgrade-0.6.2','upgrade-0.6.3','upgrade-0.6.4','upgrade-0.6.5','upgrade-0.6.6','upgrade-0.6.7','upgrade-0.6.8','upgrade-0.6.9','upgrade-0.7.9','upgrade-0.8.0','upgrade-0.8.1','upgrade-0.8.2','upgrade-0.8.3','upgrade-0.8.4', 'upgrade-0.8.5','upgrade-0.8.6','upgrade-0.8.7','upgrade-0.8.8','upgrade-0.8.9','upgrade-0.9.0','upgrade-0.9.1','upgrade-0.9.2','upgrade-0.9.3','upgrade-0.9.4','upgrade-0.9.5','upgrade-0.9.6','upgrade-0.9.7','upgrade-0.9.8','upgrade-0.9.9')
-ADMIN_STAGES = ('assistant','release-runtime','update-discovery','update-downloads','http-runtime','health-monitoring','worker-runtime','ingest-recovery','worker-microbatch','throughput-planner','queue-backpressure','queue-fairness','queue-operations','retry-policy','monitoring-config','backup-operations', 'secure-installer', 'deployment-policy', 'deployment-tls', 'security-hardening', 'frontend-build', 'browser-ui-chromium', 'browser-db-chromium', 'browser-db-firefox', 'browser-db-webkit')
+ADMIN_STAGES = ('assistant','ai-incidents','release-runtime','update-discovery','update-downloads','http-runtime','health-monitoring','worker-runtime','ingest-recovery','worker-microbatch','throughput-planner','queue-backpressure','queue-fairness','queue-operations','retry-policy','monitoring-config','backup-operations', 'secure-installer', 'deployment-policy', 'deployment-tls', 'security-hardening', 'frontend-build', 'browser-ui-chromium', 'browser-db-chromium', 'browser-db-firefox', 'browser-db-webkit')
 MATRIX = {(php, pg) for php in ('8.4', '8.5') for pg in ('17', '18')}
 
 
 def archive_info(path):
     meta = release.verify(path)
     if meta['version'] != VERSION:
-        raise ValueError('Expected the 1.0.7 release archive')
+        raise ValueError('Expected the 1.0.8 release archive')
     return {'version': VERSION, 'archive_sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
 
 
@@ -268,7 +268,7 @@ def validate_matrix(reports, info):
             raise ValueError('Missing or invalid large-database migration certification')
         replay=scale.get('independent_replay')
         if (not isinstance(replay,dict) or replay.get('status')!='verified'
-            or replay.get('migrations')!=35 or replay.get('scratch_schema_persisted') is not False
+            or replay.get('migrations')!=36 or replay.get('scratch_schema_persisted') is not False
             or not isinstance(replay.get('schema'),str) or not replay['schema'].startswith('cl_cert_')
             or not isinstance(replay.get('duration_ms'),int) or replay['duration_ms'] < 0
             or not all(isinstance(replay.get(key),str) and len(replay[key])==64
@@ -295,6 +295,7 @@ def admin_panel(args, report):
         if (report['php_series'],report['postgres_major'])!=('8.4','17'):
             raise ValueError('Admin certification requires the PHP 8.4 / PostgreSQL 17 reference environment')
         run_stage(report,'assistant',['php','tests/assistant.php'],root,env)
+        run_stage(report,'ai-incidents',['php','tests/ai_incidents.php'],root,env)
         run_stage(report,'release-runtime',['php','tests/release_runtime.php'],root,env)
         run_stage(report,'update-discovery',['php','tests/update_discovery.php'],root,env)
         run_stage(report,'update-downloads',['php','tests/update_downloads.php'],root,env)
@@ -601,7 +602,7 @@ def final_release(args,report):
         root=Path(tmp)/'app'; release.verify(args.archive,root)
         # This stage operates on real isolated Docker/PG/TLS, then performs
         # all four long async workload phases. No fabricated or short smoke
-        # report can certify a stable 1.0.7 release.
+        # report can certify a stable 1.0.8 release.
         evidence_path=Path(tmp)/'throughput-certification.json'
         smoke_env=dict(os.environ,CAJEER_PERF_ARCHIVE_PATH=str(args.archive.resolve()),
                        CAJEER_PERF_REPORT_PATH=str(evidence_path))

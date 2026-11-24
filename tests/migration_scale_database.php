@@ -38,7 +38,7 @@ try {
         if (!copy($file,$directory.'/'.basename($file))) throw new RuntimeException('Cannot copy migration fixture.');
     }
     $count=count($migrationPaths);
-    verifyMigration($count===35,'complete 0001-0035 PostgreSQL migration history');
+    verifyMigration($count===36,'complete 0001-0036 PostgreSQL migration history');
     $pdo=certPdo($app,$schema);
     $runner=new MigrationRunner($pdo,$directory,$schema);
     $begin=microtime(true);
@@ -49,9 +49,9 @@ try {
     verifyMigration($status['integrity']==='verified' && count($status['applied'])===$count && $status['pending']===[],'catalog snapshot and journal match');
 
     // Bind the mandatory database-matrix evidence to a real reference catalog
-    // reconstructed from *all 35* shipped SQL files, not the stored snapshot.
+    // reconstructed from *all 36* shipped SQL files, not the stored snapshot.
     $independentReplay=$runner->certify();
-    verifyMigration($independentReplay['status']==='verified' && $independentReplay['migrations']===35
+    verifyMigration($independentReplay['status']==='verified' && $independentReplay['migrations']===36
         && hash_equals($independentReplay['catalog_sha256'],$independentReplay['reference_sha256'])
         && $independentReplay['scratch_schema_persisted']===false,
         'all shipped PostgreSQL migrations independently replayed and rolled back');
@@ -59,31 +59,31 @@ try {
     // A large real table created through the migration engine, not a mocked SQL fixture.
     // This test is deliberately bounded for shared CI; 100k physical rows plus an index.
     $rows=100000;
-    file_put_contents($directory.'/0036_scale_data.sql',
+    file_put_contents($directory.'/0037_scale_data.sql',
         'CREATE TABLE migration_cert_large (id bigint PRIMARY KEY, account integer NOT NULL, done boolean NOT NULL DEFAULT false);'."\n".
         'INSERT INTO migration_cert_large(id,account) SELECT i, i%128 FROM generate_series(1,'.$rows.') AS i;');
     $begin=microtime(true);
-    verifyMigration($runner->migrate()===['0036_scale_data.sql'],'100000-row transactional data migration');
+    verifyMigration($runner->migrate()===['0037_scale_data.sql'],'100000-row transactional data migration');
     $timings['data_migration_ms']=round((microtime(true)-$begin)*1000,2);
     verifyMigration((int)$pdo->query('SELECT count(*) FROM migration_cert_large')->fetchColumn()===$rows,'large table contains all committed rows');
-    file_put_contents($directory.'/0037_scale_index.sql',
+    file_put_contents($directory.'/0038_scale_index.sql',
         "-- cajeer:concurrent-index\nCREATE INDEX CONCURRENTLY migration_cert_large_account_idx ON migration_cert_large(account,id);");
     $begin=microtime(true);
-    verifyMigration($runner->migrate()===['0037_scale_index.sql'],'live concurrent index on 100000 rows');
+    verifyMigration($runner->migrate()===['0038_scale_index.sql'],'live concurrent index on 100000 rows');
     $timings['index_ms']=round((microtime(true)-$begin)*1000,2);
     verifyMigration(PostgresBoolean::required($pdo->query("SELECT indisvalid AND indisready FROM pg_index WHERE indexrelid='migration_cert_large_account_idx'::regclass")->fetchColumn()),'index valid and ready');
 
     $sql="-- cajeer:backfill\nWITH batch AS (SELECT id FROM migration_cert_large WHERE done=false ORDER BY id LIMIT 4000) UPDATE migration_cert_large AS target SET done=true FROM batch WHERE target.id=batch.id AND target.done=false RETURNING target.id;";
-    file_put_contents($directory.'/0038_scale_backfill.sql',$sql);
+    file_put_contents($directory.'/0039_scale_backfill.sql',$sql);
     $begin=microtime(true);
     $limited=new MigrationRunner($pdo,$directory,$schema,600000,2);
     verifyMigration(expectedFailure(fn()=> $limited->migrate()),'bounded two-batch pause is reported, not certified');
     verifyMigration((int)$pdo->query('SELECT count(*) FROM migration_cert_large WHERE done')->fetchColumn()===8000,'interrupted backfill retains committed work');
-    verifyMigration($runner->status()['pending']===['0038_scale_backfill.sql'],'journal retains incomplete migration');
+    verifyMigration($runner->status()['pending']===['0039_scale_backfill.sql'],'journal retains incomplete migration');
     // Re-instantiate to test a process boundary; no in-memory checkpoint is trusted.
     unset($limited);
     $restarted=new MigrationRunner(certPdo($app,$schema),$directory,$schema);
-    verifyMigration($restarted->migrate()===['0038_scale_backfill.sql'],'new connection resumes backfill safely');
+    verifyMigration($restarted->migrate()===['0039_scale_backfill.sql'],'new connection resumes backfill safely');
     $timings['backfill_ms']=round((microtime(true)-$begin)*1000,2);
     $totals=$pdo->query('SELECT count(*) AS records,coalesce(sum(id),0) AS checksum FROM migration_cert_large WHERE done')->fetch(PDO::FETCH_ASSOC);
     verifyMigration((int)$totals['records']===$rows && (int)$totals['checksum']===(int)($rows*($rows+1)/2),'large backfill exact row count and arithmetic checksum');
@@ -93,7 +93,7 @@ try {
     verifyMigration($runner->status()['integrity']==='drift' && expectedFailure(fn()=> $runner->migrate()),'unexpected column blocks release and migration');
     $pdo->exec('ALTER TABLE migration_cert_large DROP COLUMN unauthorized_probe');
     verifyMigration($runner->status()['integrity']==='verified','repair restores verified schema');
-    $path=$directory.'/0038_scale_backfill.sql';
+    $path=$directory.'/0039_scale_backfill.sql';
     file_put_contents($path,$sql."\n-- unauthorized checksum mutation\n");
     verifyMigration(expectedFailure(fn()=> $runner->status()),'modified applied migration checksum rejected');
     file_put_contents($path,$sql);
@@ -109,19 +109,19 @@ try {
     verifyMigration($conflict->migrate()===[],'migration resumes after guard release');
 
     // A migration with several DDL statements must leave no partial table on failure.
-    file_put_contents($directory.'/0037_failure_probe.sql','CREATE TABLE migration_cert_rollback(id bigint); SELECT 1/0;');
+    file_put_contents($directory.'/0040_failure_probe.sql','CREATE TABLE migration_cert_rollback(id bigint); SELECT 1/0;');
     verifyMigration(expectedFailure(fn()=> $runner->migrate()),'SQL error causes migration failure');
     verifyMigration(PostgresBoolean::required($pdo->query("SELECT to_regclass('migration_cert_rollback') IS NULL")->fetchColumn()),'failed multi-statement DDL fully rolled back');
     $state=$runner->status();
-    verifyMigration($state['integrity']==='verified' && $state['pending']===['0037_failure_probe.sql'],'failed migration journal and previous data preserved');
-    $missingSql=file_get_contents($directory.'/0037_failure_probe.sql');
-    unlink($directory.'/0037_failure_probe.sql');
+    verifyMigration($state['integrity']==='verified' && $state['pending']===['0040_failure_probe.sql'],'failed migration journal and previous data preserved');
+    $missingSql=file_get_contents($directory.'/0040_failure_probe.sql');
+    unlink($directory.'/0040_failure_probe.sql');
     verifyMigration(expectedFailure(fn()=> $runner->status()),'unrecognized pending transactional journal fails closed');
-    file_put_contents($directory.'/0037_failure_probe.sql',$missingSql);
+    file_put_contents($directory.'/0040_failure_probe.sql',$missingSql);
     verifyMigration($runner->status()['integrity']==='verified','restored pending SQL is checked against journal');
 
     $timings['total_ms']=round((microtime(true)-$started)*1000,2);
-    $report=['version'=>'1.0.7','archive_sha256'=>getenv('CAJEER_MIGRATION_CERT_ARCHIVE_SHA256')?:null,'status'=>'passed','postgresql_version'=>$pdo->query('SHOW server_version')->fetchColumn(),
+    $report=['version'=>'1.0.8','archive_sha256'=>getenv('CAJEER_MIGRATION_CERT_ARCHIVE_SHA256')?:null,'status'=>'passed','postgresql_version'=>$pdo->query('SHOW server_version')->fetchColumn(),
         'checks'=>$checks,'test_rows'=>$rows,'backfill_checksum'=>(string)$totals['checksum'],'independent_replay'=>$independentReplay,'timings'=>$timings];
     if (($output=getenv('CAJEER_MIGRATION_CERT_REPORT'))!==false && $output!=='') {
         if (!is_dir(dirname($output)) || file_put_contents($output,json_encode($report,JSON_PRETTY_PRINT|JSON_THROW_ON_ERROR)."\n",LOCK_EX)===false) throw new RuntimeException('Cannot persist migration certificate.');

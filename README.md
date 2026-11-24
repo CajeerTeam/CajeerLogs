@@ -1,6 +1,6 @@
-## CajeerLogs 1.0.7 — AI Log Investigation
+## CajeerLogs 1.0.8 — AI Incident Intelligence
 
-Optional OpenAI-powered project log chat and bounded trace/request investigations. See [investigation setup, privacy and limits](docs/AI-Log-Investigation-1.0.7.md).
+Optional OpenAI-powered project log chat, incident grouping, correlated investigations and private saved history. See [incident intelligence setup, privacy and limits](docs/AI-Incident-Intelligence-1.0.8.md).
 
 ## CajeerLogs 1.0.5 — Identity Linking & Security
 

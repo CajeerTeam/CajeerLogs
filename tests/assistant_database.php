@@ -38,7 +38,32 @@ try {
  $scope=\Cajeer\Logs\AI\Assistant::validate(['project_id'=>$p,'question'=>'Trace','hours'=>1,'investigation'=>['trace_id'=>'shared-trace-sensitive'],'consent'=>true]);
  $metadata=\Cajeer\Logs\AI\Investigation::sample($pdo,$scope['query'],$scope['investigation'],5000,false);
  check(array_column($metadata['events'],'id')===$expectedInvestigation&&!str_contains(json_encode($metadata),'shared-trace-sensitive')&&!str_contains(json_encode($metadata),'RuntimeException')&&$metadata['investigation']['stack_count']===0,'real explicit trace lookup and metadata-only policy');
- $cfg->set('ai.enabled',false);check(rejected(fn()=>$controller->run($request($p),'assistantChat'),403)&&$calls===2,'disabled provider cannot be called');
- $cfg->set('ai.enabled',true);$pdo->prepare('DELETE FROM project_members WHERE project_id=:p AND user_id=:u')->execute(['p'=>$p,'u'=>$user]);check(rejected(fn()=>$controller->run($request($p),'assistantChat'),403)&&$calls===2,'revoked project access enforced');
+ // Incident grouping, save, reopen and delete over the real database and existing session/RBAC path.
+ $incident=new Request('POST','/api/v1/assistant/chat',$headers,[],json_encode(['project_id'=>$p,'question'=>'Investigate password=history-secret','hours'=>1,'incident'=>true,'save_history'=>true,'consent'=>true]),'192.0.2.1',true);
+ $report=json_decode($controller->run($incident,'assistantChat')->body,true,64,JSON_THROW_ON_ERROR);
+ check($calls===3&&$report['incidents']['sampled_errors']===1&&$report['incidents']['groups'][0]['representative_id']===$id&&isset($report['history_id']),'live incident report saved with trusted group count');
+ $historyId=$report['history_id'];
+ $historyRequest=fn(string $method,array $query,?array $h=null)=>new Request($method,'/api/v1/assistant/history',$h??$headers,$query,'','192.0.2.1',true);
+ $list=json_decode($controller->run($historyRequest('GET',['project_id'=>$p]),'assistantHistory')->body,true,64,JSON_THROW_ON_ERROR);
+ check(count($list['items'])===1&&$list['items'][0]['id']===$historyId&&!str_contains(json_encode($list),'history-secret'),'private history list masks question');
+ $saved=json_decode($controller->run($historyRequest('GET',['project_id'=>$p,'id'=>$historyId]),'assistantHistory')->body,true,64,JSON_THROW_ON_ERROR);
+ check($saved['result']['incidents']==$report['incidents']&&array_column($saved['result']['evidence'],'id')===$expectedInvestigation&&!str_contains(json_encode($saved),'stack-password')&&!str_contains(json_encode($saved),'private_context'),'saved analysis and evidence, not raw context');
+ $owner2=(new UserRepository($pdo))->create('ai2@example.test','fixture-password-ai-234','viewer');
+ $pdo->prepare('INSERT INTO project_members(project_id,user_id) VALUES(:p,:u)')->execute(['p'=>$p,'u'=>$owner2]);
+ $historyRepo=new \Cajeer\Logs\AI\History($pdo);
+ check($historyRepo->list($owner2,$p)===[]&&rejected(fn()=>$historyRepo->get($owner2,$p,$historyId),404)&&rejected(fn()=>$historyRepo->delete($owner2,$p,$historyId),404),'same project different owner cannot read/delete history');
+ check(rejected(fn()=>$controller->run($historyRequest('GET',['project_id'=>$other,'id'=>$historyId]),'assistantHistory'),403),'foreign project history denied');
+ check(rejected(fn()=>$controller->run($historyRequest('DELETE',['project_id'=>$p,'id'=>$historyId],array_replace($headers,['X-CSRF-Token'=>'wrong'])),'assistantHistoryDelete'),403),'history deletion requires CSRF');
+ $cfg->set('ai.enabled',false);
+ check($controller->run($historyRequest('GET',['project_id'=>$p,'id'=>$historyId]),'assistantHistory')->status===200,'history remains readable when OpenAI disabled');
+ check($controller->run($historyRequest('DELETE',['project_id'=>$p,'id'=>$historyId]),'assistantHistoryDelete')->status===200&&rejected(fn()=>$controller->run($historyRequest('GET',['project_id'=>$p,'id'=>$historyId]),'assistantHistory'),404),'owner can delete saved investigation');
+ // Use actual repository writes, cap per owner/project, and cleanup expiration.
+ for($i=0;$i<31;$i++)$expired=$historyRepo->save($user,$p,'Bounded history '.$i,$report);
+ check(count($historyRepo->list($user,$p))===30,'history is capped to 30 entries');
+ $pdo->prepare("UPDATE ai_investigation_history SET created_at=clock_timestamp()-interval '31 days' WHERE id=:id")->execute(['id'=>$expired]);
+ check(count($historyRepo->list($user,$p))===29&&(new \Cajeer\Logs\Lifecycle\Maintenance($pdo))->authCleanup()['ai_history']>=1,'expired history hidden and physically purged');
+ $cfg->set('ai.enabled',false);check(rejected(fn()=>$controller->run($request($p),'assistantChat'),403)&&$calls===3,'disabled provider cannot be called');
+ $cfg->set('ai.enabled',true);$pdo->prepare('DELETE FROM project_members WHERE project_id=:p AND user_id=:u')->execute(['p'=>$p,'u'=>$user]);check(rejected(fn()=>$controller->run($request($p),'assistantChat'),403)&&$calls===3,'revoked project access enforced');
+ check(rejected(fn()=>$controller->run($historyRequest('GET',['project_id'=>$p]),'assistantHistory'),403),'revoked project access denies saved history');
  echo "$n Assistant PostgreSQL checks passed\n";
 } finally {unset($controller,$app,$pdo,$repo,$tx);$base->exec('DROP SCHEMA "'.$schema.'" CASCADE');}

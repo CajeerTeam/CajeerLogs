@@ -25,7 +25,7 @@ final class Investigation
     {
         return array_intersect_key($query->filters,array_flip(['project_id','source_id','from','to']));
     }
-    private static function projection(bool $messages): string
+    public static function projection(bool $messages): string
     {
         $columns="id,level,trace_id,request_id,to_char(occurred_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') AS timestamp";
         if ($messages) {

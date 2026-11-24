@@ -15,12 +15,12 @@ import release
 
 class GateTest(unittest.TestCase):
     def setUp(self):
-        self.info={'version':'1.0.7','archive_sha256':'a'*64}
+        self.info={'version':'1.0.8','archive_sha256':'a'*64}
         proofs={name.removeprefix('upgrade-'):{'format':1,'scope':'upgrade-rollback','status':'passed',
-                'from_version':name.removeprefix('upgrade-'),'to_version':'1.0.7','archive_sha256':'a'*64,
+                'from_version':name.removeprefix('upgrade-'),'to_version':'1.0.8','archive_sha256':'a'*64,
                 'backup_sha256':'b'*64,'pending_migrations':[], 'checks':list(certify.UPGRADE_CHECKS)}
                 for name in certify.STAGES if name.startswith('upgrade-')}
-        self.reports=[dict(self.info, upgrade_rollback=copy.deepcopy(proofs), format=1, scope='database-core', status='passed', php_series=php, postgres_major=pg, php=php+'.1',postgres=pg+'.1',stages=[{'name':name,'status':'passed','exit_code':0} for name in certify.STAGES], disaster_recovery={'format':1,'scope':'disaster-recovery','status':'passed','version':'1.0.7','archive_sha256':'a'*64,'backup_sha256':'b'*64,'source_version':'1.0.7','fault_domain_separation_proven':False,'snapshot_rows':33,'restored_rows':33,'snapshot_checksum':'e'*32,'restored_checksum':'e'*32,'rpo_upper_bound_seconds':1,'recovery_readiness_seconds':2.1,'postgres_major':pg,'checks':list(certify.DR_CHECKS)}, migration_scale={'version':'1.0.7','archive_sha256':'a'*64,'status':'passed','test_rows':100000,'backfill_checksum':'5000050000','checks':24,'postgresql_version':pg+'.1','independent_replay':{'status':'verified','schema':'cl_cert_test','migrations':35,'history_sha256':'c'*64,'catalog_sha256':'d'*64,'reference_sha256':'d'*64,'duration_ms':100,'scratch_schema_persisted':False}}) for php,pg in sorted(certify.MATRIX)]
+        self.reports=[dict(self.info, upgrade_rollback=copy.deepcopy(proofs), format=1, scope='database-core', status='passed', php_series=php, postgres_major=pg, php=php+'.1',postgres=pg+'.1',stages=[{'name':name,'status':'passed','exit_code':0} for name in certify.STAGES], disaster_recovery={'format':1,'scope':'disaster-recovery','status':'passed','version':'1.0.8','archive_sha256':'a'*64,'backup_sha256':'b'*64,'source_version':'1.0.8','fault_domain_separation_proven':False,'snapshot_rows':33,'restored_rows':33,'snapshot_checksum':'e'*32,'restored_checksum':'e'*32,'rpo_upper_bound_seconds':1,'recovery_readiness_seconds':2.1,'postgres_major':pg,'checks':list(certify.DR_CHECKS)}, migration_scale={'version':'1.0.8','archive_sha256':'a'*64,'status':'passed','test_rows':100000,'backfill_checksum':'5000050000','checks':24,'postgresql_version':pg+'.1','independent_replay':{'status':'verified','schema':'cl_cert_test','migrations':36,'history_sha256':'c'*64,'catalog_sha256':'d'*64,'reference_sha256':'d'*64,'duration_ms':100,'scratch_schema_persisted':False}}) for php,pg in sorted(certify.MATRIX)]
 
     def test_supply_chain_blocks_unlocked_or_mismatched_builds(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -28,9 +28,9 @@ class GateTest(unittest.TestCase):
             release.build(ROOT,path)
             _, _, evidence=__import__('supply_chain').sidecars(path)
             correct={'format':1,'scope':'reproducible-build','status':'passed',
-                     'version':'1.0.7','archive_sha256':evidence['archive_sha256'],
+                     'version':'1.0.8','archive_sha256':evidence['archive_sha256'],
                      'independent_builds':[{'index':i,'sha256':evidence['archive_sha256']} for i in (1,2)]}
-            info={'version':'1.0.7','archive_sha256':evidence['archive_sha256']}
+            info={'version':'1.0.8','archive_sha256':evidence['archive_sha256']}
             # The committed locks are now genuine. Create a separate unlocked
             # distribution so the fail-closed check remains meaningful both
             # before and after real dependency locks are checked in.
@@ -52,7 +52,7 @@ class GateTest(unittest.TestCase):
                  independent_builds=[{'index':i,'sha256':unlocked_sha} for i in (1,2)])
             with self.assertRaisesRegex(ValueError,'Unresolved dependency'):
                 certify.validate_supply_chain_evidence(unlocked_path,unlocked_report,unlocked_reproduction,
-                    {'version':'1.0.7','archive_sha256':unlocked_sha})
+                    {'version':'1.0.8','archive_sha256':unlocked_sha})
             mismatched=dict(evidence,dependency_lock_complete=not evidence['dependency_lock_complete'])
             with self.assertRaisesRegex(ValueError,'differs'):
                 certify.validate_supply_chain_evidence(path,mismatched,correct,info)
@@ -219,7 +219,7 @@ class GateTest(unittest.TestCase):
                            'fault_injection':{'pre503':1,'pre429':1,'lost_ack':1,'delay':1,'upstream_success':1}})
         return dict(self.info,format=1,scope='load-performance',status='passed',certified=True,
                     certification_requested=True,readiness_confirmed=True,
-                    operations_acceptance={'version':'1.0.7','archive_sha256':'a'*64,
+                    operations_acceptance={'version':'1.0.8','archive_sha256':'a'*64,
                         'checks':{key:True for key in ('production_security_audit','healthy_triage',
                             'private_incident_evidence','worker_outage_triaged',
                             'prometheus_worker_alert','postgres_outage_alert',

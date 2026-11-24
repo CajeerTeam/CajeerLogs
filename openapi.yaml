@@ -2,7 +2,7 @@
   "openapi": "3.1.1",
   "info": {
     "title": "CajeerLogs API",
-    "version": "1.0.7",
+    "version": "1.0.8",
     "description": "Identity & Access, synchronous and durable asynchronous PostgreSQL ingestion, job status, project-scoped search, statistics, bounded page export, and durable background JSON/CSV exports. Outgoing webhooks support scoped subscription management, event selection, delivery history, replay, test delivery and audit through the Admin Panel/API or CLI. TOTP enrollment, recovery codes and administrator enrollment policy. Token rotation, scoped service accounts, credential request quotas and bulk revocation. Mandatory project/token HMAC and separately encrypted rotating signing keys. Session lifecycle, account profile and recovery-code regeneration. Private saved log views with canonical search filters and table layout. Administrator user directory, effective project access, scoped access audit and reauthenticated 2FA reset. Token detail, service account statistics, filtered security audit and explicit HMAC overlap retirement. Append-only audit chain with result/actor/time filters and bounded NDJSON export. Error analytics supplies scoped fingerprint grouping, comparison trends and JSON/CSV reports over bounded time windows. Advanced Search supports bounded facet counts and project/source-scoped trace/request correlation from an event UUID."
   },
   "servers": [
@@ -15591,6 +15591,16 @@
                       }
                     },
                     "additionalProperties": false
+                  },
+                  "incident": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Group up to 200 sampled errors; mutually exclusive with investigation."
+                  },
+                  "save_history": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Explicitly save a completed investigation or incident report to private history."
                   }
                 },
                 "required": [
@@ -15720,6 +15730,105 @@
                         "ordering"
                       ],
                       "additionalProperties": false
+                    },
+                    "incidents": {
+                      "type": "object",
+                      "properties": {
+                        "sampled_errors": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 200
+                        },
+                        "group_count": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 200
+                        },
+                        "sample_truncated": {
+                          "type": "boolean"
+                        },
+                        "groups_truncated": {
+                          "type": "boolean"
+                        },
+                        "groups": {
+                          "type": "array",
+                          "maxItems": 8,
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "incident": {
+                                "type": "string",
+                                "pattern": "^incident-[1-8]$"
+                              },
+                              "basis": {
+                                "type": "string",
+                                "enum": [
+                                  "pattern",
+                                  "trace",
+                                  "request",
+                                  "event"
+                                ]
+                              },
+                              "sample_count": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 200
+                              },
+                              "first_seen": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "last_seen": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "representative_id": {
+                                "type": "string",
+                                "format": "uuid"
+                              }
+                            },
+                            "required": [
+                              "incident",
+                              "basis",
+                              "sample_count",
+                              "first_seen",
+                              "last_seen",
+                              "representative_id"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "sampled_errors",
+                        "group_count",
+                        "sample_truncated",
+                        "groups_truncated",
+                        "groups"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "history_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "window": {
+                      "type": "object",
+                      "properties": {
+                        "from": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "to": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "from",
+                        "to"
+                      ],
+                      "additionalProperties": false
                     }
                   },
                   "required": [
@@ -15729,6 +15838,448 @@
                     "evidence",
                     "truncated",
                     "messages_included"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMedia"
+          },
+          "422": {
+            "$ref": "#/components/responses/InvalidPayload"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "413": {
+            "$ref": "#/components/responses/TooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/assistant/history": {
+      "get": {
+        "operationId": "assistantHistory",
+        "summary": "List or read own saved project investigations",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Omit for the owner-scoped history list."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Private history list or single investigation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "maxItems": 30,
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "format": "uuid"
+                              },
+                              "created_at": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "question": {
+                                "type": "string",
+                                "maxLength": 160
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "created_at",
+                              "question"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "items"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "created_at": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "question": {
+                          "type": "string",
+                          "maxLength": 8000
+                        },
+                        "result": {
+                          "type": "object",
+                          "properties": {
+                            "answer": {
+                              "type": "string"
+                            },
+                            "usage": {
+                              "type": "object",
+                              "properties": {
+                                "input_tokens": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "output_tokens": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "total_tokens": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            "model": {
+                              "type": "string"
+                            },
+                            "evidence": {
+                              "type": "array",
+                              "maxItems": 20,
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                  },
+                                  "timestamp": {
+                                    "type": "string"
+                                  },
+                                  "level": {
+                                    "type": "string"
+                                  },
+                                  "seed": {
+                                    "type": "boolean"
+                                  },
+                                  "trace": {
+                                    "type": "string"
+                                  },
+                                  "request": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "timestamp",
+                                  "level"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "truncated": {
+                              "type": "boolean"
+                            },
+                            "messages_included": {
+                              "type": "boolean"
+                            },
+                            "investigation": {
+                              "type": "object",
+                              "properties": {
+                                "seed_count": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 20
+                                },
+                                "related_count": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 20
+                                },
+                                "error_count": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 20
+                                },
+                                "stack_count": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 20
+                                },
+                                "text_omitted_count": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 20
+                                },
+                                "correlation": {
+                                  "const": "one-hop"
+                                },
+                                "ordering": {
+                                  "const": "timestamp_asc"
+                                }
+                              },
+                              "required": [
+                                "seed_count",
+                                "related_count",
+                                "error_count",
+                                "stack_count",
+                                "text_omitted_count",
+                                "correlation",
+                                "ordering"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "incidents": {
+                              "type": "object",
+                              "properties": {
+                                "sampled_errors": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 200
+                                },
+                                "group_count": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 200
+                                },
+                                "sample_truncated": {
+                                  "type": "boolean"
+                                },
+                                "groups_truncated": {
+                                  "type": "boolean"
+                                },
+                                "groups": {
+                                  "type": "array",
+                                  "maxItems": 8,
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "incident": {
+                                        "type": "string",
+                                        "pattern": "^incident-[1-8]$"
+                                      },
+                                      "basis": {
+                                        "type": "string",
+                                        "enum": [
+                                          "pattern",
+                                          "trace",
+                                          "request",
+                                          "event"
+                                        ]
+                                      },
+                                      "sample_count": {
+                                        "type": "integer",
+                                        "minimum": 1,
+                                        "maximum": 200
+                                      },
+                                      "first_seen": {
+                                        "type": "string",
+                                        "format": "date-time"
+                                      },
+                                      "last_seen": {
+                                        "type": "string",
+                                        "format": "date-time"
+                                      },
+                                      "representative_id": {
+                                        "type": "string",
+                                        "format": "uuid"
+                                      }
+                                    },
+                                    "required": [
+                                      "incident",
+                                      "basis",
+                                      "sample_count",
+                                      "first_seen",
+                                      "last_seen",
+                                      "representative_id"
+                                    ],
+                                    "additionalProperties": false
+                                  }
+                                }
+                              },
+                              "required": [
+                                "sampled_errors",
+                                "group_count",
+                                "sample_truncated",
+                                "groups_truncated",
+                                "groups"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "window": {
+                              "type": "object",
+                              "properties": {
+                                "from": {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                "to": {
+                                  "type": "string",
+                                  "format": "date-time"
+                                }
+                              },
+                              "required": [
+                                "from",
+                                "to"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": [
+                            "answer",
+                            "usage",
+                            "model",
+                            "evidence",
+                            "truncated",
+                            "messages_included"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "created_at",
+                        "question",
+                        "result"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMedia"
+          },
+          "422": {
+            "$ref": "#/components/responses/InvalidPayload"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "413": {
+            "$ref": "#/components/responses/TooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "assistantHistoryDelete",
+        "summary": "Delete own saved project investigation",
+        "security": [
+          {
+            "session": [],
+            "csrf": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Omit for the owner-scoped history list."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "deleted": {
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "deleted"
                   ],
                   "additionalProperties": false
                 }
