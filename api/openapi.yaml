@@ -2,7 +2,7 @@
   "openapi": "3.1.1",
   "info": {
     "title": "CajeerLogs API",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "description": "Identity & Access, synchronous and durable asynchronous PostgreSQL ingestion, job status, project-scoped search, statistics, bounded page export, and durable background JSON/CSV exports. Outgoing webhooks support scoped subscription management, event selection, delivery history, replay, test delivery and audit through the Admin Panel/API or CLI. TOTP enrollment, recovery codes and administrator enrollment policy. Token rotation, scoped service accounts, credential request quotas and bulk revocation. Mandatory project/token HMAC and separately encrypted rotating signing keys. Session lifecycle, account profile and recovery-code regeneration. Private saved log views with canonical search filters and table layout. Administrator user directory, effective project access, scoped access audit and reauthenticated 2FA reset. Token detail, service account statistics, filtered security audit and explicit HMAC overlap retirement. Append-only audit chain with result/actor/time filters and bounded NDJSON export. Error analytics supplies scoped fingerprint grouping, comparison trends and JSON/CSV reports over bounded time windows. Advanced Search supports bounded facet counts and project/source-scoped trace/request correlation from an event UUID."
   },
   "servers": [
@@ -14752,6 +14752,201 @@
           },
           "422": {
             "description": "Invalid release version"
+          }
+        }
+      }
+    },
+    "/auth/skif4er/status": {
+      "get": {
+        "operationId": "status",
+        "summary": "External login availability",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Availability",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "enabled"
+                  ],
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/skif4er/start": {
+      "get": {
+        "operationId": "start",
+        "summary": "Start SkiF4er ID browser authorization",
+        "security": [],
+        "responses": {
+          "303": {
+            "description": "Authorization redirect"
+          },
+          "403": {
+            "description": "HTTPS or origin required"
+          },
+          "404": {
+            "description": "Disabled"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Unavailable"
+          }
+        }
+      }
+    },
+    "/auth/skif4er/callback": {
+      "get": {
+        "operationId": "callback",
+        "summary": "Consume SkiF4er ID authorization callback",
+        "security": [],
+        "responses": {
+          "303": {
+            "description": "Redirect to local login completion"
+          },
+          "403": {
+            "description": "HTTPS required"
+          },
+          "404": {
+            "description": "Disabled"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "state",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "error",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "iss",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/auth/skif4er/finish": {
+      "post": {
+        "operationId": "finish",
+        "summary": "Complete external login and local TOTP when enabled",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "user": {
+                      "$ref": "#/components/schemas/User"
+                    },
+                    "csrf_token": {
+                      "type": "string"
+                    },
+                    "expires_in": {
+                      "type": "integer"
+                    },
+                    "enrollment_required": {
+                      "type": "boolean"
+                    },
+                    "security": {
+                      "$ref": "#/components/schemas/IdentitySecurityState"
+                    }
+                  },
+                  "required": [
+                    "user",
+                    "csrf_token"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or expired login / second factor required"
+          },
+          "403": {
+            "description": "Origin or HTTPS required"
+          },
+          "404": {
+            "description": "Disabled"
+          },
+          "415": {
+            "description": "JSON required"
+          },
+          "422": {
+            "description": "Invalid OTP"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "otp": {
+                    "type": "string",
+                    "maxLength": 32
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
           }
         }
       }

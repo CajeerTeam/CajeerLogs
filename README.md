@@ -1,3 +1,7 @@
+## CajeerLogs 1.0.4 — SkiF4er ID Authentication
+
+Optional additional login via SkiF4er ID. Configure a confidential OIDC client, provision its verified subject against an existing local user and enable the login button. Local RBAC, local TOTP and password sign-in remain authoritative. See [SkiF4er ID Authentication](docs/SkiF4er-ID-Authentication-1.0.4.md). The provider's public SDK page was unavailable during implementation; live interoperability must be checked with registered client credentials.
+
 ## CajeerLogs 1.0.3 — Safe Update Installation
 
 Native Linux/systemd deployments now support `php bin/cajeer update:install VERSION --target-db EMPTY_DB --unit UNIT ... --confirm`. The installer re-verifies the signed ZIP, prepares locked dependencies, persistently stops all declared services and timers, verifies a PostgreSQL backup, restores an isolated exact database clone, runs the signed release's migrations and readiness checks, and switches release directories atomically. Before the durable commit, failures restore the previous application and database; after activation, recovery resumes the new database rather than discarding accepted writes. `update:status` and `update:recover --confirm` expose the durable maintenance journal. See [Safe Update Installation](docs/Safe-Update-Installation-1.0.3.md) for requirements and recovery.

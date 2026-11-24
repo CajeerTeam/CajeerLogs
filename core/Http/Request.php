@@ -92,6 +92,9 @@ final class Request
         if ($ingestPrefix!==null && in_array($_SERVER['REQUEST_METHOD']??'', ['GET','HEAD'],true) && preg_match('~^'.preg_quote($ingestPrefix,'~').'/logs(?:/[^/]+)?$~D',$path)) {
             $query=self::searchQuery(explode('?', $uri, 2)[1]??'');
         }
+        if ($ingestPrefix!==null && $path===$ingestPrefix.'/auth/skif4er/callback') {
+            $query=self::searchQuery(explode('?', $uri, 2)[1]??'');
+        }
         return new self((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'), $path, $headers, $query, $body, $peer, $secure);
     }
 

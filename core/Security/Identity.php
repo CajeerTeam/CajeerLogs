@@ -107,12 +107,12 @@ final class Identity
         if ($p['kind']!=='session') self::forbidden();
         if (!$this->sql("SELECT 1 FROM auth_sessions WHERE token_hash=:hash AND reauthenticated_at>clock_timestamp()-interval '".$this->policy->fresh." seconds'",['hash'=>$p['hash']])->fetchColumn()) throw new HttpException(403,'reauthentication_required','Confirm your identity in account settings and retry the operation.');
     }
-    public function issueSession(array $user, ?Request $request = null): array
+    public function issueSession(array $user, ?Request $request = null, bool $fresh = true): array
     {
         if (!$this->pdo->inTransaction()) { throw new \LogicException('Session creation requires transaction.'); }
         $secret=bin2hex(random_bytes(32)); $csrf=(new CsrfProtection())->token();
-        $this->sql("INSERT INTO auth_sessions(token_hash,user_id,csrf_token,expires_at,user_agent,remote_address,reauthenticated_at) VALUES (:hash,:id,:csrf,now()+CAST(:ttl AS integer)*interval '1 second',:agent,:address,now())",['hash'=>hash('sha256',$secret),'id'=>$user['id'],'csrf'=>$csrf,'ttl'=>$this->ttl,'agent'=>self::sessionAgent($request),'address'=>$request !== null && filter_var($request->remoteAddress,FILTER_VALIDATE_IP) ? $request->remoteAddress : null]);
-        return ['user'=>self::publicUser($user)+['permissions'=>$this->effectivePermissions(['kind'=>'session','id'=>$user['id']])],'csrf_token'=>$csrf,'cookie'=>$this->cookie($secret),'expires_in'=>$this->ttl,'enrollment_required'=>$this->enrollmentRequired($user),'security'=>$this->securityState($user,$this->policy->fresh>0?gmdate('Y-m-d\TH:i:s\Z',time()+$this->policy->fresh):null)];
+        $this->sql("INSERT INTO auth_sessions(token_hash,user_id,csrf_token,expires_at,user_agent,remote_address,reauthenticated_at) VALUES (:hash,:id,:csrf,now()+CAST(:ttl AS integer)*interval '1 second',:agent,:address,CASE WHEN CAST(:fresh AS boolean) THEN now() ELSE NULL END)",['hash'=>hash('sha256',$secret),'id'=>$user['id'],'csrf'=>$csrf,'ttl'=>$this->ttl,'agent'=>self::sessionAgent($request),'fresh'=>$fresh?'true':'false','address'=>$request !== null && filter_var($request->remoteAddress,FILTER_VALIDATE_IP) ? $request->remoteAddress : null]);
+        return ['user'=>self::publicUser($user)+['permissions'=>$this->effectivePermissions(['kind'=>'session','id'=>$user['id']])],'csrf_token'=>$csrf,'cookie'=>$this->cookie($secret),'expires_in'=>$this->ttl,'enrollment_required'=>$this->enrollmentRequired($user),'security'=>$this->securityState($user,$fresh&&$this->policy->fresh>0?gmdate('Y-m-d\TH:i:s\Z',time()+$this->policy->fresh):null)];
     }
     private static function sessionAgent(?Request $request): ?string
     {

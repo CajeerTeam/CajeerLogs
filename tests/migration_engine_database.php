@@ -13,7 +13,7 @@ function connection(Application $app,string $schema):PDO{$cfg=clone $app->config
 try{
     foreach([$schema,$legacy] as $s)$base->exec('CREATE SCHEMA "'.$s.'"');
     $historical=glob($root.'/migrations/pgsql/*.sql');sort($historical,SORT_STRING);
-    $migrationCount=count($historical);check($migrationCount===33,'complete checked-in PostgreSQL migration manifest');
+    $migrationCount=count($historical);check($migrationCount===34,'complete checked-in PostgreSQL migration manifest');
     foreach($historical as $f)copy($f,$tmp.'/'.basename($f));
     $pdo=connection($app,$schema);$runner=new MigrationRunner($pdo,$tmp,$schema);
     $plan=$runner->plan();check(count($plan['plan'])===$migrationCount&&$plan['integrity']==='uninitialized'&&PostgresBoolean::required($pdo->query("SELECT to_regclass('schema_migrations') IS NULL")->fetchColumn()),'fresh plan is read-only');

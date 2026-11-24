@@ -295,7 +295,9 @@ REQUIRED.update({'core/Update/VerifiedReleaseDownloader.php','tests/update_downl
 
 REQUIRED.update({'scripts/safe_update.py','scripts/update_database.php','tests/safe_update.py',
                  'tests/update_install_database.php','docs/Safe-Update-Installation-1.0.3.md',
-                 'docs/Production-Stable-GA-1.0.3.md'})
+                 'docs/Production-Stable-GA-1.0.3.md','docs/Production-Stable-GA-1.0.4.md',
+                 'docs/SkiF4er-ID-Authentication-1.0.4.md','core/Security/Skif4erOidc.php','core/Api/Controller/Skif4erController.php',
+                 'config/skif4er.php','migrations/pgsql/0034_skif4er_auth.sql','tests/skif4er_auth.php','tests/skif4er_auth_database.php'})
 
 REQUIRED.update({'scripts/integration_stability.py', 'tests/integration_stability.py',
                  'docs/Integration-Test-Stabilization-0.8.1.md'})

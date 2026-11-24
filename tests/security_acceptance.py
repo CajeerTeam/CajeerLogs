@@ -16,7 +16,7 @@ import security_acceptance as security
 class SecurityAcceptanceTest(unittest.TestCase):
     def evidence(self):
         return {'format': 1, 'scope': 'security-acceptance', 'status': 'passed',
-                'version': '1.0.3', 'archive_sha256': 'a' * 64,
+                'version': '1.0.4', 'archive_sha256': 'a' * 64,
                 'stages': [{'name': name, 'status': 'passed', 'exit_code': 0,
                             'seconds': .01, 'assertions': minimum,
                             'log_sha256': 'b'*64}
@@ -31,11 +31,11 @@ class SecurityAcceptanceTest(unittest.TestCase):
             self.assertTrue(security.run(archive, path), path.read_text())
             report = json.loads(path.read_text())
             self.assertEqual(report['status'], 'passed')
-            info = {'version': '1.0.3', 'archive_sha256': report['archive_sha256']}
+            info = {'version': '1.0.4', 'archive_sha256': report['archive_sha256']}
             certify.validate_security(report, info)
 
     def test_reject_tampering_and_omitted_executions(self):
-        info = {'version': '1.0.3', 'archive_sha256': 'a'*64}
+        info = {'version': '1.0.4', 'archive_sha256': 'a'*64}
         certify.validate_security(self.evidence(), info)
         for kind in ('missing_stage','duplicate','skip','nonzero','too_few','wrong_hash',
                      'wrong_version','wrong_scope','wrong_log_hash','no_time','nan_time'):

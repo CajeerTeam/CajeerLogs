@@ -1,3 +1,10 @@
+## 1.0.4 — SkiF4er ID Authentication (2026-11-24)
+
+- Optional SkiF4er ID external sign-in through the pinned Keycloak OIDC issuer, verified discovery, authorization code with PKCE S256 and RSA-signed ID tokens.
+- Explicit operator provisioning of stable external subjects; no automatic email linking or external role grants. Browser-bound single-use flows, local TOTP/recovery enforcement, normal local sessions and audit.
+- Add migration 0034; preserve previous migrations, backup compatibility and local password login. External login does not grant fresh local password confirmation.
+- Requires registered confidential web client and live provider acceptance before deployment; SDK documentation was not accessible during implementation.
+
 ## 1.0.3 — Safe Update Installation (2026-11-24)
 
 - Install a verified newer stable release through an operator-only native Linux/systemd CLI, rechecking live GitHub/Sigstore provenance before executing any candidate code.

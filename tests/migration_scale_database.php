@@ -38,7 +38,7 @@ try {
         if (!copy($file,$directory.'/'.basename($file))) throw new RuntimeException('Cannot copy migration fixture.');
     }
     $count=count($migrationPaths);
-    verifyMigration($count===33,'complete 0001-0033 PostgreSQL migration history');
+    verifyMigration($count===34,'complete 0001-0034 PostgreSQL migration history');
     $pdo=certPdo($app,$schema);
     $runner=new MigrationRunner($pdo,$directory,$schema);
     $begin=microtime(true);
@@ -49,9 +49,9 @@ try {
     verifyMigration($status['integrity']==='verified' && count($status['applied'])===$count && $status['pending']===[],'catalog snapshot and journal match');
 
     // Bind the mandatory database-matrix evidence to a real reference catalog
-    // reconstructed from *all 33* shipped SQL files, not the stored snapshot.
+    // reconstructed from *all 34* shipped SQL files, not the stored snapshot.
     $independentReplay=$runner->certify();
-    verifyMigration($independentReplay['status']==='verified' && $independentReplay['migrations']===33
+    verifyMigration($independentReplay['status']==='verified' && $independentReplay['migrations']===34
         && hash_equals($independentReplay['catalog_sha256'],$independentReplay['reference_sha256'])
         && $independentReplay['scratch_schema_persisted']===false,
         'all shipped PostgreSQL migrations independently replayed and rolled back');
@@ -121,7 +121,7 @@ try {
     verifyMigration($runner->status()['integrity']==='verified','restored pending SQL is checked against journal');
 
     $timings['total_ms']=round((microtime(true)-$started)*1000,2);
-    $report=['version'=>'1.0.3','archive_sha256'=>getenv('CAJEER_MIGRATION_CERT_ARCHIVE_SHA256')?:null,'status'=>'passed','postgresql_version'=>$pdo->query('SHOW server_version')->fetchColumn(),
+    $report=['version'=>'1.0.4','archive_sha256'=>getenv('CAJEER_MIGRATION_CERT_ARCHIVE_SHA256')?:null,'status'=>'passed','postgresql_version'=>$pdo->query('SHOW server_version')->fetchColumn(),
         'checks'=>$checks,'test_rows'=>$rows,'backfill_checksum'=>(string)$totals['checksum'],'independent_replay'=>$independentReplay,'timings'=>$timings];
     if (($output=getenv('CAJEER_MIGRATION_CERT_REPORT'))!==false && $output!=='') {
         if (!is_dir(dirname($output)) || file_put_contents($output,json_encode($report,JSON_PRETTY_PRINT|JSON_THROW_ON_ERROR)."\n",LOCK_EX)===false) throw new RuntimeException('Cannot persist migration certificate.');

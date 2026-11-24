@@ -29,6 +29,7 @@ final class OperationsCommand
             'backup:list'=>$n===0?$backup->list():throw new DatabaseException('Usage: backup:list'),
             'backup:verify'=>$n===1?$backup->verify($args[0]):throw new DatabaseException('Usage: backup:verify BACKUP_ID'),
             'backup:restore'=>$n===2?$ops->record('manual_restore',fn()=>$backup->restore($args[0],$args[1])):throw new DatabaseException('Usage: backup:restore BACKUP_ID EMPTY_TARGET_DATABASE'),
+            'auth:skif4er-bind'=>$n===3 && $args[2]==='--confirm'?$this->bindSkif4er($args[0],$args[1]):throw new DatabaseException('Usage: auth:skif4er-bind EMAIL SUBJECT --confirm'),
             'auth:2fa-reset'=>$n===2 && $args[1]==='--confirm'?$this->reset($args[0]):throw new DatabaseException('Usage: auth:2fa-reset EMAIL --confirm'),
             'update:check'=>$n===0||$n===1 && $args[0]==='--refresh'?$this->githubUpdate($args===['--refresh']):($n===1?$this->update($args[0]):throw new DatabaseException('Usage: update:check [--refresh|TRUSTED_RELEASE_JSON]')),
             'update:download'=>$n===0||$args===['--refresh']?$this->downloadUpdate($args===['--refresh']):throw new DatabaseException('Usage: update:download [--refresh]'),
@@ -47,6 +48,20 @@ final class OperationsCommand
         $guard=$this->app->container()->get(\Cajeer\Logs\Database\MigrationRunner::class)->guard();
         try { return (new \Cajeer\Logs\Audit\AuditLogger($this->app->container()->get(\PDO::class)))->verify(isset($args[0])?(int)$args[0]:null,$args[1]??null); }
         finally { $guard->release(); }
+    }
+    private function bindSkif4er(string $email,string $subject): array
+    {
+        if (!\Cajeer\Logs\Security\Skif4erOidc::validSubject($subject)) throw new DatabaseException('Invalid external subject.');
+        $pdo=$this->app->container()->get(\PDO::class);
+        return (new TransactionManager($pdo))->run(function() use($pdo,$email,$subject) {
+            $identity=new \Cajeer\Logs\Security\Identity($pdo,true,''); $identity->lock();
+            $user=(new \Cajeer\Logs\Database\Repository\UserRepository($pdo))->findByEmail($email);
+            if (!$user||$user['blocked_at']!==null) throw new DatabaseException('Active local user required.');
+            $identity->sql('INSERT INTO skif4er_identities(subject,user_id) VALUES (:subject,:id) ON CONFLICT DO NOTHING',['subject'=>$subject,'id'=>$user['id']]);
+            if ($identity->sql('SELECT user_id FROM skif4er_identities WHERE subject=:subject',['subject'=>$subject])->fetchColumn()!==$user['id']) throw new DatabaseException('Identity or account already bound.');
+            (new \Cajeer\Logs\Audit\AuditLogger($pdo))->record('auth.skif4er_bound_cli',[],null,$user['id']);
+            return ['user_id'=>$user['id'],'bound'=>true];
+        },maxAttempts:3);
     }
     private function reset(string $email): array
     {

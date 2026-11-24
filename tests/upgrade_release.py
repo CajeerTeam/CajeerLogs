@@ -70,6 +70,7 @@ def main(previous):
     # Later 0.9.x versions did not add database migrations.
     if old_version in ('0.9.3','0.9.4','0.9.5','0.9.6','0.9.7','0.9.8','0.9.9'):
         expected=set()
+    expected.add("0034_skif4er_auth.sql")
     assert all(new_migrations.get(k)==v for k,v in old_migrations.items()) and set(new_migrations)-set(old_migrations)==expected,'previous migration history changed'
     schema='cl_upgrade_'+secrets.token_hex(8)
     with tempfile.TemporaryDirectory() as tmp:
@@ -177,7 +178,7 @@ def main(previous):
                 raise RuntimeError('Upgrade tested a different release version')
             shutil.copytree(extracted,tree,dirs_exist_ok=True)
             assert (tree/'.env').read_bytes()==before
-            assert cli('version').strip()=='1.0.3'
+            assert cli('version').strip()=='1.0.4'
             if old_version in ('0.4.6','0.4.7','0.4.8','0.4.9','0.4.10','0.5.0','0.5.1','0.5.2','0.5.3','0.5.4','0.5.5','0.5.6','0.5.7','0.5.8','0.5.9','0.5.10','0.6.0','0.6.1','0.6.2','0.6.3','0.6.4','0.6.5','0.6.6','0.6.7','0.6.8','0.6.9','0.7.9','0.8.0','0.8.1','0.8.2','0.8.3','0.8.4','0.8.5','0.8.6','0.8.7','0.8.8','0.8.9','0.9.0','0.9.1','0.9.2','0.9.3'):
                 proof=json.loads(cli('upgrade:check',backup['id'])); assert proof['status']=='ok' and proof['backup_sha256']==backup['sha256'] and proof['pending']==sorted(expected)
                 assert (tree/'.env').read_bytes()==before
@@ -190,7 +191,7 @@ def main(previous):
                 assert upgraded['recorded'] and upgraded['applied']==sorted(expected)
                 again=json.loads(cli('upgrade',backup['id'],'--confirm-stopped'))
                 assert again['status']=='ready' and again['applied']==[] and not again['recorded']
-                assert sql(f"SELECT count(*) FROM \"{schema}\".settings WHERE key='installation.upgrade.1.0.2'")=='1'
+                assert sql(f"SELECT count(*) FROM \"{schema}\".settings WHERE key='installation.upgrade.1.0.4'")=='1'
             else:
                 cli('migrate')
             cli('doctor')
@@ -203,7 +204,7 @@ def main(previous):
             assert project_state['active_jobs']==1 and project_state['active_events']==1 and project_state['weight']==1
             assert json.loads(cli('audit:verify'))['valid']; cli('queue:work','10'); assert json.loads(cli('queue:verify'))['valid']; assert json.loads(cli('queue:capacity'))['active_jobs']==0; assert json.loads(cli('db:verify'))['status']=='ok'
             with server():
-                assert call('GET','/ready')[0]['version']=='1.0.3'
+                assert call('GET','/ready')[0]['version']=='1.0.4'
                 assert call('GET','/api/v1/auth/me',headers=auth)[0]['user']['email']=='upgrade@example.test'
                 assert call('GET',f'/api/v1/logs/{eid}?project_id={pid}',headers=bearer)[0]['data']['message']=='previous release proof'
                 assert call('GET',f'/api/v1/ingest/jobs/{jid}',headers=bearer)[0]['status']=='completed'

@@ -1,8 +1,8 @@
-import { state, resetWorkspace, render, advanceSession } from './store.js?v=1.0.3';
-import { $, h, field, input, clearModal, form } from '../components/ui.js?v=1.0.3';
-import { refreshProject } from './projects.js?v=1.0.3';
-import { navigation } from './shell.js?v=1.0.3';
-import { request, get } from '../api/client.js?v=1.0.3';
+import { state, resetWorkspace, render, advanceSession } from './store.js?v=1.0.4';
+import { $, h, field, input, clearModal, form } from '../components/ui.js?v=1.0.4';
+import { refreshProject } from './projects.js?v=1.0.4';
+import { navigation } from './shell.js?v=1.0.4';
+import { request, get, apiPrefix } from '../api/client.js?v=1.0.4';
 
 const version = document.querySelector('meta[name=cajeer-version]').content;
 let sessionChecking = false;
@@ -52,10 +52,23 @@ function renderLogin(reason = '') {
         },{cls:'stack',after:[back]});
         credentialsForm.replaceWith(h('div',{},h('h2',{},'Подтверждение 2FA'),h('p',{class:'muted'},credentials.email),step)); otp.focus();
     }
-    panel.append(credentialsForm,h('p',{class:'muted small'},'CajeerLogs '+version)); $('main').replaceChildren(panel);
+    const external=h('div',{class:'stack'});
+    panel.append(credentialsForm,external,h('p',{class:'muted small'},'CajeerLogs '+version)); $('main').replaceChildren(panel);
+    void request('/auth/skif4er/status',{login:true}).then(info=>{ if(attempt===loginAttempt && info.enabled) external.append(h('a',{class:'button',href:apiPrefix()+'/auth/skif4er/start'},'Войти через SkiF4er ID')); }).catch(()=>{});
+}
+function externalFinish(mode) {
+    const attempt=++loginAttempt;
+    const panel=h('section',{class:'card login'},h('h1',{},'Вход через SkiF4er ID'));
+    const back=h('button',{type:'button',on:{click:()=>renderLogin()}},'Назад');
+    const showOtp=()=>{ panel.replaceChildren(h('h1',{},'Вход через SkiF4er ID'),form('Подтвердить вход',[field('Код 2FA / recovery',input('otp',{required:true,autocomplete:'one-time-code',maxlength:32,pattern:'([0-9]{6}|[a-fA-F0-9]{32})'}))],async(d,f)=>{const res=await request('/auth/skif4er/finish',{method:'POST',body:{otp:String(d.get('otp')).trim().toLowerCase()},login:true}); if(attempt===loginAttempt){f.reset();await startSession(res);sessionChanged();}},{cls:'stack',after:[back]})); };
+    if(mode==='otp') showOtp();
+    else panel.append(form('Продолжить',[],async()=>{try{const res=await request('/auth/skif4er/finish',{method:'POST',body:{},login:true});if(attempt===loginAttempt){await startSession(res);sessionChanged();}}catch(e){if(e.data?.error==='second_factor_required'&&attempt===loginAttempt){showOtp();return;}throw e;}},{cls:'stack',after:[back]}));
+    $('main').replaceChildren(panel);
 }
 async function startSession(res) { loginAttempt++; advanceSession(); state.user = res.user; state.security = res.security??null; state.enrollmentRequired = Boolean(res.enrollment_required); state.csrf = res.csrf_token; resetWorkspace(); await render({ focus: true }); }
 async function bootstrap() {
+    const url=new URL(location.href), external=url.searchParams.get('skif4er');
+    if(external!==null){url.searchParams.delete('skif4er');history.replaceState(null,'',url.pathname+url.search+url.hash);if(external==='otp'||external==='continue'){externalFinish(external);return;} if(external==='failed'){renderLogin('Вход через SkiF4er ID не выполнен. Проверьте привязку аккаунта или используйте пароль.');return;}}
     const epoch = state.authEpoch;
     try {
         const result = await get('/auth/me');

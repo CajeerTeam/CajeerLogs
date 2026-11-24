@@ -19,7 +19,7 @@ final class IngestMetrics
         if (!str_starts_with($path,$prefix.'/')) return null;
         $route=substr($path,strlen($prefix));
         if (!preg_match('~^/(auth|users|roles|projects|system)(/|$)~D',$route)) return null;
-        return $route==='/auth/login'?'login':(in_array($method,['GET','HEAD'],true)?'read':'write');
+        return ($route==='/auth/login'||in_array($route,['/auth/skif4er/start','/auth/skif4er/callback','/auth/skif4er/finish'],true))?'login':(in_array($method,['GET','HEAD'],true)?'read':'write');
     }
     public static function searchMode(string $method,string $path,string $prefix): ?string
     {

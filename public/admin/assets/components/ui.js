@@ -1,5 +1,5 @@
-import { roles, levels } from '../app/store.js?v=1.0.3';
-import { successfulMutationCount } from '../api/client.js?v=1.0.3';
+import { roles, levels } from '../app/store.js?v=1.0.4';
+import { successfulMutationCount } from '../api/client.js?v=1.0.4';
 
 const $ = id => document.getElementById(id);
 function h(tag, attrs = {}, ...children) { const n = document.createElement(tag); for (const [k, v] of Object.entries(attrs)) {

@@ -1,17 +1,17 @@
 # Run with --env-file .env.production. See docs/First-Public-Release.md.
 name: cajeerlogs
 x-runtime: &runtime
-  image: cajeerlogs:1.0.3
+  image: cajeerlogs:1.0.4
   build:
     context: .
     dockerfile: deploy/production/Dockerfile
     target: app
     args:
-      CAJEER_RELEASE_VERSION: '1.0.3'
+      CAJEER_RELEASE_VERSION: '1.0.4'
   environment: &runtime-env
     CAJEER_ENV_FILE: /config/.env
     APP_ENV: production
-    CAJEER_RELEASE_VERSION: '1.0.3'
+    CAJEER_RELEASE_VERSION: '1.0.4'
     APP_DEBUG: 'false'
     APP_URL: ${APP_URL:?Set HTTPS APP_URL}
     DB_CONNECTION: pgsql
@@ -82,6 +82,9 @@ x-runtime: &runtime
     SECURITY_REAUTH_SECONDS: ${SECURITY_REAUTH_SECONDS:-300}
     SECURITY_TOTP_ACTIVE_KEY: ${SECURITY_TOTP_ACTIVE_KEY:-}
     SECURITY_TOTP_PREVIOUS_KEY: ${SECURITY_TOTP_PREVIOUS_KEY:-}
+    SKIF4ER_ID_ENABLED: ${SKIF4ER_ID_ENABLED:-false}
+    SKIF4ER_ID_CLIENT_ID: ${SKIF4ER_ID_CLIENT_ID:-}
+    SKIF4ER_ID_CLIENT_SECRET: ${SKIF4ER_ID_CLIENT_SECRET:-}
     SECURITY_SESSION_TTL_SECONDS: ${SECURITY_SESSION_TTL_SECONDS:-28800}
     MONITOR_BACKUP_ENABLED: ${MONITOR_BACKUP_ENABLED:-false}
     PROMETHEUS_TOKEN: ${PROMETHEUS_TOKEN:?Set PROMETHEUS_TOKEN}
@@ -214,7 +217,7 @@ services:
       app:
         condition: service_healthy
   gateway:
-    image: cajeerlogs-gateway:1.0.3
+    image: cajeerlogs-gateway:1.0.4
     build:
       context: .
       dockerfile: deploy/production/Dockerfile

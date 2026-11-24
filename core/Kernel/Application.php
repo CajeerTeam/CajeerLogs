@@ -129,7 +129,7 @@ final class Application
         if (!in_array($config->get('app.env'), ['production', 'local', 'development', 'test'], true)) {
             throw new \RuntimeException('Invalid APP_ENV.');
         }
-        foreach (['app.debug', 'observability.prometheus_enabled', 'ingest.require_hmac', 'security.require_admin_totp'] as $key) {
+        foreach (['app.debug', 'observability.prometheus_enabled', 'ingest.require_hmac', 'security.require_admin_totp','skif4er.enabled'] as $key) {
             if (!is_bool($config->get($key))) { throw new \RuntimeException("Invalid boolean configuration: $key"); }
         }
         if ($config->get('app.env') === 'production' && $config->get('app.debug')) {
@@ -207,6 +207,7 @@ final class Application
         }
         \Cajeer\Logs\Http\AdminPanel::register($router, $this);
         IdentityController::register($router, $this, $config->get('api.prefix'));
+        \Cajeer\Logs\Api\Controller\Skif4erController::register($router,$this,$config->get('api.prefix'));
         IngestController::register($router, $this, $config->get('api.prefix'));
         LogsController::register($router, $this, $config->get('api.prefix'));
         return $router;
