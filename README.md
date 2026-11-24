@@ -104,3 +104,5 @@ php bin/cajeer health:ready
 ---
 
 Проект CajeerTeam. [Репозиторий](https://github.com/CajeerTeam/CajeerLogs) · [Лицензия](LICENSE) · [Уведомления о сторонних компонентах](THIRD_PARTY_NOTICES.md) · [Сообщить об уязвимости](SECURITY.md).
+
+<sub>© 2026 SkiF4er · Cajeer Team · сведения о правообладателях и участниках: [NOTICE](NOTICE).</sub>
