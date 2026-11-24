@@ -86,6 +86,7 @@ SQL);
     {
         if (!in_array($key,[
             'constraint:audit_log.audit_chain_values',
+            'constraint:auth_sessions.auth_sessions_auth_method_check',
             'constraint:integration_webhooks.integration_webhooks_events_valid',
             'constraint:users.users_role_valid',
             'index:log_events_error_analytics_idx',

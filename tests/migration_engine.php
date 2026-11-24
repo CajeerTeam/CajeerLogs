@@ -44,6 +44,25 @@ $invalidRestore['index:log_events_error_analytics_idx']=str_replace('"table":"lo
 check(SchemaInspector::differences($restoreBefore,$invalidRestore)!==[], 'restore equivalence still checks index catalog properties');
 $unlisted=['constraint:unlisted.role'=>$restoreBefore['constraint:users.users_role_valid']];
 check(SchemaInspector::differences($unlisted,['constraint:unlisted.role'=>$restoreAfter['constraint:users.users_role_valid']])!==[], 'unlisted expression changes remain strictly checked');
+// Migration 0035 adds a varchar CHECK whose array cast is rewritten by pg_restore.
+$authKey='constraint:auth_sessions.auth_sessions_auth_method_check';
+$authBefore=['type'=>'c','definition'=>"CHECK (((auth_method)::text = ANY ((ARRAY['password'::character varying, 'skif4er'::character varying])::text[])))",'validated'=>true,'enforced'=>'true','deferrable'=>false,'deferred'=>false];
+$authAfter=$authBefore;
+$authAfter['definition']="CHECK (((auth_method)::text = ANY (ARRAY[('password'::character varying)::text, ('skif4er'::character varying)::text])))";
+$authSnapshot=static fn(array $constraint):array=>[$authKey=>json_encode($constraint,JSON_THROW_ON_ERROR)];
+check(SchemaInspector::differences($authSnapshot($authBefore),$authSnapshot($authAfter))===[],'restore accepts equivalent authentication method array casts');
+check(SchemaInspector::differences($authSnapshot($authAfter),$authSnapshot($authBefore))===[],'authentication method cast equivalence is symmetric');
+foreach ([
+    'changed login method'=>['definition'=>str_replace("'skif4er'","'bypass'",$authAfter['definition'])],
+    'removed login method'=>['definition'=>str_replace(", ('skif4er'::character varying)::text",'',$authAfter['definition'])],
+    'changed column'=>['definition'=>str_replace('auth_method','other_column',$authAfter['definition'])],
+    'changed comparison'=>['definition'=>str_replace('= ANY','<> ANY',$authAfter['definition'])],
+    'unvalidated constraint'=>['validated'=>false],
+    'unenforced constraint'=>['enforced'=>'false'],
+] as $label=>$change) {
+    check(SchemaInspector::differences($authSnapshot($authBefore),$authSnapshot(array_replace($authAfter,$change)))===[['object'=>$authKey,'change'=>'changed']],'authentication method restore rejects '.$label);
+}
+check(SchemaInspector::differences($authSnapshot($authBefore),[])===[['object'=>$authKey,'change'=>'missing']],'authentication method restore rejects missing constraint');
 // A scratch-schema replay must compare equivalent trigger definitions without
 // accepting changed function targets, unrelated namespaces, or column drift.
 $replayMethod=(new ReflectionClass(MigrationRunner::class))->getMethod('normalizeReplayTriggers');

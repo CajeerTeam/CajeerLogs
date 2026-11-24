@@ -280,6 +280,7 @@ def main(previous):
                     approved={
                         'constraint:users.users_role_valid':('definition',('administrator','operator','viewer')),
                         'constraint:audit_log.audit_chain_values':('definition',('success','failure','denied')),
+                        'constraint:auth_sessions.auth_sessions_auth_method_check':('definition',('password','skif4er')),
                         'constraint:integration_webhooks.integration_webhooks_events_valid':('definition',('events',)),
                         'index:log_events_error_analytics_idx':('predicate',('error','alert')),
                     }
