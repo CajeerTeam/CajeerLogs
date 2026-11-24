@@ -42,7 +42,7 @@ final class FileDownloadResponse extends Response
             }
             $this->bytes = $bytes;
             parent::__construct('', 200, [
-                'Content-Type' => $format === 'csv' ? 'text/csv; charset=utf-8' : 'application/json; charset=utf-8',
+                'Content-Type' => $format === 'csv' ? 'text/csv; charset=utf-8' : ($format === 'zip' ? 'application/zip' : 'application/json; charset=utf-8'),
                 'Content-Length' => (string) $bytes,
                 'Content-Disposition' => 'attachment; filename="' . $name . '"',
                 'Cache-Control' => 'private, no-store',

@@ -1,7 +1,7 @@
 # Runtime does not require Composer or Node: PHP core and built SPA are shipped.
 FROM php:8.4-fpm-trixie@sha256:1071b5609d16d60674f78eea8cf9bd7e9e79169ecb566d015c931c5ee789bb13 AS app
-RUN apt-get update && apt-get install -y --no-install-recommends libpq-dev libcurl4-openssl-dev postgresql-client-17 ca-certificates \
-    && for ext in pdo_pgsql curl pcntl posix; do \
+RUN apt-get update && apt-get install -y --no-install-recommends libpq-dev libcurl4-openssl-dev libzip-dev postgresql-client-17 ca-certificates gh \
+    && for ext in pdo_pgsql curl pcntl posix zip; do \
         if ! php -r "exit(extension_loaded('$ext') ? 0 : 1);"; then docker-php-ext-install -j"$(nproc)" "$ext" || exit 1; fi; \
     done \
     && rm -rf /var/lib/apt/lists/*
@@ -14,7 +14,7 @@ COPY public ./public
 COPY admin/index.html ./admin/index.html
 COPY api ./api
 COPY release.json openapi.yaml .env.example ./
-ARG CAJEER_RELEASE_VERSION=1.0.1
+ARG CAJEER_RELEASE_VERSION=1.0.2
 # A retagged old image must fail at build-time, before it can be deployed.
 RUN php -r '$d=json_decode(file_get_contents("release.json"),true,8,JSON_THROW_ON_ERROR); exit(($d["version"]??"")===getenv("CAJEER_RELEASE_VERSION") ? 0 : 1);'
 # PHP-FPM normally omits the FastCGI Status header for HTTP 200.

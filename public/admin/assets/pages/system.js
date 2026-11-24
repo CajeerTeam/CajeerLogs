@@ -1,7 +1,7 @@
-import { admin, render, active } from '../app/store.js?v=1.0.1';
-import { h, button, card, badge, heading, table, copy, message, empty, modal, clearModal, notify } from '../components/ui.js?v=1.0.1';
-import { redactionButton } from './projects.js?v=1.0.1';
-import { request, ready } from '../api/client.js?v=1.0.1';
+import { admin, render, active } from '../app/store.js?v=1.0.2';
+import { h, button, card, badge, heading, table, copy, message, empty, modal, clearModal, notify } from '../components/ui.js?v=1.0.2';
+import { redactionButton } from './projects.js?v=1.0.2';
+import { request, ready } from '../api/client.js?v=1.0.2';
 
 // Each endpoint is independent: a failed report must not hide successful liveness/readiness.
 async function system(signal, epoch) {
@@ -19,7 +19,7 @@ async function system(signal, epoch) {
     const checkUpdates=button('Проверить сейчас',()=>void loadUpdates(true));
     root.append(card(h('h2',{},'Обновления · GitHub Releases'),releaseContent,
         h('div',{class:'actions'},checkUpdates),
-        h('p',{class:'muted small'},'Только проверка версий. Загрузка и установка обновлений здесь не выполняются.')));
+        h('p',{class:'muted small'},'Загрузка подписанных ZIP: php bin/cajeer update:download. Установка обновлений не выполняется.')));
     async function loadUpdates(refresh=false) {
         if(signal.aborted||!active(epoch))return;
         checkUpdates.disabled=true;
@@ -34,6 +34,14 @@ async function system(signal, epoch) {
                 return;
             }
             const release=d.release;
+            let verified=null;
+            if (d.update_available && typeof d.candidate==='string') {
+                try {
+                    const result=await request('/system/updates/verified/'+encodeURIComponent(d.candidate),{signal});
+                    if (result?.status==='verified' && result.version===d.candidate) verified=result;
+                } catch { /* Discovery still works when private archive storage is unavailable. */ }
+            }
+            if(signal.aborted||!active(epoch))return;
             releaseContent.replaceChildren(
                 table(['Параметр','Значение'],[
                     ['Установлено',d.current],['Канал',d.channel==='preview'?'Preview':'Stable'],
@@ -44,6 +52,10 @@ async function system(signal, epoch) {
                 release? h('div',{class:'stack'},
                     h('p',{},d.update_available?'Доступна новая версия '+d.candidate+'.':'Новая версия не требуется.'),
                     h('a',{href:release.url,target:'_blank',rel:'noopener noreferrer',referrerpolicy:'no-referrer'},'Открыть релиз на GitHub'),
+                    verified?h('div',{class:'stack'},
+                        h('p',{},'Проверенный ZIP: '+verified.file+' · SHA-256: '+verified.sha256),
+                        h('a',{href:'/api/v1/system/updates/artifact/'+encodeURIComponent(verified.version)},'Скачать проверенный ZIP')):
+                        h('p',{class:'muted small'},'Для безопасной загрузки запустите на сервере: php bin/cajeer update:download. После проверки ZIP появится здесь.'),
                     h('details',{},h('summary',{},'Changelog · '+release.tag),
                         h('div',{class:'release-changelog'},release.changelog||'Описание изменений не опубликовано.'))
                 ):h('p',{class:'muted'},'Опубликованные релизы для выбранного канала пока не найдены.')

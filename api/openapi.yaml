@@ -2,7 +2,7 @@
   "openapi": "3.1.1",
   "info": {
     "title": "CajeerLogs API",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "description": "Identity & Access, synchronous and durable asynchronous PostgreSQL ingestion, job status, project-scoped search, statistics, bounded page export, and durable background JSON/CSV exports. Outgoing webhooks support scoped subscription management, event selection, delivery history, replay, test delivery and audit through the Admin Panel/API or CLI. TOTP enrollment, recovery codes and administrator enrollment policy. Token rotation, scoped service accounts, credential request quotas and bulk revocation. Mandatory project/token HMAC and separately encrypted rotating signing keys. Session lifecycle, account profile and recovery-code regeneration. Private saved log views with canonical search filters and table layout. Administrator user directory, effective project access, scoped access audit and reauthenticated 2FA reset. Token detail, service account statistics, filtered security audit and explicit HMAC overlap retirement. Append-only audit chain with result/actor/time filters and bounded NDJSON export. Error analytics supplies scoped fingerprint grouping, comparison trends and JSON/CSV reports over bounded time windows. Advanced Search supports bounded facet counts and project/source-scoped trace/request correlation from an event UUID."
   },
   "servers": [
@@ -14631,6 +14631,127 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/system/updates/verified/{version}": {
+      "get": {
+        "operationId": "verifiedUpdate",
+        "summary": "Check whether a published update ZIP is already cryptographically verified",
+        "description": "Authenticated system:read; inspects a previously downloaded private archive and checks its saved SHA-256 without contacting remote hosts or installing code.",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "description": "Exact SemVer of a previously verified published release",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Verified record or not_downloaded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "verified",
+                        "not_downloaded"
+                      ]
+                    },
+                    "version": {
+                      "type": "string"
+                    },
+                    "sha256": {
+                      "type": "string"
+                    },
+                    "provenance": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "system:read permission required"
+          },
+          "422": {
+            "description": "Invalid release version"
+          },
+          "503": {
+            "description": "Private archive storage unavailable"
+          }
+        }
+      }
+    },
+    "/system/updates/artifact/{version}": {
+      "get": {
+        "operationId": "downloadVerifiedUpdate",
+        "summary": "Download a locally verified signed release archive",
+        "description": "Authenticated system:read; streams an already verified ZIP using a checked file descriptor. Does not trigger a download from GitHub, extract files or install updates.",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "description": "Exact SemVer of a previously verified published release",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Previously verified CajeerLogs ZIP",
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "system:read permission required"
+          },
+          "404": {
+            "description": "Verified artifact unavailable"
+          },
+          "422": {
+            "description": "Invalid release version"
           }
         }
       }

@@ -1,9 +1,9 @@
-import { state, active, render, hasPermission } from '../app/store.js?v=1.0.1';
-import { h, button, card, empty, date, heading, needProject, table, field, select, input, form, message, notify } from '../components/ui.js?v=1.0.1';
-import { projectSelector } from '../app/projects.js?v=1.0.1';
-import { navigate } from '../app/routes.js?v=1.0.1';
-import { get, request } from '../api/client.js?v=1.0.1';
-import { explorerFilters, utcInput, errorLevels } from '../app/analytics.js?v=1.0.1';
+import { state, active, render, hasPermission } from '../app/store.js?v=1.0.2';
+import { h, button, card, empty, date, heading, needProject, table, field, select, input, form, message, notify } from '../components/ui.js?v=1.0.2';
+import { projectSelector } from '../app/projects.js?v=1.0.2';
+import { navigate } from '../app/routes.js?v=1.0.2';
+import { get, request } from '../api/client.js?v=1.0.2';
+import { explorerFilters, utcInput, errorLevels } from '../app/analytics.js?v=1.0.2';
 
 const num=n=>Number(n).toLocaleString('ru-RU');
 const configFor=project=>({project,period:'24h',source_id:'',from:'',to:''});

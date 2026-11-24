@@ -1,3 +1,11 @@
+## 1.0.2 — Verified Update Downloads (2026-11-24)
+
+- Fetch the latest eligible published CajeerLogs ZIP and `.zip.sha256` directly from the pinned GitHub Releases repository.
+- Reject unsigned builds: verify GitHub OIDC/Sigstore attestations for the archive digest, repository, tag, source commit, production signer workflow and GitHub-hosted runner before accepting.
+- Compare SHA-256, validate every release manifest entry and reject malformed ZIP entries; enforce PHP/PostgreSQL/API runtime compatibility.
+- Store verified archives atomically in private storage, expose an authenticated administration download link and add CLI re-verification; do not install or execute downloaded code.
+- Preserve the full production GA release checks and synchronization of API, SDK, Docker and browser versions.
+
 ## 1.0.1 — GitHub Release Discovery (2026-11-24)
 
 - Retrieve real published releases from `https://api.github.com/repos/CajeerTeam/CajeerLogs/releases` using verified TLS, fixed destination, strict HTTP and JSON limits, and no redirects.

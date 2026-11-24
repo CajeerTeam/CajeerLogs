@@ -41,6 +41,9 @@ try {
     file_put_contents($downloadFixture,$content);
     $raw=new \Cajeer\Logs\Http\FileDownloadResponse(
         $downloadFixture,'test.json','json',strlen($content),hash('sha256',$content));
+    $zipHeader=new \Cajeer\Logs\Http\FileDownloadResponse($downloadFixture,'test.zip','zip',strlen($content),hash('sha256',$content));
+    check($zipHeader->header('Content-Type')==='application/zip','verified ZIP response has correct MIME type');
+    unset($zipHeader);
     $decorated=$raw->withHeader('X-Request-ID','clone-test');
     unset($raw);
     ob_start();$decorated->send();$downloaded=ob_get_clean();
@@ -49,7 +52,7 @@ try {
     unset($decorated);
 } finally { unlink($downloadFixture); }
 ob_end_flush();
-check($app->version() === '1.0.1', 'release version');
+check($app->version() === '1.0.2', 'release version');
 check($app->config()->get('app.version') === $app->version(), 'config version');
 $oldEnv = $app->config()->get('app.env'); $oldUrl = $app->config()->get('app.url');
 $app->config()->set('app.env', 'production'); $app->config()->set('app.url', 'https://logs.example.test');

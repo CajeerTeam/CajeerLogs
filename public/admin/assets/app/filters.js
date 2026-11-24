@@ -1,4 +1,4 @@
-import { levels } from './store.js?v=1.0.1';
+import { levels } from './store.js?v=1.0.2';
 
 export const listFields = Object.freeze([
  ['levels','Уровни',32],['sources','Источники',100],['services','Сервисы',255],['hosts','Hosts',255],

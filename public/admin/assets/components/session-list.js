@@ -1,9 +1,9 @@
-import { state, active, render } from '../app/store.js?v=1.0.1';
-import { h, button, date, enc, modal } from './ui.js?v=1.0.1';
-import { pagedList } from './pagination.js?v=1.0.1';
-import { confirmAction, mutationSuccess } from './mutations.js?v=1.0.1';
-import { write } from '../api/client.js?v=1.0.1';
-import { clearSession, sessionChanged } from '../app/session.js?v=1.0.1';
+import { state, active, render } from '../app/store.js?v=1.0.2';
+import { h, button, date, enc, modal } from './ui.js?v=1.0.2';
+import { pagedList } from './pagination.js?v=1.0.2';
+import { confirmAction, mutationSuccess } from './mutations.js?v=1.0.2';
+import { write } from '../api/client.js?v=1.0.2';
+import { clearSession, sessionChanged } from '../app/session.js?v=1.0.2';
 
 export function sessionList(path, signal, epoch) {
     return pagedList({path, query:{limit:25}, signal, epoch, headers:['Устройство / браузер','IP','Создана','Активность','Истекает',''], rows:s=>[

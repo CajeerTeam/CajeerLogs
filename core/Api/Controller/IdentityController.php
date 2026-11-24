@@ -70,6 +70,8 @@ final class IdentityController
         'POST /system/queue/dispatch/pause'=>'pauseQueueDispatch',
         'POST /system/queue/dispatch/resume'=>'resumeQueueDispatch',
         'GET /system/updates'=>'updates',
+        'GET /system/updates/verified/{version}'=>'verifiedUpdate',
+        'GET /system/updates/artifact/{version}'=>'downloadVerifiedUpdate',
         'GET /system/report'=>'report',
     ];
     private Identity $identity;
@@ -1181,6 +1183,25 @@ final class IdentityController
                 'source'=>'github_releases','error'=>$e->getMessage()],503,['Cache-Control'=>'private, no-store']);
         }
         return new JsonResponse($data,200,['Cache-Control'=>'private, no-store']);
+    }
+    private function verifiedUpdate(Request $r,array $p): Response
+    {
+        $this->allow($p,'system:read');
+        $version=$r->parameter('version')??'';
+        if (!is_string($version) || !preg_match('/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/D',$version)) self::invalid('Invalid release version.');
+        $download=new \Cajeer\Logs\Update\VerifiedReleaseDownloader($this->app->basePath('storage/archives/verified-updates'));
+        try {$proof=$download->status($version);}
+        catch (\RuntimeException $e) {return new JsonResponse(['status'=>'unavailable'],503,['Cache-Control'=>'private, no-store']);}
+        return new JsonResponse($proof??['status'=>'not_downloaded','version'=>$version],200,['Cache-Control'=>'private, no-store']);
+    }
+    private function downloadVerifiedUpdate(Request $r,array $p): Response
+    {
+        $this->allow($p,'system:read');
+        $version=$r->parameter('version')??'';
+        if (!is_string($version) || !preg_match('/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/D',$version)) self::invalid('Invalid release version.');
+        $download=new \Cajeer\Logs\Update\VerifiedReleaseDownloader($this->app->basePath('storage/archives/verified-updates'));
+        try {[$file,$proof]=$download->archive($version);} catch (\RuntimeException $e) {throw new HttpException(404,'not_found','Verified update is not available.');}
+        return new \Cajeer\Logs\Http\FileDownloadResponse($file,$proof['file'],'zip',(int)$proof['bytes'],$proof['sha256']);
     }
     private function report(Request $r,array $p): Response { $this->allow($p,'system:read'); return (new SystemController($this->app->container()->get(SystemReport::class)))->report(); }
 }

@@ -1,3 +1,9 @@
+## CajeerLogs 1.0.2 — Verified Update Downloads
+
+1.0.2 adds a working verified download path for published GitHub releases: `php bin/cajeer update:download [--refresh]` downloads real ZIP and SHA-256 sidecar assets, validates signed GitHub OIDC/Sigstore build provenance with `gh attestation verify`, checks every archived file against the official release manifest and enforces PHP/PostgreSQL/API compatibility. `php bin/cajeer update:verify VERSION` re-verifies an archived release. The authenticated System panel can serve verified ZIP files. **No installation or code execution** occurs in this version. Requirements and production operation: [Verified Update Downloads](docs/Verified-Update-Downloads-1.0.2.md).
+
+A source archive or version change does not confirm successful external GitHub Actions GA certification.
+
 ## CajeerLogs 1.0.1 — GitHub Release Discovery
 
 1.0.1 adds **working read-only discovery** of published CajeerTeam/CajeerLogs releases via GitHub REST API, strict SemVer comparison, stable/preview channel selection and release changelogs in the authenticated System panel. CLI: `php bin/cajeer update:check [--refresh]`. Local trusted JSON compatibility remains supported. Release results are cached privately for five minutes; failures are surfaced explicitly. The update checker does not download or install code. See [operator guide](docs/GitHub-Release-Discovery-1.0.1.md).
