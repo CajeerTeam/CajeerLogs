@@ -1,19 +1,19 @@
-# Security Policy — CajeerLogs
+# Политика безопасности CajeerLogs
 
-## Supported releases
+## Поддерживаемые выпуски
 
-| Release | Maintenance |
-|---|---|
-| Latest certified 1.0.x GA patch | Security fixes and compatibility fixes under [Release policy](docs/Release-policy.md) |
-| Previous 1.0.x patches | Superseded; update to latest patch |
-| 0.x preview/release candidates | Not eligible for ongoing maintenance guarantees |
+Исправления распространяются согласно [политике выпусков и поддержки](docs/Release-policy.md). Используйте последнюю сертифицированную версию своей поддерживаемой ветки; предварительные версии и исходные ZIP не подтверждают промышленный допуск.
 
-A source ZIP named 1.0.0 is **not** proof of GA certification. Verify the GitHub release and signed provenance of the ZIP and final certification before deployment.
+## Сообщение об уязвимости
 
-## Reporting vulnerabilities
+Передавайте сведения **приватно** через механизм GitHub Security Advisory репозитория [CajeerTeam/CajeerLogs](https://github.com/CajeerTeam/CajeerLogs/security/advisories). Если приватный механизм недоступен, согласуйте с сопровождающими безопасный канал связи без раскрытия деталей публично.
 
-Use the repository's **private GitHub Security Advisory reporting** mechanism; do not publish exploit details in public issues. Provide affected version(s), reproduction steps, severity/impact and safe diagnostics **without secrets or personal data**. Maintainers coordinate remediation and advisory publication. No fixed response time is guaranteed.
+Укажите затронутые версии, условия воспроизведения, влияние, минимальный безопасный пример и возможные меры снижения риска. Не прикладывайте пароли, API-ключи, персональные данные, приватные журналы или рабочие токены. Не публикуйте подробности эксплуатации в общедоступных задачах. Сопровождающие согласуют исправление и раскрытие информации; гарантированный срок ответа не установлен.
 
-## Security baseline
+## Базовая защита
 
-Production requires HTTPS, restrictive PostgreSQL roles, RBAC and TOTP for administrators, authenticated private metrics, protected backup and secret storage, audit records, safe queue workers and verified package dependencies. Run `php bin/cajeer security:audit --tls` before going live and after configuration changes. See [Production Security](docs/Production-Security.md) and [Release Policy](docs/Release-policy.md).
+HTTPS, минимальные права PostgreSQL и токенов, RBAC, TOTP администраторов, повторное подтверждение критических действий, защищённые метрики, резервные копии и проверенные зависимости обязательны для промышленной эксплуатации. Выполните `php bin/cajeer security:audit --tls` до запуска и после изменения настроек.
+
+ИИ, SkiF4er ID и автоматическую установку включайте только после проверки конфигурации, прав доступа и целевого окружения. Маскирование не гарантирует устранение всех секретов. Установщик не должен получать системные полномочия через HTTP; используйте выделенного оператора и проверенные подписанные артефакты.
+
+[Контрольный список](docs/Production-checklist.md) · [Приёмка интеграций](docs/Production-Stable-GA-1.1.0.md).

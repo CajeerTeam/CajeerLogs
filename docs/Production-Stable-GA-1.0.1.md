@@ -1,17 +1,13 @@
-# CajeerLogs v1.0.1 — GitHub Release Discovery
+# CajeerLogs 1.0.1 — Обнаружение выпусков GitHub
 
-## Release changes
+[История версий](../CHANGELOG.md) · [Приёмка 1.1.0](Production-Stable-GA-1.1.0.md)
 
-- Real GitHub Releases discovery through pinned HTTPS endpoint, bounded API pagination and cached results.
-- SemVer 2.0 ordering with stable/preview channels and published-release filtering.
-- Read-only update status and safe changelog viewer in the authenticated administration panel.
-- CLI `update:check` now supports live discovery and explicit refresh; legacy trusted-file comparison is preserved.
-- This release **does not install updates** or treat GitHub release metadata as signed artifacts.
+## Изменения выпуска
 
-## Security and acceptance
+Запрос к закреплённому GitHub API с TLS, SemVer, фильтрация черновиков, stable/preview, кэш 5 минут и безопасный просмотр изменений в панели. Локальный доверенный JSON сохранён.
 
-The existing GA workflow must verify the PHP 8.4/8.5 × PostgreSQL 17/18 matrix, browser and API compatibility, real Docker/SDK/ClickHouse integrations, performance SLOs, dependency integrity, reproducible builds, Sigstore/OIDC attestations and the exact release archive. `publish-ga` is allowed to publish only after all gates pass. This document does **not** assert that such a release has been published.
+## Условия допуска
 
-## Operators
+Сохраняются API v1, действующие механизмы резервного копирования и обязательный GA pipeline. Для одного и того же архива должны пройти матрица PHP/PostgreSQL, проверки безопасности, браузера, SDK, совместимости, восстановления, зависимостей и нагрузки. Подписанные архив и итоговый сертификат обязательны. Наличие версии в коде и локальные тесты не подтверждают публикацию или доступность внешнего сервиса.
 
-See [GitHub Release Discovery](GitHub-Release-Discovery-1.0.1.md) for UI, CLI, network requirements and documented non-installation behavior; [Production-Stable-GA-1.0.0](Production-Stable-GA-1.0.0.md) for existing signed-release verification and recovery procedures.
+Подробности настройки, ограничения и сценарии проверки: [Обнаружение выпусков GitHub](GitHub-Release-Discovery-1.0.1.md). Для актуальной промышленной версии следуйте [контрольному списку](Production-checklist.md).

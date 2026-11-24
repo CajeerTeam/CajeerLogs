@@ -1,3 +1,13 @@
-# CajeerLogs 1.0.7 — AI Log Investigation
+# CajeerLogs 1.0.7 — Расследование по журналам
 
-Adds bounded, project-scoped investigation of correlated log events and stack traces to the existing optional ChatGPT Assistant. See [investigation setup and privacy](AI-Log-Investigation-1.0.7.md). No migrations or breaking API v1 changes. Existing signed release gates, backup compatibility, local and SkiF4er ID authentication and verified updates remain required. A completed release requires the original production certification pipeline and live provider acceptance in a configured environment.
+[История версий](../CHANGELOG.md) · [Приёмка 1.1.0](Production-Stable-GA-1.1.0.md)
+
+## Изменения выпуска
+
+Выбор ошибки, Event ID, Trace ID или Request ID, ограниченное расширение связанных событий, хронология, псевдонимы корреляции и маскированные стектрейсы. Новых миграций нет.
+
+## Условия допуска
+
+Сохраняются API v1, действующие механизмы резервного копирования и обязательный GA pipeline. Для одного и того же архива должны пройти матрица PHP/PostgreSQL, проверки безопасности, браузера, SDK, совместимости, восстановления, зависимостей и нагрузки. Подписанные архив и итоговый сертификат обязательны. Наличие версии в коде и локальные тесты не подтверждают публикацию или доступность внешнего сервиса.
+
+Подробности настройки, ограничения и сценарии проверки: [Расследование по журналам](AI-Log-Investigation-1.0.7.md). Для актуальной промышленной версии следуйте [контрольному списку](Production-checklist.md).

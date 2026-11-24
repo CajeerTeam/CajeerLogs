@@ -1,26 +1,30 @@
-# CajeerLogs 1.0.1 — GitHub Release Discovery
+# Проверка новых выпусков GitHub
 
-This functionality performs **real remote release discovery**, not package installation.
+> Добавлено в 1.0.1. Это обнаружение выпусков, а не проверка подписи или установка.
 
-## Operator use
+В `/admin/` с правом `system:read` откройте «Система → Обновления · GitHub Releases». Панель показывает установленную и доступную версии, время проверки, ссылку и журнал изменений как безопасный текст. «Проверить сейчас» обновляет общий кэш; лимит принудительной проверки — 6 запросов в минуту на личность.
 
-1. Sign in to `/admin/` as a user authorized for `system:read` and open **Система → Обновления · GitHub Releases**.
-2. The panel shows installed version, newest published GitHub version, update availability, when it was checked, the release link, and the changelog displayed as inert text.
-3. Click **Проверить сейчас** to bypass the shared five-minute cache. Refreshes are independently rate-limited (6/minute per identity).
-4. Alternatively, run `php bin/cajeer update:check` or `php bin/cajeer update:check --refresh`. Output is JSON, with a nonzero exit status on connection failure. An explicitly supplied trusted metadata file is still supported: `php bin/cajeer update:check /path/to/release.json`.
+```sh
+php bin/cajeer update:check
+php bin/cajeer update:check --refresh
+php bin/cajeer update:check /path/to/release.json
+```
 
-Set `UPDATE_CHANNEL=stable` (default) to exclude drafts and pre-releases or `UPDATE_CHANNEL=preview` to include published SemVer pre-releases. Configuration is validated when the application boots. A source release without a published GitHub Release entry is **not** treated as available.
+Последняя команда сохраняет совместимость с доверенным локальным JSON. CLI выдаёт JSON, при сетевом отказе возвращает ненулевой код. `UPDATE_CHANNEL=stable` исключает черновики и предварительные версии; `preview` допускает опубликованные предварительные версии по SemVer. Неопубликованный тег не является доступным выпуском.
 
-## Network and security contract
+## Сетевые ограничения
 
-- Fixed, read-only destination: `https://api.github.com/repos/CajeerTeam/CajeerLogs/releases`, with versioned GitHub REST API headers. No arbitrary URLs, user-supplied hosts, token injection, redirect following, package downloads or archive extraction.
-- Verified peer/hostname TLS, 5-second HTTP timeout per page, 512 KiB maximum JSON per page, a maximum of 3 pages × 30 releases and bounded 16 KiB changelog text per release. GitHub errors are not silently treated as "no updates".
-- `GET /api/v1/system/updates` requires authentication and the existing `system:read` permission. `GET /api/v1/system/updates?refresh=1` performs a fresh check with a separate limiter. Responses use `Cache-Control: private, no-store`.
-- The shared cache is held under private `storage/cache/` and avoids exceeding GitHub's unauthenticated request quota. Its contents are advisory discovery data only, **not** trusted installer metadata, a signature, or authorization to execute anything.
-- Changelog and remote release title are inserted with DOM text nodes, not HTML. Release links are constructed by the server for the pinned GitHub repository, ignoring untrusted upstream `html_url`.
+| Параметр | Значение |
+|---|---|
+| Источник | `https://api.github.com/repos/CajeerTeam/CajeerLogs/releases` |
+| TLS | Проверка хоста и сертификата, без произвольных адресов и перенаправлений |
+| Тайм-аут | 5 секунд на страницу |
+| Размер | 512 КиБ JSON на страницу, до 3 страниц по 30 выпусков |
+| Журнал изменений | До 16 КиБ на выпуск |
+| Кэш | Приватный `storage/cache/`, 5 минут |
 
-## Failures and limits
+`GET /api/v1/system/updates` и `?refresh=1` требуют `system:read`, возвращают `Cache-Control: private, no-store`. Ссылки формируются для закреплённого репозитория, а заголовки и текст изменений отображаются без интерпретации HTML. Кэш — справочные данные, а не подпись и не право запуска кода.
 
-Connection errors, HTTP 403/429, TLS failures, malformed JSON and oversized responses are reported as unavailable. Admins should check outbound HTTPS connectivity to `api.github.com`, DNS, CA certificates, proxy/firewall policy, and GitHub API availability. No local log ingestion or workers depend on this lookup. Offline discovery tests inject a deterministic HTTP transport; production always uses the real HTTPS client.
+При HTTP 403/429, ошибке DNS/TLS, неверном JSON или превышении размера сообщается о недоступности, а не об отсутствии обновлений. Проверьте исходящий HTTPS, DNS, сертификаты и доступность GitHub. Обычный сбор логов и рабочие процессы не зависят от этой проверки.
 
-This version does not verify artifact signatures, download updates, apply migrations, perform rollbacks, or schedule updates. Those steps belong to later versioned releases and must not be inferred from successful discovery.
+Следующий шаг: [проверенная загрузка](Verified-Update-Downloads-1.0.2.md).

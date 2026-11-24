@@ -1,8 +1,13 @@
-# CajeerLogs v1.0.3 — Safe Update Installation
+# CajeerLogs 1.0.3 — Безопасная установка обновлений
 
-- Native Linux/systemd CLI installation of a newer signed release, with a verified PostgreSQL backup, isolated database clone and tested migration path.
-- Persistent service masking, atomic release directory exchange, durable state journal, readiness checks, pre-commit rollback and post-commit forward recovery.
-- No web-triggered privileged commands, automatic installation, or destructive in-place database rollback. Existing Docker/manual upgrade paths are unchanged.
-- All API v1 and historical SQL migration compatibility and full release certification gates remain required. The source version does not itself prove GA publication.
+[История версий](../CHANGELOG.md) · [Приёмка 1.1.0](Production-Stable-GA-1.1.0.md)
 
-See [Safe Update Installation](Safe-Update-Installation-1.0.3.md) for supported host layout, operational requirements, and recovery instructions.
+## Изменения выпуска
+
+Операторский установщик Linux/systemd, повторная проверка ZIP, маскирование служб, проверенная резервная копия, изолированный клон БД, миграции, атомарное переключение, журнал восстановления. Не откатывает принятые записи после фиксации.
+
+## Условия допуска
+
+Сохраняются API v1, действующие механизмы резервного копирования и обязательный GA pipeline. Для одного и того же архива должны пройти матрица PHP/PostgreSQL, проверки безопасности, браузера, SDK, совместимости, восстановления, зависимостей и нагрузки. Подписанные архив и итоговый сертификат обязательны. Наличие версии в коде и локальные тесты не подтверждают публикацию или доступность внешнего сервиса.
+
+Подробности настройки, ограничения и сценарии проверки: [Безопасная установка обновлений](Safe-Update-Installation-1.0.3.md). Для актуальной промышленной версии следуйте [контрольному списку](Production-checklist.md).

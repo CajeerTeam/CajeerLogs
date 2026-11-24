@@ -1,10 +1,28 @@
-# CajeerLogs 1.1.0 — Integrated Production Release
+# CajeerLogs 1.1.0 — комплексный выпуск
 
-All three integrations are optional or operator-controlled. The default installation remains local-password based, AI disabled, external authentication disabled, unattended update installation disabled. Existing API v1, PostgreSQL 17/18 and PHP 8.4/8.5 remain supported. No new schema migration is necessary: keep all 36 migration files byte-identical, including 0034–0036. Existing 1.0.9 data and backup history must survive a safe upgrade. Do not run migrations from an unverified distribution.
+**Цель:** единый продукт с ИИ-расследованиями, SkiF4er ID и проверяемыми обновлениями GitHub.
 
-## Operator acceptance before enabling integrations
+[Главная](../README.md) · [История версий](../CHANGELOG.md) · [Установка](Installation.md) · [Политика выпусков](Release-policy.md)
 
-Run under the intended application account, with private configuration (never add secrets to a source ZIP):
+> [!IMPORTANT]
+> Это инструкция и условия допуска, а не свидетельство успешной сертификации. Источник истины о публикации — [GitHub Releases](https://github.com/CajeerTeam/CajeerLogs/releases) и проверенные подписанные артефакты. Версия исходников 1.1.0 не подтверждает публикацию `v1.1.0`.
+
+## 1. Состав выпуска
+
+| Направление | Изменение относительно 1.0.9 |
+|---|---|
+| ИИ | Строгая обработка некорректного вывода Responses API, повторная проверка доступа после ответа |
+| SkiF4er ID | Скрытие кнопки при неполной конфигурации, проверка совместимости внешней сессии с ИИ и отзывом доступа |
+| Обновления | Для стабильного ZIP требуется дополнительно аттестованный успешный итоговый сертификат, связанный с тем же архивом |
+| Диагностика | Операторские проверки конфигурации и необязательные сетевые проверки трёх интеграций |
+| Совместимость | API v1, PHP 8.4/8.5, PostgreSQL 17/18, прежние резервные копии; 36 неизменных исторических миграций |
+| Приёмка | Совместный тест внешней сессии, доступа к ИИ, истории и отзыва; тесты установки/автоматизации из дистрибутива; обновление с реальной версии 1.0.9 |
+
+Новых миграций в 1.1.0 нет. Локальный парольный вход сохраняется, ИИ, внешний вход и автоматическая установка изначально выключены. Не запускайте миграции из непроверенного дистрибутива.
+
+## 2. Диагностика перед включением интеграций
+
+Выполняйте команды под выделенной учётной записью приложения с приватной конфигурацией:
 
 ```sh
 php bin/cajeer version
@@ -14,20 +32,53 @@ php bin/cajeer operations:integrations
 php bin/cajeer operations:integrations --live
 ```
 
-`operations:integrations` is configuration-only. `--live` contacts OpenAI (a small billed synthetic response, `store=false`, no logs or user data), public SkiF4er ID discovery and GitHub Releases. A nonzero exit means at least one enabled check failed. Disabled means not checked. The command never installs, downloads, logs in on behalf of users, sends a client secret to discovery, or prints upstream output. It deliberately reports `ga_certified: false` and does not prove client registration, actual interactive login, signed artifact installation or release certification.
+Без `--live` проверяется только конфигурация. С флагом выполняется небольшой синтетический платный запрос OpenAI (`store=false`, без журналов и пользовательских данных), публичный OIDC discovery SkiF4er ID и проверка GitHub Releases. Ненулевой код означает отказ одной или нескольких включённых проверок. Отключённые проверки не выполняются. Команда не устанавливает и не скачивает обновления, не входит за пользователя, не отправляет клиентский секрет в discovery и не выводит ответ провайдера. Она намеренно возвращает `ga_certified: false`: это диагностика, не сертификация.
 
-### ChatGPT
+## 3. Приёмка трёх интеграций
 
-Follow [ChatGPT Assistant](ChatGPT-Assistant-1.0.6.md), [investigation](AI-Log-Investigation-1.0.7.md), and [incidents](AI-Incident-Intelligence-1.0.8.md). Set `AI_ASSISTANT_ENABLED=true`, `OPENAI_API_KEY` and an API model available to your project. Leave `AI_ASSISTANT_INCLUDE_MESSAGES=false` unless the operator has explicitly authorized disclosure of log text. Masking is not a guarantee that arbitrary sensitive content is detected. Test a synthetic project with a real error and a correlated trace, confirm local evidence links and saved incident history, then revoke the test user's project grant and confirm the chat/history are inaccessible. Verify that provider outage does not break ordinary ingestion or login.
+### ИИ-помощник
+
+Следуйте руководствам [чат](ChatGPT-Assistant-1.0.6.md), [расследования](AI-Log-Investigation-1.0.7.md) и [инциденты](AI-Incident-Intelligence-1.0.8.md). Задайте `AI_ASSISTANT_ENABLED=true`, закрытый `OPENAI_API_KEY` и доступную модель. Оставьте `AI_ASSISTANT_INCLUDE_MESSAGES=false`, пока передача текстов не разрешена. Маскирование не гарантирует обнаружение всех чувствительных данных.
+
+- [ ] На тестовом проекте отправлены синтетическая ошибка и связанные события, проверены хронология и исходные идентификаторы.
+- [ ] Проверены согласие, отсутствие доступа к чужому проекту, сохранение/удаление истории, отзыв прав.
+- [ ] Недоступность OpenAI не нарушает обычный приём журналов и локальный вход.
 
 ### SkiF4er ID
 
-Follow [authentication](SkiF4er-ID-Authentication-1.0.4.md) and [linking/security](Identity-Linking-Security-1.0.5.md). Register a confidential web client with exact HTTPS `APP_URL` + API prefix + `/auth/skif4er/callback`; supply its client ID and secret. Configure the pinned issuer `https://id.skif4er.ru/realms/skif4er`. Confirm discovery and then perform an actual browser login, local TOTP/recovery challenge where enabled, explicit linking with current local credentials, and unlink/revocation. Check a viewer can access only their assigned projects and cannot access the system update API. A revoked external session must not return an in-flight assistant answer or save a new investigation. Keep a separate working local administrator login. Never automatically link by email or grant provider roles.
+См. [вход](SkiF4er-ID-Authentication-1.0.4.md) и [привязки](Identity-Linking-Security-1.0.5.md). Зарегистрируйте конфиденциальный веб-клиент с точным HTTPS callback (`APP_URL` + префикс API + `/auth/skif4er/callback`), issuer `https://id.skif4er.ru/realms/skif4er`, ID и секретом клиента. Не доверяйте ролям провайдера и не связывайте по email.
 
-### GitHub updates
+- [ ] Подтверждены discovery и реальный вход через браузер, локальный TOTP или код восстановления.
+- [ ] Проверены привязка, отвязка, отзыв и независимый локальный административный вход.
+- [ ] Пользователь видит только разрешённые проекты; пользователь с ролью просмотра не имеет доступа к API системных обновлений.
+- [ ] Отозванная внешняя сессия не получает незавершённый ответ ИИ и не сохраняет новое расследование.
 
-Follow [verified downloads](Verified-Update-Downloads-1.0.2.md), [safe installation](Safe-Update-Installation-1.0.3.md) and [automation](Automatic-Update-Management-1.0.9.md). Start with check mode. Stable downloads now require both the published ZIP attestation and the separately signed `database-certification.json` for the exact ZIP digest, tag, commit and workflow. Incomplete GA evidence blocks download and re-verification; preview assets remain download-only. If an earlier cached stable download lacks its certificate, stop the timer, remove/quarantine only that unverified version directory under operator control and download again. Verify the published release ZIP and sidecar with the project's GitHub attestation; verify backup and a genuinely empty target DB before installation. Rehearse on the actual Linux/systemd host with every ingress, writer and timer in the maintenance inventory. Verify configuration, identity bindings, session provenance, logs, incident history, queue and audit after the update. Exercise pre-commit rollback and post-commit recovery, never revert a database that has accepted new writes. Only then enable stable unattended installation. Docker remains operator-deployed. An unpublished or unsigned artifact must never be auto-installed.
+### GitHub
 
-## Release and evidence
+См. [загрузка](Verified-Update-Downloads-1.0.2.md), [установка](Safe-Update-Installation-1.0.3.md), [расписание](Automatic-Update-Management-1.0.9.md). Начните с `check`. Для stable проверьте ZIP и отдельный подписанный `database-certification.json` для того же хэша, тега, коммита и workflow. Если старый кэш не имеет сертификата, остановите таймер, изолируйте только непроверенный каталог версии, загрузите повторно. Preview — только загрузка, не автоустановка.
 
-Apply this source patch to 1.0.9 and commit all changed/new files. Confirm a real 1.0.9 commit is reachable from main (not a synthetic version substitution). Request release via `release-request/v1.1.0` at the exact main commit or an authorized `v1.1.0` tag. Do not reuse or move a previously published tag. `.github/workflows/runtime.yml` verifies the same archive across the existing PHP/PostgreSQL matrix, exact historical upgrades/rollback (now including 1.0.9), admin/browser acceptance, integration stability, SDK, security, ClickHouse, real Docker smoke and full long-duration async performance gates. The new integrated database stage uses actual local PostgreSQL and session controllers; its OIDC callback and OpenAI response are controlled provider boundaries, not live credentials. The admin certification also executes the integration diagnostics and safe/automatic update regression tests from the verified archive. Missing or failing stages block final certification. `publish-ga` requires the signed archive and certificate, and is the only normal public release path. No live provider login or signed systemd upgrade is inferred from CI fixtures. Record the real provider and host acceptance results before enabling those integrations in production.
+- [ ] Подтверждены происхождение обоих файлов, контрольные суммы, совместимость и проверяемая резервная копия.
+- [ ] На целевом Linux/systemd проверены полный перечень входящих и записывающих служб, пустая БД, переключение и готовность.
+- [ ] После обновления сверены привязки SkiF4er ID, происхождение сессий, история ИИ, журналы, очередь и аудит.
+- [ ] Проверены отказ до фиксации и восстановление после фиксации без уничтожения новых записей.
+- [ ] Автоматическая установка включается только после успешной репетиции. Для Docker остаётся отдельное операторское развёртывание.
+
+## 4. Публикация и доказательства
+
+1. Объедините изменения 1.1.0, убедитесь, что реальный коммит 1.0.9 доступен из `main` (не искусственная подмена версии). Проверьте идентичность миграций.
+2. Создайте запрос выпуска веткой `release-request/v1.1.0` на точном коммите `main` либо авторизованным тегом `v1.1.0`. Уже опубликованный GA-тег не перемещайте.
+3. Дождитесь обязательного `.github/workflows/runtime.yml`: проверяется один и тот же архив, матрица PHP/PostgreSQL, исторические переходы/откаты, браузер, API, SDK, ClickHouse, безопасность, зависимости, Docker и длительная асинхронная нагрузка. Совместная проверка использует реальный локальный PostgreSQL и контролируемые ответы внешних провайдеров. Пропущенный или неуспешный этап блокирует итоговую сертификацию.
+4. Штатный `publish-ga` публикует архив и сертификат после успешных проверок и проверки подписей. Убедитесь, что на странице выпуска есть подтверждённые артефакты именно этого тега и коммита.
+5. Зафиксируйте результаты реального провайдерского входа, вызова OpenAI и подписанного обновления на целевом хосте отдельно: стендовые имитации не доказывают эти результаты.
+
+## 5. Решение о вводе в эксплуатацию
+
+| Условие | Доказательство |
+|---|---|
+| Согласованность версии | `version`, `migrate:verify`, проверка дистрибутива |
+| Безопасность и доступ | Реальная проверка RBAC/TOTP, отзыв, диагностика, аудит |
+| Доступность внешних интеграций | Успешные реальные проверки с зарегистрированными клиентами |
+| Восстановление | Измерения на целевой инфраструктуре, резервная копия и испытанный сценарий |
+| GA | Опубликованный стабильный выпуск, обе аттестации, успешный итоговый отчёт |
+
+До выполнения обязательных условий рассматривайте сборку как кандидат. Используйте [контрольный список эксплуатации](Production-checklist.md) и не включайте непроверенные дополнительные функции.

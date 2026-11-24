@@ -1,9 +1,32 @@
-# AI Incident Intelligence — 1.0.8
+# Группировка инцидентов и история расследований
 
-Install migration `0036_ai_investigation_history.sql` through the normal migration command before enabling the new release. Existing chat and authentication behavior are unchanged. Configure the existing OpenAI integration (`AI_ASSISTANT_ENABLED`, `OPENAI_API_KEY`, and an `OPENAI_MODEL` available to the configured API account). No new provider credentials are needed. The integration and sending log messages remain disabled by default.
+> Добавлено в 1.0.8. Продолжает [расследование по журналам](AI-Log-Investigation-1.0.7.md).
 
-In Admin → AI Assistant choose **Группировка инцидентов**, select an interval (1–168 hours) and optionally enter a search keyword. Enter a question, explicitly consent to OpenAI processing, and submit. The server reads the newest 200 matching error/critical/alert/emergency events from the authorized project's hot PostgreSQL storage within one consistent snapshot. A 201st row signals truncation. With messages enabled, grouping uses source/service, normalized redacted failure text (including normalization of UUIDs and dynamic numbers), and exception class when present; otherwise it groups by trace ID, then request ID, or a unique event. These are approximate groups, not definitive incidents or total project counts. The largest eight groups have a representative event each. Up to 20 total representative/related events are sent, with the existing bounded one-hop correlation and redaction. Group counts and time bounds are computed locally; raw correlation IDs and fingerprints are not sent as grouping keys. The model is instructed to explain evidence, hypotheses/alternatives, and prioritized diagnostic/remediation recommendations without claiming confirmed root cause. It cannot execute commands. Inspect the evidence before acting on suggestions.
+## Работа с инцидентами
 
-Check **Сохранить результат в личной истории** to persist the completed investigation or incident response. No saving by default. The database stores the masked question, assistant output, known evidence metadata/IDs, sample counts, time window, and model/usage metadata — not the raw log context, stack fields, API key, or provider request body. The model output may nevertheless repeat sensitive content. Do not save sensitive investigations unless appropriate; database backups may retain deleted records. History is restricted to its owner AND the current project's `logs:read` permission, even for administrators. It remains readable/deletable if OpenAI is disabled; it is not sent automatically to OpenAI on reopening. A user can reopen or delete saved records. The most recent 30 results per user/project remain available for 30 days; normal auth cleanup purges expired entries. Project/user deletion cascades to history. Standard database backups include history; recovery does not imply permanent deletion of older backups.
+Установите миграцию `0036_ai_investigation_history.sql` штатным механизмом и настройте [OpenAI](ChatGPT-Assistant-1.0.6.md). В разделе ИИ-помощника выберите «Группировка инцидентов», проект, период 1–168 часов, при необходимости ключевое слово. Введите вопрос и подтвердите передачу данных.
 
-API: `POST /api/v1/assistant/chat` accepts `incident: true` (exclusive with `investigation`) and optional `save_history: true` for either investigation mode. `GET /api/v1/assistant/history?project_id=UUID` lists the current owner's records; add `id=UUID` for detail. `DELETE /api/v1/assistant/history?project_id=UUID&id=UUID` deletes a record and requires session CSRF. Existing RBAC, TOTP policy, HTTPS and session checks apply. No API-token access. Network and PostgreSQL acceptance require a disposable real deployment with configured provider credentials.
+Сервер читает до 200 последних ошибок уровней `error`, `critical`, `alert`, `emergency` из основного PostgreSQL-хранилища в согласованном снимке. 201-я запись служит признаком усечения. При разрешённой передаче сообщений группировка учитывает источник, сервис, нормализованный и маскированный текст ошибки (UUID и изменяющиеся числа нормализуются) и класс исключения. Без передачи сообщений группировка идёт по Trace ID, затем Request ID или уникальному событию.
+
+Для восьми крупнейших групп выбираются представители, а в модель передаются не более 20 исходных и связанных событий. Счётчики и временные границы вычисляются локально; исходные идентификаторы корреляции и отпечатки групп не отправляются как ключи группировки. Результат содержит объяснение доказательств, вероятные причины, альтернативные гипотезы и приоритетные рекомендации. Это приближённая группировка, а не доказанные инциденты или общая статистика проекта. Проверяйте рекомендации вручную; модель не выполняет команды.
+
+## Личная история
+
+Поставьте отметку «Сохранить результат в личной истории», если необходимо вернуться к результату расследования. По умолчанию ничего не сохраняется. Сохраняются маскированный вопрос, ответ, метаданные и идентификаторы доказательств, счётчики, интервал, модель и использование API. Не сохраняются исходный контекст логов, поля стека, ключ API и тело запроса провайдеру. Ответ модели всё же может повторять чувствительные сведения.
+
+| Правило | Поведение |
+|---|---|
+| Доступ | Только владелец записи с текущим `logs:read` проекта, даже для администратора |
+| Срок | Последние 30 результатов на пользователя и проект, до 30 дней |
+| Удаление | Вручную либо штатной очисткой истёкших записей; при удалении пользователя или проекта — каскадно |
+| Выключенный ИИ | Просмотр и удаление остаются доступны при сохранённых правах |
+| Повторное открытие | Не отправляет историю автоматически в OpenAI |
+| Резервное копирование | История включается в копии; удаление записи не удаляет ранее созданные копии |
+
+## API
+
+- `POST /api/v1/assistant/chat`: `incident: true` (взаимоисключающее с `investigation`), `save_history: true` для явного сохранения результата расследования.
+- `GET /api/v1/assistant/history?project_id=UUID`: список владельца; `id=UUID` добавляет выбор конкретной записи.
+- `DELETE /api/v1/assistant/history?project_id=UUID&id=UUID`: удаление, требуется CSRF.
+
+Действуют HTTPS, локальная сессия, RBAC, 2FA и запрет API-токенов. Приёмка должна подтвердить реальную работу PostgreSQL, отзыв доступа, удаление, ограничения хранения и вызов настроенного OpenAI. `php tests/ai_incidents.php` проверяет локальную логику, `tests/assistant_database.php` — интеграцию с БД; не запускайте тест на производственных данных.

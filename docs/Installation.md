@@ -1,7 +1,67 @@
-# CajeerLogs 0.9.5 — установка и обновление
+# Установка и обновление CajeerLogs 1.1.0
 
-Актуальная пошаговая инструкция: [Production Installer 0.9.4](Production-Installer-0.9.4.md). Для разделения PostgreSQL ролей см. [Installer & Administrator](Installer-Administrator.md) и [Database Installer](Database-Installer.md).
+[Документация](README.md) · [Контрольный список](Production-checklist.md)
 
-Установка из проверенного релизного ZIP (PHP 8.4+, PostgreSQL 17/18): `php bin/cajeer install:check`, затем `php bin/cajeer install` (или `install --non-interactive`), `php bin/cajeer install:status`, `php bin/cajeer doctor`. Первый администратор задаётся через закрытый терминал или `CAJEER_ADMIN_EMAIL` и `CAJEER_ADMIN_PASSWORD_FILE` (файл 0600).
+> [!WARNING]
+> Не устанавливайте непроверенный исходный ZIP или архив только изменённых файлов как готовый промышленный дистрибутив. Используйте официальный полный опубликованный архив, итоговый отчёт сертификации и их криптографические аттестации.
 
-Обновление существующего экземпляра: резервная копия из предыдущего релиза, остановка API/worker-процессов, развертывание проверенного ZIP, `php bin/cajeer upgrade:check BACKUP_ID`, `php bin/cajeer upgrade BACKUP_ID --confirm-stopped`, проверка `install:status` и `migrate:verify`. См. runbook [maintenance-upgrade](runbooks/maintenance-upgrade.md) для отката в отдельную БД.
+## 1. Подготовка
+
+Поддерживаемая матрица: PHP 8.4/8.5, PostgreSQL 17/18. Для нативного размещения установите необходимые расширения PHP, Composer, клиентские утилиты PostgreSQL и веб-сервер. Для интеграций дополнительно нужны cURL, ZIP, GitHub CLI и доступ к соответствующим сервисам. Подготовьте отдельную БД, ограниченную роль, HTTPS, приватные `.env` и `storage/`. При разделении ролей следуйте [руководству администратора](Installer-Administrator.md) и [подготовке БД](Database-Installer.md).
+
+## 2. Проверка выпуска
+
+На [странице выпусков GitHub](https://github.com/CajeerTeam/CajeerLogs/releases) выберите стабильный выпуск, скачайте полный ZIP, `.sha256`, итоговый `database-certification.json` и сопутствующие материалы. Ниже пример для 1.1.0, применимый только после публикации соответствующих артефактов:
+
+```sh
+sha256sum -c CajeerLogs-1.1.0.zip.sha256
+gh attestation verify CajeerLogs-1.1.0.zip --repo CajeerTeam/CajeerLogs \
+  --source-ref refs/tags/v1.1.0 \
+  --signer-workflow CajeerTeam/CajeerLogs/.github/workflows/runtime.yml
+gh attestation verify database-certification.json --repo CajeerTeam/CajeerLogs \
+  --source-ref refs/tags/v1.1.0 \
+  --signer-workflow CajeerTeam/CajeerLogs/.github/workflows/runtime.yml
+```
+
+Дополнительно подтвердите, что обе аттестации относятся к одному исходному коммиту, а отчёт содержит успешную сертификацию SHA-256 именно этого ZIP. При любой ошибке прекратите установку. Контрольная сумма без аттестации не подтверждает происхождение. [Политика выпусков](Release-policy.md).
+
+## 3. Первичная установка
+
+Распакуйте проверенный дистрибутив в приватный каталог приложения, установите зависимости согласно зафиксированным файлам выпуска. Создайте `.env` из `.env.example`, ограничьте права файла до `0600`, задайте `APP_ENV=production`, `APP_DEBUG=false`, правильный HTTPS `APP_URL` и параметры PostgreSQL. Не размещайте конфигурацию в публичном каталоге.
+
+```sh
+php bin/cajeer version
+php bin/cajeer install:check
+php bin/cajeer install
+php bin/cajeer install:status
+php bin/cajeer migrate:verify
+php bin/cajeer doctor
+php bin/cajeer security:audit --tls
+php bin/cajeer health:ready
+```
+
+Первый администратор создаётся через скрытый ввод пароля либо `install --non-interactive` с `CAJEER_ADMIN_EMAIL` и `CAJEER_ADMIN_PASSWORD_FILE` (приватный абсолютный путь). Не запускайте установщик повторно с другими реквизитами для сброса пароля. При прерывании проверьте `install:status`, `migrate:plan`, устраните причину и продолжите с той же БД и ключами. Не удаляйте журнал миграций.
+
+Для Docker используйте `compose.production.yaml` и соответствующую закрытую конфигурацию окружения; настройте сертификаты, постоянные тома и секреты. [Настройка Nginx](Nginx-deployment.md).
+
+## 4. Обновление существующего экземпляра
+
+Для перехода с 1.0.9 на 1.1.0 новых миграций нет. Все 36 исторических миграций сохраняются, в том числе `0034`, `0035` и `0036`. При переходе с более старых версий будут применены ожидающие миграции. Перед любым обновлением выполните проверяемое резервное копирование и остановите все записывающие процессы, включая фоновые.
+
+Нативное поддерживаемое размещение: [безопасный установщик](Safe-Update-Installation-1.0.3.md). Docker, распределённое или разделённое по ролям размещение: отдельное операторское обновление. Из старого приложения создайте резервную копию `backup:create`, сохраните её идентификатор, старый релиз, секреты и проверенную внешнюю копию; после остановки процессов разверните новый проверенный релиз с сохранением конфигурации и данных.
+
+```sh
+php bin/cajeer backup:verify BACKUP_ID
+php bin/cajeer upgrade:check BACKUP_ID
+php bin/cajeer upgrade BACKUP_ID --confirm-stopped
+php bin/cajeer migrate:verify
+php bin/cajeer install:status
+php bin/cajeer health:ready
+php bin/cajeer audit:verify
+```
+
+`--confirm-stopped` подтверждает действия оператора, но не останавливает процессы. Откат не означает обратную миграцию: требуется согласованная предыдущая версия и её проверенная резервная копия в изолированной БД. После принятия новых записей нельзя уничтожать их автоматическим возвратом к старой БД.
+
+## 5. Приёмка
+
+Откройте `/admin/`, проверьте вход и TOTP, приём подписанного события, поиск, очередь и метрики. Подтвердите резервное восстановление. Внешние функции включайте отдельно после [приёмки интеграций](Production-Stable-GA-1.1.0.md).

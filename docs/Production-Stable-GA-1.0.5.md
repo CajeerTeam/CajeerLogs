@@ -1,3 +1,13 @@
-# CajeerLogs v1.0.5 — Identity Linking & Security
+# CajeerLogs 1.0.5 — Привязка и безопасность SkiF4er ID
 
-Adds authenticated account linking/unlinking, session provenance and scoped external session revocation. See [Identity Linking & Security](Identity-Linking-Security-1.0.5.md). Existing OIDC issuer, local identity and mandatory production release gates are retained. Source changes do not constitute certified GA publication. Live provider acceptance requires a configured SkiF4er ID client.
+[История версий](../CHANGELOG.md) · [Приёмка 1.1.0](Production-Stable-GA-1.1.0.md)
+
+## Изменения выпуска
+
+Явная привязка после локального подтверждения, отвязка и выборочный отзыв внешних сессий. Миграция 0035 завершает старые неоднозначные сессии привязанных пользователей, связи сохраняются.
+
+## Условия допуска
+
+Сохраняются API v1, действующие механизмы резервного копирования и обязательный GA pipeline. Для одного и того же архива должны пройти матрица PHP/PostgreSQL, проверки безопасности, браузера, SDK, совместимости, восстановления, зависимостей и нагрузки. Подписанные архив и итоговый сертификат обязательны. Наличие версии в коде и локальные тесты не подтверждают публикацию или доступность внешнего сервиса.
+
+Подробности настройки, ограничения и сценарии проверки: [Привязка и безопасность SkiF4er ID](Identity-Linking-Security-1.0.5.md). Для актуальной промышленной версии следуйте [контрольному списку](Production-checklist.md).

@@ -1,37 +1,42 @@
-# CajeerLogs 1.0.0 — Production operations checklist
+# Контрольный список промышленной эксплуатации CajeerLogs 1.1.0
 
-Verify the SHA-256 and authenticated Sigstore/GitHub OIDC attestations for both the release ZIP and certification report before starting any production installation. Follow [GA publication and installation](Production-Stable-GA-1.0.0.md) and [support policy](Release-policy.md).
+Отметка в документе не заменяет фактический тест. Допуск к GA подтверждается подписанным итоговым отчётом и опубликованным выпуском. [Приёмка 1.1.0](Production-Stable-GA-1.1.0.md).
 
-# CajeerLogs production checklist (1.0.0 release candidate)
+## Подготовка окружения
 
-This is an operator checklist; *checking an item in prose is not certification*. Only the signed CI-certified GitHub Release can be deployed as GA. Follow the [operational release procedure](Release-Candidate-Operations-0.9.9.md) and [incident runbooks](runbooks/README.md).
+- [ ] Получен полный неизменяемый ZIP, подтверждены SHA-256, аттестации ZIP и итогового отчёта, SBOM, OCI-образы и версия всех компонентов.
+- [ ] Зафиксированы и проверены зависимости Composer/npm/Gradle и воспроизводимость сборок.
+- [ ] `APP_ENV=production`, `APP_DEBUG=false`, канонический HTTPS `APP_URL`, корректная цепочка TLS.
+- [ ] PostgreSQL 17/18, PHP 8.4/8.5, выделенные роли, приватные секреты вне веб-каталога, `PROMETHEUS_TOKEN`.
+- [ ] Настроены RBAC, TOTP администраторов, повторное подтверждение критических действий и минимальные права токенов; проверен аудит.
 
-## Preparation
+## Установка и обновление
 
-- [ ] Deploy **one immutable full candidate ZIP** with matching PHP runtime, Admin Panel, SDKs and versioned containers; verify SHA-256, SBOM, provenance and OCI digests.
-- [ ] Complete strict Composer/npm/Gradle dependency verification, audit and independent reproducible builds.
-- [ ] Set `APP_ENV=production`, `APP_DEBUG=false`, canonical HTTPS `APP_URL`; verify TLS chain and hostname with `security:audit --tls`.
-- [ ] Configure protected PostgreSQL roles, network/TLS, secrets outside webroot, private environment files, and `PROMETHEUS_TOKEN`.
-- [ ] Enable admin MFA and step-up reauthentication; validate RBAC, sessions, source-scoped ingest tokens and audit chain.
+- [ ] `install:check`, установка либо `upgrade BACKUP_ID --confirm-stopped` после остановки всех записывающих процессов.
+- [ ] `migrate:verify`, проверки целостности и сертификация схемы на изолированных стендах; неизменны исторические миграции.
+- [ ] Проверены прежние данные, привязки, история расследований, повторный запуск, обновление и восстановление согласованной предыдущей версии.
+- [ ] Проверены актуальные ресурсы панели и реальные действия в Chromium, Firefox, WebKit.
 
-## Install / upgrade
+## Эксплуатация и восстановление
 
-- [ ] Perform `install:check`; run clean installation or safeguarded `upgrade BACKUP_ID --confirm-stopped` with writes/workers stopped.
-- [ ] Run `migrate:verify`, `migrate:certify` and database integrity checks on disposable test environments.
-- [ ] Verify that restart, repeated install/upgrade and prior-version rollback preserve data and account security.
-- [ ] Test real Admin Panel actions in Chromium, Firefox and WebKit against the current API.
+- [ ] Успешны `/ready`, `health:ready`, `operations:check`, `operations:triage`, `security:audit --tls`.
+- [ ] Работают очередь, обработчики, планировщик, хранение, защищённые `/metrics`, оповещения и внешние резервные копии.
+- [ ] Сняты диагностические данные `operations:incident` без секретов; файл имеет права `0600` в каталоге `0700`.
+- [ ] Проверены `backup:verify`, `backup:rehearse` и восстановление только из внешней копии; записаны измеренные RPO/RTO и результаты сверки событий/очереди/аудита.
+- [ ] Проверены аварийная остановка worker, повторные попытки, защита от дублирования, DLQ и управление нагрузкой.
+- [ ] Проверены сигналы Prometheus/Blackbox/Alertmanager при отказе worker и PostgreSQL и их закрытие после восстановления.
 
-## Operations / DR
+## Интеграции
 
-- [ ] Confirm `/ready`, `health:ready`, worker queue, scheduler, retention, offsite backup, security alerts and protected `/metrics`.
-- [ ] Run `operations:triage`, `security:audit`, `operations:incident`; store the last incident JSON with mode `0600` under a `0700` directory.
-- [ ] Run `backup:verify`, `backup:rehearse` and offsite-only DR; record **measured** application RPO/RTO and reconcile restored event/queue/audit data.
-- [ ] Verify queue recovery after SIGKILL, durable async jobs, retries, idempotency, DLQ and backpressure.
-- [ ] Observe real Prometheus/Blackbox/Alertmanager signals during controlled worker and PostgreSQL outages, then validate alert resolution.
+- [ ] ИИ: разрешение на передачу данных, бюджет, реальные синтетические запросы, проверка идентификаторов событий и отзыва прав.
+- [ ] SkiF4er ID: реальный вход и второй фактор, явная привязка, отзыв внешних сессий, работа локального входа при недоступности провайдера.
+- [ ] GitHub: обе подписи, совместимость, режим `check`, полный список служб и пустая БД, репетиция установки и восстановления до включения `install`.
 
-## Release gate
+## Выпуск
 
-- [ ] All four PHP 8.4/8.5 × PostgreSQL 17/18 reports and ClickHouse 25.8 tests succeeded on the same SHA-256.
-- [ ] Security, API v1, SDK, browser, integration stability, upgrade/rollback and strict supply chain passed.
-- [ ] Live HTTPS load 60/120/900/60 seconds (sustained/stress/soak/fault) passed with exact persisted **payload** checks and load SLOs.
-- [ ] Release owner approved and archived the actual CI evidence and operational runbooks. No automatic cutover or certification from source code alone.
+- [ ] Четыре сочетания PHP 8.4/8.5 × PostgreSQL 17/18 и ClickHouse 25.8 успешны для одного SHA-256.
+- [ ] Пройдены безопасность, API v1, SDK, браузер, интеграции, обновление/откат и строгая проверка цепочки поставки.
+- [ ] Пройдена реальная HTTPS-нагрузка 60/120/900/60 секунд с точным сравнением сохранённых событий и установленными порогами.
+- [ ] `publish-ga` успешен, опубликованы аттестованные артефакты; оператор сохранил доказательства и эксплуатационные инструкции.
+
+Справочные инструкции при сбоях: [сценарии реагирования](runbooks/README.md), [резервное восстановление](Backup-Disaster-Recovery.md), [нагрузочная сертификация](Load-Testing-Performance-Certification.md).

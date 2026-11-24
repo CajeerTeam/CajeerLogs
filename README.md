@@ -1,446 +1,106 @@
-## CajeerLogs 1.1.0 — Integrated Production Release
-
-ChatGPT investigations, SkiF4er ID sign-in/linking, and verified scheduled GitHub updates share the local session, RBAC, audit and backup lifecycle. Run `php bin/cajeer operations:integrations` to validate integration configuration; add `--live` for opt-in synthetic OpenAI, OIDC discovery and GitHub connectivity checks. See [production release acceptance](docs/Production-Stable-GA-1.1.0.md) and [automatic updates](docs/Automatic-Update-Management-1.0.9.md). GA publication requires the signed release pipeline; source patches are not certified distributions.
-
-
-## CajeerLogs 1.0.8 — AI Incident Intelligence
-
-Optional OpenAI-powered project log chat, incident grouping, correlated investigations and private saved history. See [incident intelligence setup, privacy and limits](docs/AI-Incident-Intelligence-1.0.8.md).
-
-## CajeerLogs 1.0.5 — Identity Linking & Security
-
-Link or unlink SkiF4er ID in account settings after local password and enrolled factor confirmation. Revoke external sessions independently of password sessions. Local RBAC and TOTP remain authoritative. See [Identity Linking & Security](docs/Identity-Linking-Security-1.0.5.md). The provider's public SDK page was unavailable during implementation; live interoperability must be checked with registered client credentials.
-
-## CajeerLogs 1.0.3 — Safe Update Installation
-
-Native Linux/systemd deployments now support `php bin/cajeer update:install VERSION --target-db EMPTY_DB --unit UNIT ... --confirm`. The installer re-verifies the signed ZIP, prepares locked dependencies, persistently stops all declared services and timers, verifies a PostgreSQL backup, restores an isolated exact database clone, runs the signed release's migrations and readiness checks, and switches release directories atomically. Before the durable commit, failures restore the previous application and database; after activation, recovery resumes the new database rather than discarding accepted writes. `update:status` and `update:recover --confirm` expose the durable maintenance journal. See [Safe Update Installation](docs/Safe-Update-Installation-1.0.3.md) for requirements and recovery.
-
-Discovery and verified downloads remain available: [Verified Update Downloads 1.0.2](docs/Verified-Update-Downloads-1.0.2.md). Docker, distributed and split-role deployments require their existing operator-driven upgrade process; this command intentionally does not modify containers or grant web processes privileged deployment access.
-
-A source archive or version change does not confirm successful external GitHub Actions GA certification.
-
-## CajeerLogs 1.0.1 — GitHub Release Discovery
-
-1.0.1 adds **working read-only discovery** of published CajeerTeam/CajeerLogs releases via GitHub REST API, strict SemVer comparison, stable/preview channel selection and release changelogs in the authenticated System panel. CLI: `php bin/cajeer update:check [--refresh]`. Local trusted JSON compatibility remains supported. Release results are cached privately for five minutes; failures are surfaced explicitly. The update checker does not download or install code. See [operator guide](docs/GitHub-Release-Discovery-1.0.1.md).
-
-The `v1.0.1` GitHub Actions workflow remains the mandatory release gate; this source archive or a changed version number **does not prove** that a signed GA release was published.
-
-## CajeerLogs 1.0.0 — Production Stable GA candidate
-
-The GA release is **not published or certified merely by this source archive**. The `v1.0.0` workflow verifies PHP 8.4/8.5 × PostgreSQL 17/18, real SDK/browser/ClickHouse integrations, DR, load SLOs, dependency integrity and Sigstore/OIDC attestations. The `publish-ga` job creates the immutable GitHub Release only after all checks pass.
-
-- [Install, upgrade, verify signed release artifacts](docs/Production-Stable-GA-1.0.0.md)
-- [Compatibility and support policy](docs/Release-policy.md)
-- [Operational checklist](docs/Production-checklist.md)
-
-**1.0.0 — Release Candidate & Operations Readiness.** Дополнительная проверка содержимого доставленных событий в нагрузочных тестах, восстановление сервиса в Docker smoke, сводная эксплуатационная приёмка, синхронизированные runbooks и строгая матрица CI. Релиз остаётся кандидатом до успешного полного CI и строгой проверки зависимостей. [Runbook приёмки](docs/Release-Candidate-Operations-0.9.9.md).
-
-**0.9.8 — Security & Operations Hardening (release candidate).** Команда `security:audit [--tls]` проверяет production TLS, 2FA, настройки сессий, защищённость Prometheus, состояние RBAC и TOTP в PostgreSQL. Метрики состояния безопасности и Alertmanager-правила запускают эксплуатационные оповещения. Полный инфраструктурный CI и strict supply-chain gate требуют отдельного подтверждения. [Инструкция](docs/Security-Operations-Hardening-0.9.8.md).
-
-**0.9.1 — Release Baseline & Supply Chain (кандидат).** Закреплены OCI-образы PHP, Nginx, PostgreSQL и ClickHouse; добавлены исполняемые проверки Composer/npm/Gradle lock-файлов, разрешения транзитивных зависимостей и сверки OCI-манифестов с реестрами. До генерации и установки настоящих lock-файлов строгий supply-chain gate **блокирует** production-публикацию. [Инструкция по фиксации зависимостей](docs/Release-Baseline-Supply-Chain-0.9.1.md).
-
-**0.9.0 — Production Quality & Security Stable (кандидат).** Версии PHP runtime, Admin Panel, API, PHP/TypeScript/Python/Kotlin SDK и production-образов приведены к единому 0.9.0. Проверка версии при запуске отклоняет неправильный runtime; тесты по фактическому ZIP проверяют версии, настройки безопасности и целостность. Сертификация stable-артефакта допускается только после полного CI для тега `v0.9.0` с аттестацией отчёта. Незакреплённые внешние зависимости пока блокируют production-допуск. [Условия релиза](docs/Production-Quality-Security-0.9.0.md).
-
-**0.8.4 — Reproducible Builds & Supply Chain.** Две изолированные сборки релизного ZIP, файловый CycloneDX SBOM, инвентаризация объявленных зависимостей, in-toto metadata и проверка GitHub OIDC-attestation. Незакреплённые зависимости блокируют финальную сертификацию. [Инструкция](docs/Reproducible-Builds-Supply-Chain-0.8.4.md). Канал `public-preview`.
-
-**0.8.3 — Security Review & Hardening.** Исправлены проверки PostgreSQL boolean-полей в HMAC, TOTP и установщике, неоднозначная HTTP-framing обработка и маскирование camelCase-секретов. Добавлены исполняемые регрессионные проверки и обязательный CI security gate. [Security review 0.8.3](docs/Security-Review-Hardening-0.8.3.md). Канал `public-preview` до независимой production-сертификации.
-
-**0.8.2 — Full E2E & Failure Recovery.** Реальные интеграционные HTTP-сценарии из неизменяемого релизного ZIP запускаются повторно в изолированных окружениях; тесты обновлений и сквозного pipeline теперь используют тот же архив. [Тестирование и приёмка 0.8.3](docs/Full-E2E-Failure-Recovery-0.8.2.md). Канал остаётся `public-preview` до прохождения полного PostgreSQL/ClickHouse/S3, SDK, браузерного и нагрузочного CI.
-
-## Analytics & Storage Certification (0.8.0)
-
-Расширены исполняемые проверки миграции PostgreSQL, репликации ClickHouse, точности rollups и реального переноса hot → warm → S3 cold → hot. Включены S3 HTTP fault injection, проверка восстановления очереди при отказе ClickHouse и обязательный SHA-256-связанный отчёт приёмки из собранного релизного ZIP. [Инструкция по проверкам](docs/Analytics-Storage-Certification-0.7.9.md). Статус `public-preview`: без целевого PostgreSQL/ClickHouse/S3 и реальных нагрузочных измерений production-сертификация не подтверждается.
-
-## Scalable Storage & Retention (0.7.8)
-
-Опциональная партиционированная warm-архивация и проверенное S3-хранение. [Инструкция оператора](docs/Scalable-Storage-Retention-0.7.8.md). Hot PostgreSQL остаётся основным поисковым хранилищем; evict выполняется только по `--confirm`.
-
-## Advanced Search Engine (0.7.7)
-
-Полнотекстовый Explorer дополнен точными ограниченными фасетами и корреляцией событий через `related_event` / `relation` с проектной изоляцией. Новая миграция `0032_advanced_search.sql` создаёт составные индексы.
-
-См. [Advanced Search Engine](docs/Advanced-Search-Engine-0.7.7.md).
-
-## Error analytics and reports (0.7.6)
-
-The Admin Panel includes **Отчёты об ошибках** with normalized error groups, trends,
-preceding-period comparison, source-scoped drill-down and JSON/CSV downloads.
-The real PostgreSQL queries read committed events with a bounded time window,
-and preserve exact counts across updates, deletes and retention.
-See [Error Analytics & Reporting](docs/Error-Analytics-Reporting-0.7.6.md).
-
-## 0.7.3 — Aggregation Engine
-
-Version 0.7.3 adds exact, transactional minute rollups, project-scoped resumable historical backfill, safe minute/hour/day statistics, and dimensional reconciliation. See [Aggregation Engine](docs/Aggregation-Engine.md).
-
-Optional **working** PostgreSQL→ClickHouse transactional outbox, versioned analytics mirror, retry after ambiguous responses, lease recovery, per-project replay and resumable backfill. Captures inserts, redactions and deletes; see [replication operator guide](docs/Reliable-Analytics-Replication.md). The ClickHouse mirror is not yet used by the primary PostgreSQL Explorer, and this `public-preview` release requires actual database certification before production use.
-
-## 0.7.1 — ClickHouse Integration Core
-
-Optional working ClickHouse HTTP adapter with safe project-scoped analytics, migration checksums, operator CLI, and isolated production Compose service. PostgreSQL remains the durable ingestion database; ClickHouse replication is **not** automatic in 0.7.1. See [ClickHouse operations](docs/ClickHouse.md). The `public-preview` release requires real ClickHouse CI verification.
-
-## 0.7.0 — SDK & Integrations Stable Release Candidate
-
-This release retains API v1 and the PostgreSQL schema of 0.6.8. It requires real integrated verification of the SDK, durable ingest, queue recovery, webhook, JSON/CSV exports and retention on disposable databases, as well as sustained/stress/soak/fault testing of the HTTPS production stack. See [SDK & Integrations release operations](docs/SDK-Integrations-Stable-0.7.0.md) and [Integration and Compatibility Certification](docs/Integration-Compatibility-Certification.md). A successful build alone is not a certificate; release evidence must come from the real matrix and production smoke.
-
-## 0.6.8 — JSON/CSV Export Stable
-
-Streamed asynchronous JSON/CSV exports, private artifact downloads and integrity verification. See [export operations](docs/JSON-CSV-Export-Stable.md).
-
-## 0.6.7 — Webhooks Stable
-
-Project-scoped webhook subscriptions are now administered through the **working Admin Panel (Webhooks)** and API v1, with selectable committed log/source events, test sends, delivery history, manual retry, revision checks and tamper-evident management audit. Durable outbox, HMAC, DNS-pinned HTTPS egress and cron/systemd worker remain operational. Upgrade PostgreSQL with `php bin/cajeer migrate` before serving API traffic. [Operator guide](docs/Webhooks-Stable.md).
+<div align="center">
 
 # CajeerLogs
 
-Self-hosted PHP-first платформа централизованного логирования.
+**Централизованные журналы событий · Аналитика ошибок · Расследование инцидентов**
 
+[![Версия исходников](https://img.shields.io/badge/версия-1.1.0-2563eb)](release.json)
+[![PHP](https://img.shields.io/badge/PHP-8.4%20%2F%208.5-777bb4)](composer.json)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17%20%2F%2018-336791)](docs/Installation.md)
+[![API](https://img.shields.io/badge/API-v1-0d9488)](api/openapi.yaml)
 
-Bulk JSON/CSV exports: [`docs/JSON-CSV-Export-Stable.md`](docs/JSON-CSV-Export-Stable.md) (PostgreSQL job queue, worker, 24-hour downloads).
+[Возможности](#возможности) · [Установка](#быстрый-старт) · [Документация](docs/README.md) · [История версий](CHANGELOG.md) · [Выпуски](https://github.com/CajeerTeam/CajeerLogs/releases)
 
-## 0.6.6 — aaPanel Integration Stable
+</div>
 
-Local production multi-site aaPanel operator: discovery of site access/error/JSON logs,
-per-site/source durable checkpoints, isolate-and-retry failures, stream control,
-rotation recovery, JSON backlog/error monitoring and a hardened systemd unit.
-Sources are registered through existing Admin Panel; the collector is local to
-the aaPanel server. See [aaPanel operator](modules/aapanel-importer/README.md).
+---
 
-## 0.6.5 — Nginx Log Import Stable
+CajeerLogs — самостоятельно развёртываемая платформа сбора, хранения и исследования журналов приложений и инфраструктуры. Объединяет приём структурированных событий, поиск, аналитику, очереди и административное управление в одном сервисе. Подходит для разработчиков, администраторов и команд эксплуатации, которым необходимо находить ошибки по исходным событиям и управлять доступом к данным разных проектов.
 
-Real file-based incremental Nginx importer with SQLite-confirmed offsets, immutable
-HTTP batches, HMAC, rename/reopen rotation, opt-in verified copytruncate archive
-recovery, and combined/common/error/structured JSON access parsing. Corrupt,
-missing or ambiguous rotation history stops collection without advancing the
-checkpoint. See [Nginx importer runbook](docs/Nginx-Log-Import-Stable.md).
+> [!IMPORTANT]
+> **Версия 1.1.0** — версия исходного кода. Канал `stable` в конфигурации не является доказательством промышленной сертификации. Для установки стабильного выпуска используйте только опубликованный полный ZIP с проверяемыми аттестациями архива и итогового отчёта. Статус смотрите на странице [выпусков GitHub](https://github.com/CajeerTeam/CajeerLogs/releases).
 
-## 0.6.4 — Kotlin Client Stable
+## Возможности
 
-Kotlin/JVM 17+ sender with bounded, nonblocking submit, event batching, immediate backpressure,
-validated HTTP/HMAC receipts, explicit ambiguous-response recovery, graceful draining,
-Java futures/AutoCloseable compatibility and a real `java.util.logging` adapter.
-Memory-backed delivery is **not durable across a forced JVM exit**; see the
-[Kotlin SDK operations guide](docs/Kotlin-SDK-Stable.md) and
-[Gradle/Maven client](clients/java-kotlin/README.md).
+| Направление | Что получает команда |
+|---|---|
+| Сбор событий | Одиночный, пакетный и асинхронный приём, проектные токены, HMAC, идемпотентность, повторные попытки |
+| Поиск и просмотр | Фильтры, постраничная выдача, просмотр JSON, связь событий по Trace ID и Request ID |
+| Аналитика | Статистика источников, распределения ошибок, отчёты, необязательная аналитическая реплика ClickHouse |
+| ИИ-помощник | Чат по журналам проекта, анализ стектрейсов, группировка ошибок и личная история расследований |
+| Идентификация | Локальный вход, TOTP, роли и разрешения; дополнительный вход и привязка SkiF4er ID |
+| Интеграции | PHP/Monolog, Python, TypeScript, Kotlin, импорт Nginx и aaPanel, вебхуки, экспорт JSON/CSV |
+| Эксплуатация | Очереди PostgreSQL, ограничения нагрузки, Prometheus, резервные копии, восстановление и политика хранения |
+| Обновления | Проверка версий GitHub, верификация подписанных ZIP, плановые загрузки и безопасная установка на поддерживаемых Linux-серверах |
 
-## 0.6.3 — TypeScript SDK Stable
+## Что нового в 1.1.0
 
-Node.js 20+ ESM SDK with production HTTP/HMAC and optional durable batching, bounded local spool, crash recovery and typed receipts. See [TypeScript SDK Stable](docs/TypeScript-SDK-Stable.md) and [SDK package](packages/ts-sdk/README.md).
+Три интеграции объединены с существующими сессиями, проектными правами, аудитом и жизненным циклом резервных копий.
 
-## 0.6.2 — Python SDK Stable
+| ИИ-помощник ChatGPT | SkiF4er ID | Обновления GitHub |
+|---|---|---|
+| Контекст проекта, связанные ошибки, гипотезы и история | Явная привязка, локальная 2FA, отдельный отзыв внешних сессий | Каналы, расписание, проверка SHA-256 и подписанного сертификата выпуска |
 
-Добавлен durable SQLite synchronous batching для Python приложений и
-`logging.Handler`: записи фиксируются локально до HTTP, пакеты сохраняют
-неизменные байты и idempotency key, выполняется recovery после перезапуска,
-добавлены фоновый flusher, CLI status/flush, контроль заполнения и проверки
-реального HTTP + HMAC + конкурирующих процессов. Python wheel/sdist и
-отдельная CI матрица для 3.10–3.13; существующие API и async collector не
-изменены. [Python SDK Stable](docs/Python-SDK-Stable.md).
+Все три функции управляются оператором. Внешний вход, ИИ и автоматическая установка по умолчанию отключены. Недоступность внешнего провайдера не должна блокировать локальные способы работы. [Условия приёмки 1.1.0](docs/Production-Stable-GA-1.1.0.md) описывают, как это подтвердить на целевом стенде.
 
-## 0.6.1 — PHP / Monolog SDK Stable
+## Архитектура
 
-PHP SDK поддерживает опциональный файловый `DurableBatchDelivery`: события фиксируются
-в приватном spool (0700/0600) до отправки; пакеты до 100 событий / 1 MiB сохраняют
-неизменные JSON-байты и ключ идемпотентности между повторами и перезапусками.
-PSR-3 `Logger` и Monolog 3 `MonologHandler` используют этот транспорт по явному выбору;
-старое синхронное поведение сохранено. Проверки реального HTTP, HMAC, 503/401,
-потери ответов, конкурентной записи и restart recovery добавлены в CI.
-Без SQL-миграций. [Инструкция](docs/PHP-Monolog-SDK-Stable.md).
+```mermaid
+flowchart LR
+  A[Приложения и SDK] --> B[HTTPS API v1]
+  B --> C[Проверка доступа и событий]
+  C --> D[(PostgreSQL)]
+  C --> E[Асинхронная очередь]
+  E --> D
+  D --> F[Панель и поиск]
+  D -. Аналитическая реплика .-> G[(ClickHouse)]
+  F -. С согласия .-> H[OpenAI]
+  I[SkiF4er ID] -. Внешний вход .-> F
+  J[GitHub Releases] -. Проверенные артефакты .-> K[Оператор обновления]
+```
 
-## 0.6.0 — High-Throughput Ingestion & Queue Processing Stable
+PostgreSQL — основное хранилище. ClickHouse применяется дополнительно, а внешние интеграции не заменяют локальные механизмы авторизации и обработки событий.
 
-Боевое обновление PostgreSQL pipeline: по умолчанию воркеры объединяют до четырёх
-совместимых заданий. Admission, quota, lease, request validation и idempotency
-сохранены. Прежде чем захватывать дополнительные jobs, планировщик сверяет
-validation version, число событий (не более 100) и фактический размер JSONB
-(консервативный предел 4 MiB), поэтому заведомо непомещающиеся группы больше
-не откатываются и не запускаются в режиме индивидуального fallback.
+## Системные требования
 
-В пути выполнения группы leases и payload читаются одним SQL-запросом под
-упорядоченными строковыми блокировками, а результаты попыток подтверждаются
-одним обновлением в той же транзакции, что log_events, outbox и job receipts.
-Fallback сохраняется только для действительно некорректных заданий и не
-повторяет неоднозначный COMMIT. CI release gate требует проверку полного async pipeline на
-HTTPS/PostgreSQL со стрессом, soak и внедрением отказов. Новых SQL-миграций нет;
-см. [0.6.0 runbook](docs/High-Throughput-0.6.0.md).
+| Компонент | Требование |
+|---|---|
+| PHP | 8.4 или 8.5; PDO PostgreSQL, sodium, Argon2id; cURL для ИИ и OIDC, ZIP для обновлений |
+| База данных | PostgreSQL 17 или 18; отдельная БД и ограниченные права |
+| Промышленное размещение | HTTPS, PHP-FPM/Nginx либо предоставленная конфигурация Docker Compose |
+| Дополнительные возможности | ClickHouse 25.8, S3-совместимое архивное хранилище, GitHub CLI для проверки подписей |
+| Автоматическая установка | Поддерживаемый одиночный Linux/systemd-узел, отдельная пустая БД, операторские полномочия |
 
-## 0.5.10 — Load Testing & Performance Certification
+## Быстрый старт
 
-Исполняемый `scripts/load_test.py` проводит устойчивую нагрузку (sustained), ramp-stress (x1/x2/x4),
-soak и внедрение сбоев (429/503, потеря ответа после записи, задержка) через локальный HTTP reverse proxy
-на **реальный** HTTPS-сервис. Проверяются фактически сохранённые события, завершение async jobs,
-идемпотентность повторов, p50/p95/p99, throughput, error rate и соблюдение SLO. Публикация
-`certified=true` возможна лишь при явном `--certify`, полном наборе сценариев, минимальных
-длительностях и сравнении с проверенным архивом. Smoke Docker/PG/TLS выполняет ускоренный
-реальный прогон, не выдавая его за длительную сертификацию. Без миграций.
-[Инструкция и ограничения](docs/Load-Testing-Performance-Certification.md).
-
-## 0.5.9 — Queue Operations & Observability
-
-Реальное управление PostgreSQL queue dispatch: `queue:dispatch`, `queue:pause [REASON] --confirm`, `queue:resume --confirm`, `queue:drain [SECONDS] --confirm`, защищённые административные маршруты, транзакционный аудит и система мониторинга очереди. Новые накопительные показатели принятых и завершённых событий, retries и dead-letter, гистограмма времени доставки, Prometheus alerts и Grafana. Требуется миграция **0025**. Подробности: [Queue Operations](docs/Queue-Operations-Observability.md). Канал `public-preview` до полного PostgreSQL/Docker CI.
-
-## 0.5.8 — Delivery Guarantees & SDK Recovery
-
-SDK Python, TypeScript, PHP и Kotlin поддерживают `ingestAsync`/`ingest_async`, `sendAsyncBody`, проверяемое чтение `/ingest/jobs/{id}` и ожидание терминального `completed`. HTTP 202 подтверждает только durable admission. При потере ответа повторяются **те же байты и Idempotency-Key**, но после подтверждения 202 SDK не создаёт новый job, а проверяет его статус. Python collector `--async` и защищённый SQLite `DurableAsyncSpool` выдерживают перезапуск с сохранением квитанций и контрольных точек. Новых миграций нет. См. [Delivery & SDK Recovery](docs/SDK-Delivery-Recovery.md). Канал `public-preview` до полного PostgreSQL/Docker CI.
-
-## 0.5.7 — Multi-Project Queue Fairness
-
-Взвешенный справедливый выбор проектов при получении заданий PostgreSQL, отдельные бюджеты jobs/events/bytes, лимит одновременной обработки, точные транзакционные счётчики, защищённая CLI-настройка с аудитом и проверяемая сверка. Обязательная миграция 0024, предыдущие миграции без изменений. [Эксплуатация](docs/Multi-Project-Queue-Fairness.md). Статус `public-preview` до полного PostgreSQL/Docker E2E.
-
-
-## 0.5.6 — Backpressure & Admission Control
-
-Атомарная PostgreSQL-проверка трёх ресурсов (`QUEUE_MAX_JOBS`, `QUEUE_MAX_EVENTS`, `QUEUE_MAX_BYTES`), долговременная пауза при высоком заполнении и гистерезис возобновления. HTTP 503/Retry-After без расходования квот при отказе, сохранённая идемпотентность повторов, показатели Prometheus, CLI `queue:capacity`, административная диагностика и проверка конкурирующих producers. Требуется миграция 0023. [Эксплуатация](docs/Backpressure-Admission-Control.md). Статус public-preview до полного PostgreSQL/Docker CI.
-
-## 0.5.5 — High-Throughput Batch Ingestion
-
-Ограниченные транзакционные microbatches совместимых PostgreSQL jobs: один SQL INSERT событий, отдельные durable receipts/attempts/webhook-deliveries, откат группы с изоляцией неисправного job, защита от превышения 100 событий/4 МиБ, сокращение повторной нормализации и проверка scope один раз на уникальный источник. `QUEUE_WORKER_BATCH_JOBS=1..16` (по умолчанию 1 для обычной CLI-конфигурации, 4 для production Compose). [Документация](docs/High-Throughput-Batch-Ingestion.md). Миграции 0001–0022 неизменны; статус public-preview до полного PostgreSQL/Docker CI.
-
-## 0.5.4 — Dead-Letter Management
-
-Управление проблемными заданиями через `/admin/#queue`: проектная фильтрация, история попыток, атомарный retry/discard, RBAC, аудит и метрики DLQ. [Dead-Letter Management](docs/Dead-Letter-Management.md). Миграции 0001–0022 неизменны.
-
-## 0.5.3 — Retry & Failure Recovery
-
-Настраиваемый бюджет попыток, jitter, lease recovery и защита от неопределённого COMMIT. [Retry & Failure Recovery](docs/Retry-Failure-Recovery.md).
-
-## 0.5.2 — Worker Runtime & Concurrency
-
-Независимые PHP workers под управлением `queue:pool`, graceful drain, автоматическая замена завершившихся процессов, ограничения жизненного цикла, адаптивный polling, PostgreSQL transaction timeouts и индивидуальная диагностика. См. [Worker Operations](docs/Worker-Operations.md). Миграции 0001–0022 не изменены; новая миграция не требуется. Канал public-preview до прохождения полного CI.
-
-
-## 0.5.1 — PostgreSQL Queue Hardening
-
-Транзакционные счётчики jobs/events/bytes, индексированный claim, сверка ёмкости и миграция 0022. [PostgreSQL Queue Hardening](docs/PostgreSQL-Queue-Hardening.md).
-
-## 0.5.0 — Security & Operations Stable (candidate)
-
-Интеграция RBAC, 2FA, audit, rate limiting, HTTPS, Secure Installer, backup, retention и мониторинга. Защита production-конфигурации и метрик, проверка security-атрибутов схемы и `operations:check`. [Security & Operations Stable](docs/Security-Operations-Stable.md). Без новых миграций; Public Preview до полного CI.
-
-## 0.4.10 — Health Checks & Prometheus
-
-Readiness с отдельным PostgreSQL probe, heartbeat фоновых процессов, метрики backup, TLS/HTTP probes и опциональный monitoring stack. [Prometheus](docs/Prometheus.md).
-
-## 0.4.9 — Retention & Storage Lifecycle
-
-Read-only preview, ограниченные транзакции, история выполнения, Prometheus и политики служебных данных. Миграция 0021. [Retention & Storage Lifecycle](docs/Retention-Storage-Lifecycle.md). Public Preview до CI.
-
-## 0.4.8 — Backup & Disaster Recovery
-
-Плановые PostgreSQL backup, аутентифицированные шифрованные offsite-копии, импорт, проверяемое восстановление и безопасная ротация локальных архивов. Без новых миграций. [Backup & Disaster Recovery](docs/Backup-Disaster-Recovery.md). Public Preview до CI.
-
-## 0.4.7 — Secure Installer
-
-Защищённые файловые секреты, строгие права конфигурации, read-only preflight и проверка резервной копии перед обновлением. Без новых миграций. [Secure Installer](docs/Secure-Installer.md).
-
-## 0.4.6 — HTTPS & Deployment Security
-
-Проверка публичного Host, доверенные reverse proxy, TLS-проверка сертификата, усиление Nginx и опциональный обязательный TLS PostgreSQL. Без новых миграций. [Production Security](docs/Production-Security.md). Public Preview до CI.
-
-## 0.4.5 — Rate Limiting & Abuse Protection
-
-Общие PostgreSQL token buckets, независимые бюджеты поиска, аналитики, экспорта и административных изменений, настраиваемый burst, точный Retry-After, Nginx admission и диагностика лимитов. Миграция 0020. [Rate Limiting](docs/Rate-Limiting.md). Public Preview до CI.
-
-## 0.4.4 — Audit Log & Accountability
-
-Append-only audit, PostgreSQL hash chain, explicit scope and results, time filters, bounded NDJSON export and CLI verification. Migration 0019. [Audit Log & Accountability](docs/Audit-Log-Accountability.md). Public Preview до CI.
-
-## 0.4.3 — Identity & 2FA Security
-
-Политики обязательной 2FA, idle timeout, подтверждение личности и отдельная ротация TOTP-ключей: [Identity & 2FA Security](docs/Identity-2FA-Security.md).
-
-## 0.4.2 — RBAC & Authorization (предыдущий релиз)
-
-Настраиваемые глобальные и проектные роли, детальные разрешения, серверные назначения и проверка эффективного доступа, редактор ролей, аудит и защита от повышения полномочий. Миграция 0017. [Руководство RBAC](docs/RBAC.md). Public Preview до CI.
-
-## 0.4.1 — Admin Panel Release
-
-Глобальный поиск проектов, согласованная навигация и перепроверка доступа, независимые диагностические проверки. [Руководство](docs/Admin-Panel-Release.md).
-
-## 0.4.0 — Admin Panel Release
-
-Интегрированная административная панель: Dashboard, Log Explorer, Saved Views, JSON Inspector, проекты/источники, пользователи, токены, сервисные аккаунты, HMAC, отдельный раздел безопасности и аудит. Централизованная смена проекта и перепроверка доступа. Release gate для точного ZIP требует PostgreSQL-матрицу, браузерный E2E Chromium/Firefox/WebKit и production smoke. [Документация релиза](docs/Admin-Panel-Release.md). Без новых миграций; Public Preview до успешной сертификации CI.
-
-## 0.3.9 — Token Management & Security
-
-Каталог credentials, карточки токенов и сервисных аккаунтов, досрочное завершение HMAC overlap и журнал безопасности. [Документация](docs/Token-Management-Security.md). Без миграций. Public Preview до CI.
-
-## 0.3.8 — Project & Source Management
-
-Каталог проектов, фильтры и состояние источников, действующие политики, мастер подключения с токеном logs:write, HMAC и проверкой реального события. [Документация](docs/Project-Source-Management.md). Без новых миграций. Public Preview до CI.
-
-## 0.3.7 — User & Access Management
-
-Каталог пользователей с фильтрами, карточка аккаунта, эффективные права и членство в проектах, поиск участников, аудит и административный сброс 2FA. [Документация](docs/User-Access-Management.md). Без новых миграций. Public Preview до CI.
-
-## 0.3.6 — Event Details & JSON Viewer
-
-Инспектор событий, ленивое JSON-дерево, поиск по ключам и значениям, копирование путей и исходного JSON, связанные логи по Trace/Request ID. Без миграций. [Документация](docs/Event-Details-JSON-Viewer.md). Public Preview до CI.
-
-## 0.3.5 — Advanced Filters & Search
-
-Визуальный конструктор поиска, множественные значения, JSON-пути, активные фильтры, предустановки и личные сохранённые представления PostgreSQL. Миграция 0016. [Документация](docs/Advanced-Filters-Search.md). Public Preview до CI.
-
-## 0.3.4 — Log Explorer & Table
-
-Настраиваемая таблица логов, порядок и ширина колонок, UTC/локальное время, клавиатурная навигация, проверка новых событий без скачка страницы, подписанные курсоры и защищённый экспорт. Без миграций. [Log Explorer](docs/Log-Explorer.md). Public Preview до CI.
-
-## 0.3.3 — Dashboard & Analytics
-
-Рабочая аналитика PostgreSQL: периоды и сравнение, интерактивный график событий и ошибок, топ источников, сервисов и хостов, состояние источников и переходы в Log Explorer. Без новой миграции. [Dashboard & Analytics](docs/Dashboard-Analytics.md). Public Preview до CI.
-
-## 0.3.2 — Authentication & Sessions
-
-Двухэтапный вход, локальный QR для TOTP, одноразовые recovery-коды, редактируемый профиль, список и отзыв сессий пользователя и администратора. Миграция 0015 сохраняет действующие сессии. [Authentication & Sessions](docs/Authentication-Sessions.md). Public Preview до CI.
-
-## 0.3.1 — Admin UI Foundation
-
-Рабочая административная SPA на ES Modules: отдельные страницы, API-клиент, управление состоянием и сессиями, маршрутизация с RBAC, адаптивная дизайн-система с системной/светлой/тёмной темой. Без миграций и новых runtime-зависимостей. [Документация панели](docs/Admin-Panel.md). Public Preview до CI.
-
-## 0.3.0 — Log Ingestion & Search Release
-
-Завершение цикла 0.2.x: production pipeline ingest → PostgreSQL → search, безопасное чтение исторических JSONB, ограничение detail, HMAC v2 benchmark с проверкой snapshot и экспорта, сквозной release gate и обновление 0.1.0/0.2.0/0.2.9. Public Preview до фактического CI. См. [Log Ingestion & Search Release](docs/Log-Ingestion-Search-Release.md).
-
-## 0.2.9 — Pagination & Log Explorer
-
-Подписанные курсоры v2 с привязкой к области доступа, двусторонний keyset, ограниченный snapshot по received_at, байтовый бюджет страниц, проверяемый экспорт и восстановление позиции Log Explorer. Без новой миграции. См. [Pagination & Log Explorer](docs/Pagination-Log-Explorer.md).
-
-## 0.2.8 — Log Search
-
-Расширенные фильтры PostgreSQL FTS/JSONB, списки источников, уровней, сервисов, trace/request ID и тегов; точные JSON-пути, read-only SQL-бюджет, метрики и EXPLAIN для реальных фильтров. Без новой миграции. См. [Log Search](docs/Log-Search.md).
-
-## 0.2.7 — Idempotency & Delivery Guarantees
-
-Единая область доставки для цепочки ротации credential, согласованные sync/async ключи, настраиваемое окно хранения, повтор после потери ответа и строгие SDK receipts. Миграция 0014. См. [Idempotency & Delivery Guarantees](docs/Idempotency-Delivery-Guarantees.md).
-
-## 0.2.6 — Redaction & Data Privacy
-
-Настраиваемое аддитивное маскирование системы, проекта и источника; revision, preview и аудит; применение до durable enqueue и INSERT; обработка истории через CLI. См. [Redaction & Data Privacy](docs/Redaction-Data-Privacy.md).
-
-## 0.2.5 — HMAC & Replay Protection
-
-Обязательные политики подписи, отдельные зашифрованные signing keys, ротация с overlap, проверка nonce под блокировками PostgreSQL и HMAC v1/v2 во всех SDK. Миграция 0013. [Инструкция](docs/HMAC-signature.md).
-
-## 0.2.4 — Ingest Authorization
-
-Единый проверенный ingest principal, общие лимиты sync/async/polling, повторная авторизация под блокировкой токена и перед подтверждением, строгие scopes и SQL-проверка доступа очереди. [Инструкция](docs/Ingest-Authorization.md).
-
-## 0.2.3 — Event Validation
-
-Строгий JSON без повторных ключей, ограниченная структура, сохранение точности чисел context, timestamp admission policies, структурированные ошибки, версионированные durable jobs и клиентская валидация. [Инструкция](docs/Event-Validation.md).
-
-## 0.2.2 — Single & Batch Ingestion
-
-Единая нормализация и ограничение пакетов, проверка durable payload, пакетные блокировки и счётчики источников, безопасная обработка lease и dead-letter. [Инструкция](docs/Single-Batch-Ingestion.md).
-
-## 0.2.1 — Ingest Runtime
-
-Единый ingest-сервис, строгий HTTP envelope, ограничение параллельного приёма, бюджет SQL, безопасные 503 и локальные Prometheus-метрики. [Инструкция](docs/Ingest-Runtime.md).
-
-## 0.2.0 — Database Core Release
-
-Завершение цикла PostgreSQL-ядра: защищённая публикация восстановленной БД с логическим аудитом, проверка совместимости backup и обязательная матрица интеграции на одном ZIP (PHP 8.4/8.5 × PostgreSQL 17/18, обновления 0.1.0 и 0.1.9, production smoke). Канал public-preview до фактического прохождения release gate. [Инструкция](docs/Database-Core-Release.md).
-
-## 0.1.9 — Database Integrity & Performance
-
-Миграция 0012 проверяет связи логов, источников, токенов и очереди; добавлены индексируемый retention, логический аудит данных, диагностика PostgreSQL и конкурентный HTTP benchmark со сверкой UUID. [Инструкция](docs/Database-Integrity-Performance.md).
-
-## 0.1.8 — API Token Management
-
-Ротация API-токенов с ограниченным перекрытием, отзыв, сервисные учётные записи, лимиты запросов, неизменяемая область доступа и управление в Admin Panel. Миграция 0011. [Инструкция](docs/API-Token-Management.md).
-
-## 0.1.7 — Source Management
-
-Полный жизненный цикл источников: редактирование, типы и метаданные, отключение, архивирование и восстановление, индивидуальные ограничения и retention, last seen, статистика и Admin Panel с тестовым ingest. Новая миграция 0010. [Инструкция](docs/Source-Management.md).
-
-## 0.1.6 — Project Management
-
-Полный обратимый жизненный цикл проектов: редактирование с ревизиями, архивирование и восстановление, политики ingest/retention, ограничения ролей, статистика и Admin Panel. Новая миграция 0009. [Инструкция](docs/Project-Management.md).
-
-## 0.1.5 — Installer & Administrator
-
-Безопасная установка и повторный запуск после прерывания, подготовка выделенной схемы PostgreSQL с раздельными ролями, статус установки и CLI-восстановление пароля администратора с аудитом. [Инструкция](docs/Installer-Administrator.md).
-
-## 0.1.4 — Log Repository
-
-Единый PostgreSQL-репозиторий записи и чтения, атомарная проверка области доступа всего пакета, потоковый JSONL-экспорт, возобновляемый импорт архивов и явное назначение legacy-событий. [Инструкция](docs/Log-Repository.md).
-
-## 0.1.3 — Transaction Management
-
-Единый TransactionManager, savepoints, уровни изоляции, ограниченный retry конфликтов PostgreSQL и атомарные операции ingest, очереди и аудита. [Инструкция](docs/Transaction-Management.md).
-
-## 0.1.2 — Migration Engine
-
-Отдельные транзакции миграций, реальный контроль PostgreSQL catalog, read-only plan/verify, журнал попыток, безопасное восстановление concurrent indexes и batch backfill. При обновлении с 0.1.1 обязательно выполнить `php bin/cajeer migrate` даже при отсутствии pending SQL. [Инструкция](docs/Migration-Engine.md).
-
-## 0.1.1 — PostgreSQL Runtime
-
-Непостоянные PostgreSQL-соединения, ограниченный retry подключения, восстановление queue worker после разрыва, отдельная CLI-роль миграций, параметры сессии и метрики PostgreSQL. [Настройка и диагностика](docs/PostgreSQL-Runtime.md). SQL 0001–0008 не меняются.
-
-## 0.1.0 — First Public Release
-
-Первый публичный MVP: централизованный приём и поиск логов, Admin Panel, проекты, API-токены, TOTP, SDK PHP/Python/TypeScript/Kotlin, файловый коллектор, PostgreSQL-очередь, webhooks, retention, мониторинг и backup/restore. Рабочая production-конфигурация PHP-FPM/Nginx/PostgreSQL через Compose, проверяемая сборка полного релиза и обязательный CI release gate. Не LTS; дополнительные СУБД, поисковые движки, HA и инциденты остаются вне релиза.
-
-**Установка, обновление с 0.0.9, сборка и эксплуатация:** [First Public Release](docs/First-Public-Release.md). Миграции 0001–0008 не меняются. Для локального запуска ниже используйте `APP_ENV=local`.
-
-### Быстрый запуск
-
-Требуется PHP 8.4+ с PDO, `pdo_pgsql`, sodium, Argon2id, JSON, ctype, filter и PCRE; PostgreSQL 17+. Для установки создайте отдельную базу и непривилегированную роль PostgreSQL; подробности в [Database & Installer](docs/Database-Installer.md).
+1. Выберите [опубликованный выпуск](https://github.com/CajeerTeam/CajeerLogs/releases) и проверьте архив по [руководству установки](docs/Installation.md). Не используйте исходный архив как подтверждённый дистрибутив.
+2. Подготовьте PostgreSQL, HTTPS, приватную конфигурацию `.env` и зависимости из проверенного релиза. Укажите реальные параметры БД и адрес приложения, не публикуя пароли и ключи.
+3. Выполните команды из каталога приложения под выделенной учётной записью:
 
 ```sh
-cp .env.example .env
-chmod 600 .env
-# Укажите реальные DB_HOST, DB_DATABASE, DB_USERNAME, DB_PASSWORD и APP_URL в .env.
 php bin/cajeer install:check
 php bin/cajeer install
-php bin/cajeer migrate:status
-php bin/cajeer db:doctor
+php bin/cajeer install:status
+php bin/cajeer migrate:verify
 php bin/cajeer doctor
+php bin/cajeer health:ready
 ```
 
-Установщик спрашивает реквизиты и пароль администратора без отображения пароля. Для автоматизации доступны `--non-interactive` и переменные `CAJEER_ADMIN_EMAIL`, `CAJEER_ADMIN_PASSWORD`. Пароль администратора не сохраняется в `.env`.
+4. Запустите веб-сервис и фоновые процессы, откройте `/admin/`, создайте проект, источник и токен с минимальными разрешениями. Отправьте тестовое событие и убедитесь, что оно появилось в поиске.
 
-```sh
-php -S 127.0.0.1:8080 -t public public/router.php
-# В другом терминале:
-curl -i http://127.0.0.1:8080/api/v1/health
-curl -i http://127.0.0.1:8080/ready
-# Откройте http://127.0.0.1:8080/admin/
-```
+Для эксплуатации: [контрольный список](docs/Production-checklist.md), [безопасность](SECURITY.md), [обновления](docs/Updates.md). Для разработки и интеграции: [API v1](api/openapi.yaml), [SDK](docs/SDK-Integrations.md), [правила участия](CONTRIBUTING.md).
 
-`/health` — состояние PHP runtime. `/ready` — состояние runtime, соединения PostgreSQL, миграций и таблиц; при недоступной БД возвращает 503. Встроенный PHP-сервер предназначен только для разработки. Для production используйте PHP-FPM, Nginx/Apache, DocumentRoot `public/`, TLS и непривилегированного системного пользователя. Для локального HTTP задайте `APP_ENV=local` и `APP_URL=http://127.0.0.1:8080` (origin должен совпадать с адресом браузера); для production `APP_ENV=production`, `APP_URL=https://ваш-домен` и HTTPS server variable. Настройте `queue:pool` и `scheduler:run` по [инструкции](docs/Queue-Lifecycle.md).
+## Документация
 
-### Проверки
+| Если нужно… | Откройте |
+|---|---|
+| Понять продукт и границы возможностей | [Обзор продукта](docs/Product-Overview.md) |
+| Настроить ChatGPT и расследования | [ИИ-помощник](docs/ChatGPT-Assistant-1.0.6.md) · [Инциденты](docs/AI-Incident-Intelligence-1.0.8.md) |
+| Подключить SkiF4er ID | [Внешний вход](docs/SkiF4er-ID-Authentication-1.0.4.md) · [Привязка и сессии](docs/Identity-Linking-Security-1.0.5.md) |
+| Управлять версиями | [Обновления](docs/Updates.md) · [Автоматизация](docs/Automatic-Update-Management-1.0.9.md) |
+| Подготовить промышленный запуск | [Установка](docs/Installation.md) · [Приёмка 1.1.0](docs/Production-Stable-GA-1.1.0.md) |
+| Просмотреть изменения | [Журнал изменений](CHANGELOG.md) · [Политика выпусков](docs/Release-policy.md) |
 
-```sh
-php tests/runtime.php
-php tests/database_config.php
-php tests/identity.php
-php tests/ingest.php
-php tests/search.php
-php tests/queue.php
-python3 tests/http_runtime.py
-php bin/cajeer openapi:lint
-# На отдельной тестовой БД с экспортированными DB_*:
-CAJEER_TEST_DATABASE=1 php tests/database.php
-CAJEER_TEST_DATABASE=1 php tests/identity_database.php
-CAJEER_TEST_DATABASE=1 php tests/ingest_database.php
-CAJEER_TEST_DATABASE=1 php tests/search_database.php
-CAJEER_TEST_DATABASE=1 php tests/queue_database.php
-composer install
-composer test
-composer analyse
-```
+---
 
-См. [Database & Installer](docs/Database-Installer.md), [Core Runtime](docs/Core-Runtime.md), [Nginx](docs/Nginx-deployment.md), [Apache](docs/Apache-optional.md) и [реализованный OpenAPI](api/openapi.yaml). Планируемый API находится отдельно в `docs/openapi-planned.yaml`.
-
-
-**0.5.4:** [Dead-Letter Management](docs/Dead-Letter-Management.md) — project-scoped queue inspection, atomic retry/discard and audited operations.
-
-**0.5.3:** [Retry & Failure Recovery](docs/Retry-Failure-Recovery.md) — configurable durable attempt budgets, jitter, lease recovery and outage handling.
-
-## 0.8.7 disaster-recovery certification
-
-Use `php bin/cajeer backup:dr-certify BACKUP_ID EMPTY_TARGET_DB MAX_RPO_SECONDS MAX_RTO_SECONDS` to validate recovery directly from the authenticated offsite package without reading local backup data. It performs real isolated PostgreSQL restoration, data integrity checks and RPO/RTO-readiness gating (no automatic cutover). See `docs/Backup-Disaster-Recovery-Certification-0.8.7.md` for prerequisites, failure tests and limits.
-
-Latest Admin Panel operational notes: [Admin Panel Stable 0.9.7](docs/Admin-Panel-0.9.7.md).
+Проект CajeerTeam. [Репозиторий](https://github.com/CajeerTeam/CajeerLogs) · [Лицензия](LICENSE) · [Уведомления о сторонних компонентах](THIRD_PARTY_NOTICES.md) · [Сообщить об уязвимости](SECURITY.md).

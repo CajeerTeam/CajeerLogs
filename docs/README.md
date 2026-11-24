@@ -1,16 +1,35 @@
-# Wiki Index
+# Документация CajeerLogs 1.1.0
 
-- Архитектура
-- Установка
-- API
-- Security
-- Roadmap
+[Главная проекта](../README.md) · [Журнал изменений](../CHANGELOG.md) · [Опубликованные выпуски](https://github.com/CajeerTeam/CajeerLogs/releases)
 
-- [Operations Readiness 0.8.8](Operations-Readiness-0.8.8.md)
-- [On-call and incident runbooks](runbooks/README.md)
+## Начало работы
 
-- [1.0.0 Release Candidate & Operations Readiness](Release-Candidate-Operations-0.9.9.md)
-- [1.0.0 Production checklist](Production-checklist.md)
+| Руководство | Содержание |
+|---|---|
+| [Обзор продукта](Product-Overview.md) | Назначение, сценарии, архитектура, возможности и ограничения |
+| [Установка](Installation.md) | Требования, проверка дистрибутива, установка и переход на новую версию |
+| [Контрольный список](Production-checklist.md) | Подготовка промышленного окружения и допуск к эксплуатации |
+| [Приёмка 1.1.0](Production-Stable-GA-1.1.0.md) | Сквозные проверки интеграций, миграции и публикация |
 
-- [Production Stable GA 1.0.0 — installation, verification and upgrade](Production-Stable-GA-1.0.0.md)
-- [1.0.0 support and API compatibility policy](Release-policy.md)
+## Интеграции
+
+| Руководство | Содержание |
+|---|---|
+| [ИИ-помощник ChatGPT](ChatGPT-Assistant-1.0.6.md) | Настройка API, разрешения и защита данных |
+| [Расследование по журналам](AI-Log-Investigation-1.0.7.md) | Трассировки, запросы и стектрейсы |
+| [Анализ инцидентов](AI-Incident-Intelligence-1.0.8.md) | Группировка, гипотезы, история и удаление |
+| [Вход через SkiF4er ID](SkiF4er-ID-Authentication-1.0.4.md) | Конфигурация клиента OIDC и проверка входа |
+| [Привязки и внешние сессии](Identity-Linking-Security-1.0.5.md) | Подтверждение, отвязка и отзыв |
+| [Обновления](Updates.md) | Полный цикл, режимы и границы доверия |
+| [Проверка выпусков](GitHub-Release-Discovery-1.0.1.md) | Каналы и обнаружение версий |
+| [Проверенная загрузка](Verified-Update-Downloads-1.0.2.md) | Подписи, контрольные суммы и совместимость |
+| [Безопасная установка](Safe-Update-Installation-1.0.3.md) | Резервная копия, отдельная БД, переключение и восстановление |
+| [Автоматические обновления](Automatic-Update-Management-1.0.9.md) | Расписание, уведомления и действия после сбоя |
+
+## Техническая справка
+
+- [Спецификация API v1](../api/openapi.yaml), [интеграция SDK](SDK-Integrations.md), [приём событий](Log-Ingestion.md), [поиск](Log-Search.md), [проект и источники](Project-Source-Management.md), [управление токенами](API-Token-Management.md).
+- [Административная панель](Admin-Panel.md), [права и идентификация](Identity-Access.md), [PostgreSQL](PostgreSQL-Runtime.md), [миграции](Migration-Engine.md), [жизненный цикл очередей](Queue-Lifecycle.md).
+- [Политика безопасности](../SECURITY.md), [эксплуатационные инструкции](runbooks/README.md), [резервное копирование и восстановление](Backup-Disaster-Recovery.md), [политика выпусков](Release-policy.md).
+
+Технические руководства предыдущих версий сохранены в исходном виде как справочные материалы; при расхождении для версии 1.1.0 применяйте актуальные инструкции выше.

@@ -1,3 +1,13 @@
-# Production release acceptance — 1.0.8
+# CajeerLogs 1.0.8 — Анализ инцидентов
 
-This release adds incident grouping and explicitly saved investigation history. The same archive must pass the existing PHP/PostgreSQL matrix, security, integration, packaging, migration, backup/restore, browser and full load certification before publication. Migration 0036 must apply successfully and old migration checksums must remain unchanged. `tests/ai_incidents.php` verifies deterministic grouping, bounded context and prompt behavior; `tests/assistant_database.php` exercises live PostgreSQL authorization, history persistence, read/delete and project isolation. Provider fixture tests do not certify live OpenAI credentials. Before production rollout, validate a real configured Responses API call on a disposable project, inspect returned evidence and verify access revocation, retention and history deletion. See [incident intelligence](AI-Incident-Intelligence-1.0.8.md).
+[История версий](../CHANGELOG.md) · [Приёмка 1.1.0](Production-Stable-GA-1.1.0.md)
+
+## Изменения выпуска
+
+Группировка до 200 ошибок, представители и связанные события, вероятные причины и рекомендации; личная история до 30 результатов на 30 дней с удалением и проектными правами. Миграция 0036.
+
+## Условия допуска
+
+Сохраняются API v1, действующие механизмы резервного копирования и обязательный GA pipeline. Для одного и того же архива должны пройти матрица PHP/PostgreSQL, проверки безопасности, браузера, SDK, совместимости, восстановления, зависимостей и нагрузки. Подписанные архив и итоговый сертификат обязательны. Наличие версии в коде и локальные тесты не подтверждают публикацию или доступность внешнего сервиса.
+
+Подробности настройки, ограничения и сценарии проверки: [Анализ инцидентов](AI-Incident-Intelligence-1.0.8.md). Для актуальной промышленной версии следуйте [контрольному списку](Production-checklist.md).

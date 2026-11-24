@@ -1,18 +1,58 @@
-# ChatGPT Assistant — 1.0.6
+# ИИ-помощник ChatGPT
 
-The assistant is disabled by default. It makes a real HTTPS POST to `https://api.openai.com/v1/responses`. PHP cURL, working DNS/TLS and an OpenAI API project/key with access to the selected model are required. ChatGPT subscriptions do not supply API credits. Native install: set the following in the private `.env`; Docker: set them in the production Compose environment and recreate app services. Do not expose the key in browser code or commit it.
+> Добавлен в 1.0.6. Для версии 1.1.0 действует также [приёмка интеграций](Production-Stable-GA-1.1.0.md).
+
+## Назначение
+
+Помощник отвечает на вопросы о журналах выбранного проекта, используя ограниченную выборку событий из PostgreSQL. Он не выполняет SQL, команды, действия в инфраструктуре и не заменяет проверку источников.
+
+## Подключение
+
+Нужны PHP cURL, рабочие DNS и TLS, проект OpenAI API с доступом к выбранной модели и действующий ключ. Подписка ChatGPT сама по себе не предоставляет API-кредиты. В приватном `.env` либо защищённом окружении Docker задайте:
 
 ```dotenv
 AI_ASSISTANT_ENABLED=true
 OPENAI_API_KEY=your-project-key
-OPENAI_MODEL=gpt-6.1-sol
+OPENAI_MODEL=your-supported-model
 AI_ASSISTANT_INCLUDE_MESSAGES=false
 ```
 
-Use a supported Responses model available to your API project. Native installs can use `OPENAI_API_KEY_FILE` instead of the key (absolute private file). Set a provider project budget separately. Enable `AI_ASSISTANT_INCLUDE_MESSAGES=true` only when authorized to transfer log text externally. Review privacy obligations and OpenAI API data retention before enabling; `store:false` is not a guarantee of zero retention. Redaction is best-effort, not a DLP guarantee. Arbitrary secrets and personal information may still appear in free text; do not enter them. Context JSON, hosts, trace IDs, tags and credentials are not selected for transmission. The metadata-only default sends event IDs, severity and timestamps. Questions and short chat history are also transmitted after masking known patterns.
+Замените условные значения ключа и модели реальными. Модель должна поддерживать Responses API и быть доступна вашему проекту. Для нативной установки можно использовать `OPENAI_API_KEY_FILE` с абсолютным путём к приватному файлу вместо самого ключа. Не отправляйте его в браузер и не добавляйте в репозиторий. Перезапустите службы приложения. Настройте бюджет в проекте OpenAI отдельно.
 
-In the admin panel choose AI Assistant and a project, time interval (1–168 hours), severity and optional keywords. Type a question and consent to the external transfer. Up to 20 most recent matching events are retrieved using the normal PostgreSQL search predicate and budget; results can be truncated. Enable message text if approved to obtain deeper answers. The assistant cannot execute commands, queries or tools. Verify its claims against the listed event IDs; the sample is not an exhaustive incident report. Browser memory holds the last three turns for follow-ups; navigating away, switching project or signing out discards the chat. No chat history is stored on the server. Each request requires explicit consent. Existing session, CSRF, 2FA and project `logs:read` restrictions apply; API tokens cannot call the assistant. Current grants are rechecked before disclosure and before returning a response.
+## Работа в интерфейсе
 
-Limits: 6 calls/user/minute, 30 global/minute, 60/user/hour and 300 global/hour, plus normal shared API/search quotas. Output is capped at 1,200 tokens, timeout 40 seconds, no automatic retries. An interrupted request may still incur provider charges. Audit records counts and usage, not prompts, responses or credentials. Disable the feature and restart services to stop requests. No database migration is required.
+1. Откройте раздел ИИ-помощника в `/admin/` и выберите доступный проект.
+2. Задайте интервал 1–168 часов, уровень и при необходимости ключевые слова.
+3. Введите вопрос, явно подтвердите передачу данных в OpenAI и отправьте запрос.
+4. Сверьте вывод с идентификаторами исходных событий; для подробного анализа выберите [расследование](AI-Log-Investigation-1.0.7.md) или [группировку инцидентов](AI-Incident-Intelligence-1.0.8.md).
 
-Test: `php tests/assistant.php`; `php bin/cajeer openapi:lint`. Live acceptance requires a configured API key and a real PostgreSQL project: enable, sign in, ask about known events with a keyword, verify listed event IDs, test another project without grants and revoked sessions, then disable. Never use live production secrets as test data.
+Обычный чат выбирает не более 20 последних соответствующих событий. В памяти браузера сохраняются три последних обмена сообщениями; переход в другой проект, выход или уход со страницы очищает чат. Обычный чат на сервере не сохраняется. С версии 1.0.8 результаты расследований можно отдельно сохранять по согласию.
+
+## Данные и защита
+
+По умолчанию функция отключена; при её включении передача текста журналов по-прежнему отключена. В базовом режиме отправляются идентификаторы событий, время, уровни, вопрос и короткая история диалога после маскирования известных шаблонов. Произвольный JSON контекста, имена хостов, необработанные Trace ID, теги и ключи не выбираются для передачи. В режиме расследования применяются локальные псевдонимы связей.
+
+`AI_ASSISTANT_INCLUDE_MESSAGES=true` допускается только после разрешения внешней обработки текстов. Маскирование не гарантирует обнаружение произвольных секретов и персональных данных. Параметр `store=false` не является обещанием нулевого хранения у провайдера. Проверьте условия обработки данных и не вводите секреты в вопросы.
+
+Требуются локальная сессия, CSRF, соблюдение 2FA и `logs:read` выбранного проекта. API-токены не допускаются. Текущие права проверяются до передачи данных и перед возвратом результата. В аудит попадают счётчики и использование, а не вопросы, ответы или ключи.
+
+| Ограничение | Значение |
+|---|---:|
+| Запросов на пользователя | 6/мин, 60/ч |
+| Общий лимит | 30/мин, 300/ч |
+| Выход модели | 1 200 токенов |
+| Ожидание | 40 секунд |
+| Автоматические повторы | Нет |
+
+Дополнительно действуют общие квоты API и поиска. Прерванный запрос может быть оплачен провайдером. Для отключения установите `AI_ASSISTANT_ENABLED=false` и перезапустите службы.
+
+## Проверка
+
+```sh
+php tests/assistant.php
+php bin/cajeer openapi:lint
+php bin/cajeer operations:integrations
+php bin/cajeer operations:integrations --live
+```
+
+Последняя команда делает синтетический запрос без передачи журналов и может привести к расходам. Проверьте реальный чат в отдельном тестовом проекте, запрет чужих проектов и отзыв доступа; тестовые ответы не подтверждают доступность OpenAI.

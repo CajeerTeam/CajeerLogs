@@ -1,3 +1,13 @@
-# Production release acceptance — 1.0.9
+# CajeerLogs 1.0.9 — Автоматическое управление обновлениями
 
-This release adds operator-owned automatic update checks, downloads, stable native installation and System panel notifications. It does not alter the PostgreSQL schema. The existing signed GA workflow, PHP/PostgreSQL matrix, provider/browser tests, disaster recovery and long-duration load gates remain mandatory. `tests/automatic_update.py` exercises real persistent schedule state, time windows, candidate changes, pinned download, failure and recovery fences, database reservation and notifications; `tests/automatic_update_status.php` tests the read-only API projection and unauthenticated denial. Installer fault tests remain mandatory. These controlled integration boundaries do not prove live GitHub, systemd or PostgreSQL operations. Before enabling unattended installation, complete an actual signed-release upgrade rehearsal under the intended operator account, validate the exact unit inventory, database pool, TLS readiness, interruption/recovery and notification visibility. See [automatic update management](Automatic-Update-Management-1.0.9.md).
+[История версий](../CHANGELOG.md) · [Приёмка 1.1.0](Production-Stable-GA-1.1.0.md)
+
+## Изменения выпуска
+
+Расписание проверки и загрузки, каналы stable/preview, установка stable в окне UTC, постоянная политика, резерв пустых БД, блокировка при ошибке и уведомления. Автоматика по умолчанию отключена, схема неизменна.
+
+## Условия допуска
+
+Сохраняются API v1, действующие механизмы резервного копирования и обязательный GA pipeline. Для одного и того же архива должны пройти матрица PHP/PostgreSQL, проверки безопасности, браузера, SDK, совместимости, восстановления, зависимостей и нагрузки. Подписанные архив и итоговый сертификат обязательны. Наличие версии в коде и локальные тесты не подтверждают публикацию или доступность внешнего сервиса.
+
+Подробности настройки, ограничения и сценарии проверки: [Автоматическое управление обновлениями](Automatic-Update-Management-1.0.9.md). Для актуальной промышленной версии следуйте [контрольному списку](Production-checklist.md).

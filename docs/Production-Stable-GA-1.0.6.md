@@ -1,5 +1,13 @@
-# CajeerLogs 1.0.6 — ChatGPT Assistant
+# CajeerLogs 1.0.6 — ИИ-помощник ChatGPT
 
-Optional OpenAI Responses API chat for the active authorized project, read-only bounded log retrieval and explicit consent. Disabled by default, with metadata-only context unless message transfer is enabled. Setup: [ChatGPT Assistant](ChatGPT-Assistant-1.0.6.md).
+[История версий](../CHANGELOG.md) · [Приёмка 1.1.0](Production-Stable-GA-1.1.0.md)
 
-No new migrations. Existing API v1, local and SkiF4er ID authorization and safe update facilities remain supported. Release requires the existing signed artifact and full certification gates. Live provider acceptance requires an operator-configured OpenAI project key; local fixture tests do not certify provider connectivity.
+## Изменения выпуска
+
+Чат через OpenAI Responses API, доступ только к выбранному проекту, поиск по времени/уровню/тексту, явное согласие, RBAC/CSRF/TOTP, маскирование, аудит и квоты. По умолчанию без передачи сообщений. Новых миграций нет.
+
+## Условия допуска
+
+Сохраняются API v1, действующие механизмы резервного копирования и обязательный GA pipeline. Для одного и того же архива должны пройти матрица PHP/PostgreSQL, проверки безопасности, браузера, SDK, совместимости, восстановления, зависимостей и нагрузки. Подписанные архив и итоговый сертификат обязательны. Наличие версии в коде и локальные тесты не подтверждают публикацию или доступность внешнего сервиса.
+
+Подробности настройки, ограничения и сценарии проверки: [ИИ-помощник ChatGPT](ChatGPT-Assistant-1.0.6.md). Для актуальной промышленной версии следуйте [контрольному списку](Production-checklist.md).

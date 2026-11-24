@@ -1,3 +1,3 @@
-# CajeerLogs Wiki
+# CajeerLogs — справочный центр
 
-Главная страница GitFlic Wiki для CajeerLogs.
+Начните с [обзора продукта](Product-Overview.md) или [каталога руководств](README.md). Для установки новой версии используйте [пошаговую инструкцию](Installation.md), для выпуска — [условия промышленной приёмки 1.1.0](Production-Stable-GA-1.1.0.md).

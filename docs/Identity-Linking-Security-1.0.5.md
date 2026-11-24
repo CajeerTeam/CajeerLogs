@@ -1,9 +1,24 @@
-# SkiF4er ID: account linking and session management (1.0.5)
+# SkiF4er ID — привязка аккаунта и безопасность сессий
 
-Configure the confidential OIDC client using `docs/SkiF4er-ID-Authentication-1.0.4.md`. The issuer and protocol are unchanged. Live acceptance requires an actual registered client and reachable identity provider.
+> Добавлено в 1.0.5. Предварительная настройка: [внешний вход](SkiF4er-ID-Authentication-1.0.4.md).
 
-In Settings → SkiF4er ID, sign in locally, supply your current password and enrolled TOTP/recovery code, authenticate at the provider, review the verified email, and confirm linking in the initiating local session. The email is informational; only the verified issuer subject identifies an account. An identity cannot be assigned to two users or silently replace an existing binding. The link expires after five minutes and is consumed once. Logout, session revocation, password change and TOTP changes invalidate session-bound flows. Roles and access grants remain local; provider role claims are never trusted.
+## Привязка
 
-The session list identifies password and SkiF4er ID logins. Individual session revocation uses existing session controls; bulk external revocation and unlink require the local password and enrolled second factor even when generic recent-authentication policy is disabled. Unlink removes the binding and revokes external CajeerLogs sessions, leaving password sessions intact. If the current session was external, the user must sign in again. Revocation is local to CajeerLogs, not global provider SSO logout; no provider refresh/access tokens are persisted. Revocation remains available on HTTPS when external login is disabled.
+1. Войдите в локальный аккаунт и откройте настройки SkiF4er ID.
+2. Подтвердите текущий пароль и настроенный TOTP или код восстановления.
+3. Пройдите авторизацию у SkiF4er ID, проверьте отображаемый подтверждённый email.
+4. Явно подтвердите привязку в исходной локальной сессии.
 
-Migration `0035_skif4er_linking.sql` invalidates existing sessions of linked users because 1.0.4 did not store login provenance. Existing bindings, users and roles remain unchanged; users can sign in again. All incomplete legacy flows are removed. Apply migration before starting the new application and follow the existing backup/upgrade procedure.
+Email — справочная информация; личность определяется проверенными issuer и `sub`. Один внешний аккаунт не может принадлежать двум локальным пользователям. Существующая связь не заменяется автоматически. Попытка действует пять минут и используется один раз. Выход, отзыв сессии, смена пароля и изменение TOTP делают связанные попытки недействительными. Роли и разрешения остаются локальными.
+
+## Сессии и отвязка
+
+Список сессий различает вход по паролю и SkiF4er ID. Отдельную сессию можно отозвать обычным управлением сессиями. Массовый отзыв внешних сессий и отвязка требуют локального пароля и настроенного второго фактора даже при отключённой общей политике повторной аутентификации.
+
+Отвязка удаляет связь и отзывает все внешние сессии CajeerLogs, оставляя парольные сессии. Если текущая сессия внешняя, требуется повторный вход. Отзыв локален для CajeerLogs, не означает глобального завершения SSO у SkiF4er ID. Операции отзыва доступны через HTTPS даже при отключённом внешнем входе. Токены провайдера не сохраняются.
+
+## Миграция и проверка
+
+`0035_skif4er_linking.sql` завершает прежние сессии привязанных пользователей: версия 1.0.4 не различала способ входа. Пользователи, роли и привязки сохраняются, незавершённые старые попытки удаляются. Перед запуском новой версии выполните резервное копирование и штатное обновление.
+
+Проверьте попытку привязки из другой сессии, повторное подтверждение, конфликт внешней личности, отзыв текущего и остальных внешних сеансов, сохранение локального входа и проектных разрешений. Реальный вход требует зарегистрированного клиента провайдера.

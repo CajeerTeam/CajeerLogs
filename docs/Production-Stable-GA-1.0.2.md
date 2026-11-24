@@ -1,13 +1,13 @@
-# CajeerLogs v1.0.2 — Verified Update Downloads
+# CajeerLogs 1.0.2 — Проверенная загрузка выпусков
 
-## Release changes
+[История версий](../CHANGELOG.md) · [Приёмка 1.1.0](Production-Stable-GA-1.1.0.md)
 
-- `php bin/cajeer update:download [--refresh]` fetches a **published** `CajeerTeam/CajeerLogs` release from GitHub using GitHub CLI, requires a matching SHA-256 sidecar, and independently checks the GitHub asset digest when supplied.
-- A **GitHub OIDC/Sigstore attestation** must authenticate the exact ZIP using the pinned repository, source tag, commit SHA, signer workflow, SLSA predicate and GitHub-hosted runner. Invalid or missing attestations reject the download.
-- Verify every manifest file checksum, ZIP entry safety and the future release's PHP, PostgreSQL and API compatibility before atomically committing the archive to private storage.
-- `php bin/cajeer update:verify VERSION` rechecks published tag, signed provenance, checksum, manifest and runtime compatibility.
-- The system panel offers an authenticated download of a *previously verified* ZIP, but does not perform package installation, migrations or restarts.
+## Изменения выпуска
 
-## Security and acceptance
+Загрузка опубликованного ZIP и SHA-256, проверка аттестации GitHub OIDC/Sigstore, источника, тега, коммита, workflow, манифеста, совместимости PHP/PostgreSQL/API. Закрытое хранение, повторная проверка и ссылка на проверенный ZIP. Установка не входит в этап.
 
-The full unchanged production GA pipeline remains mandatory, including PHP 8.4/8.5 × PostgreSQL 17/18, Docker, SDK, browser, security, load and supply chain gates. This release does not claim that the external GitHub Actions GA certification has passed. See `docs/Verified-Update-Downloads-1.0.2.md` for usage and limitations.
+## Условия допуска
+
+Сохраняются API v1, действующие механизмы резервного копирования и обязательный GA pipeline. Для одного и того же архива должны пройти матрица PHP/PostgreSQL, проверки безопасности, браузера, SDK, совместимости, восстановления, зависимостей и нагрузки. Подписанные архив и итоговый сертификат обязательны. Наличие версии в коде и локальные тесты не подтверждают публикацию или доступность внешнего сервиса.
+
+Подробности настройки, ограничения и сценарии проверки: [Проверенная загрузка выпусков](Verified-Update-Downloads-1.0.2.md). Для актуальной промышленной версии следуйте [контрольному списку](Production-checklist.md).

@@ -1,9 +1,33 @@
-# AI Log Investigation — 1.0.7
+# Расследование ошибок и связанных событий
 
-Use the existing [ChatGPT Assistant setup](ChatGPT-Assistant-1.0.6.md) with a supported Responses API model and an API key. In AI Assistant select a project and the time window, then choose ordinary chat, recent errors, event UUID, exact Trace ID or exact Request ID. Submit a question with explicit consent. For automatic investigation, keyword/severity filters select up to eight latest seeds (default severity is error/critical/alert/emergency). An explicit identifier instead selects seeds within the time window regardless of keyword or severity. One-hop expansion finds other records sharing any seed trace or request within the same project/window, including informational events. Empty identifiers never match. Seeds are retained; recent related events fill a total of at most twenty events. Results are sorted by timestamp and event UUID and the model receives the same evidence. The timeline links to the authenticated event inspector. A truncated sample is not a complete trace. Correlation and ordering do not establish causality; the first observed error is not necessarily the root cause.
+> Добавлено в 1.0.7. Использует [ИИ-помощник ChatGPT](ChatGPT-Assistant-1.0.6.md).
 
-`POST /api/v1/assistant/chat` accepts optional `investigation: {}` or exactly one of `event_id`, `trace_id`, `request_id`. Existing callers without this property use the original chat. Investigation response adds sample counts and evidence seed flags/trace/request aliases. Use `logs:read` on the selected project, local session, CSRF and consent. All queries use bound values, one read-only repeatable-read transaction and the existing search timeout. Explicit identifiers are not copied into the provider payload; per-response aliases preserve equality (not globally stable). IDs in user questions or free-text logs can still be sensitive.
+## Сценарии
 
-With `AI_ASSISTANT_INCLUDE_MESSAGES=false`, only event IDs, timestamps, levels, seed flags and correlation aliases are exported. When explicitly enabled, selected source/service/message text and string stack traces from `context.stack_trace`, `stacktrace`, `stackTrace`, `stack` or corresponding nested `exception` fields are masked and bounded. Arbitrary context objects, hosts and tags are not exported. Messages >2 KiB and stacks >4 KiB are omitted; a total serialized context budget can omit additional text. Multiline traces in bounded messages are also available to the model. Masking is best effort, not comprehensive DLP; review data before enabling external transfer. No tool execution or model-generated SQL. Existing rate limits, audit, no-store responses, retention controls and access rechecks apply. No schema migration.
+| Режим | Когда применять |
+|---|---|
+| Обычный чат | Вопрос по небольшой выборке журнала |
+| Недавние ошибки | Поиск исходных ошибок и связанных событий |
+| Event ID | Изучение конкретного события по UUID |
+| Trace ID | Поиск цепочки событий одной трассировки |
+| Request ID | Поиск событий одного запроса |
 
-Run `php tests/ai_investigation.php`, `php tests/assistant.php`, and `CAJEER_TEST_DATABASE=1 APP_ENV=test php tests/assistant_database.php` on a disposable PostgreSQL runtime. For live acceptance configure a real OpenAI project, ingest a known error and preceding/following events with shared trace/request identifiers, investigate and verify each evidence ID. Test another project with the same identifier, metadata-only mode, disabled AI and revoked access. A fixture transport is not proof of live OpenAI connectivity.
+Выберите проект, интервал, режим и укажите вопрос. Для автоматического поиска фильтры выбирают до восьми последних исходных событий (по умолчанию уровни `error`, `critical`, `alert`, `emergency`). Явный идентификатор выбирает записи в заданном интервале независимо от текста и уровня. Связанные события ищутся на один шаг по совпадающим непустым Trace ID или Request ID внутри того же проекта и интервала, включая информационные записи. Исходные записи сохраняются, связанные дополняют выборку до 20 событий.
+
+Хронология сортируется по времени и UUID. Модель получает те же доказательства; из интерфейса можно открыть исходную запись. Усечённая выборка не представляет полную трассировку. Совпадение идентификаторов и порядок времени не доказывают причинность.
+
+## Данные и конфиденциальность
+
+В режиме `AI_ASSISTANT_INCLUDE_MESSAGES=false` отправляются идентификаторы событий, время, уровень, признак исходной записи и псевдонимы связей. При разрешённой передаче текстов добавляются ограниченные поля источника, сервиса, сообщения и строковые стектрейсы (`context.stack_trace`, `stacktrace`, `stackTrace`, `stack` или соответствующие поля вложенного `exception`). Сообщения больше 2 КиБ и стектрейсы больше 4 КиБ исключаются; действует также общий лимит контекста. Произвольный объект контекста, хосты и теги не передаются. Явные идентификаторы заменяются псевдонимами на один ответ; но идентификаторы в свободном тексте могут остаться. Маскирование не является гарантией отсутствия чувствительных данных.
+
+## API и проверка
+
+`POST /api/v1/assistant/chat` принимает `investigation: {}` либо ровно один из `event_id`, `trace_id`, `request_id` внутри `investigation`. Без свойства сохраняется поведение обычного чата. Ответ содержит счётчики выборки, признаки исходных событий и псевдонимы связей. Запросы параметризованы, используют согласованную транзакцию только для чтения и действующий тайм-аут поиска. Обязательны сессия, CSRF, согласие и `logs:read` проекта. Новых миграций в 1.0.7 нет.
+
+```sh
+php tests/ai_investigation.php
+php tests/assistant.php
+CAJEER_TEST_DATABASE=1 APP_ENV=test php tests/assistant_database.php
+```
+
+Последний тест выполняйте только на изолированной БД. Для реальной приёмки создайте известную ошибку и предшествующие/последующие события с общим идентификатором. Проверьте доказательства, другой проект с таким же идентификатором, отключённую передачу текста, отключённый ИИ и отзыв доступа. Контролируемый транспорт теста не подтверждает реальный вызов OpenAI.
