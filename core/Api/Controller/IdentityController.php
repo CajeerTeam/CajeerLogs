@@ -1173,6 +1173,7 @@ final class IdentityController
             self::invalid('Only refresh=1 is supported.');
         }
         $refresh=isset($r->query['refresh']);
+        $automation=\Cajeer\Logs\Update\AutomationStatus::read($this->app->basePath('storage/cache'));
         if ($refresh) (new RateLimiter($this->pdo))->enforce('update-refresh:'.$p['kind'].':'.$p['id'],6,60);
         try {
             $data=(new \Cajeer\Logs\Update\UpdateResolver($this->app->basePath('storage/cache')))->check(
@@ -1180,9 +1181,9 @@ final class IdentityController
         } catch (\RuntimeException $e) {
             // Never expose upstream URLs, credentials or low-level transport details.
             return new JsonResponse(['status'=>'unavailable','current'=>$this->app->version(),
-                'source'=>'github_releases','error'=>$e->getMessage()],503,['Cache-Control'=>'private, no-store']);
+                'source'=>'github_releases','error'=>$e->getMessage(),'automation'=>$automation],503,['Cache-Control'=>'private, no-store']);
         }
-        return new JsonResponse($data,200,['Cache-Control'=>'private, no-store']);
+        return new JsonResponse($data+['automation'=>$automation],200,['Cache-Control'=>'private, no-store']);
     }
     private function verifiedUpdate(Request $r,array $p): Response
     {

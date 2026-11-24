@@ -300,6 +300,8 @@ REQUIRED.update({'scripts/safe_update.py','scripts/update_database.php','tests/s
                  'config/skif4er.php','migrations/pgsql/0034_skif4er_auth.sql','tests/skif4er_auth.php','tests/skif4er_auth_database.php',
                  'migrations/pgsql/0035_skif4er_linking.sql','docs/Identity-Linking-Security-1.0.5.md','docs/Production-Stable-GA-1.0.5.md'})
 
+REQUIRED.update({'scripts/automatic_update.py','core/Update/AutomationStatus.php','tests/automatic_update.py','tests/automatic_update_status.php','examples/systemd/cajeerlogs-auto-update.service','examples/systemd/cajeerlogs-auto-update.timer','docs/Automatic-Update-Management-1.0.9.md','docs/Production-Stable-GA-1.0.9.md'})
+
 REQUIRED.update({'core/AI/Incidents.php','core/AI/History.php','migrations/pgsql/0036_ai_investigation_history.sql','tests/ai_incidents.php','docs/AI-Incident-Intelligence-1.0.8.md','docs/Production-Stable-GA-1.0.8.md'})
 
 REQUIRED.update({'core/AI/Investigation.php','tests/ai_investigation.php','docs/AI-Log-Investigation-1.0.7.md','docs/Production-Stable-GA-1.0.7.md'})

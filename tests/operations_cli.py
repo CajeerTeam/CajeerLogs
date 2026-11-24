@@ -29,11 +29,11 @@ with tempfile.TemporaryDirectory(prefix='cajeer-ops-cli-') as temp:
                DB_USERNAME='ops_test', DB_PASSWORD='private-test-password',
                DB_SSLMODE='disable', DB_REQUIRE_TLS='false')
     version = run(root, env, 'version')
-    assert version.returncode == 0 and version.stdout.strip() == '1.0.8', version.stderr
+    assert version.returncode == 0 and version.stdout.strip() == '1.0.9', version.stderr
     triage = run(root, env, 'operations:triage')
     assert triage.returncode == 2 and not triage.stderr, triage.stderr
     result = json.loads(triage.stdout)
-    assert result['status'] == 'critical' and result['version'] == '1.0.8'
+    assert result['status'] == 'critical' and result['version'] == '1.0.9'
     assert result['checks']['database_readiness'] is False
     assert result['scope'] == 'operations-triage' and result['critical']
     assert 'private-test-password' not in triage.stdout

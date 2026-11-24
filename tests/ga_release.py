@@ -25,16 +25,16 @@ class GATests(unittest.TestCase):
         cls.sbom=cls.root/'sbom.json';cls.sbom.write_text('{}')
         cls.prov=cls.root/'provenance.json';cls.prov.write_text('{}')
         cls.chain=cls.root/'chain.json';cls.repro=cls.root/'repro.json';cls.notes=cls.root/'notes.md'
-        cls.notes.write_text('# GA 1.0.8')
+        cls.notes.write_text('# GA 1.0.9')
         cert={'format':1,'status':'passed','scope':'database-release-and-production-smoke',
-              'version':'1.0.8','archive_sha256':cls.digest,
+              'version':'1.0.9','archive_sha256':cls.digest,
               'stages':[{'name':'production-and-throughput-certification','status':'passed','exit_code':0}],
               'database_reports':[{'php_series':p,'postgres_major':g,'status':'passed','archive_sha256':cls.digest}
                    for p in ('8.4','8.5') for g in ('17','18')]}
         for name in ('admin_report','sdk_report','integration_stability_report','analytics_storage_report','security_report','performance_report'):
             cert[name]={'status':'passed'}
         cls.valid_cert=cert
-        cls.valid_chain={'version':'1.0.8','archive_sha256':cls.digest,'dependency_lock_complete':True,
+        cls.valid_chain={'version':'1.0.9','archive_sha256':cls.digest,'dependency_lock_complete':True,
                         'dependency_issues':[],'sbom_sha256':ga_release.sha(cls.sbom),'provenance_sha256':ga_release.sha(cls.prov)}
         cls.valid_repro={'status':'passed','archive_sha256':cls.digest,'independent_builds':[{'sha256':cls.digest}]*2}
 
@@ -48,7 +48,7 @@ class GATests(unittest.TestCase):
         return ga_release.evidence(self.archive,self.cert,self.checksum,self.sbom,self.prov,self.chain,self.repro,self.notes)
 
     def test_valid_synthetic_evidence_is_structurally_accepted(self):
-        self.assertEqual(self.verify()['version'],'1.0.8')
+        self.assertEqual(self.verify()['version'],'1.0.9')
     def test_failed_certificate_rejected(self):
         data=dict(self.valid_cert,status='failed')
         with self.assertRaises(ga_release.GAError):self.verify(cert=data)
@@ -82,7 +82,7 @@ class GATests(unittest.TestCase):
         with patch.object(ga_release,'gh',return_value='[{"verified":true}]') as fake:
             ga_release.verify_attestation(self.archive,'Example/CajeerLogs','a'*40)
             command=fake.call_args.args[0]
-            for constraint in ('--repo','Example/CajeerLogs','--source-ref','refs/tags/v1.0.8',
+            for constraint in ('--repo','Example/CajeerLogs','--source-ref','refs/tags/v1.0.9',
                                '--source-digest','a'*40,'--signer-workflow',
                                'Example/CajeerLogs/.github/workflows/runtime.yml','--deny-self-hosted-runners'):
                 self.assertIn(constraint,command)

@@ -31,8 +31,8 @@ final class OperationsCommand
             'backup:restore'=>$n===2?$ops->record('manual_restore',fn()=>$backup->restore($args[0],$args[1])):throw new DatabaseException('Usage: backup:restore BACKUP_ID EMPTY_TARGET_DATABASE'),
             'auth:skif4er-bind'=>$n===3 && $args[2]==='--confirm'?$this->bindSkif4er($args[0],$args[1]):throw new DatabaseException('Usage: auth:skif4er-bind EMAIL SUBJECT --confirm'),
             'auth:2fa-reset'=>$n===2 && $args[1]==='--confirm'?$this->reset($args[0]):throw new DatabaseException('Usage: auth:2fa-reset EMAIL --confirm'),
-            'update:check'=>$n===0||$n===1 && $args[0]==='--refresh'?$this->githubUpdate($args===['--refresh']):($n===1?$this->update($args[0]):throw new DatabaseException('Usage: update:check [--refresh|TRUSTED_RELEASE_JSON]')),
-            'update:download'=>$n===0||$args===['--refresh']?$this->downloadUpdate($args===['--refresh']):throw new DatabaseException('Usage: update:download [--refresh]'),
+            'update:check'=>$n===1 && !str_starts_with($args[0],'--')?$this->update($args[0]):$this->updateOptions($args,false),
+            'update:download'=>$this->updateOptions($args,true),
             'update:verify'=>$n===1?$this->verifyDownload($args[0]):throw new DatabaseException('Usage: update:verify VERSION'),
             default=>throw new DatabaseException('Unknown operations command.'),
         };
@@ -76,11 +76,24 @@ final class OperationsCommand
             return ['user_id'=>$user['id'],'two_factor_enabled'=>false,'sessions_revoked'=>true];
         }, maxAttempts: 3);
     }
-    private function githubUpdate(bool $refresh): array
+    private function updateOptions(array $args,bool $download): array
+    {
+        $refresh=false;$channel=null;$expected=null;
+        foreach ($args as $arg) {
+            if ($arg==='--refresh' && !$refresh) {$refresh=true;continue;}
+            if ($channel===null && preg_match('/^--channel=(stable|preview)$/D',$arg,$m)) {$channel=$m[1];continue;}
+            if ($download && $expected===null && str_starts_with($arg,'--version=')) {
+                $expected=\Cajeer\Logs\Update\SemVer::normalize(substr($arg,10));continue;
+            }
+            throw new DatabaseException('Invalid update options.');
+        }
+        return $download?$this->downloadUpdate($refresh||$expected!==null,$channel,$expected):$this->githubUpdate($refresh,$channel);
+    }
+    private function githubUpdate(bool $refresh,?string $channel=null): array
     {
         try {
             return (new \Cajeer\Logs\Update\UpdateResolver($this->app->basePath('storage/cache')))->check(
-                $this->app->version(),$this->app->config()->get('updates.channel'),$refresh);
+                $this->app->version(),$channel??$this->app->config()->get('updates.channel'),$refresh);
         } catch (\RuntimeException $e) {
             return ['status'=>'unavailable','source'=>'github_releases','current'=>$this->app->version(),
                 'error'=>$e->getMessage()];
@@ -94,10 +107,11 @@ final class OperationsCommand
             fn(): int => (int)$this->app->container()->get(\PDO::class)->query('SHOW server_version_num')->fetchColumn()
         );
     }
-    private function downloadUpdate(bool $refresh): array
+    private function downloadUpdate(bool $refresh,?string $channel=null,?string $expected=null): array
     {
         $discovery=(new \Cajeer\Logs\Update\UpdateResolver($this->app->basePath('storage/cache')))->check(
-            $this->app->version(),$this->app->config()->get('updates.channel'),$refresh);
+            $this->app->version(),$channel??$this->app->config()->get('updates.channel'),$refresh);
+        if ($expected!==null && ($discovery['candidate']!==$expected || !$discovery['update_available'])) throw new DatabaseException('Published candidate changed; check again before downloading.');
         if (!$discovery['update_available'] || !is_string($discovery['candidate'])) {
             return ['status'=>'up_to_date','installed'=>$this->app->version(),'candidate'=>$discovery['candidate']];
         }

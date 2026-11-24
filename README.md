@@ -1,3 +1,7 @@
+## CajeerLogs 1.0.9 — Automatic Update Management
+
+Operator-owned scheduled release checks, verified downloads and optional native stable installations with a UTC maintenance window, explicit pre-provisioned database pool, durable recovery fence and notifications in the System panel. Disabled by default. See [Automatic Update Management](docs/Automatic-Update-Management-1.0.9.md).
+
 ## CajeerLogs 1.0.8 — AI Incident Intelligence
 
 Optional OpenAI-powered project log chat, incident grouping, correlated investigations and private saved history. See [incident intelligence setup, privacy and limits](docs/AI-Incident-Intelligence-1.0.8.md).

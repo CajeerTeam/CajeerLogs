@@ -1,6 +1,6 @@
-import { state, projectPath, active } from '../app/store.js?v=1.0.8';
-import { h, button, card, message, notify, date } from '../components/ui.js?v=1.0.8';
-import { request, get, apiPrefix } from '../api/client.js?v=1.0.8';
+import { state, projectPath, active } from '../app/store.js?v=1.0.9';
+import { h, button, card, message, notify, date } from '../components/ui.js?v=1.0.9';
+import { request, get, apiPrefix } from '../api/client.js?v=1.0.9';
 
 /** Session-only bulk exports; download is a browser navigation to the authenticated endpoint. */
 export function exportJobs(getFilters,signal,epoch) {

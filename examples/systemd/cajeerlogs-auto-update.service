@@ -1,0 +1,17 @@
+[Unit]
+Description=CajeerLogs operator-owned scheduled verified updates
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=cajeerlogs
+Group=cajeerlogs
+WorkingDirectory=/srv/cajeerlogs/current
+ExecStart=/usr/bin/php /srv/cajeerlogs/current/bin/cajeer update:auto-tick
+UMask=0077
+# A migration/backup can outlive the window; do not kill it at window end.
+TimeoutStartSec=infinity
+# Keep this unit and its timer OUT of the updater's managed unit inventory.
+# Install under the application owner, never root. Configure credentials using
+# the service manager, not public files. See the operations guide.

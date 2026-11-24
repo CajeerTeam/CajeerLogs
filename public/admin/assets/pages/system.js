@@ -1,7 +1,7 @@
-import { admin, render, active } from '../app/store.js?v=1.0.8';
-import { h, button, card, badge, heading, table, copy, message, empty, modal, clearModal, notify } from '../components/ui.js?v=1.0.8';
-import { redactionButton } from './projects.js?v=1.0.8';
-import { request, ready } from '../api/client.js?v=1.0.8';
+import { admin, render, active } from '../app/store.js?v=1.0.9';
+import { h, button, card, badge, heading, table, copy, message, empty, modal, clearModal, notify } from '../components/ui.js?v=1.0.9';
+import { redactionButton } from './projects.js?v=1.0.9';
+import { request, ready } from '../api/client.js?v=1.0.9';
 
 // Each endpoint is independent: a failed report must not hide successful liveness/readiness.
 async function system(signal, epoch) {
@@ -16,6 +16,8 @@ async function system(signal, epoch) {
     })),h('p',{class:'muted small'},'Проверено: '+new Date().toISOString()),table(['Параметр','Значение'],[['Версия',results[0].status==='fulfilled'?results[0].value.data?.version??'—':'—'],['Среда',report?.environment??'—'],['PHP',report?.php??'—']])));
     // Release discovery is independent from DB diagnostics, and never installs code.
     const releaseContent=h('div',{'aria-live':'polite'},h('p',{class:'muted'},'Проверяем опубликованные версии…'));
+    const automationContent=h('div',{'aria-live':'polite'},h('p',{class:'muted'},'Загружаем состояние планировщика…'));
+    root.append(card(h('h2',{},'Автоматические обновления'),automationContent));
     const checkUpdates=button('Проверить сейчас',()=>void loadUpdates(true));
     root.append(card(h('h2',{},'Обновления · GitHub Releases'),releaseContent,
         h('div',{class:'actions'},checkUpdates),
@@ -29,6 +31,7 @@ async function system(signal, epoch) {
                 query:refresh?{refresh:'1'}:undefined});
             if(signal.aborted||!active(epoch))return;
             const d=result.data;
+            showAutomation(d?.automation);
             if(result.status!==200||d?.status==='unavailable') {
                 releaseContent.replaceChildren(h('p',{class:'error'},d?.error||'GitHub Releases недоступен. Сохранённые версии не считаются актуальными.'));
                 return;
@@ -62,6 +65,22 @@ async function system(signal, epoch) {
             );
         }catch(e){if(active(epoch)&&!signal.aborted)releaseContent.replaceChildren(message(e));}
         finally{if(active(epoch)&&!signal.aborted)checkUpdates.disabled=false;}
+    }
+    function showAutomation(a) {
+        if (!a || a.status==='not_configured') {
+            automationContent.replaceChildren(h('p',{class:'muted'},'Автоматические обновления не настроены.'),
+                h('p',{class:'muted small'},'Настройка оператором: php bin/cajeer update:auto-configure --mode check --channel stable. Запустите systemd-таймер по инструкции.'));
+            return;
+        }
+        const labels={idle:'Ожидание',off:'Отключено',check:'Проверка',download:'Проверка и загрузка',install:'Автоустановка',available:'Доступен релиз',up_to_date:'Актуальная версия',downloaded:'ZIP проверен',installing:'Установка начата',installed:'Установлено',check_or_download_failed:'Ошибка проверки или загрузки',installation_failed:'Ошибка установки',interrupted:'Установка прервана',recovery_required:'Требуется восстановление',installer_unavailable:'Установщик недоступен',database_pool_exhausted:'Нет подготовленной БД',resumed:'Работа возобновлена'};
+        const date=value=>Number.isInteger(value)&&value>0?new Date(value*1000).toISOString():'—';
+        automationContent.replaceChildren(
+            a.blocked?h('p',{class:'error'},'Автоматика заблокирована. Проверьте update:status, выполните восстановление при необходимости, затем update:auto-resume --confirm.'):h('p',{class:'muted'},'Режим: '+(labels[a.mode]||a.mode)),
+            a.stale?h('p',{class:'muted'},'Данные планировщика устарели. Проверьте таймер или длительную операцию установки.'):h('span',{}),
+            table(['Параметр','Значение'],[['Состояние',labels[a.status]||a.status],['Канал',a.channel],['Интервал',String(a.interval_minutes)+' мин'],['Окно установки (UTC)',a.window_start+' · '+a.window_minutes+' мин'],['Кандидат',a.candidate||'—'],['Проверенный ZIP',a.downloaded||'—'],['Последняя проверка',date(a.last_check)],['Следующая проверка',date(a.next_check)],['Свободные БД для установки',String(a.remaining_databases)],['Последний heartbeat',date(a.updated_at)]]),
+            h('h3',{},'Уведомления'),
+            Array.isArray(a.notices)&&a.notices.length?table(['Дата UTC','Событие','Версия'],a.notices.slice().reverse().map(n=>[date(n.at),labels[n.kind]||n.kind,n.version||'—'])):h('p',{class:'muted'},'Нет уведомлений.'),
+            h('p',{class:'muted small'},'Управление: update:auto-configure, update:auto-status, update:auto-resume. Для отключения: php bin/cajeer update:auto-configure --mode off. Веб-панель не обладает полномочиями systemd.'));
     }
     void loadUpdates();
     if(report?.rate_limits) root.append(card(h('h2',{},'Ограничения запросов'),table(['Бюджет','Запросов/мин','Всплеск'],Object.entries(report.rate_limits).map(([key,value])=>[key,String(value.per_minute),String(value.burst)])),h('p',{class:'muted small'},'Общие лимиты PostgreSQL. Дополнительно действуют квоты токенов, проектов и источников.')));

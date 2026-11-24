@@ -1,0 +1,11 @@
+[Unit]
+Description=Check CajeerLogs update schedule every minute
+
+[Timer]
+OnCalendar=*-*-* *:*:00 UTC
+Persistent=true
+AccuracySec=5s
+Unit=cajeerlogs-auto-update.service
+
+[Install]
+WantedBy=timers.target

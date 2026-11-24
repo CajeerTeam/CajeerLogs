@@ -1,7 +1,7 @@
-import { state, active, hasPermission, projectPath } from '../app/store.js?v=1.0.8';
-import { projectSelector } from '../app/projects.js?v=1.0.8';
-import { get, write } from '../api/client.js?v=1.0.8';
-import { h, heading, card, field, input, button, table, date, text, message, modal, clearModal, notify, form, needProject } from '../components/ui.js?v=1.0.8';
+import { state, active, hasPermission, projectPath } from '../app/store.js?v=1.0.9';
+import { projectSelector } from '../app/projects.js?v=1.0.9';
+import { get, write } from '../api/client.js?v=1.0.9';
+import { h, heading, card, field, input, button, table, date, text, message, modal, clearModal, notify, form, needProject } from '../components/ui.js?v=1.0.9';
 
 const eventNames = {
     'logs.ingested': 'Логи приняты', 'source.created': 'Источник создан',

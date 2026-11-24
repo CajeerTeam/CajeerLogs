@@ -1,3 +1,9 @@
+## 1.0.9 — Automatic Update Management (2026-11-24)
+
+- Schedule GitHub checks and verified downloads on stable or preview channels; native stable-only installation within a configured UTC start window.
+- Persistent operator policy, exclusive execution, pre-provisioned database pool, crash/failure fence, recovery and explicit resume; disabled by default.
+- System panel displays schedule, candidate, verified download, next check, heartbeat and bounded notifications. No web-triggered system commands or new database migrations.
+
 ## 1.0.8 — AI Incident Intelligence (2026-11-24)
 
 - Group up to 200 recent error events by normalized failure pattern or correlation ID; analyze representative events and related chronology with OpenAI.

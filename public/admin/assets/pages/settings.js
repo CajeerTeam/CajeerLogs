@@ -1,11 +1,11 @@
-import { roles, state, render, active } from '../app/store.js?v=1.0.8';
-import { h, button, card, field, input, clearModal, modal, form, heading, table, date, copy, notify } from '../components/ui.js?v=1.0.8';
-import { clearSession, startSession, sessionChanged } from '../app/session.js?v=1.0.8';
-import { confirmAction } from '../components/mutations.js?v=1.0.8';
-import { themeSelector } from '../app/theme.js?v=1.0.8';
-import { sessionList } from '../components/session-list.js?v=1.0.8';
-import { qrMatrix } from '../components/qr-encoder.js?v=1.0.8';
-import { write, get } from '../api/client.js?v=1.0.8';
+import { roles, state, render, active } from '../app/store.js?v=1.0.9';
+import { h, button, card, field, input, clearModal, modal, form, heading, table, date, copy, notify } from '../components/ui.js?v=1.0.9';
+import { clearSession, startSession, sessionChanged } from '../app/session.js?v=1.0.9';
+import { confirmAction } from '../components/mutations.js?v=1.0.9';
+import { themeSelector } from '../app/theme.js?v=1.0.9';
+import { sessionList } from '../components/session-list.js?v=1.0.9';
+import { qrMatrix } from '../components/qr-encoder.js?v=1.0.9';
+import { write, get } from '../api/client.js?v=1.0.9';
 
 function recoveryDialog(codes) {
     modal('Сохраните recovery-коды',h('div',{},h('p',{},'Каждый код действует один раз. Сохраните их в защищённом месте. Они больше не будут показаны.'),h('pre',{},codes.join('\n')),button('Копировать коды',()=>void copy(codes.join('\n'))),button('Сохранено',clearModal)));
