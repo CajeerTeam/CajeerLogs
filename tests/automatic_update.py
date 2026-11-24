@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from datetime import datetime, timezone
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
 from automatic_update import Manager, DEFAULT, policy, in_window, UpdateError
@@ -30,6 +31,12 @@ class Installer:
 
 class Tests(unittest.TestCase):
     def setUp(self):
+        # These unit tests use a fake host and installer, not the CI database.
+        # Start with a clean environment so inherited runtime overrides cannot
+        # prevent the simulated native installation. Restore it after each test.
+        environment = patch.dict(os.environ, {}, clear=True)
+        environment.start()
+        self.addCleanup(environment.stop)
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
         self.root=Path(self.tmp.name)/'current';(self.root/'storage/cache').mkdir(parents=True)
         self.now=int(datetime(2026,11,24,2,0,tzinfo=timezone.utc).timestamp());self.host=Host()
@@ -62,6 +69,35 @@ class Tests(unittest.TestCase):
         self.host.journal={'phase':'recovery_required'}
         with self.assertRaises(UpdateError):self.manager.resume()
         self.host.journal={'phase':'rolled_back'};self.host.install_fail=False;self.manager.resume();s=self.manager.tick();self.assertEqual(s['status'],'installed');self.assertEqual(self.host.calls[-1][2],'next_b')
+    def test_external_runtime_overrides_prevent_installation(self):
+        # Production must reject even empty overrides and unknown DB_* keys.
+        for key in ('DB_HOST', 'DB_PORT', 'DB_DATABASE', 'DB_USERNAME',
+                    'DB_PASSWORD', 'DB_SCHEMA', 'DB_SSLMODE', 'DB_FUTURE_OPTION',
+                    'CAJEER_ENV_FILE', 'CAJEER_RELEASE_VERSION', 'APP_URL', 'BACKUP_DIR'):
+            for value in ('', 'external-override'):
+                with self.subTest(key=key, value=value):
+                    self.install_policy(window_start='02:00')
+                    with patch.dict(os.environ, {key: value}):
+                        s = self.manager.tick()
+                    self.assertEqual(s['status'], 'installer_unavailable')
+                    self.assertFalse(s['blocked'])
+                    self.assertEqual(s['remaining_databases'], 2)
+                    self.assertEqual(self.manager.state()['used_databases'], [])
+                    self.assertFalse(any(x[0]=='install' for x in self.host.calls))
+
+    def test_retry_install_after_runtime_overrides_removed(self):
+        self.install_policy(window_start='02:00', interval_minutes=5)
+        with patch.dict(os.environ, {'DB_DATABASE': 'ci_db', 'APP_URL': 'http://localhost:8080'}):
+            self.assertEqual(self.manager.tick()['status'], 'installer_unavailable')
+        self.now += 299
+        self.assertEqual(self.manager.tick()['status'], 'installer_unavailable')
+        self.now += 1
+        s = self.manager.tick()
+        self.assertEqual(s['status'], 'installed')
+        self.assertEqual(s['remaining_databases'], 1)
+        self.assertEqual(self.host.calls[-2][0], 'update:check')
+        self.assertEqual(self.host.calls[-1][2], 'next_a')
+
     def test_interrupted_install_fails_closed(self):
         self.install_policy();s=self.manager.state();s['status']='installing';s['candidate']='1.1.1';self.manager.save(self.manager.settings(),s)
         self.assertEqual(self.manager.tick()['status'],'interrupted');self.assertEqual(self.host.calls,[])
