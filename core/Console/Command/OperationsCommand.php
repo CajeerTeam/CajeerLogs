@@ -30,12 +30,13 @@ final class OperationsCommand
             'backup:verify'=>$n===1?$backup->verify($args[0]):throw new DatabaseException('Usage: backup:verify BACKUP_ID'),
             'backup:restore'=>$n===2?$ops->record('manual_restore',fn()=>$backup->restore($args[0],$args[1])):throw new DatabaseException('Usage: backup:restore BACKUP_ID EMPTY_TARGET_DATABASE'),
             'auth:2fa-reset'=>$n===2 && $args[1]==='--confirm'?$this->reset($args[0]):throw new DatabaseException('Usage: auth:2fa-reset EMAIL --confirm'),
-            'update:check'=>$n===1?$this->update($args[0]):throw new DatabaseException('Usage: update:check TRUSTED_RELEASE_JSON'),
+            'update:check'=>$n===0||$n===1 && $args[0]==='--refresh'?$this->githubUpdate($args===['--refresh']):($n===1?$this->update($args[0]):throw new DatabaseException('Usage: update:check [--refresh|TRUSTED_RELEASE_JSON]')),
             default=>throw new DatabaseException('Unknown operations command.'),
         };
         $result=str_starts_with($command,'backup:')?$ops->locked($execute,!in_array($command,['backup:verify','backup:restore','backup:rehearse','backup:replicate','backup:prune'],true)):$execute();
         if ($command==='backup:run') (new \Cajeer\Logs\Observability\WorkerHeartbeat($this->app->basePath('storage/cache')))->record('backup');
         echo json_encode($result,JSON_THROW_ON_ERROR|JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES).PHP_EOL;
+        if ($command==='update:check' && ($result['status']??null)==='unavailable') return 2;
         return $command==='audit:verify' && !$result['valid'] ? 1 : 0;
     }
     private function verifyAudit(array $args): array
@@ -58,11 +59,25 @@ final class OperationsCommand
             return ['user_id'=>$user['id'],'two_factor_enabled'=>false,'sessions_revoked'=>true];
         }, maxAttempts: 3);
     }
+    private function githubUpdate(bool $refresh): array
+    {
+        try {
+            return (new \Cajeer\Logs\Update\UpdateResolver($this->app->basePath('storage/cache')))->check(
+                $this->app->version(),$this->app->config()->get('updates.channel'),$refresh);
+        } catch (\RuntimeException $e) {
+            return ['status'=>'unavailable','source'=>'github_releases','current'=>$this->app->version(),
+                'error'=>$e->getMessage()];
+        }
+    }
     private function update(string $path): array
     {
         if (!is_file($path)||!is_readable($path)||filesize($path)>65536) { throw new DatabaseException('Release metadata file unavailable.'); }
         $data=json_decode(file_get_contents($path),true,16,JSON_THROW_ON_ERROR); $version=$data['version']??null;
-        if (($data['name']??null)!=='CajeerLogs'||!is_string($version)||!preg_match('/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/D',$version)) { throw new DatabaseException('Invalid CajeerLogs release metadata.'); }
-        return ['current'=>$this->app->version(),'candidate'=>$version,'update_available'=>version_compare($version,$this->app->version(),'>'),'source'=>'local_release_metadata'];
+        if (($data['name']??null)!=='CajeerLogs'||!is_string($version)) throw new DatabaseException('Invalid CajeerLogs release metadata.');
+        try { $candidate=\Cajeer\Logs\Update\SemVer::normalize($version); }
+        catch (\InvalidArgumentException) { throw new DatabaseException('Invalid CajeerLogs release metadata.'); }
+        return ['current'=>$this->app->version(),'candidate'=>$candidate,
+            'update_available'=>\Cajeer\Logs\Update\SemVer::compare($candidate,$this->app->version())>0,
+            'source'=>'local_release_metadata'];
     }
 }

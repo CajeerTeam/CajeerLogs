@@ -150,6 +150,7 @@ final class Application
         if ($rate === false) { throw new \RuntimeException('Invalid API_RATE_LIMIT_PER_MINUTE.'); }
         $config->set('api.rate_limit', $rate);
         \Cajeer\Logs\Security\RateLimitPolicy::fromConfig($config);
+        if (!in_array($config->get('updates.channel'),['stable','preview'],true)) throw new \RuntimeException('Invalid UPDATE_CHANNEL.');
         new \Cajeer\Logs\Security\DeploymentSecurity($config);
         if (!is_bool($config->get('observability.monitor_backup'))) throw new \RuntimeException('Invalid MONITOR_BACKUP_ENABLED.');
         foreach (['security.session_ttl_seconds'=>[300,604800], 'security.session_idle_seconds'=>[0,604800], 'security.reauth_seconds'=>[0,3600], 'api.search_timeout_ms'=>[100,60000], 'ingest.idempotency_seconds'=>[86400,2592000], 'ingest.max_inflight'=>[0,128], 'ingest.budget_ms'=>[100,120000], 'ingest.max_event_age_seconds'=>[0,315576000], 'ingest.max_event_future_seconds'=>[0,315576000]] as $key=>[$min,$max]) {

@@ -69,6 +69,7 @@ final class IdentityController
         'GET /system/queue/dispatch'=>'queueDispatchStatus',
         'POST /system/queue/dispatch/pause'=>'pauseQueueDispatch',
         'POST /system/queue/dispatch/resume'=>'resumeQueueDispatch',
+        'GET /system/updates'=>'updates',
         'GET /system/report'=>'report',
     ];
     private Identity $identity;
@@ -1160,6 +1161,26 @@ final class IdentityController
         if ($expected!==$old['rbac_role_id']) throw new HttpException(409,'role_assignment_changed','Assignment changed. Reload before retrying.');
         $this->sql('UPDATE project_members SET rbac_role_id=:role WHERE project_id=:project AND user_id=:user',['role'=>$role,'project'=>$project,'user'=>$user]);
         $this->audit($r,$p,'role.project_assigned',$user,['project_id'=>$project,'role_before'=>$old['rbac_role_id'],'role_after'=>$role]); return new Response('',204);
+    }
+    /** Read-only GitHub Releases discovery, protected by existing system:read RBAC. */
+    private function updates(Request $r,array $p): Response
+    {
+        $this->allow($p,'system:read');
+        if (array_diff(array_keys($r->query),['refresh'])!==[] ||
+            (isset($r->query['refresh']) && $r->query['refresh']!=='1')) {
+            self::invalid('Only refresh=1 is supported.');
+        }
+        $refresh=isset($r->query['refresh']);
+        if ($refresh) (new RateLimiter($this->pdo))->enforce('update-refresh:'.$p['kind'].':'.$p['id'],6,60);
+        try {
+            $data=(new \Cajeer\Logs\Update\UpdateResolver($this->app->basePath('storage/cache')))->check(
+                $this->app->version(),$this->app->config()->get('updates.channel'),$refresh);
+        } catch (\RuntimeException $e) {
+            // Never expose upstream URLs, credentials or low-level transport details.
+            return new JsonResponse(['status'=>'unavailable','current'=>$this->app->version(),
+                'source'=>'github_releases','error'=>$e->getMessage()],503,['Cache-Control'=>'private, no-store']);
+        }
+        return new JsonResponse($data,200,['Cache-Control'=>'private, no-store']);
     }
     private function report(Request $r,array $p): Response { $this->allow($p,'system:read'); return (new SystemController($this->app->container()->get(SystemReport::class)))->report(); }
 }

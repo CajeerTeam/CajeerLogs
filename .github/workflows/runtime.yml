@@ -2,7 +2,7 @@ name: Runtime and PostgreSQL
 on:
   push:
     branches: [main]
-    tags: ['v1.0.0']
+    tags: ['v1.0.1']
   pull_request:
   workflow_dispatch:
 permissions:
@@ -52,12 +52,12 @@ jobs:
           extensions: sodium, pdo_pgsql
           coverage: none
       - run: |
-          python3 scripts/release.py build release-out/CajeerLogs-1.0.0.zip
-          (cd release-out && sha256sum -c CajeerLogs-1.0.0.zip.sha256)
-          python3 scripts/release.py verify release-out/CajeerLogs-1.0.0.zip --extract /tmp/cajeer-ops-release
+          python3 scripts/release.py build release-out/CajeerLogs-1.0.1.zip
+          (cd release-out && sha256sum -c CajeerLogs-1.0.1.zip.sha256)
+          python3 scripts/release.py verify release-out/CajeerLogs-1.0.1.zip --extract /tmp/cajeer-ops-release
           python3 /tmp/cajeer-ops-release/scripts/check_runbooks.py --root /tmp/cajeer-ops-release
           python3 tests/operations_runbooks.py
-          python3 scripts/stable_release.py release-out/CajeerLogs-1.0.0.zip
+          python3 scripts/stable_release.py release-out/CajeerLogs-1.0.1.zip
           python3 /tmp/cajeer-ops-release/scripts/api_contract.py --root /tmp/cajeer-ops-release
           python3 /tmp/cajeer-ops-release/tests/api_contract.py
           python3 tests/stable_release.py
@@ -65,17 +65,17 @@ jobs:
       - name: Independent clean rebuilds and source SBOM / provenance metadata
         run: |
           python3 tests/supply_chain.py
-          python3 scripts/supply_chain.py reproduce release-out/CajeerLogs-1.0.0.zip --source . --report release-out/reproducible-build.json
-          python3 scripts/supply_chain.py generate release-out/CajeerLogs-1.0.0.zip --sbom release-out/CajeerLogs-1.0.0.sbom.cdx.json --provenance release-out/CajeerLogs-1.0.0.provenance.json --report release-out/supply-chain-report.json
-          python3 scripts/supply_chain.py verify release-out/CajeerLogs-1.0.0.zip --sbom release-out/CajeerLogs-1.0.0.sbom.cdx.json --provenance release-out/CajeerLogs-1.0.0.provenance.json --report release-out/supply-chain-report.json
+          python3 scripts/supply_chain.py reproduce release-out/CajeerLogs-1.0.1.zip --source . --report release-out/reproducible-build.json
+          python3 scripts/supply_chain.py generate release-out/CajeerLogs-1.0.1.zip --sbom release-out/CajeerLogs-1.0.1.sbom.cdx.json --provenance release-out/CajeerLogs-1.0.1.provenance.json --report release-out/supply-chain-report.json
+          python3 scripts/supply_chain.py verify release-out/CajeerLogs-1.0.1.zip --sbom release-out/CajeerLogs-1.0.1.sbom.cdx.json --provenance release-out/CajeerLogs-1.0.1.provenance.json --report release-out/supply-chain-report.json
       - name: Record real GitHub OIDC build provenance for candidate ZIP
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         uses: actions/attest-build-provenance@v2
         with:
-          subject-path: release-out/CajeerLogs-1.0.0.zip
+          subject-path: release-out/CajeerLogs-1.0.1.zip
       - uses: actions/upload-artifact@v4
         with:
-          name: CajeerLogs-1.0.0-candidate-uncertified
+          name: CajeerLogs-1.0.1-candidate-uncertified
           path: release-out/
           if-no-files-found: error
   security-acceptance:
@@ -86,7 +86,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: CajeerLogs-1.0.0-candidate-uncertified
+          name: CajeerLogs-1.0.1-candidate-uncertified
           path: release-out
       - uses: shivammathur/setup-php@v2
         with:
@@ -95,8 +95,8 @@ jobs:
           coverage: none
       - name: Verify release digest and run actual security regression suites
         run: |
-          (cd release-out && sha256sum -c CajeerLogs-1.0.0.zip.sha256)
-          python3 scripts/security_acceptance.py release-out/CajeerLogs-1.0.0.zip --output /tmp/security-acceptance.json
+          (cd release-out && sha256sum -c CajeerLogs-1.0.1.zip.sha256)
+          python3 scripts/security_acceptance.py release-out/CajeerLogs-1.0.1.zip --output /tmp/security-acceptance.json
           python3 tests/security_acceptance.py
       - uses: actions/upload-artifact@v4
         with:
@@ -111,7 +111,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: CajeerLogs-1.0.0-candidate-uncertified
+          name: CajeerLogs-1.0.1-candidate-uncertified
           path: release-out
       - uses: shivammathur/setup-php@v2
         with:
@@ -120,8 +120,8 @@ jobs:
           coverage: none
       - name: Verify artifact and run each HTTP integration twice in clean isolated copies
         run: |
-          (cd release-out && sha256sum -c CajeerLogs-1.0.0.zip.sha256)
-          python3 scripts/integration_stability.py release-out/CajeerLogs-1.0.0.zip --passes 2 --output /tmp/integration-stability.json
+          (cd release-out && sha256sum -c CajeerLogs-1.0.1.zip.sha256)
+          python3 scripts/integration_stability.py release-out/CajeerLogs-1.0.1.zip --passes 2 --output /tmp/integration-stability.json
       - uses: actions/upload-artifact@v4
         with:
           name: integration-stability-evidence
@@ -175,7 +175,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
-          name: CajeerLogs-1.0.0-candidate-uncertified
+          name: CajeerLogs-1.0.1-candidate-uncertified
           path: release-out
       - uses: actions/setup-node@v4
         with:
@@ -279,6 +279,7 @@ jobs:
       - run: php tests/retry_policy.php
       - run: php tests/security_operations.php
       - run: php tests/security_hardening.php
+      - run: php tests/update_discovery.php
       - run: php tests/release_runtime.php
       - name: Executable operator readiness checks
         run: |
@@ -949,7 +950,7 @@ jobs:
           PY098
           )
           git archive "$previous098" | tar -x -C /tmp/cajeer-0.9.8
-          python3 scripts/certify.py database release-out/CajeerLogs-1.0.0.zip --from-010 /tmp/cajeer-0.1.0 --from-020 /tmp/cajeer-0.2.0 --from-029 /tmp/cajeer-0.2.9 --from-030 /tmp/cajeer-0.3.0 --from-032 /tmp/cajeer-0.3.2 --from-033 /tmp/cajeer-0.3.3 --from-034 /tmp/cajeer-0.3.4 --from-035 /tmp/cajeer-0.3.5 --from-036 /tmp/cajeer-0.3.6 --from-037 /tmp/cajeer-0.3.7 --from-038 /tmp/cajeer-0.3.8 --from-039 /tmp/cajeer-0.3.9 --from-040 /tmp/cajeer-0.4.0 --from-041 /tmp/cajeer-0.4.1 --from-042 /tmp/cajeer-0.4.2 --from-043 /tmp/cajeer-0.4.3 --from-044 /tmp/cajeer-0.4.4 --from-045 /tmp/cajeer-0.4.5 --from-046 /tmp/cajeer-0.4.6 --from-047 /tmp/cajeer-0.4.7 --from-048 /tmp/cajeer-0.4.8 --from-049 /tmp/cajeer-0.4.9 --from-0410 /tmp/cajeer-0.4.10 --from-050 /tmp/cajeer-0.5.0 --from-051 /tmp/cajeer-0.5.1 --from-052 /tmp/cajeer-0.5.2 --from-053 /tmp/cajeer-0.5.3 --from-054 /tmp/cajeer-0.5.4 --from-055 /tmp/cajeer-0.5.5 --from-056 /tmp/cajeer-0.5.6 --from-057 /tmp/cajeer-0.5.7 --from-058 /tmp/cajeer-0.5.8 --from-059 /tmp/cajeer-0.5.9 --from-0510 /tmp/cajeer-0.5.10 --from-060 /tmp/cajeer-0.6.0 --from-061 /tmp/cajeer-0.6.1 --from-062 /tmp/cajeer-0.6.2 --from-063 /tmp/cajeer-0.6.3 --from-064 /tmp/cajeer-0.6.4 --from-065 /tmp/cajeer-0.6.5 --from-066 /tmp/cajeer-0.6.6 --from-067 /tmp/cajeer-0.6.7 --from-068 /tmp/cajeer-0.6.8 --from-069 /tmp/cajeer-0.6.9 --from-079 /tmp/cajeer-0.7.9 --from-080 /tmp/cajeer-0.8.0 --from-081 /tmp/cajeer-0.8.1 --from-082 /tmp/cajeer-0.8.2 --from-083 /tmp/cajeer-0.8.3 --from-084 /tmp/cajeer-0.8.4 --from-085 /tmp/cajeer-0.8.5 --from-086 /tmp/cajeer-0.8.6 --from-087 /tmp/cajeer-0.8.7 --from-088 /tmp/cajeer-0.8.8 --from-089 /tmp/cajeer-0.8.9 --from-090 /tmp/cajeer-0.9.0 --from-091 /tmp/cajeer-0.9.1 --from-092 /tmp/cajeer-0.9.2 --from-093 /tmp/cajeer-0.9.3 --from-094 /tmp/cajeer-0.9.4 --from-095 /tmp/cajeer-0.9.5 --from-096 /tmp/cajeer-0.9.6 --from-097 /tmp/cajeer-0.9.7 --from-098 /tmp/cajeer-0.9.8 --from-099 /tmp/cajeer-0.9.9 --output /tmp/database-certification.json
+          python3 scripts/certify.py database release-out/CajeerLogs-1.0.1.zip --from-010 /tmp/cajeer-0.1.0 --from-020 /tmp/cajeer-0.2.0 --from-029 /tmp/cajeer-0.2.9 --from-030 /tmp/cajeer-0.3.0 --from-032 /tmp/cajeer-0.3.2 --from-033 /tmp/cajeer-0.3.3 --from-034 /tmp/cajeer-0.3.4 --from-035 /tmp/cajeer-0.3.5 --from-036 /tmp/cajeer-0.3.6 --from-037 /tmp/cajeer-0.3.7 --from-038 /tmp/cajeer-0.3.8 --from-039 /tmp/cajeer-0.3.9 --from-040 /tmp/cajeer-0.4.0 --from-041 /tmp/cajeer-0.4.1 --from-042 /tmp/cajeer-0.4.2 --from-043 /tmp/cajeer-0.4.3 --from-044 /tmp/cajeer-0.4.4 --from-045 /tmp/cajeer-0.4.5 --from-046 /tmp/cajeer-0.4.6 --from-047 /tmp/cajeer-0.4.7 --from-048 /tmp/cajeer-0.4.8 --from-049 /tmp/cajeer-0.4.9 --from-0410 /tmp/cajeer-0.4.10 --from-050 /tmp/cajeer-0.5.0 --from-051 /tmp/cajeer-0.5.1 --from-052 /tmp/cajeer-0.5.2 --from-053 /tmp/cajeer-0.5.3 --from-054 /tmp/cajeer-0.5.4 --from-055 /tmp/cajeer-0.5.5 --from-056 /tmp/cajeer-0.5.6 --from-057 /tmp/cajeer-0.5.7 --from-058 /tmp/cajeer-0.5.8 --from-059 /tmp/cajeer-0.5.9 --from-0510 /tmp/cajeer-0.5.10 --from-060 /tmp/cajeer-0.6.0 --from-061 /tmp/cajeer-0.6.1 --from-062 /tmp/cajeer-0.6.2 --from-063 /tmp/cajeer-0.6.3 --from-064 /tmp/cajeer-0.6.4 --from-065 /tmp/cajeer-0.6.5 --from-066 /tmp/cajeer-0.6.6 --from-067 /tmp/cajeer-0.6.7 --from-068 /tmp/cajeer-0.6.8 --from-069 /tmp/cajeer-0.6.9 --from-079 /tmp/cajeer-0.7.9 --from-080 /tmp/cajeer-0.8.0 --from-081 /tmp/cajeer-0.8.1 --from-082 /tmp/cajeer-0.8.2 --from-083 /tmp/cajeer-0.8.3 --from-084 /tmp/cajeer-0.8.4 --from-085 /tmp/cajeer-0.8.5 --from-086 /tmp/cajeer-0.8.6 --from-087 /tmp/cajeer-0.8.7 --from-088 /tmp/cajeer-0.8.8 --from-089 /tmp/cajeer-0.8.9 --from-090 /tmp/cajeer-0.9.0 --from-091 /tmp/cajeer-0.9.1 --from-092 /tmp/cajeer-0.9.2 --from-093 /tmp/cajeer-0.9.3 --from-094 /tmp/cajeer-0.9.4 --from-095 /tmp/cajeer-0.9.5 --from-096 /tmp/cajeer-0.9.6 --from-097 /tmp/cajeer-0.9.7 --from-098 /tmp/cajeer-0.9.8 --from-099 /tmp/cajeer-0.9.9 --output /tmp/database-certification.json
       - uses: actions/setup-java@v4
         if: matrix.php == '8.4' && matrix.postgres == '17'
         with:
@@ -993,10 +994,10 @@ jobs:
           /tmp/cajeer-browser-venv/bin/python -m playwright install --with-deps chromium firefox webkit
       - name: Admin panel E2E on the exact release archive (Chromium, Firefox, WebKit)
         if: matrix.php == '8.4' && matrix.postgres == '17'
-        run: /tmp/cajeer-browser-venv/bin/python scripts/certify.py admin release-out/CajeerLogs-1.0.0.zip --output /tmp/admin-certification.json
+        run: /tmp/cajeer-browser-venv/bin/python scripts/certify.py admin release-out/CajeerLogs-1.0.1.zip --output /tmp/admin-certification.json
       - name: Certify installed SDKs and importers from the exact verified release ZIP
         if: matrix.php == '8.4' && matrix.postgres == '17'
-        run: python3 scripts/integrations.py release-out/CajeerLogs-1.0.0.zip --output /tmp/sdk-integration-certification.json
+        run: python3 scripts/integrations.py release-out/CajeerLogs-1.0.1.zip --output /tmp/sdk-integration-certification.json
       - name: Upload SDK evidence only after real packaged tests pass
         if: matrix.php == '8.4' && matrix.postgres == '17'
         uses: actions/upload-artifact@v4
@@ -1020,7 +1021,7 @@ jobs:
           if-no-files-found: error
 
   public-release:
-    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/tags/v1.0.0'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/tags/v1.0.1'
     permissions:
       contents: read
       id-token: write
@@ -1031,7 +1032,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: CajeerLogs-1.0.0-candidate-uncertified
+          name: CajeerLogs-1.0.1-candidate-uncertified
           path: release-out
       - uses: actions/download-artifact@v4
         with:
@@ -1061,14 +1062,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          python3 scripts/supply_chain.py verify release-out/CajeerLogs-1.0.0.zip --sbom release-out/CajeerLogs-1.0.0.sbom.cdx.json --provenance release-out/CajeerLogs-1.0.0.provenance.json --report release-out/supply-chain-report.json --strict-dependencies
-          gh attestation verify release-out/CajeerLogs-1.0.0.zip --repo "$GITHUB_REPOSITORY"
+          python3 scripts/supply_chain.py verify release-out/CajeerLogs-1.0.1.zip --sbom release-out/CajeerLogs-1.0.1.sbom.cdx.json --provenance release-out/CajeerLogs-1.0.1.provenance.json --report release-out/supply-chain-report.json --strict-dependencies
+          gh attestation verify release-out/CajeerLogs-1.0.1.zip --repo "$GITHUB_REPOSITORY"
       - name: Verify full matrix, admin, real production and long-duration async performance on the identical archive
         run: |
-          (cd release-out && sha256sum -c CajeerLogs-1.0.0.zip.sha256)
-          python3 scripts/certify.py release release-out/CajeerLogs-1.0.0.zip --reports /tmp/database-evidence --admin-report /tmp/admin-evidence/admin-certification.json --sdk-report /tmp/sdk-evidence/sdk-integration-certification.json --analytics-storage-report /tmp/analytics-storage-evidence/analytics-storage-certification.json --integration-report /tmp/integration-stability-evidence/integration-stability.json --security-report /tmp/security-acceptance-evidence/security-acceptance.json --supply-chain-report release-out/supply-chain-report.json --reproducibility-report release-out/reproducible-build.json --output release-out/database-certification.json
+          (cd release-out && sha256sum -c CajeerLogs-1.0.1.zip.sha256)
+          python3 scripts/certify.py release release-out/CajeerLogs-1.0.1.zip --reports /tmp/database-evidence --admin-report /tmp/admin-evidence/admin-certification.json --sdk-report /tmp/sdk-evidence/sdk-integration-certification.json --analytics-storage-report /tmp/analytics-storage-evidence/analytics-storage-certification.json --integration-report /tmp/integration-stability-evidence/integration-stability.json --security-report /tmp/security-acceptance-evidence/security-acceptance.json --supply-chain-report release-out/supply-chain-report.json --reproducibility-report release-out/reproducible-build.json --output release-out/database-certification.json
       - name: Check unified release identity before certification is published
-        run: python3 scripts/stable_release.py release-out/CajeerLogs-1.0.0.zip
+        run: python3 scripts/stable_release.py release-out/CajeerLogs-1.0.1.zip
       - name: OIDC-attest successful final certification report
         uses: actions/attest-build-provenance@v2
         with:
@@ -1079,12 +1080,12 @@ jobs:
         run: gh attestation verify release-out/database-certification.json --repo "$GITHUB_REPOSITORY"
       - uses: actions/upload-artifact@v4
         with:
-          name: CajeerLogs-1.0.0-certified-ci
+          name: CajeerLogs-1.0.1-certified-ci
           path: |
-            release-out/CajeerLogs-1.0.0.zip
-            release-out/CajeerLogs-1.0.0.zip.sha256
-            release-out/CajeerLogs-1.0.0.sbom.cdx.json
-            release-out/CajeerLogs-1.0.0.provenance.json
+            release-out/CajeerLogs-1.0.1.zip
+            release-out/CajeerLogs-1.0.1.zip.sha256
+            release-out/CajeerLogs-1.0.1.sbom.cdx.json
+            release-out/CajeerLogs-1.0.1.provenance.json
             release-out/supply-chain-report.json
             release-out/reproducible-build.json
             release-out/database-certification.json
@@ -1093,7 +1094,7 @@ jobs:
 
   publish-ga:
     # Never publish on PRs/branches; only after signed final CI certification.
-    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/tags/v1.0.0'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/tags/v1.0.1'
     needs: [public-release]
     runs-on: ubuntu-latest
     permissions:
@@ -1104,21 +1105,21 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: CajeerLogs-1.0.0-certified-ci
+          name: CajeerLogs-1.0.1-certified-ci
           path: release-out
       - name: Verify authenticated archive and certification; publish immutable GA assets
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           python3 scripts/ga_release.py publish \
-            --archive release-out/CajeerLogs-1.0.0.zip \
-            --checksum release-out/CajeerLogs-1.0.0.zip.sha256 \
+            --archive release-out/CajeerLogs-1.0.1.zip \
+            --checksum release-out/CajeerLogs-1.0.1.zip.sha256 \
             --certificate release-out/database-certification.json \
-            --sbom release-out/CajeerLogs-1.0.0.sbom.cdx.json \
-            --provenance release-out/CajeerLogs-1.0.0.provenance.json \
+            --sbom release-out/CajeerLogs-1.0.1.sbom.cdx.json \
+            --provenance release-out/CajeerLogs-1.0.1.provenance.json \
             --supply-chain release-out/supply-chain-report.json \
             --reproduction release-out/reproducible-build.json \
-            --notes docs/Production-Stable-GA-1.0.0.md \
+            --notes docs/Production-Stable-GA-1.0.1.md \
             --repo "$GITHUB_REPOSITORY" \
             --source-digest "$GITHUB_SHA"
 
@@ -1173,12 +1174,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: CajeerLogs-1.0.0-candidate-uncertified
+          name: CajeerLogs-1.0.1-candidate-uncertified
           path: release-out
       - name: Verify and extract exact release
         run: |
-          (cd release-out && sha256sum -c CajeerLogs-1.0.0.zip.sha256)
-          python3 scripts/release.py verify release-out/CajeerLogs-1.0.0.zip --extract /tmp/cajeerlogs-release
+          (cd release-out && sha256sum -c CajeerLogs-1.0.1.zip.sha256)
+          python3 scripts/release.py verify release-out/CajeerLogs-1.0.1.zip --extract /tmp/cajeerlogs-release
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.4'
@@ -1209,7 +1210,7 @@ jobs:
           CAJEER_TEST_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
           CAJEER_TEST_CLICKHOUSE_CONTAINER: ${{ job.services.clickhouse.id }}
         run: |
-          python3 /tmp/cajeerlogs-release/scripts/analytics_storage_certify.py "$GITHUB_WORKSPACE/release-out/CajeerLogs-1.0.0.zip" --output /tmp/analytics-storage-certification.json
+          python3 /tmp/cajeerlogs-release/scripts/analytics_storage_certify.py "$GITHUB_WORKSPACE/release-out/CajeerLogs-1.0.1.zip" --output /tmp/analytics-storage-certification.json
       - uses: actions/upload-artifact@v4
         with:
           name: analytics-storage-evidence

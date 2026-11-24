@@ -1,7 +1,7 @@
-import { admin, render, active } from '../app/store.js?v=1.0.0';
-import { h, button, card, badge, heading, table, copy, message, empty, modal, clearModal, notify } from '../components/ui.js?v=1.0.0';
-import { redactionButton } from './projects.js?v=1.0.0';
-import { request, ready } from '../api/client.js?v=1.0.0';
+import { admin, render, active } from '../app/store.js?v=1.0.1';
+import { h, button, card, badge, heading, table, copy, message, empty, modal, clearModal, notify } from '../components/ui.js?v=1.0.1';
+import { redactionButton } from './projects.js?v=1.0.1';
+import { request, ready } from '../api/client.js?v=1.0.1';
 
 // Each endpoint is independent: a failed report must not hide successful liveness/readiness.
 async function system(signal, epoch) {
@@ -14,6 +14,44 @@ async function system(signal, epoch) {
         const result=results[i];
         return [label,result.status==='fulfilled'?h('div',{},badge(result.value.status===200?'ok':'down'),h('span',{class:'muted small'},` HTTP ${result.value.status} · ${String(result.value.data?.status??'—')}`)):message(result.reason)];
     })),h('p',{class:'muted small'},'Проверено: '+new Date().toISOString()),table(['Параметр','Значение'],[['Версия',results[0].status==='fulfilled'?results[0].value.data?.version??'—':'—'],['Среда',report?.environment??'—'],['PHP',report?.php??'—']])));
+    // Release discovery is independent from DB diagnostics, and never installs code.
+    const releaseContent=h('div',{'aria-live':'polite'},h('p',{class:'muted'},'Проверяем опубликованные версии…'));
+    const checkUpdates=button('Проверить сейчас',()=>void loadUpdates(true));
+    root.append(card(h('h2',{},'Обновления · GitHub Releases'),releaseContent,
+        h('div',{class:'actions'},checkUpdates),
+        h('p',{class:'muted small'},'Только проверка версий. Загрузка и установка обновлений здесь не выполняются.')));
+    async function loadUpdates(refresh=false) {
+        if(signal.aborted||!active(epoch))return;
+        checkUpdates.disabled=true;
+        releaseContent.replaceChildren(h('p',{class:'muted'},'Получаем данные GitHub Releases…'));
+        try {
+            const result=await request('/system/updates',{signal,withStatus:true,allowStatus:[503],
+                query:refresh?{refresh:'1'}:undefined});
+            if(signal.aborted||!active(epoch))return;
+            const d=result.data;
+            if(result.status!==200||d?.status==='unavailable') {
+                releaseContent.replaceChildren(h('p',{class:'error'},d?.error||'GitHub Releases недоступен. Сохранённые версии не считаются актуальными.'));
+                return;
+            }
+            const release=d.release;
+            releaseContent.replaceChildren(
+                table(['Параметр','Значение'],[
+                    ['Установлено',d.current],['Канал',d.channel==='preview'?'Preview':'Stable'],
+                    ['Последняя опубликованная',d.candidate||'Нет опубликованных версий'],
+                    ['Обновление',d.status==='no_releases'?'Нет опубликованных релизов':d.update_available?'Доступно':'Актуальная версия'],
+                    ['Проверено',d.checked_at+(d.cached?' (кэш до 5 минут)':'')]
+                ]),
+                release? h('div',{class:'stack'},
+                    h('p',{},d.update_available?'Доступна новая версия '+d.candidate+'.':'Новая версия не требуется.'),
+                    h('a',{href:release.url,target:'_blank',rel:'noopener noreferrer',referrerpolicy:'no-referrer'},'Открыть релиз на GitHub'),
+                    h('details',{},h('summary',{},'Changelog · '+release.tag),
+                        h('div',{class:'release-changelog'},release.changelog||'Описание изменений не опубликовано.'))
+                ):h('p',{class:'muted'},'Опубликованные релизы для выбранного канала пока не найдены.')
+            );
+        }catch(e){if(active(epoch)&&!signal.aborted)releaseContent.replaceChildren(message(e));}
+        finally{if(active(epoch)&&!signal.aborted)checkUpdates.disabled=false;}
+    }
+    void loadUpdates();
     if(report?.rate_limits) root.append(card(h('h2',{},'Ограничения запросов'),table(['Бюджет','Запросов/мин','Всплеск'],Object.entries(report.rate_limits).map(([key,value])=>[key,String(value.per_minute),String(value.burst)])),h('p',{class:'muted small'},'Общие лимиты PostgreSQL. Дополнительно действуют квоты токенов, проектов и источников.')));
     if(report?.deployment_security) { const d=report.deployment_security; root.append(card(h('h2',{},'Безопасность развёртывания'),table(['Проверка','Значение'],[['HTTPS APP_URL',d.https_configured?'Да':'Нет'],['Проверка Host',d.production_host_validation?'Включена':'Отключена'],['Доверенные proxy (записи)',String(d.trusted_proxy_count)],['PostgreSQL TLS',d.database_sslmode],['Обязательная проверка сертификата БД',d.database_tls_required?'Да':'Нет']]),h('p',{class:'muted small'},'Проверить внешний TLS-сертификат: php bin/cajeer tls:check'))); }
     if(report?.workers) root.append(card(h('h2',{},'Фоновые процессы'),table(['Процесс','Последняя успешная активность','Состояние'],Object.entries(report.workers).map(([role,w])=>[role,w.last_success_timestamp?new Date(w.last_success_timestamp*1000).toISOString():'Нет данных',badge(w.status)])),h('p',{class:'muted small'},'Heartbeat подтверждает последний успешный проход, а не наличие процесса. Backup worker опционален.')));

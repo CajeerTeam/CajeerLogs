@@ -2,7 +2,7 @@
   "openapi": "3.1.1",
   "info": {
     "title": "CajeerLogs API",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "description": "Identity & Access, synchronous and durable asynchronous PostgreSQL ingestion, job status, project-scoped search, statistics, bounded page export, and durable background JSON/CSV exports. Outgoing webhooks support scoped subscription management, event selection, delivery history, replay, test delivery and audit through the Admin Panel/API or CLI. TOTP enrollment, recovery codes and administrator enrollment policy. Token rotation, scoped service accounts, credential request quotas and bulk revocation. Mandatory project/token HMAC and separately encrypted rotating signing keys. Session lifecycle, account profile and recovery-code regeneration. Private saved log views with canonical search filters and table layout. Administrator user directory, effective project access, scoped access audit and reauthenticated 2FA reset. Token detail, service account statistics, filtered security audit and explicit HMAC overlap retirement. Append-only audit chain with result/actor/time filters and bounded NDJSON export. Error analytics supplies scoped fingerprint grouping, comparison trends and JSON/CSV reports over bounded time windows. Advanced Search supports bounded facet counts and project/source-scoped trace/request correlation from an event UUID."
   },
   "servers": [
@@ -3230,6 +3230,129 @@
           },
           "503": {
             "description": "Unavailable"
+          }
+        }
+      }
+    },
+    "/system/updates": {
+      "get": {
+        "operationId": "updates",
+        "summary": "Discover published CajeerLogs updates from GitHub Releases",
+        "description": "Read-only system:read-protected GitHub Releases discovery. Checks semantic versions, stable/preview channel, and bounded release notes. Does not download or install updates. The refresh query bypasses the five-minute cache and is rate-limited.",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "refresh",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            },
+            "description": "Force a fresh GitHub query (6 per minute per principal)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Release check result (no releases is not a failure).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "status",
+                    "source",
+                    "repository",
+                    "channel",
+                    "current",
+                    "update_available",
+                    "release",
+                    "checked_at"
+                  ],
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "ok",
+                        "no_releases"
+                      ]
+                    },
+                    "source": {
+                      "type": "string",
+                      "const": "github_releases"
+                    },
+                    "repository": {
+                      "type": "string",
+                      "const": "CajeerTeam/CajeerLogs"
+                    },
+                    "channel": {
+                      "type": "string",
+                      "enum": [
+                        "stable",
+                        "preview"
+                      ]
+                    },
+                    "current": {
+                      "type": "string"
+                    },
+                    "candidate": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "update_available": {
+                      "type": "boolean"
+                    },
+                    "release": {
+                      "type": [
+                        "object",
+                        "null"
+                      ]
+                    },
+                    "checked_at": {
+                      "type": "string"
+                    },
+                    "cached": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "$ref": "#/components/responses/InvalidPayload"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "description": "GitHub or release cache unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
           }
         }
       }

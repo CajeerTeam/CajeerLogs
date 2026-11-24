@@ -67,7 +67,7 @@ with server() as port:
     for path in ("/", "/health", "/api/v1/health?probe=1"):
         status, headers, body = request(port, "GET", path)
         data = json.loads(body)
-        check(status == 200 and data["version"] == "1.0.0" and data["scope"] == "runtime", f"GET {path}")
+        check(status == 200 and data["version"] == "1.0.1" and data["scope"] == "runtime", f"GET {path}")
         check(len(headers["x-request-id"]) == 32 and headers["cache-control"] == "no-store" and headers["x-content-type-options"] == "nosniff", f"headers {path}")
     status, headers, body = request(port, "POST", "/health")
     check(status == 405 and headers["allow"] == "GET, HEAD, OPTIONS" and json.loads(body)["request_id"] == headers["x-request-id"], "405 + Allow + correlation")
@@ -100,6 +100,7 @@ with server() as port:
     check(request(port, "GET", "/api/v1/ingest/async")[0] == 405, "async method restricted")
 
     check(request(port, "GET", "/api/v1/system/report")[0] == 401, "system report requires authentication")
+    check(request(port, "GET", "/api/v1/system/updates")[0] == 401, "release discovery requires authenticated system access")
     status, headers, body = request(port, "GET", "/api/v1/auth/me")
     check(status == 401 and headers["www-authenticate"].startswith("Bearer") and headers["cache-control"] == "no-store", "identity unauthorized + challenge")
     check(request(port, "GET", "/api/v1/auth/token", headers={"Authorization":"Bearer invalid"})[0] == 401, "malformed bearer rejected over HTTP")
@@ -116,7 +117,7 @@ with server() as port:
     status, headers, body = request(port, "GET", "/admin")
     check(status == 308 and headers["location"] == "/admin/", "admin canonical redirect")
     status, headers, body = request(port, "GET", "/admin/")
-    check(status == 200 and headers["content-type"].startswith("text/html") and b'content="1.0.0"' in body and b'content="/api/v1"' in body, "admin HTML runtime version and API prefix")
+    check(status == 200 and headers["content-type"].startswith("text/html") and b'content="1.0.1"' in body and b'content="/api/v1"' in body, "admin HTML runtime version and API prefix")
     check("script-src 'self'" in headers["content-security-policy"] and "frame-ancestors 'none'" in headers["content-security-policy"] and "no-store" in headers["cache-control"] and headers["x-content-type-options"]=="nosniff" and headers["referrer-policy"]=="no-referrer", "admin CSP, private no-store, referrer and nosniff")
     check(request(port, "HEAD", "/admin/")[2] == b"", "admin HEAD without body")
     check(request(port, "POST", "/admin/")[0] == 405, "admin unsupported method")

@@ -65,7 +65,7 @@ Restore uses `pg_restore --single-transaction --exit-on-error --clean --if-exist
 
 Configure `PROMETHEUS_TOKEN` with a 32–256-character URL-safe secret and send `Authorization: Bearer TOKEN` from the scraper. Production authenticated scrapes require HTTPS. Without a token, restrict `/metrics` at the network/proxy (default compatibility behavior). The metrics token is separate from API tokens. `system:report` and `/api/v1/system/report` include storage free bytes, security readiness, real queue/database/scheduler metrics; only authorized users/system tokens see the system report. No secrets or log contents in metrics. Alert on readiness failure, dead jobs, expired leases, scheduler lateness, webhook failures, backup failure and disk exhaustion. Metrics queries are database-backed; use a sensible scrape interval (e.g. 30–60s).
 
-`update:check /path/to/trusted/release.json` compares the local trusted release manifest with the installed version. It neither downloads nor installs updates and does not authenticate a remote registry. Take a backup and stop writers before any manual upgrade.
+`update:check` queries the pinned CajeerTeam/CajeerLogs GitHub Releases endpoint over verified HTTPS, compares strict SemVer and displays bounded release notes. `update:check --refresh` bypasses the private five-minute cache. The old `update:check /path/to/trusted/release.json` remains available for explicitly supplied local metadata and is not a remote source of trust. Neither mode downloads or installs code. See `docs/GitHub-Release-Discovery-1.0.1.md`. Take a verified backup and stop writers before any independently authorized manual upgrade.
 
 ## Verification
 

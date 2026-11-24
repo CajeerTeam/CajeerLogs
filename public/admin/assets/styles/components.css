@@ -410,3 +410,6 @@ details .form-grid {
 .analytics-change-up { color:var(--danger); font-weight:600; }
 .analytics-change-down { color:var(--accent); font-weight:600; }
 @media (max-width:680px) { .analytics-comparison-name { min-width:80px; } }
+
+/* GitHub release notes are untrusted Markdown rendered strictly as text. */
+.release-changelog { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 26rem; overflow: auto; padding: 0.75rem; border: 1px solid var(--border, #bbb); border-radius: 0.5rem; margin-top: 0.5rem; }

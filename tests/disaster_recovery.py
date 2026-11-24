@@ -3,7 +3,7 @@
 
 Exercises actual CLI pg_dump, authenticated offsite encryption, offsite-only
 recovery after local disappearance, real pg_restore, data-loss boundary and
-fail-closed faults. Evidence is bound to the verified 1.0.0 distribution.
+fail-closed faults. Evidence is bound to the verified 1.0.1 distribution.
 """
 import datetime
 import hashlib
@@ -67,9 +67,9 @@ def main():
         raise RuntimeError('PostgreSQL executable missing')
     archive=Path(os.environ['CAJEER_TEST_RELEASE_ARCHIVE']).resolve()
     info=release.verify(archive)
-    if info['version']!='1.0.0' or json.loads((ROOT/'release.json').read_text())['version']!='1.0.0':
-        raise RuntimeError('DR drill must run on the actual 1.0.0 archive')
-    report={'format':1,'scope':'disaster-recovery','status':'failed','version':'1.0.0',
+    if info['version']!='1.0.1' or json.loads((ROOT/'release.json').read_text())['version']!='1.0.1':
+        raise RuntimeError('DR drill must run on the actual 1.0.1 archive')
+    report={'format':1,'scope':'disaster-recovery','status':'failed','version':'1.0.1',
             'archive_sha256':hashlib.sha256(archive.read_bytes()).hexdigest(),
             'checks':[],'created_at':datetime.datetime.now(datetime.timezone.utc).isoformat()}
     output=Path(os.environ['CAJEER_TEST_DR_REPORT']).resolve()
@@ -114,7 +114,7 @@ def main():
             snapshot_checksum=sql(env,proof_checksum)
             report['checks'].append('pre_snapshot_write')
             backup=cli(env,'backup:create')
-            if backup['version']!='1.0.0' or not backup.get('snapshot_started_at') or backup['bytes']<1:
+            if backup['version']!='1.0.1' or not backup.get('snapshot_started_at') or backup['bytes']<1:
                 raise AssertionError('Unusable recovery point')
             sql(env,"INSERT INTO settings(key,value) VALUES ('dr-proof:after_snapshot',to_jsonb('after_snapshot'::text))")
             report['checks'].append('post_snapshot_write')

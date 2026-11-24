@@ -1,3 +1,11 @@
+## 1.0.1 — GitHub Release Discovery (2026-11-24)
+
+- Retrieve real published releases from `https://api.github.com/repos/CajeerTeam/CajeerLogs/releases` using verified TLS, fixed destination, strict HTTP and JSON limits, and no redirects.
+- Compare complete SemVer 2.0 versions including numeric pre-release identifiers; exclude GitHub drafts, enforce stable/preview channels and ignore invalid release tags.
+- Show installed version, newest published version, update availability, release link and safely rendered changelog in the authenticated System panel, with an operator refresh action and private five-minute cache.
+- Make `update:check` query GitHub directly; preserve explicit trusted-local-JSON mode. Add unit and API access regressions; do not download, install, or auto-update code at this stage.
+- Synchronize runtime, SDK, API, browser and production image versions with 1.0.1. Publication requires the complete unchanged release gates and signed artifacts.
+
 ## 1.0.0 — Production Stable GA candidate
 
 - Complete release publication workflow: verifies a single ZIP and final certification report against signed GitHub OIDC attestations before publishing GA assets.

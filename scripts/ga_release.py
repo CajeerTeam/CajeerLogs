@@ -18,7 +18,7 @@ import sys
 
 import release
 
-VERSION = '1.0.0'
+VERSION = '1.0.1'
 TAG = 'v' + VERSION
 WORKFLOW = '.github/workflows/runtime.yml'
 NAME = f'CajeerLogs-{VERSION}.zip'
@@ -64,7 +64,7 @@ def evidence(archive: Path, certificate: Path, checksum: Path, sbom: Path,
         raise GAError('GA artifact name or file is invalid')
     meta=release.verify(archive)
     if meta.get('version') != VERSION:
-        raise GAError('Release ZIP is not 1.0.0')
+        raise GAError('Release ZIP is not 1.0.1')
     actual=sha(archive)
     if checksum.read_text(encoding='ascii').strip() != f'{actual}  {NAME}':
         raise GAError('Release checksum sidecar does not match ZIP')
@@ -100,7 +100,7 @@ def evidence(archive: Path, certificate: Path, checksum: Path, sbom: Path,
         raise GAError('Independent builds not identical')
     if chain.get('sbom_sha256')!=sha(sbom) or chain.get('provenance_sha256')!=sha(provenance):
         raise GAError('SBOM/provenance mismatch')
-    if not notes.is_file() or '1.0.0' not in notes.read_text(encoding='utf8'):
+    if not notes.is_file() or '1.0.1' not in notes.read_text(encoding='utf8'):
         raise GAError('GA notes missing')
     return {'version':VERSION,'zip_sha256':actual,'certification_sha256':sha(certificate),
             'matrix': ['PHP '+p+'/PostgreSQL '+g for p,g in sorted({(x['php_series'],x['postgres_major']) for x in db})]}

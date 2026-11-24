@@ -1,3 +1,9 @@
+## CajeerLogs 1.0.1 — GitHub Release Discovery
+
+1.0.1 adds **working read-only discovery** of published CajeerTeam/CajeerLogs releases via GitHub REST API, strict SemVer comparison, stable/preview channel selection and release changelogs in the authenticated System panel. CLI: `php bin/cajeer update:check [--refresh]`. Local trusted JSON compatibility remains supported. Release results are cached privately for five minutes; failures are surfaced explicitly. The update checker does not download or install code. See [operator guide](docs/GitHub-Release-Discovery-1.0.1.md).
+
+The `v1.0.1` GitHub Actions workflow remains the mandatory release gate; this source archive or a changed version number **does not prove** that a signed GA release was published.
+
 ## CajeerLogs 1.0.0 — Production Stable GA candidate
 
 The GA release is **not published or certified merely by this source archive**. The `v1.0.0` workflow verifies PHP 8.4/8.5 × PostgreSQL 17/18, real SDK/browser/ClickHouse integrations, DR, load SLOs, dependency integrity and Sigstore/OIDC attestations. The `publish-ga` job creates the immutable GitHub Release only after all checks pass.
