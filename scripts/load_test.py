@@ -30,7 +30,7 @@ import urllib.parse
 import urllib.request
 import uuid
 
-VERSION = '1.0.9'
+VERSION = '1.1.0'
 MAX_RESPONSE = 4 * 1024 * 1024
 RETRYABLE = {429, 502, 503, 504}
 PHASES = ('sustained', 'stress', 'soak', 'fault')
@@ -603,7 +603,7 @@ def validate_args(args):
                 args.p95_ms > 5000 or args.fault_p95_ms > 8000 or
                 args.min_rate_ratio < .85 or args.max_error_rate > .01 or
                 args.fault_error_rate > .01):
-            raise ValueError('Certification cannot weaken the fixed 1.0.9 throughput, latency and error SLO')
+            raise ValueError('Certification cannot weaken the fixed 1.1.0 throughput, latency and error SLO')
 
 
 def get_release_metadata(args, client):

@@ -1,3 +1,12 @@
+## 1.1.0 — Integrated Production Release (2026-11-24)
+
+- Add explicit operator integration diagnostics: configuration-only by default; optional live synthetic OpenAI request, SkiF4er OIDC discovery and GitHub release lookup. No log records or secrets in the report.
+- Fail closed on malformed or unexpected tool-call Responses API output; hide misconfigured SkiF4er ID login.
+- Require signed final GA certification for stable update downloads and revalidation, not just build-candidate provenance. Preview remains download-only.
+- Require integrated external session, project-scoped AI investigation, revocation and history regression tests, plus automatic/safe update tests on the shipped archive.
+- Require upgrade/rollback certification from actual 1.0.9 source history; retain all 36 historical PostgreSQL migrations and backup compatibility. No new migration needed.
+- Retain full runtime matrix, browser, supply-chain, backup, load and signed GA promotion gates. Local source validation is not publication or live certification.
+
 ## 1.0.9 — Automatic Update Management (2026-11-24)
 
 - Schedule GitHub checks and verified downloads on stable or preview channels; native stable-only installation within a configured UTC start window.

@@ -10,7 +10,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
 from automatic_update import Manager, DEFAULT, policy, in_window, UpdateError
 
 class Host:
-    def __init__(self): self.calls=[]; self.candidate='1.1.0'; self.fail=False; self.bad_proof=False
+    def __init__(self): self.calls=[]; self.candidate='1.1.1'; self.fail=False; self.bad_proof=False
     def cli(self,root,*args,**kwargs):
         self.calls.append(args)
         if self.fail: raise UpdateError('network failed')
@@ -40,11 +40,11 @@ class Tests(unittest.TestCase):
         self.assertEqual(self.manager.tick()['status'],'off');self.assertEqual(self.host.calls,[])
     def test_interval_and_preview(self):
         self.configure(mode='check',channel='preview',interval_minutes=5)
-        self.host.candidate='1.1.0-rc.1';s=self.manager.tick();self.assertEqual(s['candidate'],'1.1.0-rc.1');self.assertEqual(s['notices'][-1]['kind'],'available')
+        self.host.candidate='1.1.1-rc.1';s=self.manager.tick();self.assertEqual(s['candidate'],'1.1.1-rc.1');self.assertEqual(s['notices'][-1]['kind'],'available')
         self.now+=299;self.manager.tick();self.assertEqual(len(self.host.calls),1)
         self.now+=1;self.manager.tick();self.assertEqual(len(self.host.calls),2);self.assertEqual(len(self.manager.state()['notices']),1)
     def test_download_pinned_no_install(self):
-        self.configure(mode='download');s=self.manager.tick();self.assertEqual(s['downloaded'],'1.1.0');self.assertEqual(self.host.calls[-1],('update:download','--channel=stable','--version=1.1.0'))
+        self.configure(mode='download');s=self.manager.tick();self.assertEqual(s['downloaded'],'1.1.1');self.assertEqual(self.host.calls[-1],('update:download','--channel=stable','--version=1.1.1'))
         self.now+=3600;self.manager.tick();self.assertEqual(sum(x[0]=='update:download' for x in self.host.calls),1)
     def test_untrusted_proof_no_install(self):
         self.install_policy(window_start='02:00');self.host.bad_proof=True
@@ -63,7 +63,7 @@ class Tests(unittest.TestCase):
         with self.assertRaises(UpdateError):self.manager.resume()
         self.host.journal={'phase':'rolled_back'};self.host.install_fail=False;self.manager.resume();s=self.manager.tick();self.assertEqual(s['status'],'installed');self.assertEqual(self.host.calls[-1][2],'next_b')
     def test_interrupted_install_fails_closed(self):
-        self.install_policy();s=self.manager.state();s['status']='installing';s['candidate']='1.1.0';self.manager.save(self.manager.settings(),s)
+        self.install_policy();s=self.manager.state();s['status']='installing';s['candidate']='1.1.1';self.manager.save(self.manager.settings(),s)
         self.assertEqual(self.manager.tick()['status'],'interrupted');self.assertEqual(self.host.calls,[])
     def test_empty_pool_and_recovery(self):
         self.install_policy(window_start='02:00',databases=['next_a']);s=self.manager.state();s['used_databases']=['next_a'];self.manager.save(self.manager.settings(),s)

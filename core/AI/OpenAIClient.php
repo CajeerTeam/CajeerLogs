@@ -22,15 +22,18 @@ final class OpenAIClient
         if (!is_array($data)||($data['status']??null)!=='completed'||!is_array($data['output']??null)) self::unavailable();
         $parts=[];
         foreach ($data['output'] as $item) {
+            if (!is_array($item)) self::unavailable();
+            if (in_array($item['type']??null,['function_call','custom_tool_call','mcp_call','web_search_call','computer_call','code_interpreter_call'],true)) self::unavailable();
             if (($item['type']??null)!=='message'||($item['role']??null)!=='assistant'||!is_array($item['content']??null)) continue;
             foreach ($item['content'] as $part) {
+                if (!is_array($part)) self::unavailable();
                 $text=match($part['type']??null){'output_text'=>$part['text']??null,'refusal'=>$part['refusal']??null,default=>null};
                 if (is_string($text)&&trim($text)!=='') $parts[]=$text;
             }
         }
         $answer=implode("\n",$parts);
         if ($answer===''||strlen($answer)>24000) self::unavailable();
-        $usage=[]; foreach(['input_tokens','output_tokens','total_tokens'] as $field) if(is_int($data['usage'][$field]??null)&&$data['usage'][$field]>=0) $usage[$field]=$data['usage'][$field];
+        $usage=[]; if (!is_array($data['usage']??[])) self::unavailable(); foreach(['input_tokens','output_tokens','total_tokens'] as $field) if(is_int($data['usage'][$field]??null)&&$data['usage'][$field]>=0) $usage[$field]=$data['usage'][$field];
         return ['answer'=>Assistant::mask($answer),'usage'=>(object)$usage];
     }
     private function send(string $url,string $body,string $key): array

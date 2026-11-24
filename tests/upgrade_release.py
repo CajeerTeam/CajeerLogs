@@ -41,7 +41,7 @@ def main(previous):
         or rollback_target in ('postgres','template0','template1')):
         raise SystemExit('Use three distinct explicitly provisioned disposable databases and APP_ENV=test.')
     old_version=json.loads((previous/'release.json').read_text())['version']
-    if old_version not in ('0.1.0','0.2.0','0.2.9','0.3.0','0.3.1','0.3.2','0.3.3','0.3.4','0.3.5','0.3.6','0.3.7','0.3.8','0.3.9','0.4.0','0.4.1','0.4.2','0.4.3','0.4.4','0.4.5','0.4.6','0.4.7','0.4.8','0.4.9','0.4.10','0.5.0','0.5.1','0.5.2','0.5.3','0.5.4','0.5.5','0.5.6','0.5.7','0.5.8','0.5.9','0.5.10','0.6.0','0.6.1','0.6.2','0.6.3','0.6.4','0.6.5','0.6.6','0.6.7','0.6.8','0.6.9','0.7.0','0.7.1','0.7.2','0.7.3','0.7.4','0.7.5','0.7.6','0.7.7','0.7.8','0.7.9','0.8.0','0.8.1','0.8.2','0.8.3','0.8.4','0.8.5','0.8.6','0.8.7','0.8.8','0.8.9','0.9.0','0.9.1','0.9.2','0.9.3','0.9.4','0.9.5','0.9.6','0.9.7','0.9.8','0.9.9'): raise SystemExit('Expected a genuine supported previous source tree (through 0.9.9).')
+    if old_version not in ('0.1.0','0.2.0','0.2.9','0.3.0','0.3.1','0.3.2','0.3.3','0.3.4','0.3.5','0.3.6','0.3.7','0.3.8','0.3.9','0.4.0','0.4.1','0.4.2','0.4.3','0.4.4','0.4.5','0.4.6','0.4.7','0.4.8','0.4.9','0.4.10','0.5.0','0.5.1','0.5.2','0.5.3','0.5.4','0.5.5','0.5.6','0.5.7','0.5.8','0.5.9','0.5.10','0.6.0','0.6.1','0.6.2','0.6.3','0.6.4','0.6.5','0.6.6','0.6.7','0.6.8','0.6.9','0.7.0','0.7.1','0.7.2','0.7.3','0.7.4','0.7.5','0.7.6','0.7.7','0.7.8','0.7.9','0.8.0','0.8.1','0.8.2','0.8.3','0.8.4','0.8.5','0.8.6','0.8.7','0.8.8','0.8.9','0.9.0','0.9.1','0.9.2','0.9.3','0.9.4','0.9.5','0.9.6','0.9.7','0.9.8','0.9.9','1.0.9'): raise SystemExit('Expected a genuine supported previous source tree (through 1.0.9).')
     old_migrations={p.name:p.read_bytes() for p in (previous/'migrations/pgsql').glob('*.sql')}
     new_migrations={p.name:p.read_bytes() for p in (ROOT/'migrations/pgsql').glob('*.sql')}
     expected={'0009_project_management.sql','0010_source_management.sql','0011_token_management.sql','0012_database_integrity.sql','0013_ingest_signing.sql','0014_delivery_idempotency.sql'} if old_version=='0.1.0' else ({'0013_ingest_signing.sql','0014_delivery_idempotency.sql'} if old_version=='0.2.0' else set())
@@ -73,6 +73,7 @@ def main(previous):
     expected.add("0034_skif4er_auth.sql")
     expected.add("0035_skif4er_linking.sql")
     expected.add("0036_ai_investigation_history.sql")
+    if old_version=='1.0.9': expected=set()
     assert all(new_migrations.get(k)==v for k,v in old_migrations.items()) and set(new_migrations)-set(old_migrations)==expected,'previous migration history changed'
     schema='cl_upgrade_'+secrets.token_hex(8)
     with tempfile.TemporaryDirectory() as tmp:
@@ -160,6 +161,18 @@ def main(previous):
                 assert isinstance(location,str) and urllib.parse.urlsplit(urllib.parse.urljoin(url,location)).path==f'/api/v1/ingest/jobs/{jid}', 'Enqueue Location must identify the created job'
                 assert int(sql(f'SELECT count(*) FROM "{schema}".jobs'))==before_jobs+1, 'First enqueue must create exactly one durable job'
                 assert sql(f'SELECT status FROM "{schema}".jobs WHERE id={int(jid)}') in ('pending','queued'), 'New job must remain pending for the upgrade'
+            # Exercise actual existing integration data in the 1.0.9 snapshot.
+            # Synthetic rows are data fixtures only; the real backup/upgrade/restore runs unchanged.
+            def assert_integrations(database=env['DB_DATABASE']):
+                assert sql(f"SELECT count(*) FROM \"{schema}\".skif4er_identities WHERE subject='upgrade-linked-subject'",database)=='1'
+                assert sql(f"SELECT result->>'answer' FROM \"{schema}\".ai_investigation_history WHERE project_id='{pid}' AND question='upgrade investigation'",database)=='existing incident'
+            if old_version=='1.0.9':
+                uid=sql(f"SELECT id FROM \"{schema}\".users WHERE email='upgrade@example.test'")
+                assert re.fullmatch(r'[0-9a-f-]{36}',uid) and re.fullmatch(r'[0-9a-f-]{36}',pid)
+                sql(f"INSERT INTO \"{schema}\".skif4er_identities(subject,user_id) VALUES('upgrade-linked-subject','{uid}')")
+                record=json.dumps({'answer':'existing incident','evidence':[{'id':eid}],'usage':{}},separators=(',',':'))
+                sql(f"INSERT INTO \"{schema}\".ai_investigation_history(project_id,user_id,question,result) VALUES('{pid}','{uid}','upgrade investigation','{record}'::jsonb)")
+                assert_integrations()
             accepted_budget=sql(f'SELECT max_attempts FROM "{schema}".jobs WHERE id={int(jid)}')
             backup=json.loads(cli('backup:create')); assert backup['version']==old_version
             assert hashlib.sha256((p/'backups'/backup['id']/'database.dump').read_bytes()).hexdigest()==backup['sha256']
@@ -180,23 +193,24 @@ def main(previous):
                 raise RuntimeError('Upgrade tested a different release version')
             shutil.copytree(extracted,tree,dirs_exist_ok=True)
             assert (tree/'.env').read_bytes()==before
-            assert cli('version').strip()=='1.0.9'
-            if old_version in ('0.4.6','0.4.7','0.4.8','0.4.9','0.4.10','0.5.0','0.5.1','0.5.2','0.5.3','0.5.4','0.5.5','0.5.6','0.5.7','0.5.8','0.5.9','0.5.10','0.6.0','0.6.1','0.6.2','0.6.3','0.6.4','0.6.5','0.6.6','0.6.7','0.6.8','0.6.9','0.7.9','0.8.0','0.8.1','0.8.2','0.8.3','0.8.4','0.8.5','0.8.6','0.8.7','0.8.8','0.8.9','0.9.0','0.9.1','0.9.2','0.9.3'):
+            assert cli('version').strip()=='1.1.0'
+            if old_version in ('0.4.6','0.4.7','0.4.8','0.4.9','0.4.10','0.5.0','0.5.1','0.5.2','0.5.3','0.5.4','0.5.5','0.5.6','0.5.7','0.5.8','0.5.9','0.5.10','0.6.0','0.6.1','0.6.2','0.6.3','0.6.4','0.6.5','0.6.6','0.6.7','0.6.8','0.6.9','0.7.9','0.8.0','0.8.1','0.8.2','0.8.3','0.8.4','0.8.5','0.8.6','0.8.7','0.8.8','0.8.9','0.9.0','0.9.1','0.9.2','0.9.3','1.0.9'):
                 proof=json.loads(cli('upgrade:check',backup['id'])); assert proof['status']=='ok' and proof['backup_sha256']==backup['sha256'] and proof['pending']==sorted(expected)
                 assert (tree/'.env').read_bytes()==before
             if old_version=='0.5.2': env['QUEUE_MAX_ATTEMPTS']='3'
             # Exercise the actual production upgrade path, not only the bare migration runner.
-            if old_version in ('0.9.0','0.9.1','0.9.2','0.9.3'):
+            if old_version in ('0.9.0','0.9.1','0.9.2','0.9.3','1.0.9'):
                 upgraded=json.loads(cli('upgrade',backup['id'],'--confirm-stopped'))
                 assert upgraded['status']=='ready' and upgraded['schema_verified']
                 assert upgraded['backup_id']==backup['id'] and upgraded['from']==old_version
                 assert upgraded['recorded'] and upgraded['applied']==sorted(expected)
                 again=json.loads(cli('upgrade',backup['id'],'--confirm-stopped'))
                 assert again['status']=='ready' and again['applied']==[] and not again['recorded']
-                assert sql(f"SELECT count(*) FROM \"{schema}\".settings WHERE key='installation.upgrade.1.0.9'")=='1'
+                assert sql(f"SELECT count(*) FROM \"{schema}\".settings WHERE key='installation.upgrade.1.1.0'")=='1'
             else:
                 cli('migrate')
             cli('doctor')
+            if old_version=='1.0.9': assert_integrations()
             assert sql(f'SELECT max_attempts FROM "{schema}".jobs WHERE id={int(jid)}')==accepted_budget
             capacity=json.loads(cli('queue:capacity')); assert capacity['active_jobs']==1 and capacity['active_events']==1 and capacity['active_bytes']>0
             assert capacity['max_events']==100000 and capacity['max_bytes']==536870912 and capacity['admission_paused']==0
@@ -206,7 +220,7 @@ def main(previous):
             assert project_state['active_jobs']==1 and project_state['active_events']==1 and project_state['weight']==1
             assert json.loads(cli('audit:verify'))['valid']; cli('queue:work','10'); assert json.loads(cli('queue:verify'))['valid']; assert json.loads(cli('queue:capacity'))['active_jobs']==0; assert json.loads(cli('db:verify'))['status']=='ok'
             with server():
-                assert call('GET','/ready')[0]['version']=='1.0.9'
+                assert call('GET','/ready')[0]['version']=='1.1.0'
                 assert call('GET','/api/v1/auth/me',headers=auth)[0]['user']['email']=='upgrade@example.test'
                 assert call('GET',f'/api/v1/logs/{eid}?project_id={pid}',headers=bearer)[0]['data']['message']=='previous release proof'
                 assert call('GET',f'/api/v1/ingest/jobs/{jid}',headers=bearer)[0]['status']=='completed'
@@ -338,6 +352,7 @@ def main(previous):
                 assert call('GET',f'/api/v1/ingest/jobs/{jid}',headers=bearer)[0]['status']=='completed'
                 assert len(call('GET',f'/api/v1/logs?project_id={pid}',headers=bearer)[0]['items'])==2
             assert sql(f'SELECT count(*) FROM "{schema}".log_events')=='2', 'Rollback modified upgraded live database'
+            if old_version=='1.0.9': assert_integrations(rollback_target)
             print(f'PASS actual {old_version} rollback: old PHP runtime + pre-upgrade PostgreSQL dump + API + queued job',flush=True)
             # Verify the dedicated restore database before the exclusivity gate.
             # Every psql query connected to the target starts a short-lived libpq
@@ -384,6 +399,9 @@ def main(previous):
             assert result['status']=='restored' and result['integrity_verified']
             assert sql(f'SELECT count(*) FROM "{schema}".log_events',target)=='1'
             assert sql(f'SELECT count(*) FROM "{schema}".api_tokens WHERE revoked_at IS NULL',target)=='0'
+            if old_version=='1.0.9':
+                assert_integrations(target)
+                assert sql(f'SELECT count(*) FROM "{schema}".auth_sessions',target)=='0'
             assert sql(f'SELECT count(*) FROM "{schema}".log_events')=='2'
             if old_version in ('0.4.8','0.4.10','0.5.0','0.5.1','0.5.2','0.5.3','0.5.4','0.5.5','0.5.6','0.5.7','0.5.8','0.5.9','0.5.10','0.6.0','0.6.1','0.6.2','0.6.3','0.6.4','0.6.5','0.6.6'):
                 preview=json.loads(cli('retention:preview','10',pid)); assert preview['candidates']==0

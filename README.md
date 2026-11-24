@@ -1,6 +1,7 @@
-## CajeerLogs 1.0.9 — Automatic Update Management
+## CajeerLogs 1.1.0 — Integrated Production Release
 
-Operator-owned scheduled release checks, verified downloads and optional native stable installations with a UTC maintenance window, explicit pre-provisioned database pool, durable recovery fence and notifications in the System panel. Disabled by default. See [Automatic Update Management](docs/Automatic-Update-Management-1.0.9.md).
+ChatGPT investigations, SkiF4er ID sign-in/linking, and verified scheduled GitHub updates share the local session, RBAC, audit and backup lifecycle. Run `php bin/cajeer operations:integrations` to validate integration configuration; add `--live` for opt-in synthetic OpenAI, OIDC discovery and GitHub connectivity checks. See [production release acceptance](docs/Production-Stable-GA-1.1.0.md) and [automatic updates](docs/Automatic-Update-Management-1.0.9.md). GA publication requires the signed release pipeline; source patches are not certified distributions.
+
 
 ## CajeerLogs 1.0.8 — AI Incident Intelligence
 

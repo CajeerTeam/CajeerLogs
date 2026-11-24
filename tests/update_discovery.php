@@ -57,14 +57,14 @@ try {
     check(strlen($long['release']['changelog'])<17000 && str_contains($long['release']['changelog'],'truncated'),'UTF-8 release changelog bounded');
     // The shipped CLI still supports trusted metadata without needing PostgreSQL.
     $fixture=$cache.'/trusted-release.json';
-    file_put_contents($fixture,json_encode(['name'=>'CajeerLogs','version'=>'1.1.0-rc.10'],JSON_THROW_ON_ERROR));
+    file_put_contents($fixture,json_encode(['name'=>'CajeerLogs','version'=>'1.1.1-rc.10'],JSON_THROW_ON_ERROR));
     $proc=proc_open([PHP_BINARY,dirname(__DIR__).'/bin/cajeer','update:check',$fixture],
         [0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes,dirname(__DIR__));
     if (!is_resource($proc)) throw new RuntimeException('Could not launch update checker CLI.');
     fclose($pipes[0]);$out=stream_get_contents($pipes[1]);$err=stream_get_contents($pipes[2]);
     fclose($pipes[1]);fclose($pipes[2]);$exit=proc_close($proc);
     $result=json_decode($out,true,16,JSON_THROW_ON_ERROR);
-    check($exit===0 && $err==='' && $result['candidate']==='1.1.0-rc.10'
+    check($exit===0 && $err==='' && $result['candidate']==='1.1.1-rc.10'
         && $result['source']==='local_release_metadata' && $result['update_available']===true,
         'real CLI trusted-metadata mode compares SemVer without DB');
     // Exposed API is under identity authentication, not a public update proxy.

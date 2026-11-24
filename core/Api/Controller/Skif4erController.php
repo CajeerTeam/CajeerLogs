@@ -24,22 +24,33 @@ final class Skif4erController
             [$method,$path]=explode(' ',$route,2);
             $router->add($method,$prefix.$path,static function(Request $r) use($app,$action): Response {
                 $enabled=$app->config()->get('skif4er.enabled')===true;
-                if ($action==='status') return new JsonResponse(['enabled'=>$enabled&&$r->secureTransport&&str_starts_with($app->config()->get('app.url'),'https://')],200,['Cache-Control'=>'no-store']);
+                if ($action==='status') {
+                    $ready=false;
+                    if ($enabled&&$r->secureTransport) {
+                        try { self::configuredClient($app); $ready=true; } catch (\Throwable) {}
+                    }
+                    return new JsonResponse(['enabled'=>$ready],200,['Cache-Control'=>'no-store']);
+                }
                 if (!$enabled && !in_array($action,['account','unlink','revoke'],true)) throw new HttpException(404,'not_found','SkiF4er ID is disabled.');
                 if (!$r->secureTransport) throw new HttpException(403,'https_required','HTTPS is required.');
                 if (in_array($action,['account','link','linkFinish','unlink','revoke'],true) && Identity::credentials($r)['kind']!=='session') Identity::forbidden();
-                try { return (new self($app))->$action($r); }
+                try { return (new self($app,in_array($action,['start','callback','link'],true)))->$action($r); }
                 catch (HttpException $e) { throw $e; }
                 catch (DatabaseException|\PDOException $e) { throw new HttpException(503,'database_unavailable','Identity storage unavailable.'); }
                 catch (\Throwable $e) { throw new HttpException(503,'external_auth_unavailable','SkiF4er ID authentication unavailable.'); }
             });
         }
     }
-    private function __construct(Application $app) {
+    public static function configuredClient(Application $app): Skif4erOidc {
+        $cfg=$app->config(); $url=rtrim($cfg->get('app.url'),'/'); $parts=parse_url($url);
+        if (!$parts||($parts['scheme']??null)!=='https'||!isset($parts['host'])||isset($parts['user'])||isset($parts['pass'])||isset($parts['query'])||isset($parts['fragment'])||($parts['path']??'')!=='') throw new \InvalidArgumentException('SkiF4er ID requires a bare HTTPS APP_URL.');
+        return new Skif4erOidc($cfg->get('skif4er.client_id'),$cfg->get('skif4er.client_secret'),$url.$cfg->get('api.prefix').'/auth/skif4er/callback');
+    }
+    private function __construct(Application $app,bool $needsProvider) {
         $cfg=$app->config(); $url=rtrim($cfg->get('app.url'),'/'); $parts=parse_url($url);
         if (!$parts||($parts['scheme']??null)!=='https'||!isset($parts['host'])||isset($parts['user'])||isset($parts['pass'])||isset($parts['query'])||isset($parts['fragment'])||($parts['path']??'')!=='') throw new \InvalidArgumentException('SkiF4er ID requires a bare HTTPS APP_URL.');
         $this->enabled=$cfg->get('skif4er.enabled')===true;
-        if ($this->enabled) $this->oidc=new Skif4erOidc($cfg->get('skif4er.client_id'),$cfg->get('skif4er.client_secret'),$url.$cfg->get('api.prefix').'/auth/skif4er/callback');
+        if ($needsProvider) $this->oidc=self::configuredClient($app);
         $this->pdo=$app->container()->get(PDO::class); $this->guard=$app->container()->get(MigrationRunner::class)->guard();
         $this->origin=$url; $this->identity=Identity::fromConfig($this->pdo,true,$url,$cfg);
     }

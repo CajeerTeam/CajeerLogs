@@ -1,7 +1,7 @@
-import { admin, render, active } from '../app/store.js?v=1.0.9';
-import { h, button, card, badge, heading, table, copy, message, empty, modal, clearModal, notify } from '../components/ui.js?v=1.0.9';
-import { redactionButton } from './projects.js?v=1.0.9';
-import { request, ready } from '../api/client.js?v=1.0.9';
+import { admin, render, active } from '../app/store.js?v=1.1.0';
+import { h, button, card, badge, heading, table, copy, message, empty, modal, clearModal, notify } from '../components/ui.js?v=1.1.0';
+import { redactionButton } from './projects.js?v=1.1.0';
+import { request, ready } from '../api/client.js?v=1.1.0';
 
 // Each endpoint is independent: a failed report must not hide successful liveness/readiness.
 async function system(signal, epoch) {
@@ -57,6 +57,7 @@ async function system(signal, epoch) {
                     h('a',{href:release.url,target:'_blank',rel:'noopener noreferrer',referrerpolicy:'no-referrer'},'Открыть релиз на GitHub'),
                     verified?h('div',{class:'stack'},
                         h('p',{},'Проверенный ZIP: '+verified.file+' · SHA-256: '+verified.sha256),
+                        verified.certification_sha256?h('p',{},'GA-сертификат · SHA-256: '+verified.certification_sha256):h('p',{class:'muted small'},'GA-сертификат отсутствует'),
                         h('a',{href:'/api/v1/system/updates/artifact/'+encodeURIComponent(verified.version)},'Скачать проверенный ZIP')):
                         h('p',{class:'muted small'},'Для безопасной загрузки запустите на сервере: php bin/cajeer update:download. После проверки ZIP появится здесь.'),
                     h('details',{},h('summary',{},'Changelog · '+release.tag),

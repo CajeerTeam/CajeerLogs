@@ -1,9 +1,9 @@
-import {state,active,hasPermission,levels} from '../app/store.js?v=1.0.9';
-import {h,card,field,input,select,button,heading,needProject,message} from '../components/ui.js?v=1.0.9';
-import {projectSelector} from '../app/projects.js?v=1.0.9';
-import {get,request} from '../api/client.js?v=1.0.9';
+import {state,active,hasPermission,levels} from '../app/store.js?v=1.1.0';
+import {h,card,field,input,select,button,heading,needProject,message} from '../components/ui.js?v=1.1.0';
+import {projectSelector} from '../app/projects.js?v=1.1.0';
+import {get,request} from '../api/client.js?v=1.1.0';
 
-import {detail} from '../components/event-inspector.js?v=1.0.9';
+import {detail} from '../components/event-inspector.js?v=1.1.0';
 
 const encoder=new TextEncoder();
 function clipped(text,limit){let result='';let bytes=0;for(const ch of text){const n=encoder.encode(ch).length;if(bytes+n>limit)break;result+=ch;bytes+=n;}return result;}

@@ -10,6 +10,8 @@ final class VerifiedReleaseDownloader
     public const REPOSITORY = 'CajeerTeam/CajeerLogs';
     private const WORKFLOW = self::REPOSITORY.'/.github/workflows/runtime.yml';
     private const MAX_ZIP = 41943040;
+    private const CERTIFICATE = 'database-certification.json';
+    private const MAX_CERTIFICATE = 25000000;
     private const MAX_UNPACKED = 104857600;
     private readonly ?\Closure $runner;
     private readonly ?\Closure $databaseVersion;
@@ -103,19 +105,21 @@ final class VerifiedReleaseDownloader
         if (($release['prerelease']??null)!== $isPre) throw new \RuntimeException('Release channel is inconsistent with signed tag.');
         $name=self::artifactName($version);$assets=$release['assets']??null;
         if (!is_array($assets) || !array_is_list($assets)) throw new \RuntimeException('GitHub release assets are missing.');
+        $expected=[$name,$name.'.sha256'];
+        if (!$isPre) $expected[]=self::CERTIFICATE;
         $matched=[];
         foreach ($assets as $asset) {
             if (!is_array($asset)||!is_string($asset['name']??null)) continue;
-            if (in_array($asset['name'],[$name,$name.'.sha256'],true)) {
+            if (in_array($asset['name'],$expected,true)) {
                 if (isset($matched[$asset['name']])) throw new \RuntimeException('Duplicate release asset name.');
                 $matched[$asset['name']]=$asset;
             }
         }
-        if (count($matched)!==2) throw new \RuntimeException('Published ZIP and its SHA-256 sidecar are required.');
+        if (count($matched)!==count($expected)) throw new \RuntimeException('Published ZIP, SHA-256 and stable GA certificate are required.');
         foreach ($matched as $asset) {
             if (($asset['state']??null)!=='uploaded' || !is_int($asset['size']??null) || $asset['size']<1) throw new \RuntimeException('Release asset is not uploaded.');
         }
-        if ($matched[$name]['size']>self::MAX_ZIP || $matched[$name.'.sha256']['size']>256) throw new \RuntimeException('Release asset exceeds allowed size.');
+        if ($matched[$name]['size']>self::MAX_ZIP || $matched[$name.'.sha256']['size']>256 || (isset($matched[self::CERTIFICATE]) && $matched[self::CERTIFICATE]['size']>self::MAX_CERTIFICATE)) throw new \RuntimeException('Release asset exceeds allowed size.');
         $ref=$this->api('git/ref/tags/'.$tag);
         $object=$ref['object']??null;
         if (($ref['ref']??null)!=='refs/tags/'.$tag || !is_array($object) || ($object['type']??null)!=='commit'
@@ -144,6 +148,41 @@ final class VerifiedReleaseDownloader
             throw new \RuntimeException('GitHub asset digest does not match downloaded bytes.');
         }
         return $actual;
+    }
+
+    /** Stable releases require both signed build provenance and final GA evidence.
+     * A signature on a build candidate alone cannot authorize installation. */
+    public static function validateCertificate(array $report,string $version,string $digest): void
+    {
+        if (($report['format']??null)!==1||($report['status']??null)!=='passed'||($report['scope']??null)!=='database-release-and-production-smoke'||($report['version']??null)!==$version||($report['archive_sha256']??null)!==$digest) throw new \RuntimeException('GA certificate does not match the release ZIP.');
+        $passed=false;
+        foreach (is_array($report['stages']??null)?$report['stages']:[] as $stage) {
+            if (is_array($stage)&&($stage['name']??null)==='production-and-throughput-certification'&&($stage['status']??null)==='passed'&&($stage['exit_code']??null)===0) $passed=true;
+        }
+        $performance=$report['performance_report']??null;
+        if (!$passed||!is_array($performance)||($performance['status']??null)!=='passed'||($performance['certified']??null)!==true||($performance['archive_sha256']??null)!==$digest) throw new \RuntimeException('Live performance certification is missing or failed.');
+        $matrix=[];
+        foreach (is_array($report['database_reports']??null)?$report['database_reports']:[] as $entry) {
+            if (!is_array($entry)||($entry['status']??null)!=='passed'||($entry['archive_sha256']??null)!==$digest||!is_string($entry['php_series']??null)||!is_string($entry['postgres_major']??null)) throw new \RuntimeException('GA database certification is invalid.');
+            $matrix[]=$entry['php_series'].'/'.$entry['postgres_major'];
+        }
+        sort($matrix,SORT_STRING);
+        if ($matrix!==['8.4/17','8.4/18','8.5/17','8.5/18']) throw new \RuntimeException('GA database certification matrix is incomplete.');
+    }
+
+    private function verifyCertificate(string $directory,array $asset,string $version,string $digest,string $commit): string
+    {
+        $file=$directory.'/'.self::CERTIFICATE;
+        if (self::safeFile($file,self::MAX_CERTIFICATE)!==$asset['size']) throw new \RuntimeException('GA certificate size mismatch.');
+        $hash=hash_file('sha256',$file);
+        if (!is_string($hash)|| (isset($asset['digest'])&&$asset['digest']!=='sha256:'.$hash)) throw new \RuntimeException('GA certificate checksum mismatch.');
+        $signed=$this->command(['attestation','verify',$file,'--repo',self::REPOSITORY,'--source-ref','refs/tags/v'.$version,'--source-digest',$commit,'--signer-workflow',self::WORKFLOW,'--deny-self-hosted-runners','--predicate-type','https://slsa.dev/provenance/v1','--format','json']);
+        $proof=json_decode($signed,true,32,JSON_THROW_ON_ERROR);
+        if (!is_array($proof)||!array_is_list($proof)||$proof===[]) throw new \RuntimeException('No signed final GA certification.');
+        $report=json_decode((string)file_get_contents($file),true,64,JSON_THROW_ON_ERROR);
+        if (!is_array($report)) throw new \RuntimeException('Invalid GA certification.');
+        self::validateCertificate($report,$version,$digest);
+        return $hash;
     }
 
     private static function validatePath(string $path): void
@@ -249,6 +288,12 @@ final class VerifiedReleaseDownloader
             ||!is_int($data['bytes']??null)) return null;
         try {$size=self::safeFile($file,self::MAX_ZIP);}catch (\RuntimeException) {return null;}
         if ($data['bytes']!==$size) return null;
+        if (SemVer::parse($version)[1]===[]) {
+            $certificate=$directory.'/'.self::CERTIFICATE;
+            if (!is_string($data['certification_sha256']??null)||!preg_match('/^[a-f0-9]{64}$/D',$data['certification_sha256'])) return null;
+            try {self::safeFile($certificate,self::MAX_CERTIFICATE);} catch (\RuntimeException) {return null;}
+            if (hash_file('sha256',$certificate)!==$data['certification_sha256']) return null;
+        }
         $actual=hash_file('sha256',$file);
         return is_string($actual)&&hash_equals($actual,$data['sha256'])?$data:null;
     }
@@ -285,6 +330,7 @@ final class VerifiedReleaseDownloader
             '--predicate-type','https://slsa.dev/provenance/v1','--format','json']);
         $attestations=json_decode($result,true,32,JSON_THROW_ON_ERROR);
         if (!is_array($attestations)||!array_is_list($attestations)||count($attestations)===0) throw new \RuntimeException('No signed provenance on revalidation.');
+        if (isset($assets[self::CERTIFICATE]) && $this->verifyCertificate(dirname($file),$assets[self::CERTIFICATE],$version,$digest,$commit)!==$proof['certification_sha256']) throw new \RuntimeException('GA certificate changed.');
         return array_replace($proof,['reverified_at'=>gmdate('Y-m-d\TH:i:s\Z'),'compatibility'=>$this->inspectZip($file,$version)]);
     }
 
@@ -305,9 +351,9 @@ final class VerifiedReleaseDownloader
             $stage=$root.'/.download-'.bin2hex(random_bytes(12));
             if (!mkdir($stage,0700)) throw new \RuntimeException('Cannot create private download staging area.');
             try {
-                foreach ([$name,$name.'.sha256'] as $asset) {
+                foreach (array_keys($assets) as $asset) {
                     $this->command(['release','download','v'.$version,'--repo',self::REPOSITORY,'--dir',$stage,'--pattern',$asset]);
-                    if (self::safeFile($stage.'/'.$asset,$asset===$name?self::MAX_ZIP:256)!==$assets[$asset]['size']) throw new \RuntimeException('Published asset size mismatch.');
+                    if (self::safeFile($stage.'/'.$asset,$asset===$name?self::MAX_ZIP:($asset===self::CERTIFICATE?self::MAX_CERTIFICATE:256))!==$assets[$asset]['size']) throw new \RuntimeException('Published asset size mismatch.');
                 }
                 $digest=self::checksum($stage.'/'.$name,$stage.'/'.$name.'.sha256',$name,$assets[$name]['digest']??null);
                 $verified=$this->command(['attestation','verify',$stage.'/'.$name,'--repo',self::REPOSITORY,
@@ -316,14 +362,16 @@ final class VerifiedReleaseDownloader
                     '--predicate-type','https://slsa.dev/provenance/v1','--format','json']);
                 try {$statements=json_decode($verified,true,32,JSON_THROW_ON_ERROR);} catch (\JsonException) {throw new \RuntimeException('Authenticated provenance result is invalid.');}
                 if (!is_array($statements)||!array_is_list($statements)||count($statements)===0) throw new \RuntimeException('No valid signed GitHub build provenance was found.');
+                $certHash=isset($assets[self::CERTIFICATE])?$this->verifyCertificate($stage,$assets[self::CERTIFICATE],$version,$digest,$commit):null;
                 $compat=$this->inspectZip($stage.'/'.$name,$version);
                 $proof=['status'=>'verified','version'=>$version,'tag'=>'v'.$version,'repository'=>self::REPOSITORY,
                     'file'=>$name,'sha256'=>$digest,'source_commit'=>$commit,'signer_workflow'=>self::WORKFLOW,
                     'verified_at'=>gmdate('Y-m-d\TH:i:s\Z'),'bytes'=>filesize($stage.'/'.$name),
                     'compatibility'=>$compat,'provenance'=>'github_oidc_sigstore','cached'=>false];
+                if ($certHash!==null) $proof['certification_sha256']=$certHash;
                 if (file_put_contents($stage.'/verified.json',json_encode($proof,JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR)."\n",LOCK_EX)===false) throw new \RuntimeException('Unable to save verification record.');
                 @chmod($stage.'/verified.json',0600);
-                foreach ([$name,$name.'.sha256'] as $asset) @chmod($stage.'/'.$asset,0600);
+                foreach (array_keys($assets) as $asset) @chmod($stage.'/'.$asset,0600);
                 if (!@rename($stage,$root.'/v'.$version)) throw new \RuntimeException('Cannot commit verified archive.');
                 return $proof;
             } finally {self::removeStage($stage);}

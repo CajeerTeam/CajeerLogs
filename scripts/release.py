@@ -311,6 +311,8 @@ REQUIRED.update({'core/AI/Assistant.php','core/AI/OpenAIClient.php','core/Api/Co
 REQUIRED.update({'scripts/integration_stability.py', 'tests/integration_stability.py',
                  'docs/Integration-Test-Stabilization-0.8.1.md'})
 
+REQUIRED.update({'core/Operations/IntegrationAcceptance.php','tests/integration_acceptance.php','tests/integrated_database.php','docs/Production-Stable-GA-1.1.0.md'})
+
 def build(root, output):
     files = source_files(root)
     meta = manifest(files)
